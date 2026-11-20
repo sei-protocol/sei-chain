@@ -1,14 +1,14 @@
-// Package undo is a Pebble state store that keeps FlatKV's recent history as a bucketed undo log.
+// Package undo is a Pebble state store that keeps recent history as a bucketed undo log.
 //
-// Keys and values are FlatKV's own: when block h writes a FlatKV account, code or storage row, the store
-// records the row's bytes before h, under
+// Keys and values are stored as the block's mutations carry them: when block h writes a key, the store
+// records the value the key held before h, under
 //
-//	bucket(h) | len(key) | key | h        with bucket(h) = h / bucketSize and key the row's physical key
+//	bucket(h) | len(key) | key | h        with bucket(h) = h / bucketSize
 //
-// and nothing else: the row after the latest block lives in FlatKV, which this store reads through a
-// LiveStateView. The row after block T is the first record above T, or the current row when there is
-// none. Buckets are contiguous key ranges, so dropping history is one Excise per expired bucket rather
-// than a scan and a tombstone per version.
+// and nothing else: the value after the latest block lives in the live state store, which this store
+// reads through a LiveStateView. The value after block T is the first record above T, or the current
+// value when there is none. Buckets are contiguous key ranges, so dropping history is one Excise per
+// expired bucket rather than a scan and a tombstone per version.
 package undo
 
 import (
@@ -81,16 +81,16 @@ var (
 	bucketSizeKey      = metadataKey("bucket_size")
 )
 
-// LiveStateView is a read-only view of FlatKV at one committed block. It remains unchanged as the store
-// advances.
+// LiveStateView is a read-only view of the live state store at one committed block. It remains unchanged
+// as the store advances.
 type LiveStateView interface {
-	// GetRaw returns the FlatKV row stored under a physical key, and whether one is.
+	// GetRaw returns the value stored under key, in the form the block's mutations carry, and whether one is.
 	GetRaw(key []byte) (value []byte, found bool)
 	Close()
 }
 
-// Database is an undo-log state store. Blocks arrive in height order, each with the FlatKV mutations it
-// made and a view of FlatKV after it.
+// Database is an undo-log state store. Blocks arrive in height order, each with the mutations it made
+// and a view of current state after it.
 type Database struct {
 	storage    *pebble.DB
 	bucketSize uint64
@@ -345,8 +345,8 @@ func (db *Database) resume(version int64) (uint64, error) {
 	return height, nil
 }
 
-// ApplyBlock queues the FlatKV mutations of block version, whose previous values the store records, and
-// takes ownership of the post-block current view. mutations are read in the background, so they must not
+// ApplyBlock queues the mutations of block version, whose previous values the store records, and takes
+// ownership of the post-block current view. mutations are read in the background, so they must not
 // change afterwards; nil means the block changed nothing. It panics before a successful Resume or after
 // Close.
 func (db *Database) ApplyBlock(version int64, mutations []mutation.Mutation, current LiveStateView) {
@@ -410,10 +410,9 @@ func (db *Database) applyBlock(version int64, mutations []mutation.Mutation, cur
 // rewrites when it is applied again.
 func (db *Database) writeBlock(version int64, mutations []mutation.Mutation) (height uint64, err error) {
 	start := time.Now()
-	records := recordCount(mutations)
 	defer func() {
 		otelMetrics.applyLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
-		otelMetrics.applyRecords.Record(context.Background(), int64(records))
+		otelMetrics.applyRecords.Record(context.Background(), int64(len(mutations)))
 	}()
 	if height, err = heightOf(version); err != nil {
 		return 0, err
@@ -423,7 +422,7 @@ func (db *Database) writeBlock(version int64, mutations []mutation.Mutation) (he
 	if latest := db.latestHeight.Load(); height != latest+1 {
 		return 0, fmt.Errorf("undo: block %d does not follow the latest applied block %d", height, latest)
 	}
-	if err := db.writeRecords(mutations, records, height/db.bucketSize, height); err != nil {
+	if err := db.writeRecords(mutations, height/db.bucketSize, height); err != nil {
 		return 0, err
 	}
 	if err := writeMarker(db.storage, latestVersionKey, height, pebble.NoSync); err != nil {
@@ -432,33 +431,20 @@ func (db *Database) writeBlock(version int64, mutations []mutation.Mutation) (he
 	return height, nil
 }
 
-// recordCount returns how many records mutations write: one per mutation of a recorded row.
-func recordCount(mutations []mutation.Mutation) int {
-	count := 0
-	for i := range mutations {
-		if isRecordedKey(mutations[i].Key) {
-			count++
-		}
-	}
-	return count
-}
-
-// writeRecords writes a record of the row before the block at height of every recorded row mutations
-// write, absent for a row that did not exist; records is how many that is, as recordCount reports.
-func (db *Database) writeRecords(mutations []mutation.Mutation, records int, bucket, height uint64) error {
-	if records == 0 {
+// writeRecords writes a record of the value before the block at height of every key mutations write,
+// absent for a key that held none.
+func (db *Database) writeRecords(mutations []mutation.Mutation, bucket, height uint64) error {
+	if len(mutations) == 0 {
 		return nil
 	}
 	w := &recordWriter{
 		db:     db,
 		bucket: bucket,
 		height: height,
-		size:   max(minBatchRecords, (records+writeParallelism-1)/writeParallelism),
+		size:   max(minBatchRecords, (len(mutations)+writeParallelism-1)/writeParallelism),
 	}
 	for i := range mutations {
-		if isRecordedKey(mutations[i].Key) {
-			w.add(mutations[i].Key, mutations[i].PreviousValue)
-		}
+		w.add(mutations[i].Key, mutations[i].PreviousValue)
 	}
 	return w.finish()
 }
@@ -627,12 +613,9 @@ func (v *View) Close() {
 	})
 }
 
-// GetRaw returns the FlatKV row stored under a physical key at the view's height, and whether one was.
-// A key whose history the store does not keep, and a read after the database is closed, return an error.
+// GetRaw returns the value stored under key at the view's height, and whether there was one. A read after
+// the database is closed returns an error.
 func (v *View) GetRaw(key []byte) (_ []byte, _ bool, err error) {
-	if !isRecordedKey(key) {
-		return nil, false, fmt.Errorf("undo: the store keeps no history of key %x", key)
-	}
 	v.db.lifecycleMu.RLock()
 	defer v.db.lifecycleMu.RUnlock()
 	if v.db.closed {
@@ -649,7 +632,7 @@ func (v *View) GetRaw(key []byte) (_ []byte, _ bool, err error) {
 	h := v.db.acquireHead()
 	defer h.release()
 	if v.height == h.height {
-		value, found := headRow(h, key)
+		value, found := headValue(h, key)
 		return value, found, nil
 	}
 
@@ -685,12 +668,12 @@ func (v *View) GetRaw(key []byte) (_ []byte, _ bool, err error) {
 		}
 		return decodeValue(itr.Value())
 	}
-	value, found := headRow(h, key)
+	value, found := headValue(h, key)
 	return value, found, nil
 }
 
-// headRow returns a copy of the row h's view holds under key, since the view may close once h is released.
-func headRow(h *head, key []byte) ([]byte, bool) {
+// headValue returns a copy of the value h's view holds under key, since the view may close once h is released.
+func headValue(h *head, key []byte) ([]byte, bool) {
 	value, found := h.view.GetRaw(key)
 	if !found {
 		return nil, false
@@ -988,7 +971,7 @@ func (db *Database) Close() error {
 	return db.storage.Close()
 }
 
-// decodeValue returns a copy of the row a record holds, and whether the row existed.
+// decodeValue returns a copy of the value a record holds, and whether the key held one.
 func decodeValue(v []byte) ([]byte, bool, error) {
 	if len(v) == 0 {
 		return nil, false, errors.New("undo: empty record value")

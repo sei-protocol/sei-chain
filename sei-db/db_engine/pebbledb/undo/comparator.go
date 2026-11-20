@@ -1,16 +1,12 @@
 package undo
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"slices"
 
 	"github.com/cockroachdb/pebble/v2"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
 
 const (
@@ -22,36 +18,16 @@ const (
 	metadataBucket = math.MaxUint64
 )
 
-var (
-	// The physical key prefixes of the FlatKV rows the store records: "evm/" and the row's kind byte.
-	accountRowPrefix = ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, nil)
-	codeRowPrefix    = ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, nil)
-	storageRowPrefix = ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, nil)
-)
-
 // Comparer orders bucket | key length | key | height byte-wise. The key length makes a record's prefix
 // self-delimiting, so byte order agrees with ordering by prefix and then by height.
 var Comparer = func() *pebble.Comparer {
 	c := *pebble.DefaultComparer
-	c.Name = "ss_undolog_flatkv_comparator_v1"
+	c.Name = "ss_undolog_comparator_v3"
 	c.Split = splitKey
 	// The store only uses point keys, not range keys or NextPrefix.
 	c.ImmediateSuccessor = nil
 	return &c
 }()
-
-// isRecordedKey reports whether key is the physical key of a FlatKV account, code or storage row, the
-// rows the store keeps the history of.
-func isRecordedKey(key []byte) bool {
-	switch {
-	case bytes.HasPrefix(key, accountRowPrefix), bytes.HasPrefix(key, codeRowPrefix):
-		return len(key) == len(accountRowPrefix)+keys.AddressLen
-	case bytes.HasPrefix(key, storageRowPrefix):
-		return len(key) == len(storageRowPrefix)+keys.AddressLen+ktype.SlotLen
-	default:
-		return false
-	}
-}
 
 // splitKey returns the prefix length excluding a record's height.
 func splitKey(k []byte) int {
@@ -72,7 +48,7 @@ func recordKeyLen(key []byte) int {
 // encodeRecordKey writes bucket | len(key) | key | height into dst.
 func encodeRecordKey(dst []byte, bucket uint64, key []byte, height uint64) {
 	binary.BigEndian.PutUint64(dst, bucket)
-	binary.BigEndian.PutUint32(dst[bucketLen:], uint32(len(key))) //nolint:gosec // recorded keys are a few dozen bytes
+	binary.BigEndian.PutUint32(dst[bucketLen:], uint32(len(key))) //nolint:gosec // state keys are far below 4 GiB
 	n := bucketLen + keyLenLen + copy(dst[bucketLen+keyLenLen:], key)
 	binary.BigEndian.PutUint64(dst[n:], height)
 }

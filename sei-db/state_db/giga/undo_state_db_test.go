@@ -375,6 +375,23 @@ func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
 	}
 }
 
+// A past height serves only the EVM module.
+func TestUndoStateDBServesNoHistoryOutsideTheEVMModule(t *testing.T) {
+	db := newUndoTestHome(t).open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{1}}},
+	}))
+	require.NoError(t, db.CommitStateChanges(2, nonceChanges(common.Address{2}, 0, 1)))
+	db.UndoSS().WaitForPendingWrites()
+
+	view, ok := db.OpenViewAt(1)
+	require.True(t, ok)
+	defer view.Close()
+	require.Zero(t, view.GetNonce(common.Address{2}))
+	require.Panics(t, func() { view.Get("cursor", []byte("head")) })
+}
+
 // Seeding an empty SC to a later height, as InitChain does for a chain that starts above block 1, leaves
 // the undo log to resume on the seeded height at the first block.
 func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {

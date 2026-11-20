@@ -12,12 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sampleKeys returns physical keys of every length class the store meets: FlatKV account, code and storage
-// rows, and short keys that are prefixes of one another.
+// sampleKeys returns keys of varying lengths, including empty keys and keys that are prefixes of one another.
 func sampleKeys() [][]byte {
 	keys := [][]byte{{}, {0x00}, {0xff}, []byte("a"), []byte("ab"), []byte("abc"), []byte("b")}
 	for _, fill := range []byte{0, 0xff} {
-		for _, key := range rowKeys(fill) {
+		for _, key := range keysOfEveryLength(fill) {
 			keys = append(keys, []byte(key))
 		}
 	}

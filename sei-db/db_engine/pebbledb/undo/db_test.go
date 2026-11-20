@@ -17,10 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
 
 var (
@@ -36,41 +34,40 @@ func account(n uint64) common.Address {
 	return common.BytesToAddress(binary.BigEndian.AppendUint64(nil, n))
 }
 
-// accountKey returns the physical key of addr's FlatKV account row.
+// The store does not interpret keys or values, so tests name keys after what they could hold and use any
+// bytes as values.
+
+// accountKey returns a key holding addr's account.
 func accountKey(addr common.Address) string {
-	return string(ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:]))
+	return "acct/" + string(addr[:])
 }
 
-// codeKey returns the physical key of addr's FlatKV code row.
+// codeKey returns a key holding addr's code.
 func codeKey(addr common.Address) string {
-	return string(ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:]))
+	return "code/" + string(addr[:])
 }
 
-// storageKey returns the physical key of the FlatKV row of storage slot slot of addr.
+// storageKey returns a key holding storage slot slot of addr.
 func storageKey(addr common.Address, slot uint64) string {
-	return string(ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, append(addr.Bytes(), word(slot)...)))
+	return "slot/" + string(addr[:]) + string(word(slot))
 }
 
-var (
-	// evmMiscKey is the physical key of a FlatKV misc row of the EVM module.
-	evmMiscKey = string(ktype.BuildPhysicalKey(keys.EVMStoreKey, []byte{0x16, 0x01, 0x02}))
-	// bankKey is the physical key of a FlatKV row of a module other than the EVM's.
-	bankKey = string(ktype.BuildPhysicalKey("bank", []byte("balances/alice")))
-)
+// miscKey is a key outside every account.
+const miscKey = "bank/balances/alice"
 
-// word returns n as a 32-byte big-endian word. The store does not decode rows, so tests use it as one.
+// word returns n as a 32-byte big-endian word.
 func word(n uint64) []byte {
 	w := make([]byte, 32)
 	binary.BigEndian.PutUint64(w[24:], n)
 	return w
 }
 
-// nonce returns n as 8 big-endian bytes. The store does not decode rows, so tests use it as one.
+// nonce returns n as 8 big-endian bytes.
 func nonce(n uint64) []byte {
 	return binary.BigEndian.AppendUint64(nil, n)
 }
 
-// liveState is FlatKV's view of the latest block: each row's current bytes.
+// liveState is the live state store's view of the latest block: each key's current value.
 type liveState map[string][]byte
 
 func (s liveState) GetRaw(key []byte) ([]byte, bool) {
@@ -80,8 +77,8 @@ func (s liveState) GetRaw(key []byte) ([]byte, bool) {
 
 func (liveState) Close() {}
 
-// priorsOf returns the mutations of a block that replaced, for each key of prior, the row prior holds for
-// it, nil for none. The log records only what a block replaced, so the rows after the block are left out.
+// priorsOf returns the mutations of a block that replaced, for each key of prior, the value prior holds for
+// it, nil for none. The log records only what a block replaced, so the values after the block are left out.
 func priorsOf(prior map[string][]byte) []mutation.Mutation {
 	mutations := make([]mutation.Mutation, 0, len(prior))
 	for key, old := range prior {
@@ -218,7 +215,7 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 	return v, ok
 }
 
-// apply commits one block setting (or, for a nil value, deleting) each row, and feeds its previous rows
+// apply commits one block setting (or, for a nil value, deleting) each key, and feeds its previous values
 // to the store.
 func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Lock()
@@ -244,7 +241,7 @@ func (c *chain) apply(changes map[string][]byte, async bool) {
 	require.NoError(c.t, c.db.applyBlock(version, priorsOf(prior), c.view(next)))
 }
 
-// read returns key's row after block height through a view of the store, nil when there was none.
+// read returns key's value after block height through a view of the store, nil when there was none.
 func read(t testing.TB, db *Database, height int64, key string) []byte {
 	t.Helper()
 	view, ok := db.OpenView(height)
@@ -744,7 +741,7 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 				c.apply(map[string][]byte{slot: word(h)}, false)
 			}
 			changes := priorsOf(map[string][]byte{slot: word(0xbad)})
-			require.NoError(t, c.db.writeRecords(changes, recordCount(changes), 1, 10))
+			require.NoError(t, c.db.writeRecords(changes, 1, 10))
 			require.NoError(t, c.db.Close())
 
 			//nolint:gosec // small test heights
@@ -1141,40 +1138,38 @@ func TestLargeBlocksLandWhole(t *testing.T) {
 	require.Equal(t, slots, atTwo)
 }
 
-// Only account, code and storage rows are recorded: a block's other FlatKV rows leave no record.
-func TestOnlyAccountCodeAndStorageRowsAreRecorded(t *testing.T) {
+// Every key a block writes is recorded.
+func TestEveryMutationIsRecorded(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10)
 	defer func() { require.NoError(t, db.Close()) }()
 	mutations := priorsOf(map[string][]byte{
 		accountKey(alice):       word(1),
 		codeKey(contract):       {0x60, 0x00},
 		storageKey(contract, 1): word(3),
-		evmMiscKey:              {0x01},
-		bankKey:                 {0x02},
+		miscKey:                 {0x02},
 	})
 	height, err := db.writeBlock(1, mutations)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), height)
-	require.Equal(t, 3, recordCount(mutations))
-	require.Len(t, records(t, db), 3)
+	require.Len(t, records(t, db), 4)
 	db.latestHeight.Store(height)
 
 	// An empty block must still advance the committed height.
 	height, err = db.writeBlock(2, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), height)
-	require.Len(t, records(t, db), 3)
+	require.Len(t, records(t, db), 4)
 	latest, err := readMarker(db.storage, latestVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
 }
 
-func TestRowsReadAcrossFlushCompactionAndReopen(t *testing.T) {
+func TestKeysReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	dir := t.TempDir()
 	c := newChain(t, dir, 2, 0)
 	initial, updated, deleted := map[string][]byte{}, map[string][]byte{}, map[string][]byte{}
 	for _, fill := range []byte{0, 0xff} {
-		for i, key := range rowKeys(fill) {
+		for i, key := range keysOfEveryLength(fill) {
 			initial[key] = []byte{1}
 			updated[key] = bytes.Repeat([]byte{2}, 1+i*2048)
 			deleted[key] = nil
@@ -1200,11 +1195,11 @@ func TestRowsReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	require.NoError(t, c.db.Resume(3, c.view(c.states[3])))
 	verify()
 
-	// Query absent rows in populated SSTables, exercising prefix Bloom filters.
+	// Query absent keys in populated SSTables, exercising prefix Bloom filters.
 	v, ok := c.db.OpenView(0)
 	require.True(t, ok)
 	defer v.Close()
-	for _, key := range rowKeys(2) {
+	for _, key := range keysOfEveryLength(2) {
 		value, found, err := v.GetRaw([]byte(key))
 		require.NoError(t, err)
 		require.False(t, found)
@@ -1212,36 +1207,14 @@ func TestRowsReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	}
 }
 
-// rowKeys returns the physical keys of an account, a code and a storage row whose address and slot bytes
-// are all fill.
-func rowKeys(fill byte) []string {
-	addr := bytes.Repeat([]byte{fill}, keys.AddressLen)
+// keysOfEveryLength returns keys whose variable bytes are all fill: short keys that are prefixes of one
+// another, and keys as long as an address, and as an address and a slot.
+func keysOfEveryLength(fill byte) []string {
 	return []string{
-		string(ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr)),
-		string(ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr)),
-		string(ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, bytes.Repeat([]byte{fill}, keys.AddressLen+ktype.SlotLen))),
-	}
-}
-
-func TestReadsRejectKeysWithoutHistory(t *testing.T) {
-	c := newChain(t, t.TempDir(), 2, 0)
-	defer func() { require.NoError(t, c.db.Close()) }()
-	c.apply(nil, false)
-	for _, height := range []int64{0, 1} {
-		v, ok := c.db.OpenView(height)
-		require.True(t, ok)
-		for _, key := range [][]byte{
-			nil,
-			[]byte(keys.EVMStoreKey + "/"),
-			accountRowPrefix,
-			[]byte(accountKey(alice))[:len(accountKey(alice))-1],
-			[]byte(evmMiscKey),
-			[]byte(bankKey),
-		} {
-			_, _, err := v.GetRaw(key)
-			require.ErrorContains(t, err, "keeps no history")
-		}
-		v.Close()
+		string([]byte{fill}),
+		string([]byte{fill, fill}),
+		"acct/" + string(bytes.Repeat([]byte{fill}, 20)),
+		"slot/" + string(bytes.Repeat([]byte{fill}, 52)),
 	}
 }
 
