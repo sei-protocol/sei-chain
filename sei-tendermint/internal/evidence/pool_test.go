@@ -542,6 +542,8 @@ func TestAddEvidenceRejectsWrongABCIFields(t *testing.T) {
 
 	err = pool.AddEvidence(ctx, copied)
 	utilsrequire.Error(t, err)
+	// the error is not ErrInvalidEvidence, so the reactor keeps the sender connected.
+	// An honest peer on a different software version can send wrong ABCI fields.
 	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
 	utilsrequire.False(t, isInvalidEvidence)
 
