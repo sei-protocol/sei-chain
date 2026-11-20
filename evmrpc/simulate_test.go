@@ -1460,7 +1460,7 @@ func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
 	// invoking the ante handler, so this is the correct interception point.
 	var capturedTxBytes []byte
 	minApp := bam.NewBaseApp("test", dbm.NewMemDB(), TxConfig.TxDecoder(), nil, &cosmostestutil.TestAppOpts{})
-	minApp.SetAnteHandler(func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	minApp.SetAnteHandler(func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		capturedTxBytes = ctx.TxBytes()
 		return ctx, fmt.Errorf("stop") // short-circuit; we only need ante
 	})

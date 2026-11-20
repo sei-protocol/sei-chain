@@ -7,9 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"github.com/gogo/protobuf/jsonpb"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
@@ -166,15 +163,6 @@ func GetTxEncoder(cdc *codec.LegacyAmino) (encoder sdk.TxEncoder) {
 	}
 
 	return encoder
-}
-
-func ParseQueryResponse(bz []byte) (sdk.SimulationResponse, error) {
-	var simRes sdk.SimulationResponse
-	if err := jsonpb.Unmarshal(strings.NewReader(string(bz)), &simRes); err != nil {
-		return sdk.SimulationResponse{}, err
-	}
-
-	return simRes, nil
 }
 
 func isTxSigner(user sdk.AccAddress, signers []sdk.AccAddress) bool {

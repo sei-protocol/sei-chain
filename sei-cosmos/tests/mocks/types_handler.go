@@ -37,15 +37,15 @@ func (m *MockAnteDecorator) EXPECT() *MockAnteDecoratorMockRecorder {
 }
 
 // AnteHandle mocks base method.
-func (m *MockAnteDecorator) AnteHandle(ctx types.Context, tx types.Tx, simulate bool, next types.AnteHandler) (types.Context, error) {
+func (m *MockAnteDecorator) AnteHandle(ctx types.Context, tx types.Tx, next types.AnteHandler) (types.Context, error) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AnteHandle", ctx, tx, simulate, next)
+	m.ctrl.Call(m, "AnteHandle", ctx, tx, next)
 	// NOTE: we need to edit a generated code to call the "next handler"
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 // AnteHandle indicates an expected call of AnteHandle.
-func (mr *MockAnteDecoratorMockRecorder) AnteHandle(ctx, tx, simulate, next interface{}) *gomock.Call {
+func (mr *MockAnteDecoratorMockRecorder) AnteHandle(ctx, tx, next interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AnteHandle", reflect.TypeOf((*MockAnteDecorator)(nil).AnteHandle), ctx, tx, simulate, next)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AnteHandle", reflect.TypeOf((*MockAnteDecorator)(nil).AnteHandle), ctx, tx, next)
 }

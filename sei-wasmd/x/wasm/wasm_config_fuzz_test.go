@@ -7,7 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
-	"github.com/spf13/cast"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,55 +63,25 @@ func TestLruSizeKeyIsInert(t *testing.T) {
 	}
 }
 
-// FuzzWasmSimulationGasLimit pins the one [wasm] read with a string-shaped guard.
-//
-// The field is a pointer, and it is populated only when the raw value is a non-empty
-// *string* — a TOML integer leaves it nil, so the same number written unquoted and
-// quoted resolve differently. nil means "no simulation limit", so the quoting of the
-// value decides whether a bound exists at all.
-func FuzzWasmSimulationGasLimit(f *testing.F) {
-	f.Add(fuzzing.KindString, "500000", int64(0), false) // a string: adopted
-	f.Add(fuzzing.KindInt64, "", int64(500000), false)   // a TOML integer: leaves it nil
-	f.Add(fuzzing.KindString, "", int64(0), false)       // an empty string: leaves it nil
+// FuzzWasmSimulationGasLimitIsInert records that simulation_gas_limit, which a hand-edited
+// app.toml may still carry, is read by nothing. A value of any shape reads cleanly and
+// leaves the config at its defaults, including a string that does not convert to a number,
+// which used to fail the read and so the node's start.
+func FuzzWasmSimulationGasLimitIsInert(f *testing.F) {
+	f.Add(fuzzing.KindString, "500000", int64(0), false)
+	f.Add(fuzzing.KindInt64, "", int64(500000), false)
+	f.Add(fuzzing.KindString, "", int64(0), false)
 	f.Add(fuzzing.KindString, "not-a-number", int64(0), false)
 	f.Add(fuzzing.KindNil, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		value := fuzzing.ConfigValue(kind, s, n, b)
 		cfg, err := wasm.ReadWasmConfig(configtest.AppOpts{"wasm.simulation_gas_limit": value})
-
-		raw, isString := value.(string)
-		if !isString || raw == "" {
-			if err != nil {
-				t.Fatalf("a non-string or empty simulation_gas_limit must be ignored, got %v", err)
-			}
-			if cfg.SimulationGasLimit != nil {
-				t.Fatalf("simulation_gas_limit = %#v is not a non-empty string and must leave the "+
-					"limit unset, got %d", value, *cfg.SimulationGasLimit)
-			}
-			return
-		}
-
-		// A non-empty string is converted, and an unconvertible one is an error rather
-		// than a silently absent limit. The expectation is restated against cast rather
-		// than accepting any error, because accepting any error would let a reader that
-		// rejected every string value pass while the limit check below never ran.
-		want, castErr := cast.ToUint64E(raw)
-		if castErr != nil {
-			if err == nil {
-				t.Fatalf("simulation_gas_limit = %q does not convert to a uint64 (%v), so the read "+
-					"must error rather than leaving the limit unset", raw, castErr)
-			}
-			return
-		}
 		if err != nil {
-			t.Fatalf("simulation_gas_limit = %q converts cleanly and must be accepted, got %v", raw, err)
+			t.Fatalf("simulation_gas_limit = %#v must be ignored, got %v", value, err)
 		}
-		if cfg.SimulationGasLimit == nil {
-			t.Fatalf("simulation_gas_limit = %q converted cleanly but left the limit unset", raw)
-		}
-		if *cfg.SimulationGasLimit != want {
-			t.Fatalf("simulation_gas_limit = %q resolved to %d, want %d", raw, *cfg.SimulationGasLimit, want)
+		if cfg != types.DefaultWasmConfig() {
+			t.Fatalf("simulation_gas_limit = %#v changed the wasm config to %+v", value, cfg)
 		}
 	})
 }

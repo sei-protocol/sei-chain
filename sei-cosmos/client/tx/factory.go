@@ -4,15 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
 
 	"github.com/spf13/pflag"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
@@ -20,24 +17,23 @@ import (
 // Factory defines a client transaction factory that facilitates generating and
 // signing an application-specific transaction.
 type Factory struct {
-	keybase            keyring.Keyring
-	txConfig           client.TxConfig
-	accountRetriever   client.AccountRetriever
-	accountNumber      uint64
-	sequence           uint64
-	gas                uint64
-	timeoutHeight      uint64
-	gasAdjustment      float64
-	chainID            string
-	memo               string
-	fees               sdk.Coins
-	gasPrices          sdk.DecCoins
-	signMode           signing.SignMode
-	simulateAndExecute bool
+	keybase          keyring.Keyring
+	txConfig         client.TxConfig
+	accountRetriever client.AccountRetriever
+	accountNumber    uint64
+	sequence         uint64
+	gas              uint64
+	timeoutHeight    uint64
+	chainID          string
+	memo             string
+	fees             sdk.Coins
+	gasPrices        sdk.DecCoins
+	signMode         signing.SignMode
 }
 
-// NewFactoryCLI creates a new Factory.
-func NewFactoryCLI(clientCtx client.Context, flagSet *pflag.FlagSet) Factory {
+// NewFactoryCLI creates a new Factory from the tx flags in flagSet. It returns an
+// error if --gas is not an integer.
+func NewFactoryCLI(clientCtx client.Context, flagSet *pflag.FlagSet) (Factory, error) {
 	signModeStr := clientCtx.SignModeStr
 
 	signMode := signing.SignMode_SIGN_MODE_UNSPECIFIED
@@ -52,26 +48,26 @@ func NewFactoryCLI(clientCtx client.Context, flagSet *pflag.FlagSet) Factory {
 
 	accNum, _ := flagSet.GetUint64(flags.FlagAccountNumber)
 	accSeq, _ := flagSet.GetUint64(flags.FlagSequence)
-	gasAdj, _ := flagSet.GetFloat64(flags.FlagGasAdjustment)
 	memo, _ := flagSet.GetString(flags.FlagNote)
 	timeoutHeight, _ := flagSet.GetUint64(flags.FlagTimeoutHeight)
 
 	gasStr, _ := flagSet.GetString(flags.FlagGas)
-	gasSetting, _ := flags.ParseGasSetting(gasStr)
+	gas, err := flags.ParseGasSetting(gasStr)
+	if err != nil {
+		return Factory{}, err
+	}
 
 	f := Factory{
-		txConfig:           clientCtx.TxConfig,
-		accountRetriever:   clientCtx.AccountRetriever,
-		keybase:            clientCtx.Keyring,
-		chainID:            clientCtx.ChainID,
-		gas:                gasSetting.Gas,
-		simulateAndExecute: gasSetting.Simulate,
-		accountNumber:      accNum,
-		sequence:           accSeq,
-		timeoutHeight:      timeoutHeight,
-		gasAdjustment:      gasAdj,
-		memo:               memo,
-		signMode:           signMode,
+		txConfig:         clientCtx.TxConfig,
+		accountRetriever: clientCtx.AccountRetriever,
+		keybase:          clientCtx.Keyring,
+		chainID:          clientCtx.ChainID,
+		gas:              gas,
+		accountNumber:    accNum,
+		sequence:         accSeq,
+		timeoutHeight:    timeoutHeight,
+		memo:             memo,
+		signMode:         signMode,
 	}
 
 	feesStr, _ := flagSet.GetString(flags.FlagFees)
@@ -80,13 +76,12 @@ func NewFactoryCLI(clientCtx client.Context, flagSet *pflag.FlagSet) Factory {
 	gasPricesStr, _ := flagSet.GetString(flags.FlagGasPrices)
 	f = f.WithGasPrices(gasPricesStr)
 
-	return f
+	return f, nil
 }
 
 func (f Factory) AccountNumber() uint64                     { return f.accountNumber }
 func (f Factory) Sequence() uint64                          { return f.sequence }
 func (f Factory) Gas() uint64                               { return f.gas }
-func (f Factory) GasAdjustment() float64                    { return f.gasAdjustment }
 func (f Factory) Keybase() keyring.Keyring                  { return f.keybase }
 func (f Factory) ChainID() string                           { return f.chainID }
 func (f Factory) Memo() string                              { return f.memo }
@@ -94,10 +89,6 @@ func (f Factory) Fees() sdk.Coins                           { return f.fees }
 func (f Factory) GasPrices() sdk.DecCoins                   { return f.gasPrices }
 func (f Factory) AccountRetriever() client.AccountRetriever { return f.accountRetriever }
 func (f Factory) TimeoutHeight() uint64                     { return f.timeoutHeight }
-
-// SimulateAndExecute returns the option to simulate and then execute the transaction
-// using the gas from the simulation results
-func (f Factory) SimulateAndExecute() bool { return f.simulateAndExecute }
 
 // WithTxConfig returns a copy of the Factory with an updated TxConfig.
 func (f Factory) WithTxConfig(g client.TxConfig) Factory {
@@ -169,19 +160,6 @@ func (f Factory) WithAccountNumber(accnum uint64) Factory {
 	return f
 }
 
-// WithGasAdjustment returns a copy of the Factory with an updated gas adjustment.
-func (f Factory) WithGasAdjustment(gasAdj float64) Factory {
-	f.gasAdjustment = gasAdj
-	return f
-}
-
-// WithSimulateAndExecute returns a copy of the Factory with an updated gas
-// simulation value.
-func (f Factory) WithSimulateAndExecute(sim bool) Factory {
-	f.simulateAndExecute = sim
-	return f
-}
-
 // SignMode returns the sign mode configured in the Factory
 func (f Factory) SignMode() signing.SignMode {
 	return f.signMode
@@ -243,24 +221,8 @@ func (f Factory) BuildUnsignedTx(msgs ...sdk.Msg) (client.TxBuilder, error) {
 }
 
 // PrintUnsignedTx will generate an unsigned transaction and print it to the writer
-// specified by ctx.Output. If simulation was requested, the gas will be
-// simulated and also printed to the same writer before the transaction is
-// printed.
+// specified by ctx.Output.
 func (f Factory) PrintUnsignedTx(clientCtx client.Context, msgs ...sdk.Msg) error {
-	if f.SimulateAndExecute() {
-		if clientCtx.Offline {
-			return errors.New("cannot estimate gas in offline mode")
-		}
-
-		_, adjusted, err := CalculateGas(clientCtx, f, msgs...)
-		if err != nil {
-			return err
-		}
-
-		f = f.WithGas(adjusted)
-		_, _ = fmt.Fprintf(os.Stderr, "%s\n", GasEstimateResponse{GasEstimate: f.Gas()})
-	}
-
 	unsignedTx, err := f.BuildUnsignedTx(msgs...)
 	if err != nil {
 		return err
@@ -272,61 +234,6 @@ func (f Factory) PrintUnsignedTx(clientCtx client.Context, msgs ...sdk.Msg) erro
 	}
 
 	return clientCtx.PrintString(fmt.Sprintf("%s\n", json))
-}
-
-// BuildSimTx creates an unsigned tx with an empty single signature and returns
-// the encoded transaction or an error if the unsigned transaction cannot be
-// built.
-func (f Factory) BuildSimTx(msgs ...sdk.Msg) ([]byte, error) {
-	txb, err := f.BuildUnsignedTx(msgs...)
-	if err != nil {
-		return nil, err
-	}
-
-	pk, err := f.getSimPK()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create an empty signature literal as the ante handler will populate with a
-	// sentinel pubkey.
-	sig := signing.SignatureV2{
-		PubKey: pk,
-		Data: &signing.SingleSignatureData{
-			SignMode: f.signMode,
-		},
-		Sequence: f.Sequence(),
-	}
-	if err := txb.SetSignatures(sig); err != nil {
-		return nil, err
-	}
-
-	return f.txConfig.TxEncoder()(txb.GetTx())
-}
-
-// getSimPK gets the public key to use for building a simulation tx.
-// Note, we should only check for keys in the keybase if we are in simulate and execute mode,
-// e.g. when using --gas=auto.
-// When using --dry-run, we are is simulation mode only and should not check the keybase.
-// Ref: https://github.com/cosmos/cosmos-sdk/issues/11283
-func (f Factory) getSimPK() (cryptotypes.PubKey, error) {
-	var (
-		pk cryptotypes.PubKey = &secp256k1.PubKey{} // use default public key type
-	)
-
-	// Use the first element from the list of keys in order to generate a valid
-	// pubkey that supports multiple algorithms.
-	if f.simulateAndExecute && f.keybase != nil {
-		records, _ := f.keybase.List()
-		if len(records) == 0 {
-			return nil, errors.New("cannot build signature for simulation, key records slice is empty")
-		}
-
-		// take the first record just for simulation purposes
-		pk = records[0].GetPubKey()
-	}
-
-	return pk, nil
 }
 
 // Prepare ensures the account defined by ctx.GetFromAddress() exists and

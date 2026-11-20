@@ -90,8 +90,7 @@ var (
 	// ErrorInvalidSigner defines an error when the tx intended signer does not match the given signer.
 	ErrorInvalidSigner = Register(RootCodespace, 24, "tx intended signer does not match the given signer")
 
-	// ErrorInvalidGasAdjustment defines an error for an invalid gas adjustment
-	ErrorInvalidGasAdjustment = Register(RootCodespace, 25, "invalid gas adjustment")
+	// Code 25 is retired and must not be reused.
 
 	// ErrInvalidHeight defines an error for an invalid height
 	ErrInvalidHeight = Register(RootCodespace, 26, "invalid height")

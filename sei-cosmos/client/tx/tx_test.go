@@ -1,13 +1,10 @@
 package tx_test
 
 import (
-	gocontext "context"
-	"fmt"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
@@ -15,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	signingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -24,101 +20,6 @@ import (
 func NewTestTxConfig() client.TxConfig {
 	cfg := app.MakeEncodingConfig()
 	return cfg.TxConfig
-}
-
-// mockContext is a mock client.Context to return abitrary simulation response, used to
-// unit test CalculateGas.
-type mockContext struct {
-	gasUsed uint64
-	wantErr bool
-}
-
-func (m mockContext) Invoke(grpcCtx gocontext.Context, method string, req, reply interface{}, opts ...grpc.CallOption) (err error) {
-	if m.wantErr {
-		return fmt.Errorf("mock err")
-	}
-
-	*(reply.(*txtypes.SimulateResponse)) = txtypes.SimulateResponse{
-		GasInfo: &sdk.GasInfo{GasUsed: m.gasUsed, GasWanted: m.gasUsed},
-		Result:  &sdk.Result{Data: []byte("tx data"), Log: "log"},
-	}
-
-	return nil
-}
-
-func (mockContext) NewStream(gocontext.Context, *grpc.StreamDesc, string, ...grpc.CallOption) (grpc.ClientStream, error) {
-	panic("not implemented")
-}
-
-func TestCalculateGas(t *testing.T) {
-	type args struct {
-		mockGasUsed uint64
-		mockWantErr bool
-		adjustment  float64
-	}
-
-	testCases := []struct {
-		name         string
-		args         args
-		wantEstimate uint64
-		wantAdjusted uint64
-		expPass      bool
-	}{
-		{"error", args{0, true, 1.2}, 0, 0, false},
-		{"adjusted gas", args{10, false, 1.2}, 10, 12, true},
-	}
-
-	for _, tc := range testCases {
-		stc := tc
-		txCfg := NewTestTxConfig()
-
-		txf := tx.Factory{}.
-			WithChainID("test-chain").
-			WithTxConfig(txCfg).WithSignMode(txCfg.SignModeHandler().DefaultMode())
-
-		t.Run(stc.name, func(t *testing.T) {
-			mockClientCtx := mockContext{
-				gasUsed: tc.args.mockGasUsed,
-				wantErr: tc.args.mockWantErr,
-			}
-			simRes, gotAdjusted, err := tx.CalculateGas(mockClientCtx, txf.WithGasAdjustment(stc.args.adjustment))
-			if stc.expPass {
-				require.NoError(t, err)
-				require.Equal(t, simRes.GasInfo.GasUsed, stc.wantEstimate)
-				require.Equal(t, gotAdjusted, stc.wantAdjusted)
-				require.NotNil(t, simRes.Result)
-			} else {
-				require.Error(t, err)
-				require.Nil(t, simRes)
-			}
-		})
-	}
-}
-
-func TestBuildSimTx(t *testing.T) {
-	txCfg := NewTestTxConfig()
-
-	kb, err := keyring.New(t.Name(), "test", t.TempDir(), nil)
-	require.NoError(t, err)
-
-	path := hd.CreateHDPath(118, 0, 0).String()
-	_, _, err = kb.NewMnemonic("test_key1", keyring.English, path, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
-	require.NoError(t, err)
-
-	txf := tx.Factory{}.
-		WithTxConfig(txCfg).
-		WithAccountNumber(50).
-		WithSequence(23).
-		WithFees("50usei").
-		WithMemo("memo").
-		WithChainID("test-chain").
-		WithSignMode(txCfg.SignModeHandler().DefaultMode()).
-		WithKeybase(kb)
-
-	msg := banktypes.NewMsgSend(sdk.AccAddress("from"), sdk.AccAddress("to"), nil)
-	bz, err := tx.BuildSimTx(txf, msg)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
 }
 
 func TestBuildUnsignedTx(t *testing.T) {

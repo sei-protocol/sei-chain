@@ -286,77 +286,18 @@ func TestCreateDuplicate(t *testing.T) {
 	require.Equal(t, hackatomWasm, storedCode)
 }
 
-func TestCreateWithSimulation(t *testing.T) {
-	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
-
-	ctx = ctx.WithBlockHeader(tmproto.Header{Height: 1}).
-		WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-
-	deposit := sdk.NewCoins(sdk.NewInt64Coin("denom", 100000))
-	creator := keepers.Faucet.NewFundedAccount(ctx, deposit...)
-
-	// create this once in simulation mode
-	contractID, err := keepers.ContractKeeper.Create(ctx, creator, hackatomWasm, nil)
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), contractID)
-
-	// then try to create it in non-simulation mode (should not fail)
-	ctx, keepers = CreateTestInput(t, false, SupportedFeatures)
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 10_000_000))
-	creator = keepers.Faucet.NewFundedAccount(ctx, deposit...)
-	contractID, err = keepers.ContractKeeper.Create(ctx, creator, hackatomWasm, nil)
-
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), contractID)
-
-	// and verify content
-	code, err := keepers.WasmKeeper.GetByteCode(ctx, contractID)
-	require.NoError(t, err)
-	require.Equal(t, code, hackatomWasm)
-}
-
-func TestIsSimulationMode(t *testing.T) {
-	specs := map[string]struct {
-		ctx sdk.Context
-		exp bool
-	}{
-		"genesis block": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
-			exp: false,
-		},
-		"any regular block": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(sdk.NewGasMeter(10000000, 1, 1)),
-			exp: false,
-		},
-		"simulation": {
-			ctx: sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1}).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)),
-			exp: true,
-		},
-	}
-	for msg := range specs {
-		t.Run(msg, func(t *testing.T) {
-			// assert.Equal(t, spec.exp, isSimulationMode(spec.ctx))
-		})
-	}
-}
-
 // TestGetWasmerEngineSelection verifies that getWasmer returns the engine
 // matching the execution-mode flag set on the context.
 func TestGetWasmerEngineSelection(t *testing.T) {
 	regular := &wasmtesting.MockWasmer{}
-	simulation := &wasmtesting.MockWasmer{}
 	rpc := &wasmtesting.MockWasmer{}
 	k := Keeper{
-		wasmVM:           regular,
-		simulationWasmVM: simulation,
-		rpcWasmVM:        rpc,
+		wasmVM:    regular,
+		rpcWasmVM: rpc,
 	}
 
 	regularCtx := sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1, ChainID: "test"})
 	require.Same(t, regular, k.getWasmer(regularCtx))
-
-	simCtx := regularCtx.WithIsSimulation(true)
-	require.Same(t, simulation, k.getWasmer(simCtx))
 
 	traceCtx := regularCtx.WithIsTracing(true)
 	require.Same(t, rpc, k.getWasmer(traceCtx))

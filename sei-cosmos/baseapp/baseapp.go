@@ -36,17 +36,15 @@ import (
 )
 
 const (
-	runTxModeCheck    runTxMode = iota // Check a transaction
-	runTxModeReCheck                   // Recheck a (pending) transaction after a commit
-	runTxModeSimulate                  // Simulate a transaction
-	runTxModeDeliver                   // Deliver a transaction
+	runTxModeCheck   runTxMode = iota // Check a transaction
+	runTxModeReCheck                  // Recheck a (pending) transaction after a commit
+	runTxModeDeliver                  // Deliver a transaction
 )
 
 var modeKeyToString = map[runTxMode]string{
-	runTxModeCheck:    "check",
-	runTxModeReCheck:  "recheck",
-	runTxModeSimulate: "simulate",
-	runTxModeDeliver:  "deliver",
+	runTxModeCheck:   "check",
+	runTxModeReCheck: "recheck",
+	runTxModeDeliver: "deliver",
 }
 
 const (
@@ -201,8 +199,6 @@ type appStore struct {
 
 	// an inter-block write-through cache provided to the context during deliverState
 	interBlockCache sdk.MultiStorePersistentCache
-
-	fauxMerkleMode bool // if true, IAVL MountStores uses MountStoresDB for simulation speed.
 }
 
 type moduleRouter struct {
@@ -276,10 +272,9 @@ func NewBaseApp(
 	app := &BaseApp{
 		name: name,
 		appStore: appStore{
-			db:             db,
-			cms:            cms,
-			storeLoader:    DefaultStoreLoader,
-			fauxMerkleMode: false,
+			db:          db,
+			cms:         cms,
+			storeLoader: DefaultStoreLoader,
 		},
 		moduleRouter: moduleRouter{
 			router:             NewRouter(),
@@ -375,19 +370,13 @@ func (app *BaseApp) Trace() bool {
 // MsgServiceRouter returns the MsgServiceRouter of a BaseApp.
 func (app *BaseApp) MsgServiceRouter() *MsgServiceRouter { return app.msgServiceRouter }
 
-// MountStores mounts all IAVL or DB stores to the provided keys in the BaseApp
-// multistore.
+// MountStores mounts an IAVL store for each KV store key and a transient store for
+// each transient store key in the BaseApp multistore.
 func (app *BaseApp) MountStores(keys ...sdk.StoreKey) {
 	for _, key := range keys {
 		switch key.(type) {
 		case *sdk.KVStoreKey:
-			if !app.fauxMerkleMode {
-				app.MountStore(key, sdk.StoreTypeIAVL)
-			} else {
-				// StoreTypeDB doesn't do anything upon commit, and it doesn't
-				// retain history, but it's useful for faster simulation.
-				app.MountStore(key, sdk.StoreTypeDB)
-			}
+			app.MountStore(key, sdk.StoreTypeIAVL)
 
 		case *sdk.TransientStoreKey:
 			app.MountStore(key, sdk.StoreTypeTransient)
@@ -398,17 +387,11 @@ func (app *BaseApp) MountStores(keys ...sdk.StoreKey) {
 	}
 }
 
-// MountKVStores mounts all IAVL or DB stores to the provided keys in the
+// MountKVStores mounts an IAVL store for each of the provided keys in the
 // BaseApp multistore.
 func (app *BaseApp) MountKVStores(keys map[string]*sdk.KVStoreKey) {
 	for _, key := range keys {
-		if !app.fauxMerkleMode {
-			app.MountStore(key, sdk.StoreTypeIAVL)
-		} else {
-			// StoreTypeDB doesn't do anything upon commit, and it doesn't
-			// retain history, but it's useful for faster simulation.
-			app.MountStore(key, sdk.StoreTypeDB)
-		}
+		app.MountStore(key, sdk.StoreTypeIAVL)
 	}
 }
 
@@ -812,10 +795,6 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 		ctx = ctx.WithIsReCheckTx(true)
 	}
 
-	if mode == runTxModeSimulate {
-		ctx, _ = ctx.CacheContext()
-	}
-
 	return ctx
 }
 
@@ -878,9 +857,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	if mode == runTxModeSimulate {
-		ctx = ctx.WithIsSimulation(true)
-	}
 	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
 	runTxRes.ctx = ctx
 
@@ -934,7 +910,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		// performance benefits, but it'll be more difficult to get right.
 		anteCtx, msCache = app.CacheTxContext(ctx, checksum)
 		anteCtx = anteCtx.WithEventManager(sdk.NewEventManager())
-		newCtx, err := app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
+		newCtx, err := app.anteHandler(anteCtx, tx)
 
 		if !newCtx.IsZero() {
 			// At this point, newCtx.MultiStore() is a store branch, or something else
@@ -1014,11 +990,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	return runTxRes, err
 }
 
-// RunMsgs iterates through a list of messages and executes them with the provided
-// Context and execution mode. Messages will only be executed during simulation
-// and DeliverTx. An error is returned if any single message fails or if a
-// Handler does not exist for a given message route. Otherwise, a reference to a
-// Result is returned. The caller must not commit state if an error is returned.
+// RunMsgs executes msgs in order on ctx. It returns an error if any message fails
+// or has no registered handler, and otherwise a Result carrying the events, data
+// and logs of every message. The caller must not commit state if an error is returned.
 func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error) {
 	runMsgsStart := time.Now()
 	defer func() {
@@ -1048,12 +1022,6 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 			eventMsgName string // name to use as value in event `message.action`
 			err          error
 		)
-
-		if ctx.IsSimulation() {
-			if err := ctx.Context().Err(); err != nil {
-				return nil, err
-			}
-		}
 
 		msgCtx, msgMsCache := app.CacheTxContext(ctx, [32]byte{})
 		msgCtx = msgCtx.WithMessageIndex(i)
