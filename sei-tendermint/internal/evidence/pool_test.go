@@ -2,6 +2,7 @@ package evidence_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 
@@ -509,6 +511,85 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	require.Equal(t, goodEvidence, next.Value())
 }
 
+func TestAddEvidenceRejectsWrongABCIFields(t *testing.T) {
+	const height int64 = 10
+	ctx := t.Context()
+
+	pool, val, _ := defaultTestPool(ctx, t, height)
+
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+	utilsrequire.NoError(t, err)
+	utilsrequire.NoError(t, pool.AddEvidence(ctx, ev))
+
+	state := pool.State()
+	state.LastBlockHeight++
+	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
+	pool.Update(ctx, state, types.EvidenceList{ev})
+	pendingEvs, _ := pool.PendingEvidence(defaultEvidenceMaxBytes)
+	utilsrequire.Empty(t, pendingEvs)
+	utilsrequire.Zero(t, pool.Size())
+
+	copied := copyDuplicateVoteEvidence(ev)
+	copied.Timestamp = copied.Timestamp.Add(time.Nanosecond)
+	utilsrequire.NotEqual(t, ev.Hash(), copied.Hash())
+
+	err = pool.AddEvidence(ctx, copied)
+	utilsrequire.Error(t, err)
+	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
+	utilsrequire.False(t, isInvalidEvidence)
+
+	pendingEvs, _ = pool.PendingEvidence(defaultEvidenceMaxBytes)
+	utilsrequire.Empty(t, pendingEvs)
+	utilsrequire.Zero(t, pool.Size())
+
+	err = pool.CheckEvidence(ctx, types.EvidenceList{ev})
+	_, isInvalidEvidence = errors.AsType[*types.ErrInvalidEvidence](err)
+	utilsrequire.True(t, isInvalidEvidence)
+}
+
+func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
+	const height int64 = 10
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+
+	testCases := []struct {
+		name  string
+		wrong func(t *testing.T, pendingEv *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence
+	}{
+		{"new evidence with wrong total voting power", func(t *testing.T, _ *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence {
+			ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(t.Context(), height, blockTime, val, evidenceChainID)
+			utilsrequire.NoError(t, err)
+			ev.TotalVotingPower++
+			return ev
+		}},
+		{"copy of pending evidence with wrong validator power", func(_ *testing.T, pendingEv *types.DuplicateVoteEvidence, _ types.MockPV) *types.DuplicateVoteEvidence {
+			ev := copyDuplicateVoteEvidence(pendingEv)
+			ev.ValidatorPower++
+			return ev
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			pool, val, _ := defaultTestPool(ctx, t, height)
+			pendingEv, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+			utilsrequire.NoError(t, err)
+			utilsrequire.NoError(t, pool.AddEvidence(ctx, pendingEv))
+
+			utilsrequire.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{tc.wrong(t, pendingEv, val)}))
+
+			pendingEvs, _ := pool.PendingEvidence(defaultEvidenceMaxBytes)
+			utilsrequire.Equal(t, []types.Evidence{pendingEv}, pendingEvs)
+			utilsrequire.Equal(t, uint32(1), pool.Size())
+		})
+	}
+}
+
+func copyDuplicateVoteEvidence(ev *types.DuplicateVoteEvidence) *types.DuplicateVoteEvidence {
+	copied := *ev
+	return &copied
+}
+
 func initializeStateFromValidatorSet(t *testing.T, valSet *types.ValidatorSet, height int64) sm.Store {
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
@@ -543,7 +624,7 @@ func initializeStateFromValidatorSet(t *testing.T, valSet *types.ValidatorSet, h
 	return stateStore
 }
 
-func initializeValidatorState(ctx context.Context, t *testing.T, privVal types.PrivValidator, height int64) sm.Store {
+func initializeValidatorState(ctx context.Context, t *testing.T, privVal types.MockPV, height int64) sm.Store {
 	pubKey, _ := privVal.GetPubKey(ctx)
 	validator := &types.Validator{Address: pubKey.Address(), VotingPower: 10, PubKey: pubKey}
 
