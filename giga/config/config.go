@@ -59,8 +59,8 @@ type StorageConfig struct {
 // ExecutionConfig is the [giga.execution] sub-table: how the EVM-only executor runs blocks.
 type ExecutionConfig struct {
 	// MinGasPrice is the lowest effective gas price, in wei, this node admits a transaction at.
-	// It only filters local admission; block validity uses the chain-wide floor, and values
-	// below it are raised to it.
+	// It only filters local admission, which also requires the block's base fee; the base fee is set
+	// no lower than the chain's KeyMinFeePerGas param, so a lower value admits nothing more.
 	MinGasPrice uint64 `mapstructure:"min_gas_price"`
 	// OCCWorkers is the number of parallel execution workers; 0 uses GOMAXPROCS.
 	OCCWorkers int `mapstructure:"occ_workers"`
@@ -633,8 +633,8 @@ checkpoint_block_interval = {{ .Giga.Storage.CheckpointBlockInterval }}
 
 [giga.execution]
 # min_gas_price is the lowest effective gas price, in wei, this node admits a transaction at.
-# It only filters local admission; block validity uses the chain-wide floor, and values
-# below it are raised to it.
+# It only filters local admission, which also requires the block's base fee; the base fee is set
+# no lower than the chain's KeyMinFeePerGas param, so a lower value admits nothing more.
 min_gas_price = {{ .Giga.Execution.MinGasPrice }}
 
 # occ_workers is the number of parallel execution workers; 0 uses GOMAXPROCS.

@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -22,11 +23,12 @@ var _ StateReader = gigaSnapshotStateReader{}
 // BlockChangeSetEncoder contributes non-EVM writes that are committed in the
 // same CommitStateChanges call as the block's EVM state changes, so they are
 // durable, rolled back and replayed together with that state. It is called
-// after execution with the block's context and result, which it must treat as
-// immutable. A write to the EVM module fails the commit.
+// after execution with the block's context, the state the block executed
+// against, and the block's result, which it must treat as immutable. A write to
+// the EVM module fails the commit.
 //
 // What it returns must not alias the result, since the commit outlives the block.
-type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error)
+type BlockChangeSetEncoder func(BlockContext, StateReader, *BlockResult) ([]gigatypes.MiscChange, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
@@ -100,7 +102,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	var misc []gigatypes.MiscChange
 	if e.blockChangeSetEncoder != nil {
 		e.blockPhases.SetPhase(phaseEncodeChangesets)
-		misc, err = e.blockChangeSetEncoder(req.Context, result)
+		misc, err = e.blockChangeSetEncoder(req.Context, source, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
 		}
@@ -110,12 +112,13 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
 		e.blockPhases.SetPhase(phaseEncodeReceipts)
-		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, req.Context.BaseFee, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
 		}
 		e.blockPhases.SetPhase(phaseWriteReceipts)
-		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+		receiptCtx := receiptdb.WithBlockBaseFee(newReceiptContext(ctx, blockNumber), req.Context.BaseFee)
+		if err := receiptStore.SetReceipts(receiptCtx, records); err != nil {
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 		}
 	}

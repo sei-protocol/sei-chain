@@ -40,21 +40,6 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
 
-// evmOnlyBaseFee is the base fee this application executes every block at.
-// Admission and block validity both price against it, so they cannot diverge.
-func evmOnlyBaseFee() *big.Int { return new(big.Int) }
-
-// evmOnlyBlockMinGasPrice is the effective gas price, in wei, below which a
-// transaction invalidates the block containing it. Every node must agree on
-// it, so it is not an operator setting.
-const evmOnlyBlockMinGasPrice = 1_000_000_000
-
-// evmOnlyAdmissionMinGasPrice returns the local admission floor for a configured
-// value, never below the block-validity floor.
-func evmOnlyAdmissionMinGasPrice(configured uint64) *big.Int {
-	return new(big.Int).SetUint64(max(configured, evmOnlyBlockMinGasPrice))
-}
-
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
 // checkedSendersCap bounds the senders remembered per generation.
@@ -112,6 +97,7 @@ type evmOnlyApplication struct {
 	chainID     *big.Int
 	chainConfig *params.ChainConfig
 	execution   gigaconfig.ExecutionConfig
+	// minGasPrice is this node's floor on the effective gas price it admits a transaction at.
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
 	// epochRegistry is the epoch registry each executed block advances.
@@ -174,6 +160,12 @@ type evmOnlyCursorState struct {
 	pendingBlockTime uint64
 }
 
+// newEVMOnlyCursorState returns the cursor state of an app that neither InitChain nor a stored
+// cursor has set yet: its committed cursor schedules the genesis base fees.
+func newEVMOnlyCursorState() *evmOnlyCursorState {
+	return &evmOnlyCursorState{committed: evmOnlyCursor{baseFees: genesisBaseFees()}}
+}
+
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
@@ -212,7 +204,7 @@ func NewEVMOnlyApplication(
 		chainID:           new(big.Int).SetUint64(chainID),
 		chainConfig:       &chainConfig,
 		execution:         execution,
-		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
+		minGasPrice:       new(big.Int).SetUint64(execution.MinGasPrice),
 		storage:           storage,
 		epochRegistry:     epochRegistry,
 		validators:        slices.Clone(validators),
@@ -220,7 +212,7 @@ func NewEVMOnlyApplication(
 		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
+		cursor:            utils.NewMutex(newEVMOnlyCursorState()),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:    utils.NewMutex(new(newSenderCache(checkedSendersCap))),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
@@ -267,9 +259,11 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	}
 	return evmonly.NewExecutor(evmonly.Config{
 		ChainConfig:  a.chainConfig,
-		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
 		OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
 		ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
+		// The block's base fee is the only price rule: a transaction whose fee cap is below
+		// it is unappliable, and so recorded as a failed receipt.
+		DisableGasPriceCheck: true,
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
@@ -281,24 +275,31 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 // encodeCursorChangeSet chains the block into the app hash and stages the
 // resulting cursor as pending, returning it as the write committed with
 // the block's state. The epoch registry row is written with it when the block
-// is the initial road or closes an epoch.
+// is the initial road or closes an epoch. The block's base fee update follows
+// the params in execState, the state the block executed against.
 func (a *evmOnlyApplication) encodeCursorChangeSet(
 	block evmonly.BlockContext,
+	execState evmonly.StateReader,
 	result *evmonly.BlockResult,
 ) ([]gigatypes.MiscChange, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
 	}
+	baseFeeRules := evmOnlyBaseFeeRules(execState)
 	for state := range a.cursor.Lock() {
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
+		}
+		baseFee := state.committed.baseFees[1]
+		if block.BaseFee == nil || block.BaseFee.Cmp(baseFee.ToBig()) != 0 {
+			return nil, fmt.Errorf("EVM-only block %d executed at base fee %v, not its scheduled %s", height, block.BaseFee, &baseFee)
 		}
 		epochChanges, err := a.epochRegistry.Changes(atypes.RoadHeight(block.Number))
 		if err != nil {
 			return nil, err
 		}
-		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
+		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, &baseFee, result)
 		if err != nil {
 			return nil, err
 		}
@@ -307,6 +308,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 			appHash:   appHash,
 			blockHash: block.BlockHash,
 			gasLimit:  block.GasLimit,
+			baseFees:  state.committed.nextBaseFees(baseFeeRules, result.GasUsed, block.GasLimit),
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
@@ -339,7 +341,11 @@ func (a *evmOnlyApplication) InitChain(req *proxy.RequestInitChain) (*proxy.Resp
 		}
 		a.installExecutor(executor)
 		for state := range a.cursor.Lock() {
-			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit}
+			state.committed = evmOnlyCursor{
+				height:   req.InitialHeight - 1,
+				gasLimit: gasLimit,
+				baseFees: genesisBaseFees(),
+			}
 		}
 		return &proxy.ResponseInitChain{}, nil
 	}
@@ -391,8 +397,8 @@ func (a *evmOnlyApplication) Info() *proxy.ResponseInfo {
 }
 
 // InitLastHeader seeds the committed block time on the router's restart path.
-// The cursor carries height, hashes and gas limit but not Time, so without this
-// EvmCall would answer with TIMESTAMP 0 until the next Commit.
+// The cursor carries height, hashes, gas limit and base fees but not Time, so
+// without this EvmCall would answer with TIMESTAMP 0 until the next Commit.
 func (a *evmOnlyApplication) InitLastHeader(lastHeader *proxy.Header) {
 	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
 		return
@@ -602,12 +608,13 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	if tx.Type() == ethtypes.BlobTxType {
 		return nil, common.Address{}, fmt.Errorf("unsupported transaction type")
 	}
-	// The predicate block validity uses, not tx.GasPrice(): on a dynamic-fee tx
-	// that is the fee cap, so admitting on it let through transactions the
-	// executor then refused — and an executor refusal is a node panic, not a
-	// failed receipt.
-	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
-		return nil, common.Address{}, fmt.Errorf("insufficient fee: effective gas price is below %s", a.minGasPrice)
+	// The effective price at baseFee, not tx.GasPrice(), which is a dynamic-fee tx's fee cap. It
+	// is below baseFee exactly when the fee cap is, so a transaction no block at the scheduled
+	// heights could execute is refused too.
+	baseFee := a.admissionBaseFee()
+	minGasPrice := a.admissionMinGasPrice(baseFee)
+	if evmonly.EffectiveGasPrice(tx, baseFee).Cmp(minGasPrice) < 0 {
+		return nil, common.Address{}, fmt.Errorf("insufficient fee: effective gas price is below %s", minGasPrice)
 	}
 	if sender, ok := a.checkedSender(tx.Hash()).Get(); ok {
 		return tx, sender, nil
@@ -745,6 +752,24 @@ func (a *evmOnlyApplication) EvmStorageAt(address common.Address, key common.Has
 // EvmMinGasPrice returns the minimum effective gas price this application admits a transaction
 // at. Admission and eth_gasPrice's suggestion both price against it, so they cannot diverge.
 func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
+	return a.admissionMinGasPrice(a.admissionBaseFee())
+}
+
+// admissionBaseFee returns the highest base fee set for the blocks after the committed one.
+// CheckTx prices against it, so a transaction it admits is eligible at each of those heights.
+func (a *evmOnlyApplication) admissionBaseFee() *big.Int {
+	for state := range a.cursor.Lock() {
+		return state.committed.highestScheduledBaseFee()
+	}
+	panic("unreachable")
+}
+
+// admissionMinGasPrice returns the minimum effective gas price CheckTx admits a transaction at
+// when it prices against baseFee: this node's floor, or baseFee when that is higher.
+func (a *evmOnlyApplication) admissionMinGasPrice(baseFee *big.Int) *big.Int {
+	if baseFee.Cmp(a.minGasPrice) > 0 {
+		return new(big.Int).Set(baseFee)
+	}
 	return new(big.Int).Set(a.minGasPrice)
 }
 
@@ -781,9 +806,20 @@ func (a *evmOnlyApplication) EvmChainConfig() *params.ChainConfig {
 	return a.chainConfig
 }
 
-// EvmBaseFee returns the base fee this application executes every block at.
+// EvmBaseFee returns the base fee the most recently committed block ran at.
 func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
-	return evmOnlyBaseFee()
+	for state := range a.cursor.Lock() {
+		return state.committed.baseFee()
+	}
+	panic("unreachable")
+}
+
+// EvmNextBaseFee returns the base fee the block after the most recently committed one runs at.
+func (a *evmOnlyApplication) EvmNextBaseFee() *big.Int {
+	for state := range a.cursor.Lock() {
+		return state.committed.nextBaseFee()
+	}
+	panic("unreachable")
 }
 
 // evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
@@ -792,14 +828,14 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 }
 
 // blockContext returns the context this application executes a block at. Coinbase is zero, and
-// the base fee and blob base fee are always zero.
-func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, parentHash, blockHash common.Hash) evmonly.BlockContext {
+// the blob base fee is always zero.
+func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, baseFee *big.Int, parentHash, blockHash common.Hash) evmonly.BlockContext {
 	return evmonly.BlockContext{
 		Number:      number,
 		Time:        timestamp,
 		GasLimit:    gasLimit,
 		ChainID:     new(big.Int).Set(a.chainID),
-		BaseFee:     evmOnlyBaseFee(),
+		BaseFee:     baseFee,
 		BlobBaseFee: new(big.Int),
 		ParentHash:  parentHash,
 		BlockHash:   blockHash,
@@ -846,7 +882,7 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 			return evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
 		}
 		// ParentHash is left zero.
-		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, common.Hash{}, state.committed.blockHash), nil
+		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, state.committed.baseFee(), common.Hash{}, state.committed.blockHash), nil
 	}
 	panic("unreachable")
 }
@@ -883,8 +919,8 @@ func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Me
 }
 
 // EvmCallAt executes msg as a read-only call against the committed EVM state after header's block,
-// in the context that block executed at, with overrides applied. Only header's number, time and
-// parent hash are read.
+// in the context that block executed at, with overrides applied. Only header's number, time,
+// parent hash and base fee are read.
 func (a *evmOnlyApplication) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides proxy.CallOverrides) (_ *ethcore.ExecutionResult, err error) {
 	executor, view, blockCtx, err := a.pastExecutionContext("call", header)
 	if err != nil {
@@ -897,7 +933,7 @@ func (a *evmOnlyApplication) EvmCallAt(ctx context.Context, msg *ethcore.Message
 
 // EvmEstimateGasAt returns the lowest gas limit that lets msg execute successfully against the
 // committed EVM state after header's block, in the context that block executed at, with overrides
-// applied. Only header's number, time and parent hash are read.
+// applied. Only header's number, time, parent hash and base fee are read.
 func (a *evmOnlyApplication) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides proxy.CallOverrides) (_ uint64, _ []byte, err error) {
 	executor, view, blockCtx, err := a.pastExecutionContext("gas estimate", header)
 	if err != nil {
@@ -1023,7 +1059,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
 		senders := a.takeSenders(req.Txs)
 		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
-			Context: a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash),
+			Context: a.blockContext(number, timestamp, parent.gasLimit, parent.nextBaseFee(), parent.blockHash, blockHash),
 			Txs:     req.Txs,
 			Senders: senders,
 		})
@@ -1155,12 +1191,14 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 	return tx.Err.Error()
 }
 
-func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, baseFee *uint256.Int, result *evmonly.BlockResult) (common.Hash, error) {
 	h := sha256.New()
 	w := newEVMOnlyHashWriter(h)
 	w.write(previous[:])
 	w.writeUint64(height)
 	w.write(blockHash[:])
+	baseFeeBytes := baseFee.Bytes32()
+	w.write(baseFeeBytes[:])
 	w.writeUint64(result.GasUsed)
 	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
 	if err != nil {

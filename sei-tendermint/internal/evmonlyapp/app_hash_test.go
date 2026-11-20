@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -54,19 +55,31 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 		pairs int
 		want  string
 	}{
-		{pairs: 0, want: "0x98c012bb0ffae50b5f9969e668577c9449f0aa53d728cfba607162470a07f7cb"},
-		{pairs: 1, want: "0x787e0c740324fd0811925ded7d865e976eb7c59c1043bf89bf4644e221e2f259"},
-		{pairs: 64, want: "0xc6cbf658ce324a5e210da5d7fd32d24239d3471a2716d4343d7096949c25b0ed"},
+		{pairs: 0, want: "0xe06583da80729663701e24668f669cab65799fc17888a9e191f013b9baaa0cd4"},
+		{pairs: 1, want: "0x10593ba2553289a80202b01dc290f532e711be917668464deba5bdab1545e364"},
+		{pairs: 64, want: "0xce504f8107f23f6d4b2db7c94c8664a0a0ccf363ec8264982d01f4698e032a95"},
 	} {
 		t.Run(fmt.Sprintf("pairs=%d", tc.pairs), func(t *testing.T) {
 			got, err := hashEVMOnlyResult(
 				common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
 				4_321,
 				common.HexToHash("0xf0e0d0c0b0a090807060504030201000ffeeddccbbaa99887766554433221100"),
+				uint256.NewInt(100_000_000_000),
 				evmOnlyHashFixture(tc.pairs),
 			)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got.Hex())
 		})
 	}
+}
+
+// The app hash commits to the base fee a block ran at, even when the block is empty.
+func TestHashEVMOnlyResultCoversTheBaseFee(t *testing.T) {
+	hashAt := func(baseFee uint64) common.Hash {
+		got, err := hashEVMOnlyResult(common.Hash{}, 1, common.Hash{}, uint256.NewInt(baseFee), &evmonly.BlockResult{})
+		require.NoError(t, err)
+		return got
+	}
+
+	require.NotEqual(t, hashAt(100_000_000_000), hashAt(100_000_000_001))
 }

@@ -106,7 +106,7 @@ func TestReceiptRecordsIncludeStaleNonces(t *testing.T) {
 		result.Txs = append(result.Txs, txResult)
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TransactionIndex: uint(i)})
 	}
-	records, err := receiptRecords(1, result)
+	records, err := receiptRecords(1, nil, result)
 	require.NoError(t, err)
 	require.Len(t, records, count)
 	for i, record := range records {
@@ -131,7 +131,7 @@ func TestReceiptRecordsOmitCurableRejections(t *testing.T) {
 	for i := range result.Txs {
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TransactionIndex: uint(i)})
 	}
-	records, err := receiptRecords(1, result)
+	records, err := receiptRecords(1, nil, result)
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 	require.Equal(t, uint32(0), records[0].Receipt.TransactionIndex)
