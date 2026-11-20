@@ -19,11 +19,10 @@ import (
 const stateSyncProofSweepInterval = 10 * time.Second
 
 // StartStateSyncProofExport starts writing state sync proof files for retained FlatKV
-// checkpoints. isClosingRoad reports whether a road is the last road of an epoch. Close stops it.
-// It returns an error when the export already started or the manager is closed.
-func (m *GigaStorageManager) StartStateSyncProofExport(isClosingRoad func(types.RoadHeight) bool) error {
+// checkpoints. Close stops it. It returns an error when the export already started or the manager is closed.
+func (m *GigaStorageManager) StartStateSyncProofExport() error {
 	return m.stateSyncProofExport.start(func() *stateSyncProofExportLoop {
-		exporter := statesyncproof.NewExporter(stateSyncProofExportConfig(m.cfg, m.blockStore, isClosingRoad))
+		exporter := statesyncproof.NewExporter(stateSyncProofExportConfig(m.cfg, m.blockStore))
 		return startStateSyncProofExportLoop(exporter, stateSyncProofSweepInterval)
 	})
 }
@@ -33,7 +32,6 @@ func (m *GigaStorageManager) StartStateSyncProofExport(isClosingRoad func(types.
 func stateSyncProofExportConfig(
 	cfg *config.GigaStorageConfig,
 	blockStore *blockstore.Store,
-	isClosingRoad func(types.RoadHeight) bool,
 ) statesyncproof.ExportConfig {
 	flatKVDir := cfg.FlatKVConfig.DataDir
 	return statesyncproof.ExportConfig{
@@ -44,8 +42,7 @@ func stateSyncProofExportConfig(
 		BlockStore: blockStore,
 		// The AppQC may not be flushed yet. A crash can then lose it from BlockStore, but a proof file
 		// written before the crash stays valid, because the file holds a verifiable AppQC.
-		LastAppQC:     func() utils.Option[types.RoadHeight] { return lastAppQC(blockStore.Status()) },
-		IsClosingRoad: isClosingRoad,
+		LastAppQC: func() utils.Option[types.RoadHeight] { return lastAppQC(blockStore.Status()) },
 	}
 }
 
