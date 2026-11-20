@@ -264,7 +264,7 @@ var DefaultConfig = Config{
 	},
 	StateSync: StateSyncConfig{
 		Enabled:               false,
-		ArchiveUploadInterval: 24 * time.Hour,
+		ArchiveUploadInterval: time.Hour,
 	},
 }
 
