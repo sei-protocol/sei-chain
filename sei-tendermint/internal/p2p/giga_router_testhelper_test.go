@@ -218,12 +218,9 @@ type testNodeCfg struct {
 }
 
 func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
-	// EVMRPC must be present for NewGigaRouter to accept the config on
-	// either path; the URL value is unused by the tests in this file.
 	return GigaNodeAddr{
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
-		EVMRPC:   *utils.OrPanic1(url.Parse(fmt.Sprintf("ws://%s:8546", c.addr.Addr().String()))),
 	}
 }
 
@@ -281,4 +278,8 @@ func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *exec
 		AppHashBuilder: cfg.AppHashBuilder,
 		BlockStore:     store,
 	})
+}
+
+func testEVMRPCURL() url.URL {
+	return url.URL{Scheme: "ws", Host: "127.0.0.1:1"}
 }

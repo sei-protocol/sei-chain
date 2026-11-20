@@ -192,21 +192,21 @@ func TestLaneRevoteOnEpochAdvance(t *testing.T) {
 	// Receive 2 blocks.
 	sub := state.SubscribeLaneVotes()
 	requireLaneVotes(t, ctx, sub,
-		types.Sign(keys[0], types.NewLaneVote(0, headers[0])),
-		types.Sign(keys[0], types.NewLaneVote(0, headers[1])),
+		keys[0].Sign(types.NewLaneVote(0, headers[0])),
+		keys[0].Sign(types.NewLaneVote(0, headers[1])),
 	)
 
 	// Prune 1st, advance epoch, receive 2nd again.
 	pruneToHeader(state, keys, headers[0])
 	utils.OrPanic(TestAdvanceToEpoch(ctx, state, keys, registry, 1))
 	requireLaneVotes(t, ctx, sub,
-		types.Sign(keys[0], types.NewLaneVote(1, headers[1])),
+		keys[0].Sign(types.NewLaneVote(1, headers[1])),
 	)
 
 	// Persist 3rd and receive it.
 	state.setNextBlockToPersist(lane, 3)
 	requireLaneVotes(t, ctx, sub,
-		types.Sign(keys[0], types.NewLaneVote(1, headers[2])),
+		keys[0].Sign(types.NewLaneVote(1, headers[2])),
 	)
 }
 
@@ -241,7 +241,7 @@ func TestSubscribeLaneVotes_PreviousAndCurrentEpochs(t *testing.T) {
 					var votes []*types.Signed[*types.LaneVote]
 					for _, epochIndex := range tc.epochs {
 						for _, header := range headers {
-							votes = append(votes, types.Sign(keys[tc.voter], types.NewLaneVote(epochIndex, header)))
+							votes = append(votes, keys[tc.voter].Sign(types.NewLaneVote(epochIndex, header)))
 						}
 					}
 					return votes
@@ -250,7 +250,7 @@ func TestSubscribeLaneVotes_PreviousAndCurrentEpochs(t *testing.T) {
 				requireLaneVotes(t, ctx, sub, expected(first.Msg().Block().Header())...)
 				state.setNextBlockToPersist(lane, 2)
 				if tc.voter != 1 {
-					requireLaneVotes(t, ctx, sub, types.Sign(keys[tc.voter], types.NewLaneVote(2, second.Msg().Block().Header())))
+					requireLaneVotes(t, ctx, sub, keys[tc.voter].Sign(types.NewLaneVote(2, second.Msg().Block().Header())))
 				}
 
 				require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
@@ -306,7 +306,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 				rng := utils.TestRng()
 				state := utils.OrPanic1(NewState(joiner, newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
-				want := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))))
+				want := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))))
 				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 					// PushBlock should succeed in both cases.
 					sc.Spawn(func() error { return state.PushBlock(ctx, want) })

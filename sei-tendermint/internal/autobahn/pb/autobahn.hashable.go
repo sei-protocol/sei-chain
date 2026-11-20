@@ -19,3 +19,4 @@ func (*CommitVote) IsHashable()      {}
 func (*TimeoutVote) IsHashable()     {}
 func (*AppProposal) IsHashable()     {}
 func (*Msg) IsHashable()             {}
+func (*Challenge) IsHashable()       {}

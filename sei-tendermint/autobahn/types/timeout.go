@@ -58,7 +58,7 @@ func NewFullTimeoutVote(key SecretKey, view View, latestPrepareQC utils.Option[*
 		latestPrepareQC: latestPrepareQC.Map(func(qc *PrepareQC) ViewNumber { return qc.View().Number }),
 	}
 	return &FullTimeoutVote{
-		vote:            Sign(key, vote),
+		vote:            key.Sign(vote),
 		latestPrepareQC: latestPrepareQC,
 	}
 }

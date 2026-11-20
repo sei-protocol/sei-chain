@@ -29,10 +29,10 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 		First:  utils.Some(data.AnchorFirst{CommitQC: qc, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc.View(), nil))}),
 		Epochs: [2]*types.Epoch{ep, next},
 	}
-	committedProposal := types.Sign(keys[0], types.NewLaneProposal(committed))
-	stayProposal := types.Sign(keys[0], types.NewLaneProposal(types.NewLaneBlock(stay, 6, committed.Header().Hash(), &types.Payload{})))
-	leaveProposal := types.Sign(keys[1], types.NewLaneProposal(types.NewLaneBlock(leave, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
-	joinProposal := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
+	committedProposal := keys[0].Sign(types.NewLaneProposal(committed))
+	stayProposal := keys[0].Sign(types.NewLaneProposal(types.NewLaneBlock(stay, 6, committed.Header().Hash(), &types.Payload{})))
+	leaveProposal := keys[1].Sign(types.NewLaneProposal(types.NewLaneBlock(leave, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
+	joinProposal := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
 	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
 		stay:  {{Height: 5, Proposal: committedProposal}, {Height: 6, Proposal: stayProposal}},
 		leave: {{Height: 0, Proposal: leaveProposal}},
@@ -66,7 +66,7 @@ func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
 	leave := ep1.Committee().Lane(keys[1].Public()).OrPanic("departing lane")
 	join := ep2.Committee().Lane(joiner.Public()).OrPanic("joining lane")
 	rejoin := ep3.Committee().Lane(keys[1].Public()).OrPanic("rejoining lane")
-	proposal := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
+	proposal := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{ep1, ep2}}
 	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
 		join: {{Height: 0, Proposal: proposal}},

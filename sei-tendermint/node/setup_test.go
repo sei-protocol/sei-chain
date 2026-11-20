@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -44,7 +45,6 @@ func makeValidator(valSeed, nodeSeed []byte, address string) config.AutobahnVali
 		ValidatorKey: valKey.Public(),
 		NodeKey:      nodeKey.Public(),
 		Address:      hp,
-		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("ws://" + address))},
 	}
 }
 
@@ -60,6 +60,7 @@ func writeAutobahnConfig(t *testing.T, fc *config.AutobahnFileConfig) string {
 func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *config.AutobahnFileConfig {
 	return &config.AutobahnFileConfig{
 		Validators:         validators,
+		EVMRPC:             utils.Some(config.URL{URL: utils.OrPanic1(url.Parse("ws://localhost:8546"))}),
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
 		AllowEmptyBlocks:   false,
@@ -164,6 +165,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 
 	fc := &config.AutobahnFileConfig{
 		Validators:         []config.AutobahnValidator{v1, v2, v3},
+		EVMRPC:             utils.Some(config.URL{URL: utils.OrPanic1(url.Parse("ws://localhost:8546"))}),
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
 		AllowEmptyBlocks:   true,
@@ -456,6 +458,29 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
 		})
 	}
+}
+
+func TestBuildGigaConfigLocalEVMRPC(t *testing.T) {
+	validator := makeValidator([]byte("local-rpc-validator"), []byte("local-rpc-node"), "localhost:26660")
+	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
+	fc.EVMRPC = utils.None[config.URL]()
+	cfgFile := writeAutobahnConfig(t, fc)
+	app, genDoc := makeTestGigaDeps()
+	fullnodeCfg, err := buildFullnodeGigaConfig(cfgFile, app, genDoc)
+	require.NoError(t, err)
+	require.False(t, fullnodeCfg.AllowLocalAddrs)
+	_, err = buildValidatorGigaConfig(cfgFile, makeTestNodeKey([]byte("local-rpc-node")),
+		makeTestValidatorKey([]byte("local-rpc-validator")), app, genDoc)
+	require.Error(t, err)
+
+	endpoint := config.URL{URL: utils.OrPanic1(url.Parse("wss://local.example:8546"))}
+	fc.EVMRPC = utils.Some(endpoint)
+	cfgFile = writeAutobahnConfig(t, fc)
+	cfg, err := buildValidatorGigaConfig(cfgFile, makeTestNodeKey([]byte("local-rpc-node")),
+		makeTestValidatorKey([]byte("local-rpc-validator")), app, genDoc)
+	require.NoError(t, err)
+	require.Equal(t, endpoint.String(), cfg.EVMRPC.String())
+	require.False(t, cfg.AllowLocalAddrs)
 }
 
 // storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still

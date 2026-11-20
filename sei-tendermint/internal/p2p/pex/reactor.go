@@ -77,7 +77,7 @@ func NewReactor(
 	router *p2p.Router,
 	sendInterval time.Duration,
 ) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, ChannelDescriptor())
+	channel, err := router.OpenChannel(ChannelDescriptor())
 	if err != nil {
 		return nil, err
 	}

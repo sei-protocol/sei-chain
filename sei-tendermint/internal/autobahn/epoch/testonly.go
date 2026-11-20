@@ -34,7 +34,7 @@ func GenRegistryThrough(
 }
 
 func genCommittee(rng utils.Rng, size int) (*types.Committee, []types.SecretKey, map[types.PublicKey]uint64) {
-	sks := utils.GenSliceN(rng, size, types.GenSecretKey)
+	sks := rng.GenSliceN(size, types.GenSecretKey)
 	weights := map[types.PublicKey]uint64{}
 	for _, sk := range sks {
 		weights[sk.Public()] = 1000 + uint64(rng.Intn(1000)) //nolint:gosec

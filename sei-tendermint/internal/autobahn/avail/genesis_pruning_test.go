@@ -26,7 +26,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			prepare := types.BuildPrepareQC(keys, proposal)
 			votes := make([]*types.Signed[*types.CommitVote], len(keys))
 			for i, key := range keys {
-				votes[i] = types.Sign(key, types.NewCommitVote(prepare))
+				votes[i] = key.Sign(types.NewCommitVote(prepare))
 			}
 			qc := types.NewCommitQC(votes)
 			full := types.NewFullCommitQC(qc, []*types.LaneBlockHeader{blocks[0].Header()})

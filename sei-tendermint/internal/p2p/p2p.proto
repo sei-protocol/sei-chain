@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package p2p;
 
+import "autobahn/autobahn.proto";
 import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb";
@@ -54,10 +55,19 @@ message Handshake {
     (wireguard.max_size) = 320
   ];
 
-  bool sei_giga_connection = 3;
+  optional GigaHandshake giga = 12;
+  reserved 3, 6, 7, 8, 9, 10, 11;
+  reserved "sei_giga_connection", "validator";
+  reserved "validator_auth_key", "validator_auth_sig", "evm_rpc", "validator_auth", "evm_rpc_url";
+}
 
-  // Committee claim; all three or none.
-  optional bytes validator_auth_key = 6 [(wireguard.max_size) = 32];
-  optional bytes validator_auth_sig = 7 [(wireguard.max_size) = 64];
-  optional string evm_rpc = 8 [(wireguard.max_size) = 2048];
+message GigaHandshake {
+  option (wireguard.sized) = true;
+  optional ValidatorHandshake validator = 1; // optional
+}
+
+message ValidatorHandshake {
+  option (wireguard.sized) = true;
+  optional autobahn.SignedChallenge auth = 1; // required
+  optional string evm_rpc_url = 2 [(wireguard.max_size) = 2048]; // required
 }
