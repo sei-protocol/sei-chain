@@ -435,8 +435,11 @@ func openAutobahnStorageManager(
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
-// refuseRestoredHome returns an error when the persistent state dir psd holds a state sync
-// restore marker. This build cannot start a node from a restored home.
+// errRestoredHome is the error of a persistent state dir that holds a state sync restore marker.
+var errRestoredHome = errors.New("this build cannot start a node from a state sync import")
+
+// refuseRestoredHome returns an error wrapping errRestoredHome when the persistent state dir psd
+// holds a state sync restore marker.
 func refuseRestoredHome(psd string) error {
 	marker := p2p.RestoreMarkerFile(psd)
 	data, err := os.ReadFile(marker) //nolint:gosec // marker is under the configured persistent state dir.
@@ -446,8 +449,7 @@ func refuseRestoredHome(psd string) error {
 	if err != nil {
 		return fmt.Errorf("read the state sync restore marker: %w", err)
 	}
-	return fmt.Errorf("%s records a state sync import at height %s, and this build cannot start a node from it",
-		marker, strings.TrimSpace(string(data)))
+	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errRestoredHome)
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
