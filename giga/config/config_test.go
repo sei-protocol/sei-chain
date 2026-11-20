@@ -340,7 +340,7 @@ func TestArchiveBucketAloneUploadsNothing(t *testing.T) {
 	require.Equal(t, "sei-snapshots", cfg.StateSync.ArchiveBucket)
 	require.False(t, cfg.StateSync.Enabled)
 	require.False(t, cfg.StateSync.ArchiveUpload)
-	require.Equal(t, 24*time.Hour, cfg.StateSync.ArchiveUploadInterval)
+	require.Equal(t, time.Hour, cfg.StateSync.ArchiveUploadInterval)
 }
 
 // TestTraceTimeoutZeroNeedsTraceDeadlines holds a zero [giga.rpc] trace_timeout to being
