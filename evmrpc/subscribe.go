@@ -16,7 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -227,7 +227,7 @@ func (a *SubscriptionAPI) readReceiptTotals(height int64) (totals receiptTotals,
 }
 
 // requireReceiptsReadable returns the error that reading the receipt of an EVM transaction in block fails
-// with, other than receipt.ErrNotFound.
+// with, other than receiptdb.ErrNotFound.
 func requireReceiptsReadable(f *LogFetcher, block *coretypes.ResultBlock) error {
 	decode := f.txConfigProvider(block.Block.Height).TxDecoder()
 	latestCtx := f.ctxProvider(LatestCtxHeight)
@@ -248,7 +248,7 @@ func requireReceiptsReadable(f *LogFetcher, block *coretypes.ResultBlock) error 
 			// filterTransactions leaves out a transaction whose receipt read fails for any reason, which
 			// would drop its logs from a header that, unlike eth_getBlockByNumber, is never read again.
 			_, err := getOrSetCachedReceiptErr(f.cacheCreationMutex, f.globalBlockCache, latestCtx, f.k, block, ethtx.Hash())
-			if err != nil && !errors.Is(err, receipt.ErrNotFound) {
+			if err != nil && !errors.Is(err, receiptdb.ErrNotFound) {
 				return fmt.Errorf("reading the receipt of %s: %w", ethtx.Hash().Hex(), err)
 			}
 		}
@@ -258,9 +258,9 @@ func requireReceiptsReadable(f *LogFetcher, block *coretypes.ResultBlock) error 
 
 // awaitReceipts waits until store has written the receipts of height, and returns an error if it has not
 // within timeout.
-func awaitReceipts(store receipt.ReceiptStore, height int64, timeout time.Duration) error {
+func awaitReceipts(store receiptdb.ReceiptStore, height int64, timeout time.Duration) error {
 	if store == nil {
-		return receipt.ErrNotConfigured
+		return receiptdb.ErrNotConfigured
 	}
 	deadline := time.Now().Add(timeout)
 	// Commit queues a block's receipts for an asynchronous write and blocks while that queue is full, so the

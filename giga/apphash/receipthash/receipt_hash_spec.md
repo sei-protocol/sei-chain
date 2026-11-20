@@ -9,7 +9,7 @@ produced by executing the block.
 It defines a commitment scheme only — what `receiptHash` is a hash of, and how an individual
 receipt or log can be proven against it. It does not define how receipts are stored, pruned, or
 served over RPC; that remains the unmodified concern of the existing receipt store
-(`sei-db/ledger_db/receipt/`). A field appears in this commitment only if it is an execution outcome
+(`sei-db/receipt_db/`). A field appears in this commitment only if it is an execution outcome
 that cannot be derived from a transaction plus already-committed prior state without executing it;
 see [Rationale](#rationale-non-normative) for the complete reasoning.
 
@@ -237,7 +237,7 @@ transaction more than once.
 
 No version byte appears in either preimage: `receiptHash` commits the version once, so a
 per-receipt version tag would be redundant. The stored receipt format keeps its own, separate versioning (`receiptDataV1` in
-`sei-db/ledger_db/receipt/codec.go`) — a storage concern, decoupled from this document.
+`sei-db/receipt_db/littidx/codec.go`) — a storage concern, decoupled from this document.
 
 ### Receipts and logs trees use the same tags
 
@@ -335,7 +335,7 @@ there is no separate expected-length check to perform.
 
 - `giga/apphash/apphash_spec.md` — the parent App Hash specification this document fills in
 - `giga/apphash/bud/bud_spec.md` — the BUD tree, which uses the same construction as `MTH`
-- `sei-db/ledger_db/receipt/receipt_store.go`, `litt_receipt_store.go`, `codec.go` — the existing,
+- `sei-db/receipt_db/receipt_store.go`, `littidx/receipt_store.go`, `littidx/codec.go` — the existing,
   unmodified receipt store
 - `proto/evm/receipt.proto`, `x/evm/types/receipt.pb.go` — the current stored receipt encoding,
   unaffected by this document
