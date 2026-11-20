@@ -135,6 +135,10 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	switch number {
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
 		// nil height resolves to the current committed block.
+		if head, ok := pinnedHead(ctx).Get(); ok {
+			h := coretypes.Int64(head) //nolint:gosec // G115: a committed height fits in int64.
+			height = &h
+		}
 	case ethrpc.EarliestBlockNumber:
 		// The backend cannot name its lowest block, so "earliest" asks for
 		// height 0 and answers null.

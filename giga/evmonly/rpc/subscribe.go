@@ -42,7 +42,7 @@ func (api *subscribeAPI) Logs(ctx context.Context, crit *filters.FilterCriteria)
 		return nil, ethrpc.ErrNotificationsUnsupported
 	}
 	criteria := subscriptionLogCriteria(crit)
-	cursor, err := api.logs.pollStart(criteria)
+	cursor, err := api.logs.pollStart(ctx, criteria)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -149,7 +150,7 @@ func Start(backend Backend, receiptStore receiptdb.ReceiptStore, port int, wsPor
 	return &Server{
 		listener: listener,
 		http: &http.Server{
-			Handler:           rpcServer,
+			Handler:           pinHeadPerRequest(backend, rpcServer),
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 		wsListener: wsListener,
@@ -159,6 +160,35 @@ func Start(backend Backend, receiptStore receiptdb.ReceiptStore, port int, wsPor
 		},
 		rpc: rpcServer,
 	}, nil
+}
+
+// headPinKey is the context key of the committed head a request pins.
+type headPinKey struct{}
+
+// pinHeadPerRequest serves each HTTP request through next with one committed head, read from
+// backend the first time a call in the request needs it, so every call in a batch resolves
+// current-state tags to the same block.
+func pinHeadPerRequest(backend Backend, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		head := sync.OnceValue(backend.EvmBlockNumber)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), headPinKey{}, head)))
+	})
+}
+
+// pinnedHead returns the committed head the request carrying ctx pins, if any.
+func pinnedHead(ctx context.Context) utils.Option[uint64] {
+	if head, ok := ctx.Value(headPinKey{}).(func() uint64); ok {
+		return utils.Some(head())
+	}
+	return utils.None[uint64]()
+}
+
+// committedHead returns the committed head the request carrying ctx pins, or else backend's.
+func committedHead(ctx context.Context, backend Backend) uint64 {
+	if head, ok := pinnedHead(ctx).Get(); ok {
+		return head
+	}
+	return backend.EvmBlockNumber()
 }
 
 // websocketHandler upgrades incoming connections to WebSocket and serves the

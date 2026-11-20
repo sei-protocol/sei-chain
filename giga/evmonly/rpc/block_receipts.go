@@ -27,7 +27,7 @@ func (api *blockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash ethrpc.
 		return nil, err
 	}
 	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
-	if _, latest := indexedRange(api.backend, api.store); height > latest {
+	if _, latest := indexedRange(ctx, api.backend, api.store); height > latest {
 		return nil, nil
 	}
 	records, err := blockReceiptRecords(ctx, api.store, block)
@@ -35,7 +35,7 @@ func (api *blockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash ethrpc.
 		return nil, err
 	}
 	// Checked after the read, so a retention floor that rose during it is caught too.
-	if earliest, _ := indexedRange(api.backend, api.store); height < earliest {
+	if earliest, _ := indexedRange(ctx, api.backend, api.store); height < earliest {
 		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errBlockReceiptsPruned, height, earliest)
 	}
 	blockHash := common.BytesToHash(block.BlockID.Hash)
@@ -59,7 +59,7 @@ func (api *blockAPI) resolveReceiptsBlock(ctx context.Context, blockNrOrHash eth
 	}
 	switch number {
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
-		_, latest := indexedRange(api.backend, api.store)
+		_, latest := indexedRange(ctx, api.backend, api.store)
 		number = ethrpc.BlockNumber(latest) //nolint:gosec // G115: an indexed height fits in int64.
 	}
 	return api.resolveBlockByNumber(ctx, number)

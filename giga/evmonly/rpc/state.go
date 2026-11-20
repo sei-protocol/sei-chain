@@ -103,7 +103,7 @@ func stateHeight(ctx context.Context, backend Backend, block ethrpc.BlockNumberO
 		}
 		height = number.Int64()
 	}
-	head := backend.EvmBlockNumber()
+	head := committedHead(ctx, backend)
 	if uint64(height) > head { //nolint:gosec // non-negative
 		return 0, false, fmt.Errorf("%w: block %d, latest %d", errBlockAboveHead, height, head)
 	}
