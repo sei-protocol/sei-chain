@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -52,6 +53,19 @@ func OpenEpochRegistry(
 		}
 	}
 	return &EpochRegistry{state: utils.NewMutex(&epochRegistryState{registry: registry}), firstRoad: firstRoad, weights: weights}, nil
+}
+
+// ReadCheckpointEpochRegistry returns the epoch registry that the FlatKV checkpoint in dir holds.
+// It returns an error when the checkpoint holds no epoch registry row.
+func ReadCheckpointEpochRegistry(dir string) (*atypes.EpochRegistry, error) {
+	row, found, err := flatkv.ReadSnapshotMiscValue(dir, epochRegistryModule, []byte(epochRegistryKey))
+	if err != nil {
+		return nil, fmt.Errorf("read the epoch registry row: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("the checkpoint in %s holds no epoch registry row", dir)
+	}
+	return epoch.Decode(row)
 }
 
 // Registry returns the application's retained epoch window.

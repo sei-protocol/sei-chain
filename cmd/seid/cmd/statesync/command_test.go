@@ -86,11 +86,13 @@ func TestImportCommandImportsALocalArchive(t *testing.T) {
 	height := p.commit(t, 2)
 	path := filepath.Join(t.TempDir(), "archive.tar")
 	require.NoError(t, os.WriteFile(path, p.archive(t, testChainID, height), 0o600))
-	sctx, layout := commandHome(t)
+	sctx, _ := commandHome(t)
 
 	require.NoError(t, runCmd(t, sctx, "import", "--from", path))
 
-	requireRestored(t, target{layout: layout}, p, height)
+	tg, err := resolveTargetFromConfig(sctx.Config, sctx.Viper)
+	require.NoError(t, err)
+	requireRestored(t, tg, p, height)
 }
 
 func TestImportCommandRejects(t *testing.T) {

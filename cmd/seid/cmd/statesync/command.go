@@ -53,7 +53,9 @@ func importCmd() *cobra.Command {
 		Short: "Import a state sync archive into a fresh Autobahn fullnode home",
 		Long: `Import a state sync archive into a fresh Autobahn fullnode home. Without --from, it
 downloads the archive from [giga.state_sync] snapshot_bucket: at --height, or else at the height
-in latest.txt. It writes every row of the archived checkpoint into a new FlatKV database.
+in latest.txt. It writes every row of the archived checkpoint into a new FlatKV database, verifies
+the archived state sync proof file against the epoch registry of that checkpoint, and stores the
+app hash that the proof signs in the app-hash vault.
 
 The persistent state dir must hold no data, or only the data of an earlier import, which import
 replaces: it deletes the earlier import before it downloads the new archive. If import fails or
