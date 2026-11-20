@@ -175,7 +175,7 @@ func makeEVMApplication(
 			err = errors.Join(err, storage.Close())
 		}
 	}()
-	validators, err := evmOnlyValidatorUpdates(committee)
+	validators, err := evmOnlyCommitteeWeights(committee)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
 	}
@@ -214,30 +214,29 @@ func evmOnlyGenesisAlloc(fc *config.AutobahnFileConfig, genDoc *tmtypes.GenesisD
 	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Balances: balances})
 }
 
-func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]proxy.ValidatorUpdate, error) {
-	validators := make([]proxy.ValidatorUpdate, len(fc.Validators))
-	for i, validator := range fc.Validators {
+func evmOnlyCommitteeWeights(fc *config.AutobahnFileConfig) (proxy.CommitteeWeights, error) {
+	weights := make(proxy.CommitteeWeights, len(fc.Validators))
+	for _, validator := range fc.Validators {
+		if _, duplicate := weights[validator.ValidatorKey]; duplicate {
+			return nil, fmt.Errorf("duplicate public key %s", validator.ValidatorKey)
+		}
 		// BuildDataState assigns unit voting power to every configured Autobahn validator.
-		validators[i] = proxy.ValidatorUpdate{PubKey: validator.ValidatorKey, Power: 1}
+		weights[validator.ValidatorKey] = 1
 	}
-	return validators, nil
+	return weights, nil
 }
 
 // evmOnlyCustomPrecompiles returns the gov precompile registry when the
 // committee sets evm_governance, with each validator's evm_voter voting at that
 // validator's power, skipping upgrade plans at skipUpgradeHeights.
-func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.ValidatorUpdate, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators proxy.CommitteeWeights, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
 	governance, ok := fc.EVMGovernance.Get()
 	if !ok {
 		return utils.None[precompiles.Registry](), nil
 	}
-	electorate := make(gov.GenesisElectorate, len(fc.Validators))
-	for i, validator := range fc.Validators {
-		voter, ok := validator.EVMVoter.Get()
-		if !ok {
-			return utils.None[precompiles.Registry](), fmt.Errorf("validator %d is missing evm_voter", i)
-		}
-		electorate[voter] = big.NewInt(validators[i].Power)
+	electorate, err := evmOnlyGenesisElectorate(fc, validators)
+	if err != nil {
+		return utils.None[precompiles.Registry](), err
 	}
 	params, err := governance.Params.Gov()
 	if err != nil {
@@ -247,6 +246,22 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.
 		Applied:     governance.AppliedUpgrades,
 		SkipHeights: skipUpgradeHeights,
 	})), nil
+}
+
+func evmOnlyGenesisElectorate(fc *config.AutobahnFileConfig, weights proxy.CommitteeWeights) (gov.GenesisElectorate, error) {
+	electorate := make(gov.GenesisElectorate, len(fc.Validators))
+	for i, validator := range fc.Validators {
+		voter, ok := validator.EVMVoter.Get()
+		if !ok {
+			return nil, fmt.Errorf("validator %d is missing evm_voter", i)
+		}
+		weight, ok := weights[validator.ValidatorKey]
+		if !ok {
+			return nil, fmt.Errorf("validator %s has no committee weight", validator.ValidatorKey)
+		}
+		electorate[voter] = new(big.Int).SetUint64(weight)
+	}
+	return electorate, nil
 }
 
 // applyExecutionRuntime applies GCPercent when set, and caps the heap at 80% of the container

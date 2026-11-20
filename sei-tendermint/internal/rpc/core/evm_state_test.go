@@ -24,6 +24,8 @@ type evmStateApp struct{ proxy.EVMApplication }
 func (a evmStateApp) Info() *proxy.ResponseInfo {
 	return &proxy.ResponseInfo{Data: "native-evm", LastBlockHeight: 17, LastBlockAppHash: []byte{42}}
 }
+func (a evmStateApp) EvmChainID() uint64 { return 1 }
+
 func (a evmStateApp) LastBlockHeight() int64                       { return 17 }
 func (a evmStateApp) EvmNonce(common.Address) uint64               { return 3 }
 func (a evmStateApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
@@ -80,12 +82,12 @@ func TestEVMEnvironmentCachesSendersWithoutABCI(t *testing.T) {
 	sender := common.Address{2}
 	env.RememberEvmSender(tx.Hash(), sender)
 	raw := utils.OrPanic1(tx.MarshalBinary())
-	decoded := utils.OrPanic1(env.EVMProxy.DecodeTx(raw))
+	decoded := utils.OrPanic1(env.EVMProxy.ParseTx(1, raw))
 	_, err := env.EVMProxy.CheckTx(decoded)
 	require.NoError(t, err)
 	require.Equal(t, utils.Some(sender), app.sender)
 	env.ForgetEvmSender(tx.Hash())
-	decoded, err = env.EVMProxy.DecodeTx(raw)
+	decoded, err = env.EVMProxy.ParseTx(1, raw)
 	require.NoError(t, err)
 	_, err = env.EVMProxy.CheckTx(decoded)
 	require.NoError(t, err)
@@ -95,7 +97,7 @@ func TestEVMEnvironmentCachesSendersWithoutABCI(t *testing.T) {
 func TestEVMEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {
 	app := &senderCacheApp{}
 	env := &Environment{EVM: utils.Some(proxy.NewEVM(app))}
-	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.LegacyTx{}).MarshalBinary())
+	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(1)}).MarshalBinary())
 	response, err := env.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), response.Code)
@@ -105,7 +107,7 @@ func TestEVMEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {
 func TestEVMAdmissionResponse(t *testing.T) {
 	app := proxy.NewEVM(evmStateApp{})
 	decode := func(gas uint64) proxy.EvmTx {
-		return utils.OrPanic1(app.DecodeTx(utils.OrPanic1(signedEVMStateTestTx(t, gas).MarshalBinary())))
+		return utils.OrPanic1(app.ParseTx(1, utils.OrPanic1(signedEVMStateTestTx(t, gas).MarshalBinary())))
 	}
 	tx := decode(30_000)
 	response, err := evmAdmissionResponse(tx, proxy.AdmittedTx{GasEstimated: 21_000}, nil)

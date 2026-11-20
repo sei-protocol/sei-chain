@@ -39,14 +39,14 @@ func TestEVMOnlyApplicationReplaysTheStateBeforeEachTransaction(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	first := evmOnlyTestBlock(app, 1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0))
-	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, first)
 	block := [][]byte{
 		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1),
 		// A spent nonce: the block rejects it, so it changes nothing.
 		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1),
 		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 2),
 	}
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2, block...))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2, block...))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 	header := traceTestHeader(2, first.Hash)
@@ -91,7 +91,7 @@ func TestEVMOnlyApplicationReplaysTheStateBeforeEachTransaction(t *testing.T) {
 func TestEVMOnlyApplicationRebuildsABlockContext(t *testing.T) {
 	app := newUndoLogEVMOnlyTestApp(t)
 	first := evmOnlyTestBlock(app, 1, oneEVMOnlyTestTx(t))
-	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, first)
 	header := traceTestHeader(2, first.Hash)
 
 	got, err := app.EvmBlockContext(header)
@@ -111,7 +111,7 @@ func TestEVMOnlyApplicationRebuildsABlockContext(t *testing.T) {
 func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 	t.Run("full node", func(t *testing.T) {
 		app := newUndoLogEVMOnlyTestApp(t)
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1, oneEVMOnlyTestTx(t)))
+		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1, oneEVMOnlyTestTx(t)))
 		app.storage.StateDB().UndoSS().WaitForPendingWrites()
 
 		_, err := app.EvmStateAt(t.Context(), 9)
@@ -123,8 +123,8 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 	t.Run("validator traces only the latest block's state", func(t *testing.T) {
 		app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 		first := evmOnlyTestBlock(app, 1)
-		finalizeAndCommitEVMOnlyTestBlock(t, app, first)
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
+		finalizeEVMOnlyTestBlock(t, app, first)
+		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
 
 		state, err := app.EvmStateAt(t.Context(), 2)
 		require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 		require.Error(t, err)
 
 		// Once block 3 commits, the state after block 2 is no longer held, and the latest one is.
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
+		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
 		_, err = app.EvmStateAt(t.Context(), 2)
 		require.Error(t, err)
 		latest, err := app.EvmStateAt(t.Context(), rpc.LatestBlockNumber.Int64())
@@ -151,7 +151,7 @@ func TestEVMOnlyApplicationReplaysTheFirstBlock(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 
 	state, err := app.EvmStateBeforeTx(t.Context(), traceTestHeader(1, common.Hash{}), nil)

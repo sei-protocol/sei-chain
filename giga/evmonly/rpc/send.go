@@ -93,6 +93,10 @@ func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Cl
 	if !api.backend.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
+	// Leave invalid chain IDs to admission; signer construction requires a positive one.
+	if tx.ChainId().Sign() <= 0 {
+		return utils.None[*ethrpc.Client]()
+	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
 	if err != nil {
 		return utils.None[*ethrpc.Client]()

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/netip"
 	"net/url"
 	"slices"
@@ -36,22 +37,15 @@ type testAppBlock struct {
 
 type testAppState struct {
 	Init       utils.Option[proxy.InitConfig]
-	Validators []proxy.ValidatorUpdate
+	Validators proxy.CommitteeWeights
 	Blocks     []testAppBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
-	// Committed tracks whether FinalizeBlock is allowed.
-	// Set to true by InitChain (so FinalizeBlock can follow without Commit,
-	// matching the CometBFT handshaker flow) and by Commit.
-	// Cleared by FinalizeBlock.
-	Committed bool
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
-	return utils.OrPanic1(json.Marshal(&proxy.ValidatorUpdate{
-		PubKey: atypes.GenSecretKey(rng).Public(),
-		Power:  rng.Int63(),
-	}))
+	weights := proxy.CommitteeWeights{atypes.GenSecretKey(rng).Public(): rng.Uint64() >> 1}
+	return utils.OrPanic1(json.Marshal(weights))
 }
 
 type testApp struct {
@@ -60,23 +54,25 @@ type testApp struct {
 }
 
 func newTestApp(genesis []byte) *testApp {
-	var val proxy.ValidatorUpdate
-	utils.OrPanic(json.Unmarshal(genesis, &val))
+	var weights proxy.CommitteeWeights
+	utils.OrPanic(json.Unmarshal(genesis, &weights))
 	return &testApp{
 		state: utils.NewWatch(&testAppState{
-			Txs: map[shaHash]bool{}, Validators: []proxy.ValidatorUpdate{val}, AppHash: sha256.Sum256(genesis),
+			Txs: map[shaHash]bool{}, Validators: weights, AppHash: sha256.Sum256(genesis),
 		}),
 	}
 }
+
+func (a *testApp) EvmChainID() uint64 { return 1 }
 
 func (a *testApp) EvmNonce(common.Address) uint64 { return 0 }
 
 // EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
 func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
 
-func (a *testApp) GetValidators() []proxy.ValidatorUpdate {
+func (a *testApp) GetValidators() proxy.CommitteeWeights {
 	for state := range a.state.Lock() {
-		return slices.Clone(state.Validators)
+		return maps.Clone(state.Validators)
 	}
 	panic("unreachable")
 }
@@ -88,7 +84,7 @@ func (a *testApp) Info() *proxy.ResponseInfo {
 			return &proxy.ResponseInfo{}
 		}
 		if len(state.Blocks) == 0 {
-			// Match the real SDK: InitChain without Commit leaves LastBlockHeight=0.
+			// Initialization alone leaves LastBlockHeight=0.
 			return &proxy.ResponseInfo{
 				LastBlockHeight:  0,
 				LastBlockAppHash: slices.Clone(state.AppHash[:]),
@@ -126,7 +122,6 @@ func (a *testApp) InitChain(req proxy.InitConfig) error {
 			return fmt.Errorf("InitialHeight = %v, want >=1", req.InitialHeight)
 		}
 		state.Init = utils.Some(req)
-		state.Committed = true
 		ctrl.Updated()
 		return nil
 	}
@@ -135,9 +130,6 @@ func (a *testApp) InitChain(req proxy.InitConfig) error {
 
 func (a *testApp) FinalizeBlock(ctx context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
 	for state, ctrl := range a.state.Lock() {
-		if !state.Committed {
-			return proxy.FinalizeBlockResp{}, fmt.Errorf("FinalizeBlock before Commit")
-		}
 		init, ok := state.Init.Get()
 		if !ok {
 			return proxy.FinalizeBlockResp{}, fmt.Errorf("app not initialized")
@@ -152,22 +144,10 @@ func (a *testApp) FinalizeBlock(ctx context.Context, req proxy.FinalizeBlockReq)
 			state.Txs[sha256.Sum256(utils.OrPanic1(tx.MarshalBinary()))] = true
 		}
 		logger.Info("FinalizeBlock", "n", req.Height-init.InitialHeight)
-		state.Committed = false
 		ctrl.Updated()
 		return proxy.FinalizeBlockResp{}, nil
 	}
 	panic("unreachable")
-}
-
-func (a *testApp) Commit(context.Context) error {
-	for state, ctrl := range a.state.Lock() {
-		if state.Committed {
-			return fmt.Errorf("double commit")
-		}
-		state.Committed = true
-		ctrl.Updated()
-	}
-	return nil
 }
 
 // WaitForBlocks waits until the app has finalized at least count blocks and
@@ -196,9 +176,8 @@ func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
 func (a *testApp) Snapshot() testAppState {
 	for state := range a.state.Lock() {
 		s := *state
-		// Txs is derived and Committed is not deterministic.
+		// Txs is derived.
 		s.Txs = nil
-		s.Committed = false
 		return s
 	}
 	panic("unreachable")
@@ -220,11 +199,8 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 	}
 }
 
-// TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where the executor
-// calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
-// deliverState set up by InitChain, followed by Commit.
-func TestInitChainCommitThenFinalize(t *testing.T) {
+// TestInitChainThenFinalize verifies initialization followed by finalization at InitialHeight.
+func TestInitChainThenFinalize(t *testing.T) {
 	rng := utils.TestRng()
 	appState := testAppStateJSON(rng)
 	app := newTestApp(appState)
@@ -237,23 +213,16 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 		InitialHeight: atypes.RoadIndex(initialHeight)})
 	require.NoError(t, err)
 
-	// No Commit after InitChain — the SDK expects FinalizeBlock at InitialHeight
-	// using the deliverState set up by InitChain.
-
 	// Verify app reports correct height after InitChain (no blocks yet)
 	info := app.Info()
 	require.Equal(t, int64(0), info.LastBlockHeight,
-		"testApp should report 0 after InitChain with no committed blocks (matches real SDK)")
+		"testApp should report 0 after InitChain with no finalized blocks")
 
-	// FinalizeBlock should succeed — deliverState was set up by InitChain
+	// FinalizeBlock should succeed after InitChain
 	blockHash := sha256.Sum256([]byte("test-block"))
 	_, err = app.FinalizeBlock(ctx, proxy.FinalizeBlockReq{
 		Hash:   common.BytesToHash(blockHash[:]),
 		Height: atypes.RoadIndex(initialHeight)})
-	require.NoError(t, err)
-
-	// Second Commit should succeed
-	err = app.Commit(ctx)
 	require.NoError(t, err)
 
 	// Verify height advanced

@@ -143,6 +143,8 @@ func (a *testApp) Cfg() *Config {
 	}
 }
 
+func (a *testApp) EvmChainID() uint64 { return 1 }
+
 func (a *testApp) EvmNonce(addr common.Address) uint64 {
 	for inner := range a.inner.Lock() {
 		return inner.nonces[addr]
@@ -265,7 +267,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Mark block as executed.
-			_, err = env.app.FinalizeBlock(ctx, proxy.FinalizeBlockReq{Txs: utils.OrPanic1(env.app.DecodeTxs(b.Txs, 0)), Hash: common.BytesToHash(b.Hash[:])})
+			_, err = env.app.FinalizeBlock(ctx, proxy.FinalizeBlockReq{Txs: utils.OrPanic1(env.app.ParseTxs(env.app.EvmChainID(), b.Txs, 0)), Hash: common.BytesToHash(b.Hash[:])})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}

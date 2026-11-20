@@ -238,7 +238,7 @@ func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (proxy.EvmTx, proxy.
 		return proxy.EvmTx{}, proxy.AdmittedTx{}, err
 	}
 	defer release()
-	decoded, err := s.app.DecodeTx(tx)
+	decoded, err := s.app.ParseTx(s.app.EvmChainID(), tx)
 	if err != nil {
 		return proxy.EvmTx{}, proxy.AdmittedTx{}, err
 	}

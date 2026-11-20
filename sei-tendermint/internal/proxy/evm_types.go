@@ -20,11 +20,8 @@ type ResponseInfo struct {
 	MinimumGasPrices string
 }
 
-// ValidatorUpdate is an Autobahn validator and its voting power.
-type ValidatorUpdate struct {
-	PubKey types.PublicKey
-	Power  int64
-}
+// CommitteeWeights maps Autobahn validator keys to voting weights.
+type CommitteeWeights = map[types.PublicKey]uint64
 
 // InitConfig contains the initial block height and fixed block gas limit.
 type InitConfig struct {
@@ -65,7 +62,7 @@ type BlockRef struct {
 
 type tx = ethtypes.Transaction
 
-// EvmTx is a decoded Ethereum transaction with verified signature and sender.
+// EvmTx is a decoded replay-protected Ethereum transaction with verified signature and sender.
 type EvmTx struct {
 	*tx
 	sender common.Address

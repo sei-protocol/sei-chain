@@ -24,12 +24,20 @@ import (
 // ErrTxRejected identifies a transaction rejected during decoding or admission.
 var ErrTxRejected = errors.New("transaction rejected")
 
+// checkedSendersCap bounds the senders remembered per generation.
+// Entries are dropped as their transactions execute; the cap only guards against
+// remembered transactions that never reach a block.
+const checkedSendersCap = 1 << 22
+
+// minTxsPerHashWorker is the minimum transaction count assigned to a hashing worker.
+const minTxsPerHashWorker = 64
+
 // EVMApplication executes EVM transactions for Autobahn and serves read-only
 // EVM calls and execution parameters.
 type EVMApplication interface {
 	// Application state and initialization.
 	Info() *ResponseInfo
-	GetValidators() []ValidatorUpdate
+	GetValidators() CommitteeWeights
 	LastBlockHeight() int64
 	InitChain(InitConfig) error
 	RestoreBlockTime(time.Time)
@@ -43,7 +51,6 @@ type EVMApplication interface {
 	// commit in flight, so it can trail EvmNonce by the most recently finalized block.
 	EvmCommittedNonce(common.Address) uint64
 	FinalizeBlock(context.Context, FinalizeBlockReq) (FinalizeBlockResp, error)
-	Commit(context.Context) error
 	// AwaitCommits waits for finalized blocks to reach the store and returns any commit failure.
 	AwaitCommits() error
 
@@ -112,12 +119,12 @@ type EVMApplication interface {
 // EVMProxy records application method timings and adapts EVM RPC inputs and results.
 type EVMProxy struct {
 	app            EVMApplication
-	checkedSenders utils.Mutex[*senderCache]
+	checkedSenders utils.Mutex[*cache[common.Hash, common.Address]]
 }
 
 // NewEVM wraps an EVM application and records its method timings.
 func NewEVM(app EVMApplication) *EVMProxy {
-	return &EVMProxy{app: app, checkedSenders: utils.NewMutex(new(newSenderCache(checkedSendersCap)))}
+	return &EVMProxy{app: app, checkedSenders: utils.NewMutex(new(newCache[common.Hash, common.Address](checkedSendersCap)))}
 }
 
 func (app *EVMProxy) Info() *ResponseInfo {
@@ -125,7 +132,7 @@ func (app *EVMProxy) Info() *ResponseInfo {
 	return app.app.Info()
 }
 
-func (app *EVMProxy) GetValidators() []ValidatorUpdate {
+func (app *EVMProxy) GetValidators() CommitteeWeights {
 	defer addTimeSample(Global.MethodTimingAt("get_validators", "sync"))()
 	return app.app.GetValidators()
 }
@@ -159,14 +166,14 @@ func (app *EVMProxy) CheckTx(tx EvmTx) (AdmittedTx, error) {
 // RememberEvmSender records the sender recovered for the transaction with hash.
 func (app *EVMProxy) RememberEvmSender(hash common.Hash, sender common.Address) {
 	for senders := range app.checkedSenders.Lock() {
-		senders.put(hash, sender)
+		senders.push(hash, sender)
 	}
 }
 
 // ForgetEvmSender drops the sender recorded for hash, if any.
 func (app *EVMProxy) ForgetEvmSender(hash common.Hash) {
 	for senders := range app.checkedSenders.Lock() {
-		senders.take(hash)
+		senders.pop(hash)
 	}
 }
 
@@ -186,15 +193,10 @@ func (app *EVMProxy) FinalizeBlock(ctx context.Context, req FinalizeBlockReq) (F
 	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
 	for senders := range app.checkedSenders.Lock() {
 		for _, tx := range req.Txs {
-			senders.take(tx.Hash())
+			senders.pop(tx.Hash())
 		}
 	}
 	return app.app.FinalizeBlock(ctx, req)
-}
-
-func (app *EVMProxy) Commit(ctx context.Context) error {
-	defer addTimeSample(Global.MethodTimingAt("commit", "sync"))()
-	return app.app.Commit(ctx)
 }
 
 func (app *EVMProxy) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
@@ -357,70 +359,121 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 	return BlockRef{Height: types.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, nil
 }
 
-// DecodeTx decodes an Ethereum transaction and recovers or reuses its verified sender.
-// Invalid encodings and signatures are marked with ErrTxRejected.
-func (app *EVMProxy) DecodeTx(raw []byte) (EvmTx, error) {
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(raw); err != nil {
-		return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
+// ParseTx parses a replay-protected transaction for chainID and recovers or reuses its verified sender.
+// Rejections are marked with ErrTxRejected.
+func (app *EVMProxy) ParseTx(chainID uint64, raw []byte) (EvmTx, error) {
+	tx, err := decodeEVMTransaction(chainID, raw)
+	if err != nil {
+		return EvmTx{}, err
 	}
 	hash := tx.Hash()
-	var cached utils.Option[common.Address]
 	for senders := range app.checkedSenders.Lock() {
-		cached = senders.peek(hash)
+		if sender, ok := senders.get(hash).Get(); ok {
+			return EvmTx{tx: tx, sender: sender}, nil
+		}
 	}
-	sender, ok := cached.Get()
-	if !ok {
-		var signer ethtypes.Signer = ethtypes.HomesteadSigner{}
-		if tx.Protected() {
-			if tx.ChainId().Sign() <= 0 {
-				return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, ethtypes.ErrInvalidChainId)
-			}
-			signer = ethtypes.LatestSignerForChainID(tx.ChainId())
-		}
-		var err error
-		sender, err = ethtypes.Sender(signer, tx)
-		if err != nil {
-			return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
-		}
+	sender, err := recoverTxSender(tx)
+	if err != nil {
+		return EvmTx{}, err
 	}
 	return EvmTx{tx: tx, sender: sender}, nil
 }
 
-// DecodeTxs decodes transactions and recovers or reuses their verified senders in order.
+// ParseTxs parses transactions for chainID and recovers or reuses their verified senders in order.
 // A zero worker count uses GOMAXPROCS.
-func (app *EVMProxy) DecodeTxs(raw [][]byte, workers int) ([]EvmTx, error) {
-	txs := make([]EvmTx, len(raw))
+func (app *EVMProxy) ParseTxs(chainID uint64, raw [][]byte, workers int) ([]EvmTx, error) {
+	if len(raw) == 0 {
+		return []EvmTx{}, nil
+	}
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
 	}
-	workers = min(workers, len(raw))
-	if workers <= 1 {
-		for i, rawTx := range raw {
-			tx, err := app.DecodeTx(rawTx)
+	decoded := make([]*ethtypes.Transaction, len(raw))
+	if err := forEachTxRange(len(raw), workers, minTxsPerHashWorker, func(start, end int) error {
+		for i := start; i < end; i++ {
+			tx, err := decodeEVMTransaction(chainID, raw[i])
 			if err != nil {
-				return nil, fmt.Errorf("transaction %d: %w", i, err)
+				return fmt.Errorf("transaction %d: %w", i, err)
 			}
-			txs[i] = tx
+			tx.Hash()
+			decoded[i] = tx
 		}
-		return txs, nil
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	if err := scope.Parallel(func(s scope.ParallelScope) error {
-		for worker := range workers {
-			s.Spawn(func() error {
-				for i := worker; i < len(raw); i += workers {
-					tx, err := app.DecodeTx(raw[i])
-					if err != nil {
-						return fmt.Errorf("transaction %d: %w", i, err)
-					}
-					txs[i] = tx
-				}
-				return nil
-			})
+	txs, missing := app.cachedTransactions(decoded)
+	// Signature recovery remains parallel even for small batches of cache misses.
+	if err := forEachTxRange(len(missing), workers, 1, func(start, end int) error {
+		for _, i := range missing[start:end] {
+			sender, err := recoverTxSender(decoded[i])
+			if err != nil {
+				return fmt.Errorf("transaction %d: %w", i, err)
+			}
+			txs[i] = EvmTx{tx: decoded[i], sender: sender}
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return txs, nil
+}
+
+// cachedTransactions returns transactions with cached senders and the indexes of cache misses.
+func (app *EVMProxy) cachedTransactions(decoded []*ethtypes.Transaction) ([]EvmTx, []int) {
+	txs := make([]EvmTx, len(decoded))
+	missing := make([]int, 0, len(decoded))
+	// Hashes are already cached; decoding, hashing, allocation, and recovery stay outside the lock.
+	for senders := range app.checkedSenders.Lock() {
+		for i, tx := range decoded {
+			if sender, ok := senders.get(tx.Hash()).Get(); ok {
+				txs[i] = EvmTx{tx: tx, sender: sender}
+			} else {
+				missing = append(missing, i)
+			}
+		}
+	}
+	return txs, missing
+}
+
+// decodeEVMTransaction decodes a replay-protected Ethereum transaction for chainID.
+func decodeEVMTransaction(chainID uint64, raw []byte) (*ethtypes.Transaction, error) {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
+	}
+	if !tx.Protected() {
+		return nil, fmt.Errorf("%w: unprotected Ethereum transaction", ErrTxRejected)
+	}
+	if chainID == 0 || !tx.ChainId().IsUint64() || tx.ChainId().Uint64() != chainID {
+		return nil, fmt.Errorf("%w: %w: expected %d, got %s", ErrTxRejected, ethtypes.ErrInvalidChainId, chainID, tx.ChainId())
+	}
+	return tx, nil
+}
+
+func recoverTxSender(tx *ethtypes.Transaction) (common.Address, error) {
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
+	}
+	return sender, nil
+}
+
+// forEachTxRange runs fn over contiguous ranges of at least minSize, apart from the final range.
+func forEachTxRange(count, workers, minSize int, fn func(start, end int) error) error {
+	if count == 0 {
+		return nil
+	}
+	workers = min(workers, count)
+	if workers <= 1 || count <= minSize {
+		return fn(0, count)
+	}
+	chunk := max((count+workers-1)/workers, minSize)
+	return scope.Parallel(func(s scope.ParallelScope) error {
+		for start := 0; start < count; start += chunk {
+			end := min(start+chunk, count)
+			s.Spawn(func() error { return fn(start, end) })
+		}
+		return nil
+	})
 }

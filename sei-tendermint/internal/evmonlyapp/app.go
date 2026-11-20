@@ -63,7 +63,7 @@ type evmOnlyApplication struct {
 	execution   gigaconfig.ExecutionConfig
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
-	validators  []proxy.ValidatorUpdate
+	validators  proxy.CommitteeWeights
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	// alloc, when set, funds the chain at its initial height, and every
@@ -100,20 +100,17 @@ const (
 	finalizePhaseExecute    = "execute"
 )
 
-// evmOnlyCursorState is the execution position: the block whose state is
-// committed to storage and the block finalized but not yet acknowledged by
-// Commit.
+// evmOnlyCursorState holds the latest finalized cursor and the cursor being finalized.
 type evmOnlyCursorState struct {
 	committed evmOnlyCursor
 	pending   utils.Option[evmOnlyCursor]
 	// epochState is committed with the block being finalized. It is set after
 	// beginBlock accepts that block and read when the block is encoded.
 	epochState utils.Option[proxy.EpochState]
-	// lastBlockTime is the Time of the most recently committed block, used by
+	// lastBlockTime is the Time of the most recently finalized block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
-	// pendingBlockTime is the Time of the block staged in pending; Commit
-	// promotes it to lastBlockTime.
+	// pendingBlockTime is the timestamp of the block being finalized.
 	pendingBlockTime uint64
 }
 
@@ -129,7 +126,7 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 // durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
-	validators []proxy.ValidatorUpdate,
+	validators proxy.CommitteeWeights,
 	storage *bootstrap.GigaStorageManager,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
@@ -152,7 +149,7 @@ func NewEVMOnlyApplication(
 		execution:         execution,
 		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:           storage,
-		validators:        slices.Clone(validators),
+		validators:        maps.Clone(validators),
 		customPrecompiles: customPrecompiles,
 		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
@@ -342,8 +339,8 @@ func (a *evmOnlyApplication) EvmGasLimit() uint64 {
 	panic("unreachable")
 }
 
-func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
-	return slices.Clone(a.validators)
+func (a *evmOnlyApplication) GetValidators() proxy.CommitteeWeights {
+	return maps.Clone(a.validators)
 }
 
 func (a *evmOnlyApplication) CheckTx(tx proxy.EvmTx) (proxy.AdmittedTx, error) {
@@ -431,12 +428,6 @@ func (a *evmOnlyApplication) admissionBalance(sender common.Address) uint256.Int
 }
 
 func (a *evmOnlyApplication) checkAdmissionPolicy(tx proxy.EvmTx) error {
-	if !tx.Protected() {
-		return fmt.Errorf("unprotected Ethereum transaction")
-	}
-	if tx.ChainId().Cmp(a.chainID) != 0 {
-		return fmt.Errorf("invalid chain-id: expected %s, got %s", a.chainID, tx.ChainId())
-	}
 	if tx.Type() == ethtypes.BlobTxType {
 		return fmt.Errorf("unsupported transaction type")
 	}
@@ -655,14 +646,14 @@ func (a *evmOnlyApplication) currentExecutionContext(action string) (*evmonly.Ex
 	panic("unreachable")
 }
 
-// committedBlockContext returns the block context of the committed block, and
-// refuses while a finalized block awaits Commit. action names the caller for
+// committedBlockContext returns the block context of the latest finalized block, and
+// refuses while finalization is incomplete. action names the caller for
 // its error messages.
 func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.BlockContext, error) {
 	for state := range a.cursor.Lock() {
 		if state.pending.IsPresent() {
-			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
-			return evmonly.BlockContext{}, fmt.Errorf("EVM-only %s attempted before committing the finalized block", action)
+			// A staged cursor has not been published with its block context yet.
+			return evmonly.BlockContext{}, fmt.Errorf("EVM-only %s attempted while block finalization is incomplete", action)
 		}
 		number, ok := utils.SafeCast[uint64](state.committed.height)
 		if !ok {
@@ -843,7 +834,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req proxy.Finali
 			return proxy.FinalizeBlockResp{}, errors.Join(err, a.abandonPending(executor, height))
 		}
 		defer result.Release()
-		if err := a.requirePendingCursor(height); err != nil {
+		if err := a.finishBlock(height); err != nil {
 			return proxy.FinalizeBlockResp{}, err
 		}
 		return proxy.FinalizeBlockResp{GasUsed: result.GasUsed}, nil
@@ -856,7 +847,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req proxy.Finali
 func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 	for state := range a.cursor.Lock() {
 		if state.pending.IsPresent() {
-			return evmOnlyCursor{}, fmt.Errorf("EVM-only block %d finalized before committing the previous block", height)
+			return evmOnlyCursor{}, fmt.Errorf("EVM-only block %d finalized before the previous block finished finalizing", height)
 		}
 		if next := state.committed.height + 1; height != next {
 			return evmOnlyCursor{}, fmt.Errorf("EVM-only block height %d does not match next height %d", height, next)
@@ -874,10 +865,8 @@ func (a *evmOnlyApplication) stageEpochState(epochState utils.Option[proxy.Epoch
 	}
 }
 
-// abandonPending drops the cursor staged by a failed block unless the store
-// already holds that block's version, in which case the cursor is durable and
-// stays pending for Commit. The in-flight commit is landed first so the store
-// version is final; a commit that failed is reported alongside.
+// abandonPending waits for storage commits and drops the staged cursor if its block is not durable.
+// A durable cursor remains pending after a failed finalization.
 func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height int64) error {
 	commitErr := executor.AwaitCommits()
 	latest, err := a.storage.StateDB().SC().GetLatestVersion()
@@ -893,12 +882,16 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	return commitErr
 }
 
-func (a *evmOnlyApplication) requirePendingCursor(height int64) error {
+// finishBlock publishes the cursor and timestamp of the finalized block.
+func (a *evmOnlyApplication) finishBlock(height int64) error {
 	for state := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok || pending.height != height {
-			return fmt.Errorf("EVM-only block %d committed without staging its cursor", height)
+			return fmt.Errorf("EVM-only block %d finalized without staging its cursor", height)
 		}
+		state.committed = pending
+		state.lastBlockTime = state.pendingBlockTime
+		state.pending = utils.None[evmOnlyCursor]()
 		return nil
 	}
 	panic("unreachable")
@@ -922,23 +915,6 @@ func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor
 	// The executor's own timer breaks execution down further.
 	a.finalizePhases.SetPhase(finalizePhaseExecute)
 	return executor.ExecutePreparedBlock(ctx, prepared)
-}
-
-// Commit acknowledges the finalized block as the one the chain builds on. The
-// block's state commit is not waited for; a commit that fails halts the node
-// through the next FinalizeBlock.
-func (a *evmOnlyApplication) Commit(context.Context) error {
-	for state := range a.cursor.Lock() {
-		pending, ok := state.pending.Get()
-		if !ok {
-			return fmt.Errorf("EVM-only Commit called without a finalized block")
-		}
-		state.committed = pending
-		state.lastBlockTime = state.pendingBlockTime
-		state.pending = utils.None[evmOnlyCursor]()
-		return nil
-	}
-	panic("unreachable")
 }
 
 func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {

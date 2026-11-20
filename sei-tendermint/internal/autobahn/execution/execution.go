@@ -86,14 +86,8 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
 		// node.go: shouldHandshake = !stateSync && !gigaEnabled), so we
-		// call InitChain ourselves. It sets up the app's deliverState
-		// against which the first FinalizeBlock below runs.
-		//
-		// Re-entering on restart (crashed after InitChain, before the first
-		// block became durable) is safe — nothing was committed, so it
-		// behaves as a fresh init. An app whose storage already holds
-		// blocks must report them here and refuse InitChain, since blocks
-		// may be durable before Commit acknowledged them.
+		// InitChain seeds the store before the first block. A resumed app reports
+		// its durable height instead and refuses initialization.
 		next, ok := utils.SafeCast[atypes.RoadIndex](e.cfg.GenDoc.InitialHeight)
 		if !ok || next == 0 {
 			return 0, fmt.Errorf("invalid GenDoc.InitialHeight = %v", e.cfg.GenDoc.InitialHeight)
@@ -120,14 +114,13 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 	return last + 1, nil
 }
 
-// executeBlock reports b's hash to the app hash builder, then finalizes and
-// commits b.
+// executeBlock reports b's hash, finalizes b, and publishes its execution result.
 func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	txs, err := e.cfg.App.DecodeTxs(b.Txs, e.cfg.ParseWorkers)
+	txs, err := app.ParseTxs(app.EvmChainID(), b.Txs, e.cfg.ParseWorkers)
 	if err != nil {
 		return fmt.Errorf("decode block transactions: %w", err)
 	}
@@ -145,10 +138,6 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	gasUsed := resp.GasUsed
 
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
-	if err := app.Commit(ctx); err != nil {
-		return fmt.Errorf("app.Commit(): %w", err)
-	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	metrics.GasUsed.Add(utils.Clamp[int64](gasUsed))
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{

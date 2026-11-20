@@ -89,12 +89,10 @@ func TestEVMOnlyApplicationEvmCallReadsCommittedContractCode(t *testing.T) {
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
-	require.NoError(t, err)
-	err = app.Commit(t.Context())
 	require.NoError(t, err)
 
 	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contractAddr), evmonly.CallOverrides{})
@@ -114,12 +112,10 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
-	require.NoError(t, err)
-	err = app.Commit(t.Context())
 	require.NoError(t, err)
 
 	before := evmApp.storage.StateDB().OpenView()
@@ -136,19 +132,24 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	require.Equal(t, common.Hash{}, after.GetStorage(contractAddr, slot))
 }
 
-func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
+func TestEVMOnlyApplicationEvmCallAfterFinalization(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)
+	deploy, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(blockInfoCode), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deploy}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
-	_, err = evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil), evmonly.CallOverrides{})
+	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contract), evmonly.CallOverrides{})
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.NoError(t, result.Err)
+	want := append(common.BigToHash(big.NewInt(1)).Bytes(), common.BigToHash(big.NewInt(1_700_000_001)).Bytes()...)
+	require.Equal(t, want, result.Return())
 }
 
 func TestEVMOnlyApplicationExposesChainMetadata(t *testing.T) {
@@ -183,9 +184,9 @@ func TestEVMOnlyApplicationExecutesAgainstAPastBlock(t *testing.T) {
 	deployRaw, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(blockInfoCode), 300_000)
 	first := evmOnlyTestBlock(app, 1)
 	second := evmOnlyTestBlock(app, 2, deployRaw)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, second)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
+	finalizeEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, second)
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 
@@ -234,8 +235,8 @@ func TestEVMOnlyApplicationExecutesAgainstAPastBlock(t *testing.T) {
 func TestEVMOnlyApplicationAppliesCallOverrides(t *testing.T) {
 	app := newUndoLogEVMOnlyTestApp(t)
 	first := evmOnlyTestBlock(app, 1)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
+	finalizeEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
 	code := hexutil.Bytes(blockInfoCode)
@@ -288,8 +289,8 @@ func TestEVMOnlyApplicationAppliesCallOverrides(t *testing.T) {
 func TestEVMOnlyApplicationValidatorExecutesOnlyAgainstTheLatestBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
 	first := evmOnlyTestBlock(app, 1)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
+	finalizeEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
 	to := common.Address{1}
 
 	_, err := app.EvmCallAt(t.Context(), callMessage(common.Address{}, &to), traceTestHeader(2, first.Hash), evmonly.CallOverrides{})

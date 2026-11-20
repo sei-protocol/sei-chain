@@ -78,6 +78,32 @@ func TestReturnsCheckTxRejection(t *testing.T) {
 	require.EqualError(t, err, "bad nonce")
 }
 
+func TestSendRawTransactionLeavesZeroChainIDToAdmission(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	unprotected, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
+	require.NoError(t, err)
+	for _, tx := range []*ethtypes.Transaction{unprotected, ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(0)})} {
+		broadcast := false
+		backend := &testBackend{
+			broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+				broadcast = true
+				return &coretypes.ResultBroadcastTx{Code: 1, Log: "rejected"}, nil
+			},
+			proxy:        utils.None[*ethrpc.Client](),
+			proxyEnabled: true,
+		}
+		raw, err := tx.MarshalBinary()
+		require.NoError(t, err)
+		hash, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
+		require.Error(t, err)
+		require.Equal(t, tx.Hash(), hash)
+		require.True(t, broadcast)
+		require.Zero(t, backend.proxyCalls)
+		require.Empty(t, backend.senders)
+	}
+}
+
 func TestSendRawTransactionBroadcastError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("mempool full")

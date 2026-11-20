@@ -383,8 +383,7 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.Equal(t, "evmonly", app.Info().Data)
 	validators := app.GetValidators()
 	require.Len(t, validators, 1)
-	require.Equal(t, int64(1), validators[0].Power)
-	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.Bytes())
+	require.Equal(t, uint64(1), validators[validator.ValidatorKey])
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this

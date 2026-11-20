@@ -23,12 +23,10 @@ func TestEVMOnlyApplicationEvmEstimateGasReadsCommittedContractCode(t *testing.T
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
-	require.NoError(t, err)
-	err = app.Commit(t.Context())
 	require.NoError(t, err)
 
 	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, evmonly.CallOverrides{})
@@ -48,12 +46,10 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
-	require.NoError(t, err)
-	err = app.Commit(t.Context())
 	require.NoError(t, err)
 
 	before := evmApp.storage.StateDB().OpenView()
@@ -69,7 +65,7 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	require.Equal(t, common.Hash{}, after.GetStorage(contractAddr, slot))
 }
 
-func TestEVMOnlyApplicationEvmEstimateGasRefusesDuringPendingCommit(t *testing.T) {
+func TestEVMOnlyApplicationEvmEstimateGasAfterFinalization(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)
 
@@ -81,7 +77,7 @@ func TestEVMOnlyApplicationEvmEstimateGasRefusesDuringPendingCommit(t *testing.T
 
 	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, evmonly.CallOverrides{})
 
-	require.Error(t, err)
+	require.NoError(t, err)
 }
 
 func TestEVMOnlyApplicationEvmEstimateGasRequiresInitChain(t *testing.T) {

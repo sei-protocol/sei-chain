@@ -4,14 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
@@ -47,24 +43,25 @@ type recordingApp struct {
 
 type recordingAppState struct {
 	last       int64
-	pending    int64
 	inited     bool
 	lastHeader utils.Option[time.Time]
 	finalized  []proxy.FinalizeBlockReq
-	// failCommitAt makes Commit fail for the block of this height.
-	failCommitAt utils.Option[int64]
+	// failFinalizeAt makes FinalizeBlock fail for the block of this height.
+	failFinalizeAt utils.Option[int64]
 }
 
 // testGasPerBlock is the gas FinalizeBlock reports for every block.
 const testGasPerBlock = 7
 
-var errCommitFailed = errors.New("commit failed")
+var errFinalizeFailed = errors.New("finalization failed")
 
 func newRecordingApp(events *eventLog, last int64) *recordingApp {
 	return &recordingApp{events: events, state: utils.NewMutex(&recordingAppState{last: last})}
 }
 
-func (a *recordingApp) GetValidators() []proxy.ValidatorUpdate { return nil }
+func (a *recordingApp) EvmChainID() uint64 { return 1 }
+
+func (a *recordingApp) GetValidators() proxy.CommitteeWeights { return nil }
 
 func (a *recordingApp) Info() *proxy.ResponseInfo {
 	return &proxy.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
@@ -93,20 +90,13 @@ func (a *recordingApp) RestoreBlockTime(blockTime time.Time) {
 func (a *recordingApp) FinalizeBlock(_ context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
 	logEvent(a.events, "finalize %d", req.Height)
 	for state := range a.state.Lock() {
-		state.pending = int64(req.Height)
 		state.finalized = append(state.finalized, req)
+		if fail, ok := state.failFinalizeAt.Get(); ok && fail == int64(req.Height) {
+			return proxy.FinalizeBlockResp{}, errFinalizeFailed
+		}
+		state.last = int64(req.Height)
 	}
 	return proxy.FinalizeBlockResp{GasUsed: testGasPerBlock}, nil
-}
-
-func (a *recordingApp) Commit(context.Context) error {
-	for state := range a.state.Lock() {
-		if fail, ok := state.failCommitAt.Get(); ok && fail == state.pending {
-			return errCommitFailed
-		}
-		state.last = state.pending
-	}
-	return nil
 }
 
 func (a *recordingApp) finalized() []proxy.FinalizeBlockReq {
@@ -145,12 +135,7 @@ func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
 	prev := utils.None[*atypes.CommitQC]()
 	for range count {
 		qc, laneBlocks := data.TestCommitQCWithPayload(rng, ep, keys, prev, func() *atypes.Payload {
-			payload := atypes.GenPayload(rng).ToBuilder()
-			for i, raw := range payload.Txs {
-				tx := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{Data: raw}), ethtypes.LatestSignerForChainID(big.NewInt(1)), utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))))
-				payload.Txs[i] = utils.OrPanic1(tx.MarshalBinary())
-			}
-			return utils.OrPanic1(payload.Build())
+			return atypes.GenEthPayload(rng)
 		})
 		blocks = append(blocks, atypes.NewRoadBlock(qc, laneBlocks))
 		prev = utils.Some(qc.QC())
@@ -343,20 +328,20 @@ func gasUsedTotal(t *testing.T) float64 {
 	return m.GetCounter().GetValue()
 }
 
-// TestRunCountsGasOnlyAfterCommit verifies that a block's gas is counted only
-// once the app has committed it.
-func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
+// TestRunCountsGasOnlyAfterFinalization verifies that a block's gas is counted only
+// once the app has finalized it.
+func TestRunCountsGasOnlyAfterFinalization(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 2)
 	require.NoError(t, env.write(0, 2, true))
 	app := newRecordingApp(env.events, 0)
 	for state := range app.state.Lock() {
-		state.failCommitAt = utils.Some(int64(env.road(1)))
+		state.failFinalizeAt = utils.Some(int64(env.road(1)))
 	}
 	executor := env.executor(app)
 	before := gasUsedTotal(t)
 
-	require.ErrorIs(t, executor.Run(t.Context()), errCommitFailed)
-	require.Equal(t, before+testGasPerBlock, gasUsedTotal(t), "only the committed block is counted")
+	require.ErrorIs(t, executor.Run(t.Context()), errFinalizeFailed)
+	require.Equal(t, before+testGasPerBlock, gasUsedTotal(t), "only the finalized block is counted")
 	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
 }

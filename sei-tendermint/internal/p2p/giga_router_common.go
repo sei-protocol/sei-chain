@@ -197,35 +197,12 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 		// while the app's validator set never changes, as for the EVM-only and mock
 		// apps Autobahn runs. Read the next epoch's validator set from app state
 		// once it keeps one.
-		weights, err := committeeWeights(r.app.GetValidators())
-		if err != nil {
-			return err
-		}
+		weights := r.app.GetValidators()
 		appHash := entry.AppHash()
 		if err := r.data.PushAppHash(ctx, n, appHash[:], weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 	}
-}
-
-// committeeWeights maps a bonded validator set to Autobahn voting power.
-func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(vals))
-	for _, v := range vals {
-		if v.Power <= 0 {
-			continue
-		}
-		apk := v.PubKey
-		if _, dup := weights[apk]; dup {
-			return nil, fmt.Errorf("duplicate public key %s", apk)
-		}
-		power, ok := utils.SafeCast[uint64](v.Power)
-		if !ok {
-			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
-		}
-		weights[apk] = power
-	}
-	return weights, nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.

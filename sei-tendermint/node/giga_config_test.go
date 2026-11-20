@@ -171,8 +171,6 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 		Height: atypes.RoadIndex(initialHeight),
 		Time:   time.Unix(1_700_000_000+initialHeight, 0)})
 	require.NoError(t, err)
-	err = app.Commit(t.Context())
-	require.NoError(t, err)
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
 	require.Equal(t, uint64(initialHeight), got.BlockHeight())

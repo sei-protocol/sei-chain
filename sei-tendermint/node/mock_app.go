@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"runtime"
@@ -38,7 +39,7 @@ type mockAppTransition int
 const (
 	mockAppTransitionInitialize mockAppTransition = iota
 	mockAppTransitionFinalize
-	mockAppTransitionCommit
+	mockAppTransitionReportHashes
 )
 
 func (t mockAppTransition) String() string {
@@ -47,8 +48,8 @@ func (t mockAppTransition) String() string {
 		return "initialize"
 	case mockAppTransitionFinalize:
 		return "finalize"
-	case mockAppTransitionCommit:
-		return "commit"
+	case mockAppTransitionReportHashes:
+		return "report_hashes"
 	default:
 		return fmt.Sprintf("unknown(%d)", t)
 	}
@@ -58,7 +59,7 @@ type mockAppState struct {
 	nextNonce        map[common.Address]uint64
 	lastBlockHeight  int64
 	lastBlockAppHash []byte
-	validators       []proxy.ValidatorUpdate
+	validators       proxy.CommitteeWeights
 	nextTransition   mockAppTransition
 }
 
@@ -67,8 +68,7 @@ type MockApp struct {
 	app         proxy.EVMApplication
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
-	// hashes receives each committed block's state, BUD, and receipt hashes.
-	// None means Commit does not report them.
+	// hashes receives each finalized block's state, BUD, and receipt hashes.
 	hashes utils.Option[builder.AppHashBuilder]
 }
 
@@ -101,7 +101,7 @@ func (app *MockApp) InitChain(req proxy.InitConfig) error {
 		validators := app.app.GetValidators()
 		state.lastBlockHeight = initialHeight - 1
 		state.lastBlockAppHash = nil
-		state.validators = slices.Clone(validators)
+		state.validators = maps.Clone(validators)
 		state.nextTransition = mockAppTransitionFinalize
 		return nil
 	}
@@ -120,9 +120,9 @@ func (app *MockApp) Info() *proxy.ResponseInfo {
 	panic("unreachable")
 }
 
-func (app *MockApp) GetValidators() []proxy.ValidatorUpdate {
+func (app *MockApp) GetValidators() proxy.CommitteeWeights {
 	for state := range app.state.RLock() {
-		return slices.Clone(state.validators)
+		return maps.Clone(state.validators)
 	}
 	panic("unreachable")
 }
@@ -246,44 +246,37 @@ func (app *MockApp) EvmStateBeforeTx(context.Context, proxy.BlockRef, [][]byte) 
 	return nil, errMockAppNoExecution
 }
 
-func (app *MockApp) FinalizeBlock(_ context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
+func (app *MockApp) FinalizeBlock(ctx context.Context, req proxy.FinalizeBlockReq) (proxy.FinalizeBlockResp, error) {
 	txs, err := parseMockAppTxs(req.Txs)
 	if err != nil {
 		return proxy.FinalizeBlockResp{}, err
 	}
-	for state := range app.state.Lock() {
-		return state.finalizeBlock(req, txs)
-	}
-	panic("unreachable")
-}
-
-func (app *MockApp) Commit(ctx context.Context) error {
+	var response proxy.FinalizeBlockResp
 	var height int64
 	for state := range app.state.Lock() {
-		if err := state.checkTransition(mockAppTransitionCommit); err != nil {
-			return err
+		response, err = state.finalizeBlock(req, txs)
+		if err != nil {
+			return proxy.FinalizeBlockResp{}, err
 		}
 		height = state.lastBlockHeight
-		break
 	}
-	if err := app.reportCommittedHashes(ctx, height); err != nil {
-		return err
+	if err := app.reportFinalizedHashes(ctx, height); err != nil {
+		return proxy.FinalizeBlockResp{}, err
 	}
 	for state := range app.state.Lock() {
 		state.nextTransition = mockAppTransitionFinalize
-		return nil
 	}
-	panic("unreachable")
+	return response, nil
 }
 
-// reportCommittedHashes reports zero state, BUD, and receipt hashes for a committed mock block.
-func (app *MockApp) reportCommittedHashes(ctx context.Context, height int64) error {
+// reportFinalizedHashes reports zero state, BUD, and receipt hashes for a finalized mock block.
+func (app *MockApp) reportFinalizedHashes(ctx context.Context, height int64) error {
 	hashes, ok := app.hashes.Get()
 	if !ok {
 		return nil
 	}
 	if height < 1 {
-		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
+		return fmt.Errorf("mock app finalized height = %d, want >= 1", height)
 	}
 	//nolint:gosec // height is at least 1
 	blockHeight := uint64(height)
@@ -330,7 +323,7 @@ func (state *mockAppState) finalizeBlock(req proxy.FinalizeBlockReq, txs []mockA
 	}
 	state.lastBlockHeight = height
 	state.lastBlockAppHash = mockAppHash(state.lastBlockAppHash, req.Hash[:])
-	state.nextTransition = mockAppTransitionCommit
+	state.nextTransition = mockAppTransitionReportHashes
 	return proxy.FinalizeBlockResp{GasUsed: gasUsed}, nil
 }
 
@@ -379,9 +372,6 @@ func checkMockTx(ethTx proxy.EvmTx) (proxy.AdmittedTx, error) {
 	gas := ethTx.Gas()
 	if gas > math.MaxInt64 {
 		return proxy.AdmittedTx{}, fmt.Errorf("EVM gas wanted exceeds int64 max")
-	}
-	if !ethTx.Protected() {
-		return proxy.AdmittedTx{}, fmt.Errorf("unprotected EVM transaction")
 	}
 	return proxy.AdmittedTx{GasEstimated: gas}, nil
 }
