@@ -9,7 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 )
@@ -370,7 +371,7 @@ var DefaultConfig = Config{
 	EnableSimulation:             true,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
-	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
+	MaxLogBytes:                  logfilter.DefaultMaxLogBytes,
 	MaxBlocksForLog:              2000,
 	LargeLogQueryRPS:             30,
 	MaxEstimateGasCalls:          100,

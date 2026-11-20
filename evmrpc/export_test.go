@@ -17,7 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers/tracersutils"
 	cosmoclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -63,7 +64,7 @@ func NewFilterConfigForTest(cfg FilterConfigTest) *FilterConfig {
 		filterCfg.maxLog = DefaultMaxLogLimit
 	}
 	if filterCfg.maxLogBytes <= 0 {
-		filterCfg.maxLogBytes = receipt.DefaultMaxLogBytes
+		filterCfg.maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
 	return filterCfg
 }

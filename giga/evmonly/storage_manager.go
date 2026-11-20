@@ -2,7 +2,7 @@ package evmonly
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -26,7 +26,7 @@ func WithStore(store gigatypes.StateDB) Option {
 }
 
 // WithReceiptStore selects a receipt store independently of a storage manager.
-func WithReceiptStore(store receipt.ReceiptStore) Option {
+func WithReceiptStore(store receiptdb.ReceiptStore) Option {
 	return func(e *Executor) {
 		e.receiptStore = store
 	}
