@@ -268,6 +268,7 @@ func recoverReceiptStore(changelogPath string, db seidbtypes.StateStore) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = streamHandler.Close() }()
 	firstOffset, errFirst := streamHandler.FirstOffset()
 	if firstOffset <= 0 || errFirst != nil {
 		return nil
@@ -279,6 +280,9 @@ func recoverReceiptStore(changelogPath string, db seidbtypes.StateStore) error {
 	lastEntry, errRead := streamHandler.ReadAt(lastOffset)
 	if errRead != nil {
 		return errRead
+	}
+	if lastEntry.Version <= ssLatestVersion {
+		return nil
 	}
 	// Look backward to find where we should start replay from
 	curVersion := lastEntry.Version
@@ -299,19 +303,17 @@ func recoverReceiptStore(changelogPath string, db seidbtypes.StateStore) error {
 	// Replay from the offset where the version is larger than SS store latest version
 	targetStartOffset := curOffset
 	logger.Info("Start replaying changelog to recover ReceiptStore", "from-offset", targetStartOffset, "to-offset", lastOffset)
-	if targetStartOffset < lastOffset {
-		return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
-			// commit to state store
-			if err := db.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
-				return err
-			}
-			if err := db.SetLatestVersion(entry.Version); err != nil {
-				return err
-			}
-			return nil
-		})
-	}
-	return nil
+	// Replay includes both offsets, so a changelog whose only unapplied entry is the last one replays it.
+	return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
+		// commit to state store
+		if err := db.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+			return err
+		}
+		if err := db.SetLatestVersion(entry.Version); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func startReceiptPruning(db seidbtypes.StateStore, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {

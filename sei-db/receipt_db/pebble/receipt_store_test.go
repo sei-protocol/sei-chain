@@ -13,6 +13,7 @@ import (
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/pebble"
@@ -230,6 +231,69 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	bz, err := db.Get(types.ReceiptStoreKey, db.GetLatestVersion(), types.ReceiptKey(txHash2))
 	require.NoError(t, err)
 	require.NotNil(t, bz)
+}
+
+// TestRecoverReceiptStoreReplaysASingleEntryChangelog covers a changelog whose only entry is the one
+// the state store has not applied, on a fresh store and on one with history.
+func TestRecoverReceiptStoreReplaysASingleEntryChangelog(t *testing.T) {
+	for name, appliedVersion := range map[string]int64{"fresh store": 0, "store with history": 1} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			txHash := common.HexToHash("0x30")
+			writeChangelog(t, dir, appliedVersion+1, txHash)
+
+			db := openReceiptStateStore(t, dir)
+			if appliedVersion > 0 {
+				require.NoError(t, db.SetLatestVersion(appliedVersion))
+			}
+			require.NoError(t, pebble.RecoverReceiptStore(dbutils.GetChangelogPath(dir), db))
+			require.Equal(t, appliedVersion+1, db.GetLatestVersion())
+
+			bz, err := db.Get(types.ReceiptStoreKey, db.GetLatestVersion(), types.ReceiptKey(txHash))
+			require.NoError(t, err)
+			require.NotNil(t, bz)
+		})
+	}
+}
+
+// TestRecoverReceiptStoreSkipsAnAppliedChangelog covers a changelog the state store has already applied
+// in full: recovery leaves the store's version where it is.
+func TestRecoverReceiptStoreSkipsAnAppliedChangelog(t *testing.T) {
+	dir := t.TempDir()
+	writeChangelog(t, dir, 1, common.HexToHash("0x31"))
+
+	db := openReceiptStateStore(t, dir)
+	require.NoError(t, db.SetLatestVersion(3))
+	require.NoError(t, pebble.RecoverReceiptStore(dbutils.GetChangelogPath(dir), db))
+	require.Equal(t, int64(3), db.GetLatestVersion())
+}
+
+// writeChangelog writes a one-entry receipt changelog under dir, holding a receipt for txHash at version.
+func writeChangelog(t *testing.T, dir string, version int64, txHash common.Hash) {
+	t.Helper()
+	changelogPath := dbutils.GetChangelogPath(dir)
+	require.NoError(t, os.MkdirAll(changelogPath, 0o750))
+	stream, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
+	require.NoError(t, err)
+	receipt := makeReceipt(txHash, common.HexToAddress("0x402"), []common.Hash{common.HexToHash("0x24")}, 0)
+	entry, err := makeChangeSetEntry(version, txHash, receipt)
+	require.NoError(t, err)
+	require.NoError(t, stream.Write(entry))
+	require.NoError(t, stream.Close())
+}
+
+// openReceiptStateStore opens the pebble state store a receipt store at dir is built on.
+func openReceiptStateStore(t *testing.T, dir string) seidbtypes.StateStore {
+	t.Helper()
+	ssConfig := dbconfig.DefaultStateStoreConfig()
+	ssConfig.DBDirectory = dir
+	ssConfig.KeepRecent = 0
+	ssConfig.KeepLastVersion = false
+	ssConfig.Backend = "pebbledb"
+	db, err := mvcc.OpenDB(dir, ssConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 func makeChangeSetEntry(version int64, txHash common.Hash, receipt *types.Receipt) (proto.ChangelogEntry, error) {
