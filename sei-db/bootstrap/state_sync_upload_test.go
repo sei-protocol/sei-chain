@@ -402,6 +402,19 @@ func TestStateSyncUploadRemovesAnEarlierStaging(t *testing.T) {
 	requireArchive(t, store, height, proof)
 }
 
+func TestStateSyncUploadStagingIsNotACheckpoint(t *testing.T) {
+	h := newUploadHome(t)
+	h.commit(t)
+	want, err := flatkv.SnapshotVersions(h.flatKVDir)
+	require.NoError(t, err)
+	u := h.uploader(newFakeStore())
+	require.NoError(t, os.MkdirAll(filepath.Join(u.stagingDir, "account"), 0o750))
+
+	got, err := flatkv.SnapshotVersions(h.flatKVDir)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
 func TestStateSyncUploadStopCancelsAnUpload(t *testing.T) {
 	h := newUploadHome(t)
 	height := h.commit(t)

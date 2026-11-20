@@ -25,6 +25,9 @@ const (
 	// stateSyncUploadClaimTimeout is the age at which another node may take over the upload claim
 	// of a round. An upload that takes longer can be repeated by that node.
 	stateSyncUploadClaimTimeout = time.Hour
+	// stateSyncUploadStagingDirName names the staging dir under the FlatKV root. It is not a
+	// snapshot dir name, so FlatKV does not load it as a snapshot.
+	stateSyncUploadStagingDirName = ".state-sync-upload"
 )
 
 // errUploadEnded stops an archive writer whose upload returned before it read the whole archive.
@@ -34,10 +37,12 @@ var errUploadEnded = errors.New("upload ended")
 // removed before the upload staged it.
 var errCheckpointPruned = errors.New("checkpoint pruned")
 
-// stateSyncUploadStagingDir returns the dir that holds the hard-linked checkpoint during an upload
-// from the FlatKV root flatKVDir.
+// stateSyncUploadStagingDir returns the dir under the FlatKV root flatKVDir that holds the
+// hard-linked checkpoint during an upload.
 func stateSyncUploadStagingDir(flatKVDir string) string {
-	return filepath.Join(filepath.Dir(flatKVDir), "state_sync_upload")
+	// Hard links need the staging dir on the file system of the checkpoint, and flatKVDir can be
+	// its own mount.
+	return filepath.Join(flatKVDir, stateSyncUploadStagingDirName)
 }
 
 // removeStateSyncUploadStaging removes the staging dir of an upload that did not complete.
@@ -127,8 +132,7 @@ type stateSyncUploader struct {
 	interval  time.Duration
 	flatKVDir string
 	proofDir  string
-	// stagingDir holds the hard-linked checkpoint during an upload. It is on the file system of
-	// flatKVDir.
+	// stagingDir holds the hard-linked checkpoint during an upload. It is under flatKVDir.
 	stagingDir string
 	now        func() time.Time
 	// uploaded is the newest archive height known to be in store, or 0.
