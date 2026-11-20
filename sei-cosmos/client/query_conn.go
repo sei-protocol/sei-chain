@@ -9,9 +9,9 @@ import (
 	gogogrpc "github.com/gogo/protobuf/grpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/encoding"
-	"google.golang.org/grpc/encoding/proto"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/protoadapt"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -20,8 +20,6 @@ import (
 )
 
 var _ gogogrpc.ClientConn = Context{}
-
-var protoCodec = encoding.GetCodec(proto.Name)
 
 // Invoke implements the grpc ClientConn.Invoke method
 func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply interface{}, opts ...grpc.CallOption) error {
@@ -55,7 +53,7 @@ func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply i
 	}
 
 	// Case 2. Querying state.
-	reqBz, err := protoCodec.Marshal(req)
+	reqBz, err := marshalProto(req)
 	if err != nil {
 		return err
 	}
@@ -87,7 +85,7 @@ func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply i
 		return err
 	}
 
-	if err := protoCodec.Unmarshal(res.Value, reply); err != nil {
+	if err := unmarshalProto(res.Value, reply); err != nil {
 		return err
 	}
 
@@ -116,4 +114,29 @@ func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply i
 // NewStream implements the grpc ClientConn.NewStream method
 func (Context) NewStream(gocontext.Context, *grpc.StreamDesc, string, ...grpc.CallOption) (grpc.ClientStream, error) {
 	return nil, fmt.Errorf("streaming rpc not supported")
+}
+
+// marshalProto encodes a protobuf message. It returns an error if v is not a protobuf message.
+func marshalProto(v any) ([]byte, error) {
+	message, ok := v.(protoadapt.MessageV1)
+	if !ok {
+		return nil, fmt.Errorf("failed to marshal, message is %T, want proto.Message", v)
+	}
+	data, err := proto.Marshal(protoadapt.MessageV2Of(message))
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal %T: %w", v, err)
+	}
+	return data, nil
+}
+
+// unmarshalProto decodes data into a protobuf message. It returns an error if v is not a protobuf message.
+func unmarshalProto(data []byte, v any) error {
+	message, ok := v.(protoadapt.MessageV1)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal, message is %T, want proto.Message", v)
+	}
+	if err := proto.Unmarshal(data, protoadapt.MessageV2Of(message)); err != nil {
+		return fmt.Errorf("failed to unmarshal %T: %w", v, err)
+	}
+	return nil
 }
