@@ -1560,7 +1560,10 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 			continue
 		}
 
-		sdkCtx := ctxProvider(height)
+		sdkCtx, err := ctxAtHeight(ctxProvider, height)
+		if err != nil {
+			return nil, err
+		}
 		blockHash := common.BytesToHash(block.BlockID.Hash)
 
 		var logIndex uint

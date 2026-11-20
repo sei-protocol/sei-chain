@@ -514,6 +514,7 @@ func TestNewHeadsDroppedBlocksAreCounted(t *testing.T) {
 		a.noteNewHeadEvent(height)
 	}
 	dropNewHeadWithoutBaseFee(17, errors.New("state at height 16 is unavailable"))
+	dropNewHeadWithoutState(18, errors.New("state at height 18 is unavailable"))
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &rm))
@@ -529,5 +530,5 @@ func TestNewHeadsDroppedBlocksAreCounted(t *testing.T) {
 			}
 		}
 	}
-	require.Equal(t, map[string]int64{newHeadsDropMissed: 3, newHeadsDropBaseFeeUnavailable: 1}, byReason)
+	require.Equal(t, map[string]int64{newHeadsDropMissed: 3, newHeadsDropBaseFeeUnavailable: 1, newHeadsDropStateUnavailable: 1}, byReason)
 }

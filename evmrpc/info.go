@@ -226,8 +226,8 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 
 		var gasUsedRatio float64
 
-		sdkCtx := i.ctxProvider(blockNum)
-		versionExists := CheckVersion(sdkCtx, i.keeper) == nil
+		sdkCtx, err := ctxAtHeight(i.ctxProvider, blockNum)
+		versionExists := err == nil && CheckVersion(sdkCtx, i.keeper) == nil
 		if !versionExists {
 			// either height is pruned or before EVM is introduced
 			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
@@ -463,7 +463,10 @@ func (i *InfoAPI) calculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 	}
 
 	// Get the gas limit from consensus params using the SDK context
-	sdkCtx := i.ctxProvider(blockHeight)
+	sdkCtx, err := ctxAtHeight(i.ctxProvider, blockHeight)
+	if err != nil {
+		return 0, err
+	}
 	var gasLimit uint64
 	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
 		gasLimit = uint64(sdkCtx.ConsensusParams().Block.MaxGas) //nolint:gosec
