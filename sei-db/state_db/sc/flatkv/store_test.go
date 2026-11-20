@@ -21,15 +21,15 @@ import (
 // Interface Compliance Tests
 // =============================================================================
 
-// TestCommitStoreImplementsStore verifies that CommitStore implements gigatypes.LiveStateStore
+// TestCommitStoreImplementsStore verifies that CommitStore implements LiveStateStore
 func TestCommitStoreImplementsStore(t *testing.T) {
-	// Compile-time check is in store.go: var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
+	// Compile-time check is in store.go: var _ LiveStateStore = (*CommitStore)(nil)
 	// This test verifies runtime behavior of interface methods
 
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Verify gigatypes.LiveStateStore interface methods
+	// Verify LiveStateStore interface methods
 	require.Equal(t, int64(0), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)

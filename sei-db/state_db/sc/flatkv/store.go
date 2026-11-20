@@ -42,13 +42,9 @@ var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 // is nearly free.
 const sortPoolQueueSize = 65536
 
-var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
+var _ LiveStateStore = (*CommitStore)(nil)
 
-// ErrVersionUnreachable is gigatypes.ErrVersionUnreachable: FlatKV cannot reconstruct the requested
-// version from its retained snapshots and WAL.
-var ErrVersionUnreachable = gigatypes.ErrVersionUnreachable
-
-// CommitStore implements gigatypes.LiveStateStore for EVM state.
+// CommitStore implements LiveStateStore for EVM state.
 //
 // Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
 // (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller.
@@ -475,7 +471,7 @@ func (s *CommitStore) LoadWorkingCopy() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes.LiveStateStore, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened LiveStateStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))

@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -240,7 +239,7 @@ func commitBuffered(t *testing.T, s *CommitStore) int64 {
 //
 // Hashing is asynchronous, so nearly every assertion about a hash needs that barrier first; putting it
 // here rather than at each call site is what keeps the suite from racing the pipeline.
-func rootHash(s gigatypes.LiveStateStore) []byte {
+func rootHash(s LiveStateStore) []byte {
 	if err := s.FlushHashes(); err != nil {
 		panic(fmt.Sprintf("flatkv: flush hashes before reading the root: %v", err))
 	}
@@ -255,7 +254,7 @@ func rootHash(s gigatypes.LiveStateStore) []byte {
 
 // rootHashAndVersion is rootHash paired with the height it describes, for the tests that assert on
 // both. Reading them after the same flush is what makes them describe one moment.
-func rootHashAndVersion(s gigatypes.LiveStateStore) ([]byte, int64) {
+func rootHashAndVersion(s LiveStateStore) ([]byte, int64) {
 	return rootHash(s), s.Version()
 }
 

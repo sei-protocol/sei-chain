@@ -9,8 +9,8 @@ import (
 	"os"
 	"slices"
 
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -204,7 +204,7 @@ func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLt
 // dumpFlatKVFromStore is the core scan+write path, split out so tests can
 // exercise it against an in-memory store without going through the
 // snapshot clone machinery used by the CLI.
-func dumpFlatKVFromStore(store gigatypes.LiveStateStore, outputDir string, version int64, bucket string,
+func dumpFlatKVFromStore(store flatkv.LiveStateStore, outputDir string, version int64, bucket string,
 	withLtHash bool, lthashOnly bool, readLimitMiBps float64,
 ) error {
 	limiter := newReadLimiter(readLimitMiBps)
@@ -392,7 +392,7 @@ func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
 // verifyFlatKVLtHash cross-checks the freshly re-scanned total LtHash against the store's committed
 // root. A PASS means the physical bytes on disk hash to exactly the root the store reports at this
 // version. Returns an error on mismatch so the CLI exits non-zero.
-func verifyFlatKVLtHash(store gigatypes.LiveStateStore, hashers map[string]*bucketLtHasher) error {
+func verifyFlatKVLtHash(store flatkv.LiveStateStore, hashers map[string]*bucketLtHasher) error {
 	// A dump reads a store at rest, so the height the store stands at already describes everything it
 	// holds. A nil listener asks for it without subscribing to anything.
 	published, err := store.RegisterHashListener(nil)
