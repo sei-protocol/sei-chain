@@ -11,17 +11,18 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func receiptRecords(blockNumber uint64, baseFee *big.Int, result *BlockResult) ([]receipt.ReceiptRecord, error) {
+func receiptRecords(blockNumber uint64, baseFee *big.Int, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
 	if len(result.Receipts) != len(result.Txs) {
 		return nil, fmt.Errorf("receipt count %d does not match transaction result count %d", len(result.Receipts), len(result.Txs))
 	}
-	records := make([]receipt.ReceiptRecord, 0, len(result.Receipts))
+	records := make([]receipttypes.ReceiptRecord, 0, len(result.Receipts))
 	for i := range result.Receipts {
 		record, keep, err := encodeReceiptRecord(blockNumber, baseFee, result, i)
 		if err != nil {
@@ -37,24 +38,24 @@ func receiptRecords(blockNumber uint64, baseFee *big.Int, result *BlockResult) (
 // encodeReceiptRecord builds the record for transaction i of a block run at baseFee, and reports
 // false when the transaction stores no receipt. Records are independent of each other, so a caller
 // holding a worker pool may build them in parallel.
-func encodeReceiptRecord(blockNumber uint64, baseFee *big.Int, result *BlockResult, i int) (receipt.ReceiptRecord, bool, error) {
+func encodeReceiptRecord(blockNumber uint64, baseFee *big.Int, result *BlockResult, i int) (receipttypes.ReceiptRecord, bool, error) {
 	ethReceipt := result.Receipts[i]
 	if ethReceipt == nil {
-		return receipt.ReceiptRecord{}, false, fmt.Errorf("receipt %d is nil", i)
+		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d is nil", i)
 	}
 	txResult := result.Txs[i]
 	// A rejection the sender can still cure (nonce too high, insufficient funds)
 	// leaves the hash unclaimed so a later execution can store its receipt.
 	if txResult.Rejected && !errors.Is(txResult.Err, core.ErrNonceTooLow) {
-		return receipt.ReceiptRecord{}, false, nil
+		return receipttypes.ReceiptRecord{}, false, nil
 	}
 	transactionIndex, ok := utils.SafeCast[uint32](ethReceipt.TransactionIndex)
 	if !ok {
-		return receipt.ReceiptRecord{}, false, fmt.Errorf("receipt %d transaction index %d exceeds uint32", i, ethReceipt.TransactionIndex)
+		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d transaction index %d exceeds uint32", i, ethReceipt.TransactionIndex)
 	}
 	status, ok := utils.SafeCast[uint32](ethReceipt.Status)
 	if !ok {
-		return receipt.ReceiptRecord{}, false, fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
+		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
 	}
 	stored := &evmtypes.Receipt{
 		TxType:            uint32(ethReceipt.Type),
@@ -84,7 +85,7 @@ func encodeReceiptRecord(blockNumber uint64, baseFee *big.Int, result *BlockResu
 	if ethReceipt.EffectiveGasPrice != nil {
 		reward = PriorityFee(ethReceipt.EffectiveGasPrice, baseFee)
 	}
-	return receipt.ReceiptRecord{
+	return receipttypes.ReceiptRecord{
 		TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
 		KeepExisting: txResult.Rejected,
 	}, true, nil
@@ -105,7 +106,7 @@ func PriorityFee(effectiveGasPrice, baseFee *big.Int) *big.Int {
 
 // receiptRecordsParallel builds the block's records across the executor's worker pool, returning
 // the same records in the same order as receiptRecords.
-func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint64, baseFee *big.Int, result *BlockResult) ([]receipt.ReceiptRecord, error) {
+func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint64, baseFee *big.Int, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
 	count := len(result.Receipts)
 	if e.occPool == nil || e.closed.Load() || count < occParallelReceiptThreshold {
 		return receiptRecords(blockNumber, baseFee, result)
@@ -113,7 +114,7 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 	if count != len(result.Txs) {
 		return nil, fmt.Errorf("receipt count %d does not match transaction result count %d", count, len(result.Txs))
 	}
-	records := make([]receipt.ReceiptRecord, count)
+	records := make([]receipttypes.ReceiptRecord, count)
 	kept := make([]bool, count)
 	chunk := occChunkSize(count, e.cfg.OCCWorkers)
 	ranges := occRanges(count, chunk)

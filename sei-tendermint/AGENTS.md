@@ -1,5 +1,5 @@
 Within sei-tendermint subdirectory
-* sei-tendermint is a root of the go module, but it is not the root of the repo. When refactoring check references across of the whole repo.
+* sei-tendermint is not the root of the repo. When refactoring check references across of the whole repo.
   Comply with repo's root AGENTS.md, except where they conflict with the rules below.
 * ensure type safety wherever possible, in particular
     * use strong types rather than underlying primitives (urls should use URL type instead of string, time duration should use time.Duration instead of int, etc.)
@@ -27,7 +27,7 @@ Within sei-tendermint subdirectory
 * use public api of types in tests, never malform internal state of types. For read-only access,
   you can use private fields directly in case it is not accessible via public api.
 * when writing tests, focus on asserting the publicly visible properties, especially the API contract. Avoid asserting implementation details.
-* Avoid sleeping and active polling in tests. Prefer waiting for updates (for example by using sei-tendermint/libs/utils.Watch or AtomicWatch).
+* Avoid sleeping and active polling in tests. Prefer waiting for updates (for example by using sei-tendermint/libs/utils.Watch or AtomicRecv).
 * Do not introduce artificial timeouts in tests because they are a source of flakiness. Let the test hang and make the user run go tests with explicit
   timeout instead.
 * Avoid checking human readable error messages in tests. If programatic error type check is requested, use errors.Is/As/AsType instead.
@@ -44,3 +44,5 @@ Within sei-tendermint subdirectory
 * In tests always check if you can reuse preexisting test fixture generators provided with the types (usually in testonly.go file of the module).
   If not, always deduplicate test fixture generators within the go package. If you have minimally different generators you can usually generalize them into
   1 generator at no cost.
+* calling a function in tests with an explicitly cancelled context is not a reliable test that call was blocking.
+  If you really need to test blocking behavior use synctest.Wait and only then cancel the ctx.

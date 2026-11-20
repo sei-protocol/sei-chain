@@ -177,13 +177,13 @@ func (env *testEnv) executor(app proxy.EVMApplication) *Executor {
 	})
 }
 
-func (env *testEnv) road(i int) atypes.RoadIndex {
-	return env.blocks[i].QC().Index()
+func (env *testEnv) road(i int) atypes.RoadHeight {
+	return env.blocks[i].QC().Height()
 }
 
 // waitExecuted waits until executor has committed road n.
-func waitExecuted(ctx context.Context, executor *Executor, n atypes.RoadIndex) error {
-	_, err := executor.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool { return w.Latest().Number >= n })
+func waitExecuted(ctx context.Context, executor *Executor, n atypes.RoadHeight) error {
+	_, err := executor.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool { return w.Latest().Height >= n })
 	return err
 }
 
@@ -302,7 +302,7 @@ func TestNewPublishesTheAppTipAsExecuted(t *testing.T) {
 	env := newTestEnv(t, rng, 1)
 	tip := env.road(0)
 	executor := env.executor(newRecordingApp(env.events, int64(tip)))
-	require.Equal(t, atypes.ExecutedBlock{Number: tip}, executor.ExecutedBlocks().Load().Latest())
+	require.Equal(t, atypes.ExecutedBlock{Height: tip}, executor.ExecutedBlocks().Load().Latest())
 }
 
 // TestRunReplaysStoredBlocksAfterRestart verifies that a restarted app executes
@@ -350,7 +350,7 @@ func TestRunCompletesTheBlockInFlightWhenCanceled(t *testing.T) {
 	executor := env.executor(app)
 
 	require.ErrorIs(t, executor.Run(runCtx), context.Canceled)
-	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
+	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Height)
 	require.Equal(t, 1, len(app.finalized()))
 }
 
@@ -376,7 +376,7 @@ func TestRunCountsGasOnlyAfterCommit(t *testing.T) {
 
 	require.ErrorIs(t, executor.Run(t.Context()), errCommitFailed)
 	require.Equal(t, before+testGasPerBlock, gasUsedTotal(t), "only the committed block is counted")
-	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
+	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Height)
 }
 
 func TestFinalizeBlockGasUsed(t *testing.T) {

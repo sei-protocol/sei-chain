@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"math/big"
 
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 )
 
 // blockBaseFee returns the base fee the block at height ran at: the one store recorded with the
 // block's stats, or unrecordedBaseFee's when the stats hold none.
-func blockBaseFee(ctx context.Context, backend Backend, store receiptpkg.ReceiptStore, height int64) (*big.Int, error) {
+func blockBaseFee(ctx context.Context, backend Backend, store receiptdb.ReceiptStore, height int64) (*big.Int, error) {
 	if store != nil && height > 0 {
 		stats, err := store.GetBlockStats(receiptContext(ctx), uint64(height))
 		switch {
 		case err == nil && stats.BaseFee != nil:
 			return stats.BaseFee, nil
-		case err != nil && !errors.Is(err, receiptpkg.ErrNotFound) && !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported):
+		case err != nil && !errors.Is(err, receiptdb.ErrNotFound) && !errors.Is(err, receiptdb.ErrBlockStatsNotSupported):
 			return nil, fmt.Errorf("read the base fee of block %d: %w", height, err)
 		}
 	}

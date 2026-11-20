@@ -14,7 +14,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -22,7 +22,7 @@ import (
 
 type txAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 }
 
 // errPendingNonceUnavailable is returned for the pending tag when this node has no local mempool
@@ -118,7 +118,7 @@ func (api *txAPI) GetVMError(ctx context.Context, hash common.Hash) (string, err
 		return "", err
 	}
 	if stored == nil {
-		return "", receiptpkg.ErrNotFound
+		return "", receiptdb.ErrNotFound
 	}
 	return stored.VmError, nil
 }
@@ -138,7 +138,7 @@ func (api *txAPI) GetTransactionErrorByHash(ctx context.Context, hash common.Has
 // not yet finalized.
 func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, *coretypes.ResultBlock, error) {
 	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
-	if errors.Is(err, receiptpkg.ErrNotFound) {
+	if errors.Is(err, receiptdb.ErrNotFound) {
 		return nil, nil, nil
 	}
 	if err != nil {

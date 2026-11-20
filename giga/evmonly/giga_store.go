@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -117,7 +117,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
 		}
 		e.blockPhases.SetPhase(phaseWriteReceipts)
-		receiptCtx := receipt.WithBlockBaseFee(newReceiptContext(ctx, blockNumber), req.Context.BaseFee)
+		receiptCtx := receiptdb.WithBlockBaseFee(newReceiptContext(ctx, blockNumber), req.Context.BaseFee)
 		if err := receiptStore.SetReceipts(receiptCtx, records); err != nil {
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 		}

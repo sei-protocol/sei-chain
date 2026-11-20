@@ -16,7 +16,7 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -45,6 +45,7 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	receiptpebble "github.com/sei-protocol/sei-chain/sei-db/receipt_db/pebble"
 )
 
 const TestContract = "TEST"
@@ -305,7 +306,7 @@ func (s *TestWrapper) EndBlock() {
 	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)
 }
 
-func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
+func setupReceiptStore(storeKey sdk.StoreKey) (receiptdb.ReceiptStore, error) {
 	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
 	baseDir := filepath.Join(os.TempDir(), "sei-testing")
 	if err := os.MkdirAll(baseDir, 0o750); err != nil {
@@ -319,7 +320,7 @@ func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
 	receiptConfig.KeepRecent = 0 // No min retain blocks in test
 	receiptConfig.DBDirectory = tempDir
-	receiptStore, err := receipt.NewReceiptStore(receiptConfig, storeKey)
+	receiptStore, err := receiptpebble.NewReceiptStore(receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}

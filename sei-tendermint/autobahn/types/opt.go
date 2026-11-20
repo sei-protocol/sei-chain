@@ -25,7 +25,7 @@ func NextViewOpt[T interface{ View() View }](mv utils.Option[T]) View {
 	if v, ok := mv.Get(); ok {
 		return v.View().Next()
 	}
-	return View{Index: 0, Number: 0}
+	return View{Height: 0, Number: 0}
 }
 
 // LaneRangeOpt defaults to an empty initial range.
@@ -35,7 +35,7 @@ func LaneRangeOpt[T interface {
 	if v, ok := mv.Get(); ok {
 		return v.LaneRange(lane)
 	}
-	return NewLaneRange(lane, 0, utils.None[*BlockHeader]())
+	return NewLaneRange(lane, 0, utils.None[*LaneBlockHeader]())
 }
 
 // AppOpt defaults to None.

@@ -218,6 +218,7 @@ func createTestInput(
 		legacyAmino,
 		keys[paramstypes.StoreKey],
 		tkeys[paramstypes.TStoreKey],
+		encodingConfig.InterfaceRegistry,
 	)
 	for _, m := range []string{
 		authtypes.ModuleName,

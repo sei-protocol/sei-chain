@@ -15,8 +15,8 @@ type EpochIndex uint64
 
 // RoadRange is a half-open road range [First, Next).
 type RoadRange struct {
-	First RoadIndex
-	Next  RoadIndex
+	First RoadHeight
+	Next  RoadHeight
 }
 
 // EpochRange is a half-open epoch-index range [First, Next).
@@ -25,13 +25,13 @@ type EpochRange struct {
 	Next  EpochIndex
 }
 
-// OpenRoadRange returns a RoadRange covering all road indices from 0.
-func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
+// OpenRoadRange returns a RoadRange covering all road heights from 0.
+func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadHeight]()} }
 
-// Len returns the number of road indices in the range.
+// Len returns the number of road heights in the range.
 func (r RoadRange) Len() uint64 { return uint64(r.Next - r.First) }
 
-func (r RoadRange) Has(idx RoadIndex) bool { return r.First <= idx && idx < r.Next }
+func (r RoadRange) Has(height RoadHeight) bool { return r.First <= height && height < r.Next }
 
 func (r EpochRange) Has(idx EpochIndex) bool { return r.First <= idx && idx < r.Next }
 
@@ -83,7 +83,7 @@ var EpochConv = protoutils.Conv[*Epoch, *pb.Epoch]{
 		if p.FirstRoad == nil || p.NextRoad == nil {
 			return nil, errors.New("roads: missing")
 		}
-		roads := RoadRange{First: RoadIndex(*p.FirstRoad), Next: RoadIndex(*p.NextRoad)}
+		roads := RoadRange{First: RoadHeight(*p.FirstRoad), Next: RoadHeight(*p.NextRoad)}
 		if roads.First >= roads.Next {
 			return nil, errors.New("roads: empty or reversed range")
 		}

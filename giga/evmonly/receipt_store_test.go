@@ -7,16 +7,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMemoryReceiptStoreIndexesOwnedReceiptCopies(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	txHash := common.Hash{1}
-	record := receipt.ReceiptRecord{
+	record := receipttypes.ReceiptRecord{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:   txHash.Hex(),
@@ -31,7 +31,7 @@ func TestMemoryReceiptStoreIndexesOwnedReceiptCopies(t *testing.T) {
 	}
 
 	receiptCtx := newReceiptContext(t.Context(), 5)
-	require.NoError(t, store.SetReceipts(receiptCtx, []receipt.ReceiptRecord{record}))
+	require.NoError(t, store.SetReceipts(receiptCtx, []receipttypes.ReceiptRecord{record}))
 	record.Receipt.LogsBloom[0] = 12
 	record.Receipt.Logs[0].Address = common.Address{13}.Hex()
 	record.Receipt.Logs[0].Topics[0] = common.Hash{14}.Hex()
@@ -59,8 +59,8 @@ func TestMemoryReceiptStoreMovesReceiptsAndRecordsEmptyBlocks(t *testing.T) {
 	first := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 7}
 	second := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8}
 
-	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: first}}))
-	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: second}}))
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: first}}))
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8), []receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: second}}))
 
 	stored, err := store.GetReceipt(newReceiptContext(t.Context(), 8), txHash)
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	oldHash := common.Hash{1}
 	newHash := common.Hash{2}
-	records := []receipt.ReceiptRecord{
+	records := []receipttypes.ReceiptRecord{
 		{TxHash: oldHash, Receipt: &evmtypes.Receipt{TxHashHex: oldHash.Hex(), BlockNumber: 3}},
 		{TxHash: newHash, Receipt: &evmtypes.Receipt{TxHashHex: newHash.Hex(), BlockNumber: 4}},
 	}
@@ -95,7 +95,7 @@ func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
 
 	require.NoError(t, store.PruneHistory(4))
 	_, err := store.GetReceipt(newReceiptContext(t.Context(), 4), oldHash)
-	require.ErrorIs(t, err, receipt.ErrNotFound)
+	require.ErrorIs(t, err, receiptdb.ErrNotFound)
 	_, err = store.GetReceipt(newReceiptContext(t.Context(), 4), newHash)
 	require.NoError(t, err)
 	require.Equal(t, int64(4), store.EarliestVersion())
@@ -105,7 +105,7 @@ func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
 func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	hash1, hash2 := common.Hash{1}, common.Hash{2}
-	records := []receipt.ReceiptRecord{
+	records := []receipttypes.ReceiptRecord{
 		{TxHash: hash1, Receipt: &evmtypes.Receipt{TxHashHex: hash1.Hex(), BlockNumber: 5, GasUsed: 10}, Reward: big.NewInt(100)},
 		{TxHash: hash2, Receipt: &evmtypes.Receipt{TxHashHex: hash2.Hex(), BlockNumber: 5, GasUsed: 20}, Reward: big.NewInt(300)},
 	}
@@ -121,7 +121,7 @@ func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
 	require.Equal(t, uint64(100), min)
 
 	_, err = store.GetBlockStats(receiptCtx, 6)
-	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
+	require.ErrorIs(t, err, receiptdb.ErrBlockStatsNotSupported)
 }
 
 // TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove verifies a moved receipt invalidates its
@@ -129,7 +129,7 @@ func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
 func TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	hashA, hashB := common.Hash{1}, common.Hash{2}
-	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipttypes.ReceiptRecord{
 		{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 7, GasUsed: 10}},
 		{TxHash: hashB, Receipt: &evmtypes.Receipt{TxHashHex: hashB.Hex(), BlockNumber: 7, GasUsed: 20}},
 	}))
@@ -138,18 +138,18 @@ func TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove(t *testing.T) {
 
 	// hashA is re-included at block 8; block 7 still holds hashB, so it is not empty.
 	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8),
-		[]receipt.ReceiptRecord{{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 8, GasUsed: 10}}}))
+		[]receipttypes.ReceiptRecord{{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 8, GasUsed: 10}}}))
 
 	require.Contains(t, store.blocks, uint64(7), "block 7 still holds hashB")
 	_, err = store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
-	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported,
+	require.ErrorIs(t, err, receiptdb.ErrBlockStatsNotSupported,
 		"block 7's stats must be invalidated, not left reporting both receipts")
 }
 
 func TestMemoryReceiptStorePruneHistoryRemovesBlockStats(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	oldHash, newHash := common.Hash{1}, common.Hash{2}
-	records := []receipt.ReceiptRecord{
+	records := []receipttypes.ReceiptRecord{
 		{TxHash: oldHash, Receipt: &evmtypes.Receipt{TxHashHex: oldHash.Hex(), BlockNumber: 3, GasUsed: 1}},
 		{TxHash: newHash, Receipt: &evmtypes.Receipt{TxHashHex: newHash.Hex(), BlockNumber: 4, GasUsed: 2}},
 	}
@@ -158,7 +158,7 @@ func TestMemoryReceiptStorePruneHistoryRemovesBlockStats(t *testing.T) {
 	require.NoError(t, store.PruneHistory(4))
 
 	_, err := store.GetBlockStats(receiptCtx, 3)
-	require.ErrorIs(t, err, receipt.ErrNotFound)
+	require.ErrorIs(t, err, receiptdb.ErrNotFound)
 	stats, err := store.GetBlockStats(receiptCtx, 4)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), stats.TotalGasUsed)
@@ -170,7 +170,7 @@ func TestMemoryReceiptStorePruneHistoryRemovesOrphanedBlockStats(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 3), nil)) // empty block
 	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 4),
-		[]receipt.ReceiptRecord{{TxHash: common.Hash{1}, Receipt: &evmtypes.Receipt{TxHashHex: common.Hash{1}.Hex(), BlockNumber: 4}}}))
+		[]receipttypes.ReceiptRecord{{TxHash: common.Hash{1}, Receipt: &evmtypes.Receipt{TxHashHex: common.Hash{1}.Hex(), BlockNumber: 4}}}))
 	require.NotContains(t, store.blocks, uint64(3), "sanity: an empty block has no blocks entry")
 	require.Contains(t, store.blockStats, uint64(3), "sanity: an empty block still has a stats entry")
 
@@ -196,11 +196,11 @@ func TestMemoryReceiptStoreKeepExistingPreservesReceiptAndStats(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	txHash := common.Hash{1}
 	original := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 7, TransactionIndex: 0, GasUsed: 21_000, Status: 1}
-	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: original}}))
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: original}}))
 
 	other := common.Hash{2}
 	stale := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8, TransactionIndex: 1}
-	replay := []receipt.ReceiptRecord{
+	replay := []receipttypes.ReceiptRecord{
 		{TxHash: other, Receipt: &evmtypes.Receipt{TxHashHex: other.Hex(), BlockNumber: 8, GasUsed: 30_000, Status: 1}},
 		{TxHash: txHash, Receipt: stale, KeepExisting: true},
 	}
@@ -226,9 +226,9 @@ func TestMemoryReceiptStoreRecordsTheBlockBaseFee(t *testing.T) {
 	baseFee := big.NewInt(1_000_000_000)
 	txHash := common.Hash{1}
 
-	require.NoError(t, store.SetReceipts(receipt.WithBlockBaseFee(newReceiptContext(t.Context(), 3), baseFee),
-		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 3}}}))
-	require.NoError(t, store.SetReceipts(receipt.WithBlockBaseFee(newReceiptContext(t.Context(), 4), baseFee), nil))
+	require.NoError(t, store.SetReceipts(receiptdb.WithBlockBaseFee(newReceiptContext(t.Context(), 3), baseFee),
+		[]receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 3}}}))
+	require.NoError(t, store.SetReceipts(receiptdb.WithBlockBaseFee(newReceiptContext(t.Context(), 4), baseFee), nil))
 	baseFee.SetInt64(1)
 
 	for _, height := range []uint64{3, 4} {

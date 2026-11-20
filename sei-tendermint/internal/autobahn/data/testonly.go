@@ -16,8 +16,8 @@ func TestAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 	return types.NewAppQC(votes)
 }
 
-func TestLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
-	vote := types.NewLaneVote(header)
+func TestLaneQC(epochIndex types.EpochIndex, keys []types.SecretKey, header *types.LaneBlockHeader) *types.LaneQC {
+	vote := types.NewLaneVote(epochIndex, header)
 	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))
@@ -30,7 +30,7 @@ func TestCommitQC(
 	ep *types.Epoch,
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
-) (*types.FullCommitQC, []*types.Block) {
+) (*types.FullCommitQC, []*types.LaneBlock) {
 	return testCommitQCBlocks(rng, ep, keys, prev, 10)
 }
 
@@ -40,15 +40,15 @@ func testCommitQCBlocks(
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
 	blockCount int,
-) (*types.FullCommitQC, []*types.Block) {
+) (*types.FullCommitQC, []*types.LaneBlock) {
 	committee := ep.Committee()
-	blocks := map[types.LaneID][]*types.Block{}
-	makeBlock := func(producer types.LaneID) *types.Block {
+	blocks := map[types.LaneID][]*types.LaneBlock{}
+	makeBlock := func(producer types.LaneID) *types.LaneBlock {
 		if bs := blocks[producer]; len(bs) > 0 {
 			parent := bs[len(bs)-1]
-			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+			return types.NewLaneBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
 		}
-		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+		return types.NewLaneBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenLaneBlockHeaderHash(rng), types.GenPayload(rng))
 	}
 	available := slices.Collect(committee.Lanes().All())
 	for range blockCount {
@@ -60,11 +60,11 @@ func testCommitQCBlocks(
 		}
 	}
 	laneQCs := map[types.LaneID]*types.LaneQC{}
-	var headers []*types.BlockHeader
-	var blockList []*types.Block
+	var headers []*types.LaneBlockHeader
+	var blockList []*types.LaneBlock
 	for lane := range committee.Lanes().All() {
 		if bs := blocks[lane]; len(bs) > 0 {
-			laneQCs[lane] = TestLaneQC(keys, bs[len(bs)-1].Header())
+			laneQCs[lane] = TestLaneQC(ep.EpochIndex(), keys, bs[len(bs)-1].Header())
 			for _, b := range bs {
 				headers = append(headers, b.Header())
 				blockList = append(blockList, b)
@@ -76,8 +76,8 @@ func testCommitQCBlocks(
 }
 
 // TestBlockMap indexes blocks by their offsets in header order.
-func TestBlockMap(blocks []*types.Block) map[uint64]*types.Block {
-	result := make(map[uint64]*types.Block, len(blocks))
+func TestBlockMap(blocks []*types.LaneBlock) map[uint64]*types.LaneBlock {
+	result := make(map[uint64]*types.LaneBlock, len(blocks))
 	for i, block := range blocks {
 		result[uint64(i)] = block
 	}

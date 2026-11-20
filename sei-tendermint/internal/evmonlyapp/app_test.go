@@ -28,7 +28,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -383,7 +383,7 @@ func reopenEVMOnlyTestApp(t *testing.T, app proxy.EVMApplication, storage *boots
 // waitForReceiptVersion blocks until the receipt store has published height. The store applies
 // writes in the background, so a receipt is readable once LatestVersion reaches its block rather
 // than once SetReceipts returns.
-func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int64) {
+func waitForReceiptVersion(t *testing.T, store receiptdb.ReceiptStore, height int64) {
 	t.Helper()
 	for store.LatestVersion() < height {
 		select {
@@ -1452,7 +1452,7 @@ func TestEVMOnlyApplicationAllocFundsOnlyListedAccounts(t *testing.T) {
 	require.NoError(t, err)
 	funderAddr := crypto.PubkeyToAddress(funder.PublicKey)
 	allocBalance := new(uint256.Int).Lsh(uint256.NewInt(1), 70)
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{funderAddr: allocBalance}})
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{funderAddr: allocBalance})})
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 
@@ -1485,7 +1485,7 @@ func TestEVMOnlyApplicationAllocFundsOnlyListedAccounts(t *testing.T) {
 }
 
 func TestEVMOnlyApplicationAllocRefusesAnotherInitialHeight(t *testing.T) {
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 5, Balances: map[common.Address]*uint256.Int{{1}: uint256.NewInt(1)}})
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 5, Accounts: balanceAlloc(map[common.Address]*uint256.Int{{1}: uint256.NewInt(1)})})
 	_, err := app.InitChain(evmOnlyTestInitChain())
 	require.Error(t, err)
 }
@@ -1499,7 +1499,7 @@ func TestEVMOnlyApplicationRefusesAnEmptyAlloc(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
-		utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{}}),
+		utils.Some(GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{})}),
 		utils.None[string](),
 	)
 	require.Error(t, err)
@@ -1507,10 +1507,10 @@ func TestEVMOnlyApplicationRefusesAnEmptyAlloc(t *testing.T) {
 
 func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
 	alloc := func(balance uint64) utils.Option[GenesisAlloc] {
-		return utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+		return utils.Some(GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{
 			{1}: uint256.NewInt(balance),
 			{2}: uint256.NewInt(7),
-		}})
+		})})
 	}
 	none := utils.None[GenesisAlloc]()
 	for _, tc := range []struct {
@@ -1625,9 +1625,9 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsTheSenderCanPayFor(t *testing.T) {
 	funder, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	funderAddr := crypto.PubkeyToAddress(funder.PublicKey)
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{
 		funderAddr: new(uint256.Int).Lsh(uint256.NewInt(1), 70),
-	}})
+	})})
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
@@ -1663,9 +1663,9 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsWhoseGasCoversIntrinsicGas(t *testing.T)
 	require.NoError(t, err)
 	unfunded, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{
 		crypto.PubkeyToAddress(funder.PublicKey): new(uint256.Int).Lsh(uint256.NewInt(1), 70),
-	}})
+	})})
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
@@ -1701,4 +1701,13 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsWhoseGasCoversIntrinsicGas(t *testing.T)
 			require.Equal(t, tc.ok, app.CheckTx(t.Context(), &proxy.RequestCheckTxV2{Tx: raw}).IsOK())
 		})
 	}
+}
+
+// balanceAlloc returns genesis accounts that set a balance and nothing else.
+func balanceAlloc(balances map[common.Address]*uint256.Int) map[common.Address]evmonly.GenesisAccount {
+	accounts := make(map[common.Address]evmonly.GenesisAccount, len(balances))
+	for addr, balance := range balances {
+		accounts[addr] = evmonly.GenesisAccount{Balance: balance}
+	}
+	return accounts
 }

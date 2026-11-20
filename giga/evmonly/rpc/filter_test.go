@@ -16,7 +16,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -51,9 +53,9 @@ func filterFixtureStore(t *testing.T) *evmonly.MemoryReceiptStore {
 		}
 		return &evmtypes.Log{Address: address.Hex(), Topics: hexTopics, Data: []byte{byte(index)}, Index: index}
 	}
-	stored := func(height uint64, txIndex uint32, logs ...*evmtypes.Log) receipt.ReceiptRecord {
+	stored := func(height uint64, txIndex uint32, logs ...*evmtypes.Log) receipttypes.ReceiptRecord {
 		hash := filterTxHash(height, txIndex)
-		return receipt.ReceiptRecord{TxHash: hash, Receipt: &evmtypes.Receipt{
+		return receipttypes.ReceiptRecord{TxHash: hash, Receipt: &evmtypes.Receipt{
 			TxHashHex:        hash.Hex(),
 			BlockNumber:      height,
 			TransactionIndex: txIndex,
@@ -61,12 +63,12 @@ func filterFixtureStore(t *testing.T) *evmonly.MemoryReceiptStore {
 		}}
 	}
 	ctx := sdk.Context{}.WithContext(t.Context())
-	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(ctx, []receipttypes.ReceiptRecord{
 		stored(5, 0, log(filterContractB, 0, filterTopicY)),
 		stored(5, 1, log(filterContractA, 1, filterTopicX), log(filterContractA, 2, filterTopicY)),
 	}))
-	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{stored(6, 0)}))
-	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{stored(8, 0, log(filterContractA, 0, filterTopicX))}))
+	require.NoError(t, store.SetReceipts(ctx, []receipttypes.ReceiptRecord{stored(6, 0)}))
+	require.NoError(t, store.SetReceipts(ctx, []receipttypes.ReceiptRecord{stored(8, 0, log(filterContractA, 0, filterTopicX))}))
 	require.NoError(t, store.SetLatestVersion(9))
 	return store
 }
@@ -265,7 +267,7 @@ func (s pruningReceiptStore) FilterLogs(
 	ctx sdk.Context,
 	fromBlock, toBlock uint64,
 	crit filters.FilterCriteria,
-	budget *receipt.LogBudget,
+	budget *logfilter.LogBudget,
 ) ([]*ethtypes.Log, error) {
 	if err := s.PruneHistory(s.pruneTo); err != nil {
 		return nil, err
@@ -309,7 +311,7 @@ func TestGetLogsEnforcesLogBudget(t *testing.T) {
 		logs[i] = &evmtypes.Log{Address: filterContractA.Hex(), Index: uint32(i)} //nolint:gosec // small test count
 	}
 	hash := filterTxHash(1, 0)
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  hash,
 		Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: 1, Logs: logs},
 	}}))

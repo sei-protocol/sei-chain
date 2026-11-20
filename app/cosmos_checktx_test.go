@@ -18,6 +18,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -218,7 +220,7 @@ func TestCosmosStatelessChecksRejectsInvalidNestedMultisigKey(t *testing.T) {
 			ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
 			signedTx, _ := buildNestedMultisigTx(t, ctx, tc.malformedChild)
 
-			err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+			err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams(), nil)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "invalid secp256k1 public key")
 		})
@@ -235,7 +237,7 @@ func TestCosmosStatelessChecksRejectsOversizedMultisigBeforePubKeyValidation(t *
 	}
 	signedTx, _ := buildNestedMultisigTx(t, ctx, malformedChildren...)
 
-	err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams(), nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, sdkerrors.ErrTooManySignatures)
 	require.NotContains(t, err.Error(), "invalid secp256k1 public key")
@@ -274,7 +276,7 @@ func TestCosmosStatelessChecksDoesNotAggregateTxSigLimitAcrossProvidedPubKeys(t 
 		},
 	))
 
-	err := anteante.CosmosStatelessChecks(txBuilder.GetTx(), ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	err := anteante.CosmosStatelessChecks(txBuilder.GetTx(), ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams(), nil)
 	require.NoError(t, err)
 }
 
@@ -289,9 +291,57 @@ func TestCosmosStatelessChecksRejectsDeepNestedMultisig(t *testing.T) {
 	}
 	signedTx, _ := buildNestedMultisigTx(t, ctx, nestedPubKey)
 
-	err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams(), nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "multisig public key nesting exceeds limit")
+}
+
+// TestCosmosStatelessChecksRefusesDisabledMsgTypes checks a transaction carrying a test
+// message and a bank send against disabled type URL lists naming neither, another type, one
+// of them, or both.
+func TestCosmosStatelessChecksRefusesDisabledMsgTypes(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+	txConfig := app.MakeEncodingConfig().TxConfig
+	_, pubKey, addr := testdata.KeyTestPubAddr()
+	testMsg := testdata.NewTestMsg(addr)
+	send := banktypes.NewMsgSend(addr, addr, sdk.NewCoins(sdk.NewInt64Coin("usei", 1)))
+	txBuilder := txConfig.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(testMsg, send))
+	txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
+	txBuilder.SetGasLimit(testdata.NewTestGasLimit())
+	require.NoError(t, txBuilder.SetSignatures(signing.SignatureV2{
+		PubKey:   pubKey,
+		Data:     &signing.SingleSignatureData{SignMode: txConfig.SignModeHandler().DefaultMode()},
+		Sequence: 0,
+	}))
+
+	specs := map[string]struct {
+		disabled   []string
+		expRefused string
+	}{
+		"nothing disabled":      {},
+		"another type disabled": {disabled: []string{sdk.MsgTypeURL(&stakingtypes.MsgDelegate{})}},
+		"the bank send disabled": {
+			disabled:   []string{sdk.MsgTypeURL(send)},
+			expRefused: sdk.MsgTypeURL(send),
+		},
+		"both messages disabled": {
+			disabled:   []string{sdk.MsgTypeURL(send), sdk.MsgTypeURL(testMsg)},
+			expRefused: sdk.MsgTypeURL(testMsg),
+		},
+	}
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			err := anteante.CosmosStatelessChecks(txBuilder.GetTx(), ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams(), spec.disabled)
+			if spec.expRefused == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, sdkerrors.ErrMsgTypeDisabled)
+			require.Contains(t, err.Error(), spec.expRefused)
+		})
+	}
 }
 
 func TestCheckPubKeysRejectsInvalidNestedMultisigKey(t *testing.T) {

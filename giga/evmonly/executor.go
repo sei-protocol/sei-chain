@@ -18,7 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -34,7 +34,7 @@ type Executor struct {
 	customContracts map[common.Address]vm.CustomPrecompiledContract
 	storeMu         sync.Mutex
 	stateStore      gigatypes.StateDB
-	receiptStore    receipt.ReceiptStore
+	receiptStore    receiptdb.ReceiptStore
 	receiptHasher   *receipthash.ReceiptHasher
 	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
@@ -76,11 +76,11 @@ func WithMissingAccountState(state StateReader) Option {
 	}
 }
 
-// WithGenesisAlloc credits each account its balance in alloc at the start of
-// block height, before any begin blocker runs. NewExecutor panics if it is
-// combined with WithMissingAccountState, whose balances the alloc would be
-// credited on top of.
-func WithGenesisAlloc(height uint64, alloc map[common.Address]*uint256.Int) Option {
+// WithGenesisAlloc sets up each account in alloc at the start of block height,
+// before any begin blocker runs. NewExecutor panics if it is combined with
+// WithMissingAccountState, whose balances the alloc would be credited on top
+// of.
+func WithGenesisAlloc(height uint64, alloc map[common.Address]GenesisAccount) Option {
 	return func(e *Executor) {
 		e.genesis = newGenesisAlloc(height, alloc)
 	}

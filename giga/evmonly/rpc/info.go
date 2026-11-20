@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/big"
 
+	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gmath "github.com/ethereum/go-ethereum/common/math"
@@ -13,8 +15,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -36,7 +38,7 @@ const (
 
 type infoAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 }
 
 // BlockNumber returns the height of the most recently committed block.
@@ -177,7 +179,7 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 }
 
 // earliestRetainedHeight returns the lowest block height store retains.
-func earliestRetainedHeight(store receiptpkg.ReceiptStore) int64 {
+func earliestRetainedHeight(store receiptdb.ReceiptStore) int64 {
 	if store == nil {
 		return earliestCommittedHeight
 	}
@@ -233,7 +235,7 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		}
 		stats, err := api.blockStatsForHeight(ctx, height, rewardPercentiles)
 		if err != nil {
-			if errors.Is(err, receiptpkg.ErrNotFound) {
+			if errors.Is(err, receiptdb.ErrNotFound) {
 				if result.OldestBlock != nil {
 					// A hole after rows are emitted restarts the accumulation, keeping the
 					// result a contiguous run.
@@ -290,20 +292,20 @@ func gasUsedRatio(totalGasUsed, gasLimit uint64) float64 {
 
 // blockStatsForHeight answers height's BlockStats: cached when it covers every requested
 // percentile, otherwise recomputed from receipts (including on ErrBlockStatsNotSupported).
-func (api *infoAPI) blockStatsForHeight(ctx context.Context, height int64, rewardPercentiles []float64) (receiptpkg.BlockStats, error) {
+func (api *infoAPI) blockStatsForHeight(ctx context.Context, height int64, rewardPercentiles []float64) (receipttypes.BlockStats, error) {
 	stats, err := api.store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
 	switch {
 	case err == nil && coversRewardPercentiles(stats, rewardPercentiles):
 		return stats, nil
-	case err != nil && !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported):
-		return receiptpkg.BlockStats{}, err
+	case err != nil && !errors.Is(err, receiptdb.ErrBlockStatsNotSupported):
+		return receipttypes.BlockStats{}, err
 	}
 	return api.recomputeBlockStats(ctx, height, rewardPercentiles)
 }
 
 // coversRewardPercentiles reports whether stats alone answers every one of rewardPercentiles: a
 // block with no reward-eligible receipts always does, at zero.
-func coversRewardPercentiles(stats receiptpkg.BlockStats, rewardPercentiles []float64) bool {
+func coversRewardPercentiles(stats receipttypes.BlockStats, rewardPercentiles []float64) bool {
 	if len(rewardPercentiles) == 0 || len(stats.RewardPercentiles) == 0 {
 		return true
 	}
@@ -316,23 +318,23 @@ func coversRewardPercentiles(stats receiptpkg.BlockStats, rewardPercentiles []fl
 }
 
 // recomputeBlockStats answers height's BlockStats by reading its receipts directly and running
-// gigareceipt.ComputeBlockStats over exactly rewardPercentiles, with each receipt's reward its
+// receiptmetrics.ComputeBlockStats over exactly rewardPercentiles, with each receipt's reward its
 // priority fee above the block's base fee.
-func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewardPercentiles []float64) (receiptpkg.BlockStats, error) {
+func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewardPercentiles []float64) (receipttypes.BlockStats, error) {
 	baseFee, err := blockBaseFee(ctx, api.backend, api.store, height)
 	if err != nil {
-		return receiptpkg.BlockStats{}, err
+		return receipttypes.BlockStats{}, err
 	}
 	records, err := api.receiptRecordsForHeight(ctx, height)
 	if err != nil {
-		return receiptpkg.BlockStats{}, err
+		return receipttypes.BlockStats{}, err
 	}
 	for i := range records {
 		if price := records[i].Receipt.EffectiveGasPrice; price != 0 {
 			records[i].Reward = evmonly.PriorityFee(new(big.Int).SetUint64(price), baseFee)
 		}
 	}
-	stats := gigareceipt.ComputeBlockStats(records, rewardPercentiles)
+	stats := receiptmetrics.ComputeBlockStats(records, rewardPercentiles)
 	stats.BaseFee = baseFee
 	return stats, nil
 }
@@ -340,9 +342,9 @@ func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewar
 // receiptRecordsForHeight answers height's receipts via IterateReceipts when the store supports
 // it — each one already scoped to height by the iterator's own BlockNumber, not trusted from a
 // tx-hash lookup — falling back to decoding the block and fetching receipts by hash otherwise.
-func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) ([]receiptpkg.ReceiptRecord, error) {
+func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) ([]receipttypes.ReceiptRecord, error) {
 	records, err := receiptRecordsFromIterator(ctx, api.store, height)
-	if !errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+	if !errors.Is(err, receiptdb.ErrRangeQueryNotSupported) {
 		return records, err
 	}
 	blockHeight := coretypes.Int64(height)
@@ -358,9 +360,9 @@ func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) (
 
 // blockReceiptRecords returns the receipts stored for block, in transaction
 // index order.
-func blockReceiptRecords(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) ([]receiptpkg.ReceiptRecord, error) {
+func blockReceiptRecords(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) ([]receipttypes.ReceiptRecord, error) {
 	records, err := receiptRecordsFromIterator(ctx, store, block.Block.Height)
-	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+	if errors.Is(err, receiptdb.ErrRangeQueryNotSupported) {
 		return receiptRecordsFromBlock(ctx, store, block)
 	}
 	return records, err
@@ -368,13 +370,13 @@ func blockReceiptRecords(ctx context.Context, store receiptpkg.ReceiptStore, blo
 
 // receiptRecordsFromIterator answers height's receipts by walking IterateReceipts from height,
 // stopping at the first receipt belonging to a later block (or immediately, for an empty block).
-func receiptRecordsFromIterator(ctx context.Context, store receiptpkg.ReceiptStore, height int64) ([]receiptpkg.ReceiptRecord, error) {
+func receiptRecordsFromIterator(ctx context.Context, store receiptdb.ReceiptStore, height int64) ([]receipttypes.ReceiptRecord, error) {
 	it, err := store.IterateReceipts(uint64(height)) //nolint:gosec // G115: height is positive here.
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = it.Close() }()
-	var records []receiptpkg.ReceiptRecord
+	var records []receipttypes.ReceiptRecord
 	for {
 		ok, err := it.Next()
 		if err != nil {
@@ -393,9 +395,9 @@ func receiptRecordsFromIterator(ctx context.Context, store receiptpkg.ReceiptSto
 
 // receiptRecordsFromBlock answers block's receipts by decoding its body and fetching each
 // transaction's receipt by hash, for a store whose IterateReceipts is unsupported.
-func receiptRecordsFromBlock(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) ([]receiptpkg.ReceiptRecord, error) {
+func receiptRecordsFromBlock(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) ([]receipttypes.ReceiptRecord, error) {
 	height := block.Block.Height
-	records := make([]receiptpkg.ReceiptRecord, 0, len(block.Block.Txs))
+	records := make([]receipttypes.ReceiptRecord, 0, len(block.Block.Txs))
 	for i, txbz := range block.Block.Txs {
 		tx, err := decodeBlockTx(txbz, height, i)
 		if err != nil {
@@ -417,13 +419,13 @@ func receiptRecordsFromBlock(ctx context.Context, store receiptpkg.ReceiptStore,
 }
 
 // receiptRecordFor builds the ReceiptRecord of a stored receipt, without a reward.
-func receiptRecordFor(hash common.Hash, stored *evmtypes.Receipt) receiptpkg.ReceiptRecord {
-	return receiptpkg.ReceiptRecord{TxHash: hash, Receipt: stored}
+func receiptRecordFor(hash common.Hash, stored *evmtypes.Receipt) receipttypes.ReceiptRecord {
+	return receipttypes.ReceiptRecord{TxHash: hash, Receipt: stored}
 }
 
 // rewardRow formats stats into the reward row eth_feeHistory returns for rewardPercentiles. stats
 // must already cover every requested percentile (see blockStatsForHeight).
-func rewardRow(stats receiptpkg.BlockStats, rewardPercentiles []float64) []*hexutil.Big {
+func rewardRow(stats receipttypes.BlockStats, rewardPercentiles []float64) []*hexutil.Big {
 	row := make([]*hexutil.Big, len(rewardPercentiles))
 	for i, p := range rewardPercentiles {
 		reward, _ := stats.RewardAt(p)

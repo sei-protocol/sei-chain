@@ -19,8 +19,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/littidx"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -81,11 +82,11 @@ func writeBlockLedger(t *testing.T, cfg *config.GigaStorageConfig, through uint6
 	require.NoError(t, err)
 	defer func() { require.NoError(t, blockStore.Close()) }()
 	rng := utils.TestRng()
-	for index := autobahn.RoadIndex(1); index <= autobahn.RoadIndex(through); index++ {
-		block := autobahn.GenBlock(rng)
-		qc := autobahn.GenFullCommitQCAt(rng, index, 1)
-		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
-		require.NoError(t, blockStore.WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.Block{block})))
+	for height := autobahn.RoadHeight(1); height <= autobahn.RoadHeight(through); height++ {
+		block := autobahn.GenLaneBlock(rng)
+		qc := autobahn.GenFullCommitQCAt(rng, height, 1)
+		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.LaneBlockHeader{block.Header()})
+		require.NoError(t, blockStore.WriteBlock(autobahn.NewRoadBlock(qc, []*autobahn.LaneBlock{block})))
 	}
 }
 
@@ -180,14 +181,14 @@ func truncateWAL(t *testing.T, cfg *config.GigaStorageConfig, last uint64) {
 // receipts back has to write bodies rather than only stamp a head.
 func writeReceipts(t *testing.T, cfg *config.GigaStorageConfig, through uint64) {
 	t.Helper()
-	receiptDB, err := gigareceipt.NewReceiptStore(cfg.ReceiptDBConfig, nil)
+	receiptDB, err := littidx.NewReceiptStore(cfg.ReceiptDBConfig, nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, receiptDB.Close()) }()
 	storeKey := storetypes.NewKVStoreKey("evm")
 	ctx := testutil.DefaultContext(storeKey, storetypes.NewTransientStoreKey("evm_transient"))
 	for block := uint64(1); block <= through; block++ {
 		txHash := common.BigToHash(new(big.Int).SetUint64(block))
-		records := []receipt.ReceiptRecord{{
+		records := []receipttypes.ReceiptRecord{{
 			TxHash: txHash,
 			Receipt: &evmtypes.Receipt{
 				TxHashHex:   txHash.Hex(),

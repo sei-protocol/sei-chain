@@ -9,7 +9,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 )
 
 // A block's base fee is the one its stats recorded; without one, the latest committed block's,
@@ -32,11 +33,11 @@ func TestBlockBaseFee(t *testing.T) {
 }
 
 type failingBlockStatsStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 }
 
-func (failingBlockStatsStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
-	return receipt.BlockStats{}, errors.New("disk failed")
+func (failingBlockStatsStore) GetBlockStats(sdk.Context, uint64) (receipttypes.BlockStats, error) {
+	return receipttypes.BlockStats{}, errors.New("disk failed")
 }
 
 func TestBlockBaseFeeReturnsAStoreError(t *testing.T) {

@@ -60,9 +60,9 @@ func TestBlockStore(t *testing.T) {
 func runContract(t *testing.T, build builder) {
 	t.Run("EmptyDB", func(t *testing.T) { testEmptyDB(t, build) })
 	t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, build) })
-	t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, build) })
-	t.Run("AppProposalByBlockNumber", func(t *testing.T) { testAppProposalByBlockNumber(t, build) })
-	t.Run("AppQCByBlockNumber", func(t *testing.T) { testAppQCByBlockNumber(t, build) })
+	t.Run("QCByHeight", func(t *testing.T) { testQCByHeight(t, build) })
+	t.Run("AppProposalByHeight", func(t *testing.T) { testAppProposalByHeight(t, build) })
+	t.Run("AppQCByHeight", func(t *testing.T) { testAppQCByHeight(t, build) })
 	t.Run("ReadSuffix", func(t *testing.T) { testReadSuffix(t, build) })
 	t.Run("SuffixSnapshot", func(t *testing.T) { testSuffixSnapshot(t, build) })
 	t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, build) })
@@ -143,7 +143,7 @@ func testEmptyDB(t *testing.T, build builder) {
 // iterEntry is one position observed while draining an iterator.
 type iterEntry struct {
 	// n is the position's block number.
-	n types.RoadIndex
+	n types.RoadHeight
 
 	// qc is the covering QC at the position (never nil).
 	qc *types.FullCommitQC
@@ -172,20 +172,20 @@ func drainSuffix(t *testing.T, db *Store) []iterEntry {
 	}).First
 	for _, group := range suffix.Blocks {
 		qc := group.QC()
-		if qc.Index() >= floor {
-			entries = append(entries, iterEntry{n: qc.Index(), qc: qc, blk: group.SuperBlock()})
+		if qc.Height() >= floor {
+			entries = append(entries, iterEntry{n: qc.Height(), qc: qc, blk: group.SuperBlock()})
 		}
 	}
 	for _, appQC := range suffix.AppQCs {
 		for i := range entries {
-			if entries[i].n == appQC.Proposal().Index() {
+			if entries[i].n == appQC.Proposal().Height() {
 				entries[i].appQC = appQC
 			}
 		}
 	}
 	for _, appProposal := range suffix.AppProposals {
 		for i := range entries {
-			if entries[i].n == appProposal.Index() {
+			if entries[i].n == appProposal.Height() {
 				entries[i].appProposal = appProposal
 			}
 		}
@@ -194,10 +194,10 @@ func drainSuffix(t *testing.T, db *Store) []iterEntry {
 }
 
 // qcFirsts returns the distinct covering-QC Firsts across entries, in encounter order.
-func qcFirsts(entries []iterEntry) []types.RoadIndex {
-	var firsts []types.RoadIndex
+func qcFirsts(entries []iterEntry) []types.RoadHeight {
+	var firsts []types.RoadHeight
 	for _, e := range entries {
-		first := e.qc.Index()
+		first := e.qc.Height()
 		if len(firsts) == 0 || firsts[len(firsts)-1] != first {
 			firsts = append(firsts, first)
 		}
@@ -205,9 +205,9 @@ func qcFirsts(entries []iterEntry) []types.RoadIndex {
 	return firsts
 }
 
-// presentBlockNumbers returns the numbers of entries whose block is present, in encounter order.
-func presentBlockNumbers(entries []iterEntry) []types.RoadIndex {
-	var nums []types.RoadIndex
+// presentHeights returns the numbers of entries whose block is present, in encounter order.
+func presentHeights(entries []iterEntry) []types.RoadHeight {
+	var nums []types.RoadHeight
 	for _, e := range entries {
 		if e.blk != nil {
 			nums = append(nums, e.n)
@@ -270,7 +270,7 @@ func assertTipsMatchPresent(t *testing.T, db *Store) {
 		require.NoError(t, err)
 		got, ok := qc.Get()
 		require.True(t, ok, "NextBlock must point past a readable QC")
-		require.Equal(t, tips.NextBlock, got.Index()+1)
+		require.Equal(t, tips.NextBlock, got.Height()+1)
 	}
 
 	if tips.NextAppQC > tips.First {
@@ -278,14 +278,14 @@ func assertTipsMatchPresent(t *testing.T, db *Store) {
 		require.NoError(t, err)
 		got, ok := appQC.Get()
 		require.True(t, ok, "NextAppQC must point past a readable AppQC")
-		require.Equal(t, tips.NextAppQC, got.Proposal().Index()+1)
+		require.Equal(t, tips.NextAppQC, got.Proposal().Height()+1)
 	}
 	if tips.NextAppProposal > tips.First {
 		appProposal, err := db.ReadAppProposal(tips.NextAppProposal - 1)
 		require.NoError(t, err)
 		got, ok := appProposal.Get()
 		require.True(t, ok, "NextAppProposal must point past a readable AppProposal")
-		require.Equal(t, tips.NextAppProposal, got.Index()+1)
+		require.Equal(t, tips.NextAppProposal, got.Height()+1)
 	}
 }
 
@@ -308,7 +308,7 @@ func testReadRoundTrip(t *testing.T, build builder) {
 	require.False(t, missHash.IsPresent())
 }
 
-func testQCByBlockNumber(t *testing.T, build builder) {
+func testQCByHeight(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, _ := openFresh(t, build)
@@ -323,7 +323,7 @@ func testQCByBlockNumber(t *testing.T, build builder) {
 	require.False(t, miss.IsPresent())
 }
 
-func testAppProposalByBlockNumber(t *testing.T, build builder) {
+func testAppProposalByHeight(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, o := openFresh(t, build)
@@ -340,11 +340,11 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	}
 
 	for _, appProposal := range appProposals {
-		opt, err := db.ReadAppProposal(appProposal.Index())
+		opt, err := db.ReadAppProposal(appProposal.Height())
 		require.NoError(t, err)
 		got, ok := opt.Get()
-		require.True(t, ok, "AppProposal covering %d should exist", appProposal.Index())
-		require.Equal(t, appProposal.Index(), got.Index())
+		require.True(t, ok, "AppProposal covering %d should exist", appProposal.Height())
+		require.Equal(t, appProposal.Height(), got.Height())
 		require.Equal(t, appProposal.AppHash(), got.AppHash())
 	}
 	miss, err := db.ReadAppProposal(batches[2].first)
@@ -369,15 +369,15 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	assertTipsMatchPresent(t, db)
 
 	for _, appProposal := range appProposals {
-		opt, err := db.ReadAppProposal(appProposal.Index())
+		opt, err := db.ReadAppProposal(appProposal.Height())
 		require.NoError(t, err)
 		got, ok := opt.Get()
-		require.True(t, ok, "AppProposal %d must survive restart", appProposal.Index())
-		require.Equal(t, appProposal.Index(), got.Index())
+		require.True(t, ok, "AppProposal %d must survive restart", appProposal.Height())
+		require.Equal(t, appProposal.Height(), got.Height())
 	}
 }
 
-func testAppQCByBlockNumber(t *testing.T, build builder) {
+func testAppQCByHeight(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, o := openFresh(t, build)
@@ -395,11 +395,11 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	}
 
 	for _, appQC := range appQCs {
-		opt, err := db.ReadAppQC(appQC.Proposal().Index())
+		opt, err := db.ReadAppQC(appQC.Proposal().Height())
 		require.NoError(t, err)
 		got, ok := opt.Get()
-		require.True(t, ok, "AppQC covering %d should exist", appQC.Proposal().Index())
-		require.Equal(t, appQC.Proposal().Index(), got.Proposal().Index())
+		require.True(t, ok, "AppQC covering %d should exist", appQC.Proposal().Height())
+		require.Equal(t, appQC.Proposal().Height(), got.Proposal().Height())
 		require.Equal(t, appQC.Proposal().AppHash(), got.Proposal().AppHash())
 	}
 	miss, err := db.ReadAppQC(batches[2].first)
@@ -424,11 +424,11 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	assertTipsMatchPresent(t, db)
 
 	for _, appQC := range appQCs {
-		opt, err := db.ReadAppQC(appQC.Proposal().Index())
+		opt, err := db.ReadAppQC(appQC.Proposal().Height())
 		require.NoError(t, err)
 		got, ok := opt.Get()
-		require.True(t, ok, "AppQC %d must survive restart", appQC.Proposal().Index())
-		require.Equal(t, appQC.Proposal().Index(), got.Proposal().Index())
+		require.True(t, ok, "AppQC %d must survive restart", appQC.Proposal().Height())
+		require.Equal(t, appQC.Proposal().Height(), got.Proposal().Height())
 	}
 }
 
@@ -503,13 +503,13 @@ func testReadSuffix(t *testing.T, build builder) {
 	require.Equal(t, status(t, db), suffix.Status.OrPanic("suffix status"))
 	require.NotEmpty(t, suffix.AppQCs)
 	gotAppQC := suffix.AppQCs[0]
-	require.Equal(t, appQC.Proposal().Index(), gotAppQC.Proposal().Index())
+	require.Equal(t, appQC.Proposal().Height(), gotAppQC.Proposal().Height())
 	entries := drainSuffix(t, db)
-	recoveryFloor := appQC.Proposal().Index()
-	require.Equal(t, []types.RoadIndex{batches[0].first, batches[1].first, batches[2].first}, qcFirsts(entries))
-	require.Equal(t, batches[2].next-recoveryFloor, types.RoadIndex(len(entries)))
+	recoveryFloor := appQC.Proposal().Height()
+	require.Equal(t, []types.RoadHeight{batches[0].first, batches[1].first, batches[2].first}, qcFirsts(entries))
+	require.Equal(t, batches[2].next-recoveryFloor, types.RoadHeight(len(entries)))
 	require.Equal(t, recoveryFloor, entries[0].n)
-	require.Len(t, presentBlockNumbers(entries), int(batches[2].next-recoveryFloor))
+	require.Len(t, presentHeights(entries), int(batches[2].next-recoveryFloor))
 }
 
 func testWriteOrderRejected(t *testing.T, build builder) {
@@ -519,8 +519,8 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	defer func() { _ = db.Close() }()
 	b0 := batches[0]
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(b0.qc, b0.blocks)))
-	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(b0.qc, b0.blocks)), types.ErrUnexpectedIndex)
-	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(batches[2].qc, batches[2].blocks)), types.ErrUnexpectedIndex)
+	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(b0.qc, b0.blocks)), types.ErrUnexpectedHeight)
+	require.ErrorIs(t, db.WriteBlock(types.NewRoadBlock(batches[2].qc, batches[2].blocks)), types.ErrUnexpectedHeight)
 	assertBlocksReadable(t, db, batches[:1])
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(batches[1].qc, batches[1].blocks)))
 	assertBlocksReadable(t, db, batches[:2])
@@ -552,17 +552,17 @@ func testWriteAppProposalOrderRejected(t *testing.T, build builder) {
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(b0.qc, b0.blocks)))
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(b1.qc, b1.blocks)))
 	err = db.WriteAppProposal(appProposalForBatch(rng, b1))
-	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "first AppProposal must start at retained QC floor")
+	require.ErrorIs(t, err, types.ErrUnexpectedHeight, "first AppProposal must start at retained QC floor")
 
 	appProposal0 := appProposalForBatch(rng, b0)
 	require.NoError(t, db.WriteAppProposal(appProposal0))
 
 	err = db.WriteAppProposal(appProposal0)
-	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "duplicate AppProposal write must fail")
+	require.ErrorIs(t, err, types.ErrUnexpectedHeight, "duplicate AppProposal write must fail")
 
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(b2.qc, b2.blocks)))
 	err = db.WriteAppProposal(appProposalForBatch(rng, b2))
-	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "AppProposal gap must fail")
+	require.ErrorIs(t, err, types.ErrUnexpectedHeight, "AppProposal gap must fail")
 
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	tips := status(t, db)
@@ -593,13 +593,13 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 	require.NoError(t, db.WriteAppQC(appQC0))
 
 	err = db.WriteAppQC(appQC0)
-	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "duplicate AppQC write must fail")
+	require.ErrorIs(t, err, types.ErrUnexpectedHeight, "duplicate AppQC write must fail")
 
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(b2.qc, b2.blocks)))
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b2)))
 	err = db.WriteAppQC(appQCForBatch(rng, keys, b2))
-	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "AppQC gap must fail")
+	require.ErrorIs(t, err, types.ErrUnexpectedHeight, "AppQC gap must fail")
 
 	require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b1)))
 	tips := status(t, db)
@@ -630,7 +630,7 @@ func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
 
 	// A reopened store rejects an already-persisted QC and its blocks.
 	err := db.WriteBlock(types.NewRoadBlock(last.qc, last.blocks))
-	require.ErrorIs(t, err, types.ErrUnexpectedIndex)
+	require.ErrorIs(t, err, types.ErrUnexpectedHeight)
 
 	// The contiguous continuation is accepted — this succeeds only if the cursors
 	// were recovered to their exact pre-restart values.
@@ -669,17 +669,17 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 	prevQC, ok := recoverLastQC(t, db)
 	require.True(t, ok)
-	require.Equal(t, last.first, prevQC.Index(), "recovered QC must be the last persisted QC")
-	require.Equal(t, last.next, prevQC.Index()+1)
+	require.Equal(t, last.first, prevQC.Height(), "recovered QC must be the last persisted QC")
+	require.Equal(t, last.next, prevQC.Height()+1)
 
 	tips := status(t, db)
 	require.Equal(t, highest+1, tips.NextBlock, "Status block tip must match the iterator scan")
-	require.Equal(t, prevQC.Index()+1, tips.NextBlock, "Status QC tip must match the iterator scan")
+	require.Equal(t, prevQC.Height()+1, tips.NextBlock, "Status QC tip must match the iterator scan")
 	covering, err := db.ReadQC(tips.NextBlock - 1)
 	require.NoError(t, err)
 	got, ok := covering.Get()
 	require.True(t, ok, "the newest QC must be resolvable by point read (blocksim's resume path)")
-	require.Equal(t, last.first, got.Index())
+	require.Equal(t, last.first, got.Height())
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
@@ -692,9 +692,9 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 // recoverHighestBlock returns the highest persisted block number via a full
 // iterator scan (false if the store has no blocks). Test-side independent
 // verification; production resume uses Status (see blocksim.recoverResumeState).
-func recoverHighestBlock(t *testing.T, db *Store) (types.RoadIndex, bool) {
+func recoverHighestBlock(t *testing.T, db *Store) (types.RoadHeight, bool) {
 	t.Helper()
-	present := presentBlockNumbers(drainSuffix(t, db))
+	present := presentHeights(drainSuffix(t, db))
 	if len(present) == 0 {
 		return 0, false
 	}
@@ -733,9 +733,9 @@ func testWriteEmptyQC(t *testing.T, build builder) {
 	defer func() { _ = db.Close() }()
 	qc := types.GenFullCommitQCAt(rng, 0, 0)
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, nil)))
-	require.Equal(t, types.RoadIndex(1), status(t, db).NextBlock)
+	require.Equal(t, types.RoadHeight(1), status(t, db).NextBlock)
 	db = restart(t, reopen, db)
-	block, err := db.ReadBlock(qc.Index())
+	block, err := db.ReadBlock(qc.Height())
 	require.NoError(t, err)
 	got, ok := block.Get()
 	require.True(t, ok)
@@ -762,18 +762,18 @@ func assertSuperBlocksEqual(t *testing.T, want, got *types.SuperBlock) {
 
 func assertBlocksReadable(t *testing.T, db *Store, batches []batch) {
 	for _, b := range batches {
-		for offset, laneBlock := range b.blocks {
-			opt, err := db.ReadLaneBlock(types.LaneBlockPos{Index: b.first, Offset: uint64(offset)})
+		for offset, block := range b.blocks {
+			opt, err := db.ReadLaneBlock(types.LaneBlockPos{Height: b.first, Offset: uint64(offset)})
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok)
-			require.Equal(t, laneBlock.Header().Hash(), got.Header().Hash())
-			require.Equal(t, laneBlock.Payload().Txs(), got.Payload().Txs())
-			alias, err := db.ReadBlockByHash(types.RoadBlockHeaderHash(laneBlock.Header().Hash()))
+			require.Equal(t, block.Header().Hash(), got.Header().Hash())
+			require.Equal(t, block.Payload().Txs(), got.Payload().Txs())
+			alias, err := db.ReadBlockByHash(types.RoadBlockHeaderHash(block.Header().Hash()))
 			require.NoError(t, err)
 			require.False(t, alias.IsPresent(), "lane block hashes must not index SuperBlocks")
 		}
-		missing, err := db.ReadLaneBlock(types.LaneBlockPos{Index: b.first, Offset: uint64(len(b.blocks))})
+		missing, err := db.ReadLaneBlock(types.LaneBlockPos{Height: b.first, Offset: uint64(len(b.blocks))})
 		require.NoError(t, err)
 		require.False(t, missing.IsPresent())
 		for i, blk := range b.superBlocks() {
@@ -786,8 +786,8 @@ func assertBlocksReadable(t *testing.T, db *Store, batches []batch) {
 			assertSuperBlocksEqual(t, blk, got.SuperBlock())
 			require.Equal(t, types.FullCommitQCConv.Encode(b.qc), types.FullCommitQCConv.Encode(got.QC()))
 			require.Len(t, got.LaneBlocks(), len(b.blocks))
-			for offset, laneBlock := range b.blocks {
-				require.Equal(t, types.BlockConv.Encode(laneBlock), types.BlockConv.Encode(got.LaneBlocks()[offset]))
+			for offset, block := range b.blocks {
+				require.Equal(t, types.LaneBlockConv.Encode(block), types.LaneBlockConv.Encode(got.LaneBlocks()[offset]))
 			}
 
 			byHash, err := db.ReadBlockByHash(b.qc.Header().Hash())
@@ -795,18 +795,18 @@ func assertBlocksReadable(t *testing.T, db *Store, batches []batch) {
 			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")
 			assertSuperBlocksEqual(t, blk, bwn.SuperBlock())
-			require.Equal(t, n, bwn.QC().Index(), "block %d hash lookup should return its number", n)
+			require.Equal(t, n, bwn.QC().Height(), "block %d hash lookup should return its number", n)
 		}
 	}
 }
 
 func assertQCsReadable(t *testing.T, db *Store, committee *types.Committee, batches []batch) {
 	for _, b := range batches {
-		opt, err := db.ReadQC(b.qc.Index())
+		opt, err := db.ReadQC(b.qc.Height())
 		require.NoError(t, err)
 		got, ok := opt.Get()
-		require.True(t, ok, "QC covering %d should exist", b.qc.Index())
-		require.Equal(t, b.qc.Index(), got.Index())
+		require.True(t, ok, "QC covering %d should exist", b.qc.Height())
+		require.Equal(t, b.qc.Height(), got.Height())
 		require.Len(t, got.Headers(), len(b.qc.Headers()), "QC must round-trip its full header set")
 		for j := range b.qc.Headers() {
 			require.Equal(t, b.qc.Headers()[j].Hash(), got.Headers()[j].Hash())
@@ -830,7 +830,7 @@ func assertIterators(t *testing.T, db *Store, committee *types.Committee, batche
 		require.NotNil(t, e.blk, "every covered number has a block in a fully-written store")
 	}
 
-	wantFirsts := make([]types.RoadIndex, 0, len(batches))
+	wantFirsts := make([]types.RoadHeight, 0, len(batches))
 	for _, b := range batches {
 		wantFirsts = append(wantFirsts, b.first)
 	}
@@ -855,15 +855,15 @@ var genesisTime = time.Unix(1_700_000_000, 0)
 // batch is a SuperBlock at First with its CommitQC and ordered lane blocks.
 // Next is First+1.
 type batch struct {
-	first  types.RoadIndex
-	next   types.RoadIndex
-	blocks []*types.Block
+	first  types.RoadHeight
+	next   types.RoadHeight
+	blocks []*types.LaneBlock
 	qc     *types.FullCommitQC
 }
 
-// GBN converts a non-negative slice index to a RoadIndex offset.
-func gbn(i int) types.RoadIndex {
-	return types.RoadIndex(i) //nolint:gosec // i is a non-negative slice index
+// GBN converts a non-negative slice index to a RoadHeight offset.
+func gbn(i int) types.RoadHeight {
+	return types.RoadHeight(i) //nolint:gosec // i is a non-negative slice index
 }
 
 // writeAll persists every batch's QC atomically with its blocks.
@@ -897,7 +897,7 @@ func generateBatches(committee *types.Committee, keys []types.SecretKey) []batch
 	batches := make([]batch, 0, numBatches)
 	for range numBatches {
 		fqc, blocks := buildFullCommitQC(rng, committee, keys, prev)
-		batches = append(batches, batch{first: fqc.Index(), next: fqc.Index() + 1, blocks: blocks, qc: fqc})
+		batches = append(batches, batch{first: fqc.Height(), next: fqc.Height() + 1, blocks: blocks, qc: fqc})
 		prev = utils.Some(fqc.QC())
 	}
 	return batches
@@ -908,22 +908,22 @@ func buildFullCommitQC(
 	committee *types.Committee,
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
-) (*types.FullCommitQC, []*types.Block) {
-	blocks := map[types.LaneID][]*types.Block{}
-	makeBlock := func(producer types.LaneID) *types.Block {
+) (*types.FullCommitQC, []*types.LaneBlock) {
+	blocks := map[types.LaneID][]*types.LaneBlock{}
+	makeBlock := func(producer types.LaneID) *types.LaneBlock {
 		if bs := blocks[producer]; len(bs) > 0 {
 			parent := bs[len(bs)-1]
-			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+			return types.NewLaneBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
 		}
-		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+		return types.NewLaneBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenLaneBlockHeaderHash(rng), types.GenPayload(rng))
 	}
 	for range blocksPerQC {
 		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
 		blocks[producer] = append(blocks[producer], makeBlock(producer))
 	}
 	laneQCs := map[types.LaneID]*types.LaneQC{}
-	var headers []*types.BlockHeader
-	var blockList []*types.Block
+	var headers []*types.LaneBlockHeader
+	var blockList []*types.LaneBlock
 	for lane := range committee.Lanes().All() {
 		if bs := blocks[lane]; len(bs) > 0 {
 			laneQCs[lane] = testLaneQC(keys, bs[len(bs)-1].Header())
@@ -938,8 +938,8 @@ func buildFullCommitQC(
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
 
-func testLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
-	vote := types.NewLaneVote(header)
+func testLaneQC(keys []types.SecretKey, header *types.LaneBlockHeader) *types.LaneQC {
+	vote := types.NewLaneVote(0, header)
 	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))
@@ -989,7 +989,7 @@ func testSuffixSnapshot(t *testing.T, build builder) {
 	after, err := db.ReadSuffix()
 	require.NoError(t, err)
 	require.Len(t, after.Blocks, 1)
-	require.Equal(t, batches[1].first, after.Blocks[0].QC().Index())
+	require.Equal(t, batches[1].first, after.Blocks[0].QC().Height())
 }
 
 func TestFailedFirstWriteKeepsStoreEmpty(t *testing.T) {
@@ -1045,13 +1045,13 @@ func TestTableDirectoryName(t *testing.T) {
 func storageBlocks(rng utils.Rng, count, lanes int) []*types.RoadBlock {
 	blocks := make([]*types.RoadBlock, count)
 	for n := range blocks {
-		laneBlocks := make([]*types.Block, lanes)
-		headers := make([]*types.BlockHeader, lanes)
+		laneBlocks := make([]*types.LaneBlock, lanes)
+		headers := make([]*types.LaneBlockHeader, lanes)
 		for i := range laneBlocks {
-			laneBlocks[i] = types.GenBlock(rng)
+			laneBlocks[i] = types.GenLaneBlock(rng)
 			headers[i] = laneBlocks[i].Header()
 		}
-		qc := types.GenFullCommitQCAt(rng, types.RoadIndex(n), lanes)
+		qc := types.GenFullCommitQCAt(rng, types.RoadHeight(n), lanes)
 		qc = types.NewFullCommitQC(qc.QC(), headers)
 		blocks[n] = types.NewRoadBlock(qc, laneBlocks)
 	}
@@ -1082,7 +1082,7 @@ func requireStorageBlock(t *testing.T, want, got *types.RoadBlock) {
 	require.Equal(t, types.FullCommitQCConv.Marshal(want.QC()), types.FullCommitQCConv.Marshal(got.QC()))
 	require.Len(t, got.LaneBlocks(), len(want.LaneBlocks()))
 	for i, lane := range want.LaneBlocks() {
-		require.Equal(t, types.BlockConv.Marshal(lane), types.BlockConv.Marshal(got.LaneBlocks()[i]))
+		require.Equal(t, types.LaneBlockConv.Marshal(lane), types.LaneBlockConv.Marshal(got.LaneBlocks()[i]))
 	}
 }
 
@@ -1094,7 +1094,7 @@ func TestRefusesToOpenWithoutBlock(t *testing.T) {
 	block := storageBlocks(rng, 1, 1)[0]
 	proposal := types.NewAppProposal(block.QC().QC().View(), types.GenAppHash(rng))
 	// Deliberately create an invalid persisted store: an application record with no block.
-	require.NoError(t, store.table.Put((appProposalKey{Index: proposal.Index()}).encode().bytes(), types.AppProposalConv.Marshal(proposal)))
+	require.NoError(t, store.table.Put((appProposalKey{Height: proposal.Height()}).encode().bytes(), types.AppProposalConv.Marshal(proposal)))
 	require.NoError(t, store.Flush())
 	require.NoError(t, store.Close())
 	_, err := New(cfg)
@@ -1128,7 +1128,7 @@ func TestNoBlockWithoutQCAfterTornTail(t *testing.T) {
 	// a single torn tail, rather than spilling across value boundaries, only while
 	// every stored value is larger than it.
 	const tornTailBytes = 16
-	require.Greater(t, len(types.BlockConv.Marshal(blocks[len(blocks)-1].LaneBlocks()[crashPerCohort-1])), tornTailBytes,
+	require.Greater(t, len(types.LaneBlockConv.Marshal(blocks[len(blocks)-1].LaneBlocks()[crashPerCohort-1])), tornTailBytes,
 		"fixture values must exceed the torn tail, or the truncation model breaks")
 
 	valPath, metaPath := largestValueSegmentFiles(t, dir)
@@ -1239,22 +1239,22 @@ func requireEveryBlockHasItsQC(t *testing.T, store *Store, blocks []*types.RoadB
 	require.NoError(t, err)
 	count := 0
 	for i, block := range suffix.Blocks {
-		require.Equal(t, types.RoadIndex(i), block.QC().Index(), "recovery must preserve a contiguous prefix")
+		require.Equal(t, types.RoadHeight(i), block.QC().Height(), "recovery must preserve a contiguous prefix")
 		want := blocks[i]
 		requireStorageBlock(t, want, block)
 		byHash, err := store.ReadBlockByHash(want.Header().Hash())
 		require.NoError(t, err)
 		require.True(t, byHash.IsPresent())
 		requireStorageBlock(t, want, byHash.OrPanic("surviving hash"))
-		qc, err := store.ReadQC(want.QC().Index())
+		qc, err := store.ReadQC(want.QC().Height())
 		require.NoError(t, err)
 		require.True(t, qc.IsPresent())
 		require.Equal(t, types.FullCommitQCConv.Marshal(want.QC()), types.FullCommitQCConv.Marshal(qc.OrPanic("surviving QC")))
 		for offset, lane := range want.LaneBlocks() {
-			got, err := store.ReadLaneBlock(types.LaneBlockPos{Index: want.QC().Index(), Offset: uint64(offset)})
+			got, err := store.ReadLaneBlock(types.LaneBlockPos{Height: want.QC().Height(), Offset: uint64(offset)})
 			require.NoError(t, err)
 			require.True(t, got.IsPresent())
-			require.Equal(t, types.BlockConv.Marshal(lane), types.BlockConv.Marshal(got.OrPanic("surviving lane block")))
+			require.Equal(t, types.LaneBlockConv.Marshal(lane), types.LaneBlockConv.Marshal(got.OrPanic("surviving lane block")))
 			count++
 		}
 	}
@@ -1353,8 +1353,8 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 			for range 2 {
 				db = openPersistedStore(t, cfg)
 				for _, wantBlock := range blocks {
-					n := wantBlock.QC().Index()
-					want := n < types.RoadIndex(cohorts-1)
+					n := wantBlock.QC().Height()
+					want := n < types.RoadHeight(cohorts-1)
 					got, err := db.ReadBlock(n)
 					require.NoError(t, err)
 					require.Equal(t, want, got.IsPresent())
@@ -1368,7 +1368,7 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, want, byHash.IsPresent())
 					for offset := range wantBlock.LaneBlocks() {
-						lane, err := db.ReadLaneBlock(types.LaneBlockPos{Index: n, Offset: uint64(offset)})
+						lane, err := db.ReadLaneBlock(types.LaneBlockPos{Height: n, Offset: uint64(offset)})
 						require.NoError(t, err)
 						require.Equal(t, want, lane.IsPresent())
 					}

@@ -17,15 +17,15 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
 
 	// Blocks 0..1 of the lane are in the proposal, 2..3 are certified, and 4..5 lack a LaneQC.
-	parent := types.GenBlockHeaderHash(rng)
-	var tip *types.BlockHeader
-	for n := range types.BlockNumber(2) {
-		tip = types.NewBlock(lane, n, parent, types.GenPayload(rng)).Header()
+	parent := types.GenLaneBlockHeaderHash(rng)
+	var tip *types.LaneBlockHeader
+	for n := range types.LaneHeight(2) {
+		tip = types.NewLaneBlock(lane, n, parent, types.GenPayload(rng)).Header()
 		parent = tip.Hash()
 	}
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(tip)))
+		votes = append(votes, types.Sign(k, types.NewLaneVote(ep.EpochIndex(), tip)))
 	}
 	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep}}
 	proposal := utils.OrPanic1(types.NewProposalForTesting(ep.Committee(), vs, vs.NextTimestamp(), map[types.LaneID]*types.LaneQC{
@@ -58,15 +58,15 @@ func TestLaneBlockStagesPartitionThePositionsPastTheCommittedTip(t *testing.T) {
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
 
 	// The proposal covers blocks 0..3 of the lane.
-	parent := types.GenBlockHeaderHash(rng)
-	var tip *types.BlockHeader
-	for n := range types.BlockNumber(4) {
-		tip = types.NewBlock(lane, n, parent, types.GenPayload(rng)).Header()
+	parent := types.GenLaneBlockHeaderHash(rng)
+	var tip *types.LaneBlockHeader
+	for n := range types.LaneHeight(4) {
+		tip = types.NewLaneBlock(lane, n, parent, types.GenPayload(rng)).Header()
 		parent = tip.Hash()
 	}
 	var votes []*types.Signed[*types.LaneVote]
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewLaneVote(tip)))
+		votes = append(votes, types.Sign(k, types.NewLaneVote(ep.EpochIndex(), tip)))
 	}
 	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: ep}}
 	proposal := utils.OrPanic1(types.NewProposalForTesting(ep.Committee(), vs, vs.NextTimestamp(), map[types.LaneID]*types.LaneQC{
