@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
@@ -67,6 +68,23 @@ func GenesisRegistry(weights map[PublicKey]uint64, firstRoad, length RoadHeight)
 		NewEpoch(0, RoadRange{First: firstRoad, Next: firstRoad + length}, committee),
 		NewEpoch(1, RoadRange{First: firstRoad + length, Next: firstRoad + 2*length}, committee),
 	})
+}
+
+// DerivedOn reports whether road is the closing road that produced the newest epoch.
+// It reports false when the window does not retain that epoch.
+func (r *EpochRegistry) DerivedOn(road RoadHeight) bool {
+	if len(r.epochs) < keptEpochs {
+		return false
+	}
+	return road+1 == r.epochs[len(r.epochs)-keptEpochs].RoadRange().Next
+}
+
+// DiscardNewest returns the window without its newest epoch.
+func (r *EpochRegistry) DiscardNewest() (*EpochRegistry, error) {
+	if len(r.epochs) < 2 {
+		return nil, errors.New("epoch registry: no epoch to discard")
+	}
+	return newEpochRegistry(slices.Clone(r.epochs[:len(r.epochs)-1]))
 }
 
 // Advance returns the registry after road executes.
