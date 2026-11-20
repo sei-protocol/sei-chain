@@ -12,8 +12,9 @@
 # Why "handshake completed" is the success marker: a lone node cannot leave blocksync on
 # this codebase (blocksync's IsCaughtUp requires more than one peer), so block production
 # is not observable single-node. The handshake only completes after the genesis wasm
-# StoreCode calls succeed (Sei stores its built-in pointer contracts at InitChain), which
-# is exactly the code path that crashes.
+# StoreCode calls succeed, which is exactly the code path that crashes. A default genesis
+# stores no wasm, so each home is seeded with GENESIS_WASM, and a boot passes only if
+# InitChain left one compiled module per seeded code in the wasm cache.
 #
 # Linux-only (uses GNU timeout). Runs the binary natively, or through binfmt when it
 # was built for another architecture, which is how the release hook boots the arm64
@@ -31,6 +32,15 @@ BIN=${1:?usage: boot-smoke.sh <path-to-seid> [boots]}
 BOOTS=${2:-8}
 BOOT_TIMEOUT=${BOOT_TIMEOUT:-25}
 CHAIN_ID=boot-smoke-1
+
+# Stored at InitChain so every boot JIT-compiles several full-size contracts, the workload
+# the unwind crash reproduces under.
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+GENESIS_WASM=(
+  "$REPO_ROOT/contracts/wasm/cw20_base.wasm"
+  "$REPO_ROOT/contracts/wasm/cw721_base.wasm"
+  "$REPO_ROOT/contracts/wasm/cw1155_base.wasm"
+)
 
 # Linux-only: this gate runs the binary natively and uses GNU timeout. Skip cleanly on
 # other hosts so local `goreleaser release --snapshot` on macOS still works
@@ -99,6 +109,9 @@ for i in $(seq 1 "$BOOTS"); do
   setup "keys add" "$BIN" keys add val --keyring-backend test --home "$H"
   ADDR=$("$BIN" keys show val -a --keyring-backend test --home "$H")
   setup "add-genesis-account" "$BIN" add-genesis-account "$ADDR" 100000000000000usei --home "$H"
+  for code in "${GENESIS_WASM[@]}"; do
+    setup "store $(basename "$code") at genesis" "$BIN" add-wasm-genesis-message store "$code" --run-as "$ADDR" --home "$H"
+  done
   setup "gentx" "$BIN" gentx val 10000000000000usei --chain-id "$CHAIN_ID" --keyring-backend test --home "$H"
   setup "collect-gentxs" "$BIN" collect-gentxs --home "$H"
 
@@ -151,6 +164,14 @@ for i in $(seq 1 "$BOOTS"); do
         echo "boot-smoke: boot $i/$BOOTS exited (status $rc) before the ABCI handshake${RAYON:+ (RAYON_NUM_THREADS=1)}:" >&2
         ;;
     esac
+    tail -25 "$LOG" >&2
+    exit 1
+  fi
+  # A handshake that compiled nothing never reached the code path this gate exists for.
+  compiled=$( (find "$H/wasm" -path '*/cache/modules/*' -type f 2>/dev/null || true) | wc -l | tr -d ' ')
+  if [ "$compiled" -lt "${#GENESIS_WASM[@]}" ]; then
+    echo "boot-smoke: boot $i/$BOOTS reached the ABCI handshake with $compiled of ${#GENESIS_WASM[@]} genesis wasm codes" >&2
+    echo "            compiled, so it never exercised wasmer's JIT compile." >&2
     tail -25 "$LOG" >&2
     exit 1
   fi
