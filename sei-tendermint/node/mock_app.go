@@ -17,7 +17,6 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/holiman/uint256"
 
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
@@ -205,32 +204,32 @@ func (app *MockApp) EvmChainID() uint64 { return app.app.EvmChainID() }
 func (app *MockApp) EvmChainConfig() *params.ChainConfig { return app.chainConfig }
 
 // EvmCall always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmCall(context.Context, *ethcore.Message, evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *MockApp) EvmCall(context.Context, *ethcore.Message, proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGas always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmCallAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, *ethtypes.Header, evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, *ethtypes.Header, proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, *ethtypes.Header, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, *ethtypes.Header, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCalls always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCallsAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, *ethtypes.Header, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, *ethtypes.Header, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
@@ -486,4 +485,12 @@ func parseFastCheckTx(txBytes []byte) (*proxy.ResponseCheckTxV2, error) {
 		EVMSenderAddress: evmAddr,
 		SeiSenderAddress: seiAddr,
 	}, nil
+}
+
+// EpochRegistry returns the mock application's retained epoch window.
+func (app *MockApp) EpochRegistry() (*atypes.EpochRegistry, error) {
+	if app.epochRegistry != nil {
+		return app.epochRegistry.Registry(), nil
+	}
+	return app.app.EpochRegistry()
 }

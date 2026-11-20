@@ -15,7 +15,6 @@ import (
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -83,7 +82,7 @@ func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes
 }
 
 // BuildDataState validates the common config and returns an initialised data.State backed by
-// blockStore. registry is the epoch window the state waits on, and genesisTimestamp is the
+// blockStore. app supplies the epoch window, and genesisTimestamp is the
 // timestamp of the first proposal.
 //
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
@@ -91,7 +90,7 @@ func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes
 func BuildDataState(
 	cfg *GigaRouterCommonConfig,
 	blockStore *ablockstore.Store,
-	registry *epoch.Registry,
+	app *proxy.EVMProxy,
 	genesisTimestamp time.Time,
 ) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
@@ -109,7 +108,7 @@ func BuildDataState(
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	ds, err := data.NewState(&data.Config{Registry: registry, GenesisTimestamp: genesisTimestamp}, blockStore)
+	ds, err := data.NewState(&data.Config{App: app, GenesisTimestamp: genesisTimestamp}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}

@@ -14,7 +14,6 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -85,7 +84,6 @@ func makeSeedNode(
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
-		utils.None[*evmonlyapp.EpochRegistry](),
 		gigaconfig.StateSyncConfig{},
 	)
 	closers = append(closers, peerCloser)

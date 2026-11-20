@@ -189,6 +189,8 @@ func TestEpochRegistryWritesOnGenesisAndClosingRoads(t *testing.T) {
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
+	initialRegistry, err := app.EpochRegistry()
+	require.NoError(t, err)
 	encoded := installRecordingEVMExecutor(app.(*evmOnlyApplication))
 	const last = 7
 	for height := int64(1); height <= last; height++ {
@@ -204,8 +206,12 @@ func TestEpochRegistryWritesOnGenesisAndClosingRoads(t *testing.T) {
 			require.Equal(t, written[height], epochModuleKeyCount(misc, epochRegistryKey) == 1, "registry block %d", height)
 		}
 	}
-	window := epochs.Registry().Epochs()
+	registry, err := app.EpochRegistry()
+	require.NoError(t, err)
+	window := registry.Epochs()
 	require.Equal(t, atypes.EpochIndex(3), window[len(window)-1].EpochIndex())
+	require.Len(t, initialRegistry.Epochs(), 2)
+	require.Equal(t, atypes.EpochIndex(1), initialRegistry.Epochs()[1].EpochIndex())
 }
 
 // TestEpochRegistryRestartReadsTheRowOfTheClosingRoad pins the restart after an epoch closes. The
@@ -237,14 +243,18 @@ func TestEpochRegistryRestartReadsTheRowOfTheClosingRoad(t *testing.T) {
 
 	resumed, reopened := reopenEVMOnlyTestAppWithEpochs(t, app, storage, home, length)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, resumed, reopened) })
-	window := resumed.(*evmOnlyApplication).epochRegistry.Registry().Epochs()
+	registry, err := resumed.EpochRegistry()
+	require.NoError(t, err)
+	window := registry.Epochs()
 	require.Equal(t, atypes.EpochIndex(2), window[len(window)-1].EpochIndex())
 	require.Equal(t, atypes.RoadHeight(2*length+1), window[len(window)-1].RoadRange().First)
 
 	// Execution resumes after the closing road, and the window stays on epoch 2.
 	finalizeAndCommitEVMOnlyTestBlock(t, resumed, evmOnlyTestBlock(length+1))
 	require.NoError(t, resumed.(*evmOnlyApplication).AwaitCommits())
-	window = resumed.(*evmOnlyApplication).epochRegistry.Registry().Epochs()
+	registry, err = resumed.EpochRegistry()
+	require.NoError(t, err)
+	window = registry.Epochs()
 	require.Equal(t, atypes.EpochIndex(2), window[len(window)-1].EpochIndex())
 }
 
@@ -1467,7 +1477,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	err = settler.AwaitCommits()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "in the EVM module")
-	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)}, evmonly.CallOverrides{})
+	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)}, proxy.CallOverrides{})
 	require.Error(t, err)
 
 	// The block that failed to finalize left nothing staged, and the store never
@@ -1516,7 +1526,7 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 				last = nonce
 				// A call may be refused while a finalized block awaits Commit;
 				// what matters is that it never races the commit it settles.
-				_, _ = settler.EvmCall(ctx, callMessage(sender, nil), evmonly.CallOverrides{})
+				_, _ = settler.EvmCall(ctx, callMessage(sender, nil), proxy.CallOverrides{})
 			}
 			return nil
 		})

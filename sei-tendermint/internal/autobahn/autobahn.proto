@@ -388,12 +388,10 @@ message StateSyncProof {
   optional AppQC app_qc = 3; // required
 }
 
-// Persisted epoch registry state.
-message PersistedEpochRegistry {
+// Retained epoch registry state.
+message EpochRegistry {
   option (hashable.hashable) = true;
-  reserved 1, 2, 4;
-  reserved "live", "pending", "pending_v2";
-  repeated Epoch live_v2 = 3;
+  repeated Epoch epochs = 1;
 }
 
 message EpochMember {

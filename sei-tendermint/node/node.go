@@ -33,7 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -184,17 +183,15 @@ func makeNode(
 		proxyApp           utils.Option[*proxy.Proxy]
 		evmApp             utils.Option[*proxy.EVMProxy]
 		gigaStorageManager utils.Option[*bootstrap.GigaStorageManager]
-		gigaEpochs         utils.Option[*evmonlyapp.EpochRegistry]
 	)
 	gigaEnabled := cfg.AutobahnConfigFile != ""
 	if gigaEnabled {
-		evm, storage, epochs, err := makeEVMApplication(ctx, cfg, opts.giga, genDoc)
+		evm, storage, err := makeEVMApplication(ctx, cfg, opts.giga, genDoc)
 		if err != nil {
 			return nil, err
 		}
 		evmApp = utils.Some(proxy.NewEVM(evm))
 		gigaStorageManager = utils.Some(storage)
-		gigaEpochs = utils.Some(epochs)
 	} else {
 		proxyApp = utils.Some(proxy.New(app))
 	}
@@ -333,7 +330,6 @@ func makeNode(
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
-		gigaEpochs,
 		opts.giga.StateSync,
 	)
 	closers = append(closers, peerCloser)

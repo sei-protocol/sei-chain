@@ -97,7 +97,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	}
 	registry, err := epoch.TestGenesisRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), epoch.DefaultEpochLength)
 	require.NoError(t, err)
-	dataState, err := p2p.BuildDataState(&commonCfg, blockStore, registry, genDoc.GenesisTime)
+	dataState, err := p2p.BuildDataState(&commonCfg, blockStore, proxy.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	var giga p2p.GigaRouter
 	if validator {

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -20,7 +22,7 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
-	ds := newTestDataState(t, &data.Config{Registry: registry})
+	ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	defer func() {
@@ -35,7 +37,7 @@ func TestSubscribeLaneProposals_WaitsForPersistence(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 1)
-		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
 		defer func() { require.NoError(t, state.Close()) }()
 		lane := state.LocalLane().OrPanic("genesis")
 		var blocks []*types.Signed[*types.LaneProposal]
@@ -72,7 +74,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
 	peer := a.Public()
-	ds := newTestDataState(t, &data.Config{Registry: registry})
+	ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	lane0 := state.LocalLane().OrPanic("genesis")
@@ -179,7 +181,7 @@ func TestLaneRevoteOnEpochAdvance(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
-	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
 	defer func() { _ = state.Close() }()
 	lane := state.LocalLane().OrPanic("lane")
 	var headers []*types.LaneBlockHeader
@@ -228,7 +230,7 @@ func TestSubscribeLaneVotes_PreviousAndCurrentEpochs(t *testing.T) {
 				registry, keys := epoch.GenRegistry(rng, 2)
 				keys = append(keys, types.GenSecretKey(rng))
 				require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 1, keys[2].Public(): 1}))
-				state := utils.OrPanic1(NewState(keys[tc.voter], newTestDataState(t, &data.Config{Registry: registry}), utils.None[string]()))
+				state := utils.OrPanic1(NewState(keys[tc.voter], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
 				lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("staying lane")
 				first := testSignedBlock(keys[0], lane, 0, types.LaneBlockHeaderHash{}, rng)
@@ -288,7 +290,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 	joiner := types.GenSecretKey(rng)
 	allKeys := append(keys, joiner)
 	// An empty store loads from epoch 0, so the state is built before the registry moves on.
-	ds := newTestDataState(t, &data.Config{Registry: registry})
+	ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
 	// The registry retains three epochs, so each epoch is captured as it is derived.
 	epochs := slices.Clone(registry.Epochs())
 	for _, weights := range []map[types.PublicKey]uint64{

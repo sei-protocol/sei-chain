@@ -27,7 +27,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -297,7 +296,6 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
-	epochs *evmonlyapp.EpochRegistry,
 	persistentPeers []p2p.NodeAddress,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
@@ -337,7 +335,7 @@ func buildGigaRouter(
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		valCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore, epochs.Registry(), genDoc.GenesisTime)
+		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore, app, genDoc.GenesisTime)
 		if err != nil {
 			return nil, err
 		}
@@ -360,7 +358,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore, epochs.Registry(), genDoc.GenesisTime)
+	dataState, err := p2p.BuildDataState(fnCfg, blockStore, app, genDoc.GenesisTime)
 	if err != nil {
 		return nil, err
 	}
@@ -604,7 +602,6 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
-	gigaEpochs utils.Option[*evmonlyapp.EpochRegistry],
 	stateSync gigaconfig.StateSyncConfig,
 ) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
@@ -672,14 +669,9 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
-		epochs, ok := gigaEpochs.Get()
-		if !ok {
-			return nil, closer, noneDB, fmt.Errorf("autobahn requires an epoch registry")
-		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
-			epochs,
 			options.PersistentPeers,
 		)
 		if err != nil {

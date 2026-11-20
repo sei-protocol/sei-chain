@@ -100,7 +100,7 @@ func TestMakeEVMApplicationFullModeOpensStateStore(t *testing.T) {
 	validator := makeValidator([]byte("full-validator"), []byte("full-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	_, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
+	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeFull},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
@@ -115,7 +115,7 @@ func TestMakeEVMApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Storage.Receipts = false
 
-	_, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
+	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, giga, genesisAt(1))
@@ -130,7 +130,7 @@ func TestMakeEVMApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Execution.MinGasPrice = 2_000_000_000
 
-	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, giga, genesisAt(1))
 	require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
 	fc.EVMChainID = 713701
 
-	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: writeAutobahnConfig(t, fc),
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	validator := makeValidator([]byte("activation-validator"), []byte("activation-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(initialHeight))

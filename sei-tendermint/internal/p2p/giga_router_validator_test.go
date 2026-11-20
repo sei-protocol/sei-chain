@@ -95,7 +95,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
-			dataState, err := BuildDataState(&commonCfg, blockStore, registry, genDoc.GenesisTime)
+			dataState, err := BuildDataState(&commonCfg, blockStore, proxy.TestEpochApp(registry), genDoc.GenesisTime)
 			if err != nil {
 				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
 			}
@@ -337,7 +337,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		EnableEvmProxy:     true,
 	}
 	registry := testGenesisEpochs(t, genDoc, addrs)
-	dataState, err := BuildDataState(&commonCfg, blockStore, registry, genDoc.GenesisTime)
+	dataState, err := BuildDataState(&commonCfg, blockStore, proxy.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{

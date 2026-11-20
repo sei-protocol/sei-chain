@@ -15,7 +15,6 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
@@ -67,13 +66,13 @@ func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	require.Equal(t, 0, app.EvmBaseFee().Sign())
 	require.Equal(t, 0, app.EvmMinGasPrice().Sign())
 	require.Equal(t, uint64(0), app.EvmGasLimit())
-	_, err := app.EvmCall(t.Context(), &ethcore.Message{}, evmonly.CallOverrides{})
+	_, err := app.EvmCall(t.Context(), &ethcore.Message{}, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), nil, &ethcore.Message{}, 0, &ethtypes.Header{Number: big.NewInt(1)}, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), nil, &ethcore.Message{}, 0, &ethtypes.Header{Number: big.NewInt(1)}, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmCreateAccessList(t.Context(), &ethcore.Message{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
@@ -349,7 +348,9 @@ func TestMockAppCommitAdvancesTheEpochRegistry(t *testing.T) {
 		_, err = app.Commit(t.Context())
 		require.NoError(t, err)
 	}
-	window := epochs.Registry().Epochs()
+	registry, err := app.EpochRegistry()
+	require.NoError(t, err)
+	window := registry.Epochs()
 	require.Equal(t, atypes.EpochIndex(2), window[len(window)-1].EpochIndex())
 }
 
@@ -479,7 +480,7 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp: true,
 		},
@@ -513,7 +514,7 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 }
 
 func TestMakeEVMApplicationAutobahnRequiresReadableConfig(t *testing.T) {
-	_, _, _, err := makeEVMApplication(t.Context(), &config.Config{
+	_, _, err := makeEVMApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 

@@ -372,7 +372,7 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)

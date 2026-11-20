@@ -853,7 +853,7 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 
 // EvmCall executes msg as a read-only call against the most recently
 // committed EVM state, with overrides applied, and returns the execution result.
-func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message, overrides evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message, overrides proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
 	executor, blockCtx, err := a.currentExecutionContext("call")
 	if err != nil {
 		return nil, err
@@ -863,13 +863,13 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message, 
 		return nil, err
 	}
 	defer view.Close()
-	return executor.CallAt(ctx, view, blockCtx, msg, overrides)
+	return executor.CallAt(ctx, view, blockCtx, msg, evmonly.CallOverrides(overrides))
 }
 
 // EvmEstimateGas returns the lowest gas limit that lets msg execute
 // successfully against the most recently committed EVM state, with overrides
 // applied. Like EvmCall it creates no transaction and persists no state change.
-func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64, overrides proxy.CallOverrides) (uint64, []byte, error) {
 	executor, blockCtx, err := a.currentExecutionContext("gas estimate")
 	if err != nil {
 		return 0, nil, err
@@ -879,33 +879,33 @@ func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Me
 		return 0, nil, err
 	}
 	defer view.Close()
-	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap, overrides)
+	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap, evmonly.CallOverrides(overrides))
 }
 
 // EvmCallAt executes msg as a read-only call against the committed EVM state after header's block,
 // in the context that block executed at, with overrides applied. Only header's number, time and
 // parent hash are read.
-func (a *evmOnlyApplication) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (_ *ethcore.ExecutionResult, err error) {
+func (a *evmOnlyApplication) EvmCallAt(ctx context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides proxy.CallOverrides) (_ *ethcore.ExecutionResult, err error) {
 	executor, view, blockCtx, err := a.pastExecutionContext("call", header)
 	if err != nil {
 		return nil, err
 	}
 	defer view.Close()
 	defer recoverPastExecution(view, "call", &err)
-	return executor.CallAt(ctx, view, blockCtx, msg, overrides)
+	return executor.CallAt(ctx, view, blockCtx, msg, evmonly.CallOverrides(overrides))
 }
 
 // EvmEstimateGasAt returns the lowest gas limit that lets msg execute successfully against the
 // committed EVM state after header's block, in the context that block executed at, with overrides
 // applied. Only header's number, time and parent hash are read.
-func (a *evmOnlyApplication) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (_ uint64, _ []byte, err error) {
+func (a *evmOnlyApplication) EvmEstimateGasAt(ctx context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides proxy.CallOverrides) (_ uint64, _ []byte, err error) {
 	executor, view, blockCtx, err := a.pastExecutionContext("gas estimate", header)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer view.Close()
 	defer recoverPastExecution(view, "gas estimate", &err)
-	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap, overrides)
+	return executor.EstimateGasAt(ctx, view, blockCtx, msg, gasCap, evmonly.CallOverrides(overrides))
 }
 
 // pastExecutionContext returns the executor, the committed EVM state after header's block, which the
@@ -937,7 +937,7 @@ func recoverPastExecution(view gigatypes.StateView, action string, err *error) {
 
 // EvmEstimateGasAfterCalls returns what EvmEstimateGas returns for msg against the most recently
 // committed EVM state with overrides and then calls applied to it first, in order.
-func (a *evmOnlyApplication) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (a *evmOnlyApplication) EvmEstimateGasAfterCalls(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides proxy.CallOverrides) (uint64, []byte, error) {
 	executor, blockCtx, err := a.currentExecutionContext("gas estimate")
 	if err != nil {
 		return 0, nil, err
@@ -947,20 +947,20 @@ func (a *evmOnlyApplication) EvmEstimateGasAfterCalls(ctx context.Context, calls
 		return 0, nil, err
 	}
 	defer view.Close()
-	return executor.EstimateGasAfterCallsAt(ctx, view, blockCtx, calls, msg, gasCap, overrides)
+	return executor.EstimateGasAfterCallsAt(ctx, view, blockCtx, calls, msg, gasCap, evmonly.CallOverrides(overrides))
 }
 
 // EvmEstimateGasAfterCallsAt returns what EvmEstimateGasAt returns for msg against the committed EVM
 // state after header's block with overrides and then calls applied to it first, in order. Only
 // header's number, time and parent hash are read.
-func (a *evmOnlyApplication) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (_ uint64, _ []byte, err error) {
+func (a *evmOnlyApplication) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides proxy.CallOverrides) (_ uint64, _ []byte, err error) {
 	executor, view, blockCtx, err := a.pastExecutionContext("gas estimate", header)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer view.Close()
 	defer recoverPastExecution(view, "gas estimate", &err)
-	return executor.EstimateGasAfterCallsAt(ctx, view, blockCtx, calls, msg, gasCap, overrides)
+	return executor.EstimateGasAfterCallsAt(ctx, view, blockCtx, calls, msg, gasCap, evmonly.CallOverrides(overrides))
 }
 
 // EvmCreateAccessList returns the access list msg touches when executed against the most recently
