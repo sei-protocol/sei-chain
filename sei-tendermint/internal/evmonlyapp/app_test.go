@@ -79,7 +79,7 @@ func evmOnlyTestBlock(app abevm.Application, height int64, txs ...[]byte) abevm.
 		Txs:  utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs(txs)),
 		Hash: common.BytesToHash(crypto.Keccak256(binary.BigEndian.AppendUint64([]byte("block-"), uint64(height)))), //nolint:gosec // G115: test heights are positive.
 
-		Height: atypes.RoadIndex(height),
+		Height: atypes.RoadHeight(height),
 		Time:   evmOnlyTestBlockTime(height)}
 }
 
@@ -255,7 +255,7 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig).(*evmOnlyApplication)
 	require.NotNil(t, app.storage.StateDB().UndoSS())
 	init := evmOnlyTestInitChain()
-	init.InitialHeight = atypes.RoadIndex(initialHeight)
+	init.InitialHeight = atypes.RoadHeight(initialHeight)
 	err = app.InitChain(init)
 	require.NoError(t, err)
 	return app
@@ -763,7 +763,8 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	err = app.InitChain(init)
 	require.NoError(t, err)
 
-	closeEVMOnlyTestApp(t, app, storage)
+	// Seeding writes only the live state DB, so a shutdown before the first block is not clean.
+	require.Error(t, storage.Close())
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
 		evmOnlyTestChainID, nil, storage,
@@ -1218,7 +1219,8 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	// The failed commits leave the receipt store ahead of the state, so the shutdown is not clean.
+	t.Cleanup(func() { require.Error(t, storage.Close()) })
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	err = app.InitChain(abevm.InitConfig{
@@ -1330,7 +1332,7 @@ func TestEVMOnlyApplicationAllocFundsOnlyListedAccounts(t *testing.T) {
 	require.NoError(t, err)
 	funderAddr := crypto.PubkeyToAddress(funder.PublicKey)
 	allocBalance := new(uint256.Int).Lsh(uint256.NewInt(1), 70)
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{funderAddr: allocBalance}})
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{funderAddr: allocBalance})})
 	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 
@@ -1357,7 +1359,7 @@ func TestEVMOnlyApplicationAllocFundsOnlyListedAccounts(t *testing.T) {
 }
 
 func TestEVMOnlyApplicationAllocRefusesAnotherInitialHeight(t *testing.T) {
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 5, Balances: map[common.Address]*uint256.Int{{1}: uint256.NewInt(1)}})
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 5, Accounts: balanceAlloc(map[common.Address]*uint256.Int{{1}: uint256.NewInt(1)})})
 	err := app.InitChain(evmOnlyTestInitChain())
 	require.Error(t, err)
 }
@@ -1371,7 +1373,7 @@ func TestEVMOnlyApplicationRefusesAnEmptyAlloc(t *testing.T) {
 		evmOnlyTestChainID, nil, storage,
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
-		utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{}}),
+		utils.Some(GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{})}),
 		utils.None[string](),
 	)
 	require.Error(t, err)
@@ -1379,10 +1381,10 @@ func TestEVMOnlyApplicationRefusesAnEmptyAlloc(t *testing.T) {
 
 func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
 	alloc := func(balance uint64) utils.Option[GenesisAlloc] {
-		return utils.Some(GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+		return utils.Some(GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{
 			{1}: uint256.NewInt(balance),
 			{2}: uint256.NewInt(7),
-		}})
+		})})
 	}
 	none := utils.None[GenesisAlloc]()
 	for _, tc := range []struct {
@@ -1497,9 +1499,9 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsTheSenderCanPayFor(t *testing.T) {
 	funder, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	funderAddr := crypto.PubkeyToAddress(funder.PublicKey)
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{
 		funderAddr: new(uint256.Int).Lsh(uint256.NewInt(1), 70),
-	}})
+	})})
 	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
@@ -1535,9 +1537,9 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsWhoseGasCoversIntrinsicGas(t *testing.T)
 	require.NoError(t, err)
 	unfunded, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Balances: map[common.Address]*uint256.Int{
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{
 		crypto.PubkeyToAddress(funder.PublicKey): new(uint256.Int).Lsh(uint256.NewInt(1), 70),
-	}})
+	})})
 	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
@@ -1601,7 +1603,7 @@ func admissionError(app abevm.Application, raw []byte) error {
 func TestEVMOnlyApplicationChecksLifecycleRanges(t *testing.T) {
 	for _, config := range []abevm.InitConfig{
 		{InitialHeight: 0, GasLimit: 30_000_000},
-		{InitialHeight: atypes.RoadIndex(math.MaxUint64), GasLimit: 30_000_000},
+		{InitialHeight: atypes.RoadHeight(math.MaxUint64), GasLimit: 30_000_000},
 		{InitialHeight: 1, GasLimit: 0},
 		{InitialHeight: 1, GasLimit: math.MaxUint64},
 	} {
@@ -1610,7 +1612,7 @@ func TestEVMOnlyApplicationChecksLifecycleRanges(t *testing.T) {
 	}
 	app := newInitializedEVMOnlyTestApp(t)
 	block := evmOnlyTestBlock(app, 1)
-	block.Height = atypes.RoadIndex(math.MaxUint64)
+	block.Height = atypes.RoadHeight(math.MaxUint64)
 	_, err := app.FinalizeBlock(t.Context(), block)
 	require.Error(t, err)
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1))
@@ -1619,4 +1621,13 @@ func TestEVMOnlyApplicationChecksLifecycleRanges(t *testing.T) {
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {
 	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
+}
+
+// balanceAlloc returns genesis accounts that set a balance and nothing else.
+func balanceAlloc(balances map[common.Address]*uint256.Int) map[common.Address]evmonly.GenesisAccount {
+	accounts := make(map[common.Address]evmonly.GenesisAccount, len(balances))
+	for addr, balance := range balances {
+		accounts[addr] = evmonly.GenesisAccount{Balance: balance}
+	}
+	return accounts
 }

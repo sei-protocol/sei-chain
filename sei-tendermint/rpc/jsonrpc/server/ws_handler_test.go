@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,8 +12,9 @@ import (
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gorilla/websocket"
-	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
@@ -27,6 +29,7 @@ func TestWebsocketManagerHandler(t *testing.T) {
 	d := websocket.Dialer{}
 	c, dialResp, err := d.Dial("ws://"+s.Listener.Addr().String()+"/websocket", nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
 
 	if got, want := dialResp.StatusCode, http.StatusSwitchingProtocols; got != want {
 		t.Errorf("dialResp.StatusCode = %d, want %d", got, want)
@@ -50,37 +53,7 @@ func TestWebsocketManagerHandler(t *testing.T) {
 // using a non-cancelable context. The connection then tears down (writeRoutine
 // exits, the handler returns) but readRoutine is stranded on the channel send.
 func TestWebsocketReadRoutineNoLeakOnFullWriteChan(t *testing.T) {
-	s := newEchoWSServer(t)
-	defer s.Close()
-
-	t.Cleanup(leaktest.Check(t))
-
-	d := websocket.Dialer{}
-	c, dialResp, err := d.Dial("ws://"+s.Listener.Addr().String()+"/websocket", nil)
-	require.NoError(t, err)
-	require.NoError(t, dialResp.Body.Close())
-
-	// The first request asks for a response far larger than any socket buffer.
-	// Wait until the response starts arriving, then stop reading from c; the
-	// server's writeRoutine is now blocked on the socket write instead of still
-	// preparing the large response.
-	bigReq := rpctypes.NewRequest(1)
-	require.NoError(t, bigReq.SetMethodAndParams("echo", map[string]any{"size": 32 * 1024 * 1024}))
-	require.NoError(t, c.WriteJSON(bigReq))
-	waitForResponseStart(t, c)
-
-	// The follow-up tiny requests produce responses that fill writeChan to
-	// capacity. readRoutine then blocks on the next send with no drainer.
-	for i := range defaultWSWriteChanCapacity + 5 {
-		req := rpctypes.NewRequest(i + 2)
-		require.NoError(t, req.SetMethodAndParams("echo", map[string]any{"size": 0}))
-		require.NoError(t, c.WriteJSON(req))
-	}
-
-	// Closing the client makes the writeRoutine's blocked socket write fail, so
-	// it exits and the handler returns. A correct readRoutine must also unwind;
-	// the buggy one stays blocked on the full writeChan -> leak.
-	require.NoError(t, c.Close())
+	checkReadRoutineStopsWithFullWriteChan(t, "mark")
 }
 
 // TestWebsocketReadRoutineNoLeakOnPanicWithFullWriteChan exercises the panic
@@ -90,43 +63,51 @@ func TestWebsocketReadRoutineNoLeakOnFullWriteChan(t *testing.T) {
 // forever, and neither the recovering goroutine nor its relaunched successor may
 // leak.
 func TestWebsocketReadRoutineNoLeakOnPanicWithFullWriteChan(t *testing.T) {
+	checkReadRoutineStopsWithFullWriteChan(t, "panic")
+}
+
+func checkReadRoutineStopsWithFullWriteChan(t *testing.T, finalMethod string) {
+	t.Helper()
+
 	s := newEchoWSServer(t)
-	defer s.Close()
 
 	t.Cleanup(leaktest.Check(t))
 
 	d := websocket.Dialer{}
 	c, dialResp, err := d.Dial("ws://"+s.Listener.Addr().String()+"/websocket", nil)
 	require.NoError(t, err)
-	dialResp.Body.Close()
+	t.Cleanup(func() { _ = c.Close() })
+	serverConn, err := utils.Recv(s.handlerCtx, s.serverConns)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = serverConn.Close() })
+	require.NoError(t, dialResp.Body.Close())
 
-	// As in the full-writeChan test, read only enough of the huge first response
-	// to know writeRoutine is blocked on the socket write and has stopped
-	// draining writeChan.
+	// Wait for the oversized response to start, then stop reading so writeRoutine
+	// stays in the socket write and cannot drain writeChan.
 	bigReq := rpctypes.NewRequest(1)
 	require.NoError(t, bigReq.SetMethodAndParams("echo", map[string]any{"size": 32 * 1024 * 1024}))
 	require.NoError(t, c.WriteJSON(bigReq))
 	waitForResponseStart(t, c)
 
-	// Exactly fill writeChan with tiny responses. writeRoutine pulls only the
-	// big response (then blocks), so these defaultWSWriteChanCapacity sends all
-	// succeed and leave writeChan full when readRoutine reads the next request.
+	// readRoutine enqueues these responses before handling the final request.
 	for i := range defaultWSWriteChanCapacity {
 		req := rpctypes.NewRequest(i + 2)
 		require.NoError(t, req.SetMethodAndParams("echo", map[string]any{"size": 0}))
 		require.NoError(t, c.WriteJSON(req))
 	}
 
-	// The next request panics in the handler. readRoutine's recover() then tries
-	// to push an error response into the already-full writeChan.
-	panicReq := rpctypes.NewRequest(defaultWSWriteChanCapacity + 2)
-	require.NoError(t, panicReq.SetMethodAndParams("panic", map[string]any{"size": 0}))
-	require.NoError(t, c.WriteJSON(panicReq))
+	// Both handlers signal before readRoutine attempts its final send, whether
+	// that send is the normal response or the panic recovery response.
+	finalReq := rpctypes.NewRequest(defaultWSWriteChanCapacity + 2)
+	require.NoError(t, finalReq.SetMethodAndParams(finalMethod, map[string]any{"size": 0}))
+	require.NoError(t, c.WriteJSON(finalReq))
+	_, err = utils.Recv(s.handlerCtx, s.marks)
+	require.NoError(t, err, "websocket handler exited before the %q RPC marker", finalMethod)
 
-	// Closing the client makes writeRoutine's blocked write fail, cancelling the
-	// connection context. That must release the recovery send and let any
-	// relaunched readRoutine exit instead of leaking.
-	require.NoError(t, c.Close())
+	// Closing the server's socket interrupts the pending write directly.
+	// When writeRoutine exits, readRoutine must release its send to the full
+	// writeChan and unwind.
+	require.NoError(t, serverConn.Close())
 }
 
 func waitForResponseStart(t *testing.T, c *websocket.Conn) {
@@ -143,10 +124,22 @@ func waitForResponseStart(t *testing.T, c *websocket.Conn) {
 	require.NoError(t, c.SetReadDeadline(time.Time{}))
 }
 
-func newEchoWSServer(t *testing.T) *httptest.Server {
+// echoWSServer is a websocket test server exposing "echo", "mark" and "panic" methods.
+type echoWSServer struct {
+	*httptest.Server
+	// handlerCtx is canceled when the WebSocket handler returns.
+	handlerCtx context.Context
+	// serverConns yields the server's end of the upgraded connection.
+	serverConns <-chan net.Conn
+	// marks receives a value when the "mark" or "panic" method is called.
+	marks <-chan struct{}
+}
+
+func newEchoWSServer(t *testing.T) *echoWSServer {
 	type sizeArgs struct {
 		Size json.Number `json:"size"`
 	}
+	marks := make(chan struct{}, 1)
 	funcMap := map[string]*RPCFunc{
 		"echo": NewWSRPCFunc(func(_ context.Context, a *sizeArgs) (string, error) {
 			n, err := a.Size.Int64()
@@ -155,19 +148,36 @@ func newEchoWSServer(t *testing.T) *httptest.Server {
 			}
 			return strings.Repeat("x", int(n)), nil
 		}),
+		"mark": NewWSRPCFunc(func(_ context.Context, _ *sizeArgs) (string, error) {
+			_ = utils.SendOrDrop(marks, struct{}{})
+			return "", nil
+		}),
 		"panic": NewWSRPCFunc(func(_ context.Context, _ *sizeArgs) (string, error) {
+			_ = utils.SendOrDrop(marks, struct{}{})
 			panic("boom in WSJSONRPC handler")
 		}),
 	}
 	wm := NewWebsocketManager(funcMap)
 
+	handlerCtx, handlerExited := context.WithCancel(t.Context())
+	t.Cleanup(handlerExited)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/websocket", wm.WebsocketHandler)
+	mux.HandleFunc("/websocket", func(w http.ResponseWriter, r *http.Request) {
+		defer handlerExited()
+		wm.WebsocketHandler(w, r)
+	})
 
-	srv := httptest.NewServer(mux)
+	serverConns := make(chan net.Conn, 1)
+	srv := httptest.NewUnstartedServer(mux)
+	srv.Config.ConnState = func(c net.Conn, state http.ConnState) {
+		if state == http.StateHijacked {
+			_ = utils.SendOrDrop(serverConns, c)
+		}
+	}
+	srv.Start()
 	t.Cleanup(srv.Close)
 
-	return srv
+	return &echoWSServer{Server: srv, handlerCtx: handlerCtx, serverConns: serverConns, marks: marks}
 }
 
 func newWSServer(t *testing.T) *httptest.Server {

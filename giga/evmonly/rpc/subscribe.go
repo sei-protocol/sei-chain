@@ -96,7 +96,7 @@ func (api *subscribeAPI) streamLogs(
 	ctx, cancel := subscriptionContext(ctx, rpcSub.Err())
 	defer cancel()
 	for {
-		if _, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return uint64(w.Latest().Number) >= cursor }); err != nil {
+		if _, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return uint64(w.Latest().Height) >= cursor }); err != nil {
 			return
 		}
 		logs, next, err := api.logs.pollLogs(ctx, crit, cursor)
@@ -176,7 +176,7 @@ func (api *subscribeAPI) NewHeads(ctx context.Context) (*ethrpc.Subscription, er
 	}()
 	// The cursor is taken before the stream goroutine starts so a block committed
 	// in between is not skipped.
-	last := executed.Load().Latest().Number
+	last := executed.Load().Latest().Height
 	// The request ctx is canceled as soon as eth_subscribe returns; the stream
 	// lives until rpcSub.Err() closes instead.
 	go api.streamHeads(context.WithoutCancel(ctx), notifier, rpcSub, executed, last)
@@ -188,7 +188,7 @@ func (api *subscribeAPI) streamHeads(
 	notifier *ethrpc.Notifier,
 	rpcSub *ethrpc.Subscription,
 	executed utils.AtomicRecv[atypes.ExecutedBlocks],
-	last atypes.RoadIndex,
+	last atypes.RoadHeight,
 ) {
 	// Unlike request handlers, this goroutine is outside go-ethereum's per-call
 	// recovery, so a panic here must end the subscription rather than the node.
@@ -200,7 +200,7 @@ func (api *subscribeAPI) streamHeads(
 	ctx, cancel := subscriptionContext(ctx, rpcSub.Err())
 	defer cancel()
 	for next := last + 1; ; next++ {
-		window, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return w.Latest().Number >= next })
+		window, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return w.Latest().Height >= next })
 		if err != nil {
 			return
 		}
@@ -221,7 +221,7 @@ func (api *subscribeAPI) streamHeads(
 // header renders the header of the block at height. gasUsed is the total the
 // commit recorded while window still holds height; for an older height the
 // receipt store is read instead, yielding zero until its receipts land.
-func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadIndex, window atypes.ExecutedBlocks) (map[string]any, error) {
+func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadHeight, window atypes.ExecutedBlocks) (map[string]any, error) {
 	h := coretypes.Int64(utils.Clamp[int64](height))
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &h})
 	if err != nil {

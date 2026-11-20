@@ -30,7 +30,7 @@ type shaHash = [sha256.Size]byte
 
 // testAppBlock records block inputs without process-local transaction caches.
 type testAppBlock struct {
-	Height     atypes.RoadIndex
+	Height     atypes.RoadHeight
 	Time       time.Time
 	Hash       common.Hash
 	Txs        [][]byte
@@ -212,7 +212,7 @@ func TestInitChainThenFinalize(t *testing.T) {
 
 	// InitChain
 	err := app.InitChain(abevm.InitConfig{
-		InitialHeight: atypes.RoadIndex(initialHeight)})
+		InitialHeight: atypes.RoadHeight(initialHeight)})
 	require.NoError(t, err)
 
 	// Verify app reports correct height after InitChain (no blocks yet)
@@ -224,7 +224,7 @@ func TestInitChainThenFinalize(t *testing.T) {
 	blockHash := sha256.Sum256([]byte("test-block"))
 	_, err = app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
 		Hash:   common.BytesToHash(blockHash[:]),
-		Height: atypes.RoadIndex(initialHeight)})
+		Height: atypes.RoadHeight(initialHeight)})
 	require.NoError(t, err)
 
 	// Verify height advanced

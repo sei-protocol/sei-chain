@@ -17,7 +17,7 @@ import (
 // the block before it.
 func traceTestHeader(height int64, parentHash common.Hash) abevm.BlockRef {
 	return abevm.BlockRef{
-		Height:     atypes.RoadIndex(height),
+		Height:     atypes.RoadHeight(height),
 		Time:       uint64(evmOnlyTestBlockTime(height).Unix()), //nolint:gosec // G115: test times are positive.
 		ParentHash: parentHash,
 	}

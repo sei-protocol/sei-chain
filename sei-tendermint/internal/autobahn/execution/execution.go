@@ -16,7 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "execution")
 
 // Config configures an Executor.
 type Config struct {
@@ -43,7 +46,7 @@ func New(cfg *Config) *Executor {
 	return &Executor{
 		cfg: cfg,
 		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{
-			Number: utils.Clamp[atypes.RoadIndex](cfg.App.LastBlockHeight()),
+			Height: utils.Clamp[atypes.RoadHeight](cfg.App.LastBlockHeight()),
 		})),
 	}
 }
@@ -54,7 +57,8 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails.
+// road order until ctx is canceled or a block fails. A cancel does not
+// interrupt a block in progress.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
@@ -64,31 +68,46 @@ func (e *Executor) Run(ctx context.Context) error {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
 		if err != nil {
+			logStopped(n-1, false)
 			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		if err := e.executeBlock(ctx, block.SuperBlock()); err != nil {
+		if err := e.executeBlock(block.SuperBlock()); err != nil {
 			return fmt.Errorf("executeBlock(%v): %w", n, err)
 		}
+		if err := ctx.Err(); err != nil {
+			logStopped(n, true)
+			return fmt.Errorf("stopped after block %v: %w", n, err)
+		}
 	}
+}
+
+// logStopped reports where execution stopped on a cancel.
+func logStopped(
+	// The last block executed.
+	lastExecuted atypes.RoadHeight,
+	// Whether the cancel arrived while that block was executing.
+	blockInFlight bool,
+) {
+	logger.Info("Execution stopped", "last_executed", lastExecuted, "block_in_flight", blockInFlight)
 }
 
 // initApp brings the app to a state execution can extend: InitChain on a fresh
 // app, or the committed tip's header on restart. It returns the first road to
 // execute.
-func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
+func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 	app := e.cfg.App
 	info := app.Info()
-	last, ok := utils.SafeCast[atypes.RoadIndex](info.LastBlockHeight)
+	last, ok := utils.SafeCast[atypes.RoadHeight](info.LastBlockHeight)
 	if !ok {
 		return 0, fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
 		// node.go: shouldHandshake = !stateSync && !gigaEnabled), so we
-		// InitChain seeds the store before the first block. A resumed app reports
-		// its durable height instead and refuses initialization.
-		next, ok := utils.SafeCast[atypes.RoadIndex](e.cfg.GenDoc.InitialHeight)
+		// call InitChain ourselves to seed the store before the first block. A
+		// resumed app reports its durable height and refuses initialization.
+		next, ok := utils.SafeCast[atypes.RoadHeight](e.cfg.GenDoc.InitialHeight)
 		if !ok || next == 0 {
 			return 0, fmt.Errorf("invalid GenDoc.InitialHeight = %v", e.cfg.GenDoc.InitialHeight)
 		}
@@ -115,7 +134,10 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadIndex, error) {
 }
 
 // executeBlock reports b's hash, finalizes b, and publishes its execution result.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error {
+// A cancel does not interrupt it.
+func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
+	// A cancel must not abort a block after some stores have taken its writes.
+	ctx := context.Background()
 	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
@@ -142,7 +164,7 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	metrics.GasUsed.Add(utils.Clamp[int64](gasUsed))
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
-		Number:  b.Height,
+		Height:  b.Height,
 		GasUsed: gasUsed,
 	}))
 	gigametrics.EndStoragePhase()

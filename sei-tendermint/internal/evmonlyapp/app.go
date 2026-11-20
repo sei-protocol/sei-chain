@@ -119,7 +119,7 @@ var _ abevm.Application = (*evmOnlyApplication)(nil)
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
 // prices admission; customPrecompiles are the native contracts the chain runs;
-// alloc, when set, is the chain's genesis balances.
+// alloc, when set, is the chain's genesis accounts.
 // A block that halts on a due upgrade plan writes UpgradeInfoFileName under
 // homeDir's data directory, when homeDir is set, and prints the halt line to
 // stderr. A storage that already holds committed blocks resumes from its
@@ -137,7 +137,7 @@ func NewEVMOnlyApplication(
 		if alloc.InitialHeight <= 0 {
 			return nil, fmt.Errorf("EVM-only genesis alloc initial height must be positive: %d", alloc.InitialHeight)
 		}
-		if len(alloc.Balances) == 0 {
+		if !alloc.setsBalance() {
 			return nil, errors.New("EVM-only genesis alloc funds no account")
 		}
 	}
@@ -194,7 +194,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	}
 	if alloc, ok := a.alloc.Get(); ok {
 		// NewEVMOnlyApplication refuses a height that is not positive.
-		opts = append(opts, evmonly.WithGenesisAlloc(uint64(alloc.InitialHeight), alloc.Balances)) //nolint:gosec // G115: positive.
+		opts = append(opts, evmonly.WithGenesisAlloc(uint64(alloc.InitialHeight), alloc.Accounts)) //nolint:gosec // G115: positive.
 	} else {
 		opts = append(opts, evmonly.WithMissingAccountState(evmOnlyFundedState{}))
 	}
@@ -419,8 +419,8 @@ func (a *evmOnlyApplication) admissionBalance(sender common.Address) uint256.Int
 	view := a.storage.StateDB().OpenView()
 	defer view.Close()
 	if alloc, ok := a.alloc.Get(); ok && view.GetBlockHeight() < alloc.InitialHeight {
-		if balance, ok := alloc.Balances[sender]; ok {
-			return *balance
+		if account, ok := alloc.Accounts[sender]; ok && account.Balance != nil {
+			return *account.Balance
 		}
 		return uint256.Int{}
 	}
@@ -978,10 +978,21 @@ func (w *evmOnlyHashWriter) flush() error {
 	return w.buf.Flush()
 }
 
-// GenesisAlloc is the wei each funded account holds at the chain's initial height.
+// GenesisAlloc is each listed account's balance, nonce, code and storage at the chain's initial
+// height.
 type GenesisAlloc struct {
 	InitialHeight int64
-	Balances      map[common.Address]*uint256.Int
+	Accounts      map[common.Address]evmonly.GenesisAccount
+}
+
+// setsBalance reports whether any account has a Balance.
+func (g GenesisAlloc) setsBalance() bool {
+	for _, account := range g.Accounts {
+		if account.Balance != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // evmOnlyGenesisAllocKey holds the digest of the alloc a chain started with. Like the cursor it is
@@ -989,13 +1000,56 @@ type GenesisAlloc struct {
 const evmOnlyGenesisAllocKey = "genesis_alloc"
 
 func (g GenesisAlloc) digest() common.Hash {
-	buf := make([]byte, 0, 8+len(g.Balances)*(common.AddressLength+32))
+	// An alloc of balances alone keeps the digest it had before accounts carried more than a
+	// balance, so a chain started with one still resumes.
+	if !g.balancesOnly() {
+		return g.accountsDigest()
+	}
+	buf := make([]byte, 0, 8+len(g.Accounts)*(common.AddressLength+32))
 	buf = binary.BigEndian.AppendUint64(buf, uint64(g.InitialHeight)) //nolint:gosec // G115: NewEVMOnlyApplication refuses a height that is not positive.
-	for _, addr := range slices.SortedFunc(maps.Keys(g.Balances), common.Address.Cmp) {
-		balance := g.Balances[addr].Bytes32()
+	for _, addr := range slices.SortedFunc(maps.Keys(g.Accounts), common.Address.Cmp) {
+		balance := g.Accounts[addr].Balance.Bytes32()
 		buf = append(append(buf, addr[:]...), balance[:]...)
 	}
 	return crypto.Keccak256Hash(buf)
+}
+
+// evmOnlyGenesisAccountsDigestTag prefixes the digest input of an alloc with an account that sets
+// more or less than a balance.
+const evmOnlyGenesisAccountsDigestTag = "accounts-v1"
+
+// accountsDigest is the digest of an alloc with an account that sets more or less than a balance.
+func (g GenesisAlloc) accountsDigest() common.Hash {
+	buf := []byte(evmOnlyGenesisAccountsDigestTag)
+	buf = binary.BigEndian.AppendUint64(buf, uint64(g.InitialHeight)) //nolint:gosec // G115: NewEVMOnlyApplication refuses a height that is not positive.
+	for _, addr := range slices.SortedFunc(maps.Keys(g.Accounts), common.Address.Cmp) {
+		account := g.Accounts[addr]
+		buf = append(buf, addr[:]...)
+		if account.Balance != nil {
+			balance := account.Balance.Bytes32()
+			buf = append(append(buf, 1), balance[:]...)
+		} else {
+			buf = append(buf, 0)
+		}
+		buf = binary.BigEndian.AppendUint64(buf, account.Nonce)
+		buf = append(buf, crypto.Keccak256(account.Code)...)
+		buf = binary.BigEndian.AppendUint64(buf, uint64(len(account.Storage)))
+		for _, key := range slices.SortedFunc(maps.Keys(account.Storage), common.Hash.Cmp) {
+			value := account.Storage[key]
+			buf = append(append(buf, key[:]...), value[:]...)
+		}
+	}
+	return crypto.Keccak256Hash(buf)
+}
+
+// balancesOnly reports whether every account sets a balance and nothing else.
+func (g GenesisAlloc) balancesOnly() bool {
+	for _, account := range g.Accounts {
+		if account.Balance == nil || account.Nonce != 0 || len(account.Code) > 0 || len(account.Storage) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (g GenesisAlloc) miscChange() gigatypes.MiscChange {

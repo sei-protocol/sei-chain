@@ -936,6 +936,30 @@ func TestImporterEmptyKeyRejected(t *testing.T) {
 	}
 }
 
+func TestImporterMetaKeyRejected(t *testing.T) {
+	for _, key := range [][]byte{ktype.MetaVersionKey, ktype.MetaLtHashKey, ktype.ModuleLtHashKey("evm")} {
+		t.Run(string(key), func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := config.DefaultTestConfig(t)
+			cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+
+			s, err := newCommitStoreWithWAL(t.Context(), cfg)
+			require.NoError(t, err)
+			require.NoError(t, s.LoadLatest())
+
+			imp, err := s.Importer(1)
+			require.NoError(t, err)
+
+			addErr := imp.AddNode(&types.SnapshotNode{Key: key, Value: []byte{0xAA}, Version: 1})
+			require.ErrorContains(t, addErr, "metadata namespace")
+
+			require.ErrorIs(t, imp.Close(), addErr)
+			require.Zero(t, s.Version(), "a rejected import must not finalize")
+			require.NoError(t, s.Close())
+		})
+	}
+}
+
 func TestImporterEmptyStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)

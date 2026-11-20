@@ -61,23 +61,23 @@ type mempoolInner struct {
 	closed           bool
 	capacity         uint64
 	lane             types.LaneID
-	first            types.BlockNumber
-	next             types.BlockNumber
-	blocks           map[types.BlockNumber]*blockSpec
+	first            types.LaneHeight
+	next             types.LaneHeight
+	blocks           map[types.LaneHeight]*blockSpec
 	nextBlock        *blockSpec
 	nextNonceRangeID nonceRangeID
 	evmNonces        map[common.Address]*nonceRange // ranges of pending txs by sender.
 	evmTxs           map[common.Hash]*pendingTx     // pendingTxs by hash.
 }
 
-func newMempool(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempool {
+func newMempool(capacity uint64, lane types.LaneID, n types.LaneHeight) *mempool {
 	return &mempool{
 		inner: utils.NewWatch(&mempoolInner{
 			capacity:  capacity,
 			lane:      lane,
 			first:     n,
 			next:      n,
-			blocks:    map[types.BlockNumber]*blockSpec{},
+			blocks:    map[types.LaneHeight]*blockSpec{},
 			nextBlock: &blockSpec{},
 			evmNonces: map[common.Address]*nonceRange{},
 			evmTxs:    map[common.Hash]*pendingTx{},
@@ -171,7 +171,7 @@ func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 }
 
 // Removes txs from mempool assigned to lane blocks <n.
-func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
+func (s *State) pruneMempool(mp *mempool, n types.LaneHeight) {
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed || n < m.first {
 			return
@@ -271,7 +271,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	if !ok {
 		return abevm.AdmittedTx{}, ErrNotProducing
 	}
-	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
+	if uint64(len(tx)) > types.MaxTxsBytesPerLaneBlock {
 		return abevm.AdmittedTx{}, errTooLarge
 	}
 	// Early exit if mempool is full and we won't wait.
@@ -354,7 +354,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		// If any limit would be exceeded, then construct a payload.
 		// Note that we use subtraction in a way avoiding arithmetic overflows.
 		ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
-		ok = ok && types.MaxTxsBytesPerBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
+		ok = ok && types.MaxTxsBytesPerLaneBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
 		ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
 		ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
 		if !ok {

@@ -197,9 +197,9 @@ func TestOfflinePruneAfterNoOp(t *testing.T) {
 	}
 }
 
-// TestOfflinePruneAfterRefusesBelowRetentionFloor verifies that PruneAfter refuses to roll back below
-// the store's retention floor, and mutates nothing when it does.
-func TestOfflinePruneAfterRefusesBelowRetentionFloor(t *testing.T) {
+// TestOfflinePruneAfterBelowRetentionFloor verifies that PruneAfter below the retention floor lowers the
+// floor to the target, so the receipts rewritten above it are served.
+func TestOfflinePruneAfterBelowRetentionFloor(t *testing.T) {
 	dir := t.TempDir()
 	storeKey := storetypes.NewKVStoreKey("evm")
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
@@ -216,22 +216,78 @@ func TestOfflinePruneAfterRefusesBelowRetentionFloor(t *testing.T) {
 	for block := uint64(1); block <= count; block++ {
 		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 	}
-
 	prunable, ok := store.(controllertypes.PrunableStore)
 	require.True(t, ok)
 	require.NoError(t, prunable.PruneHistory(6)) // retention floor now at block 6
 	require.NoError(t, store.Close())
 
-	err = gigareceipt.PruneAfter(cfg, 3) // below the floor
-	require.ErrorContains(t, err, "retention floor")
+	require.NoError(t, gigareceipt.PruneAfter(cfg, 3)) // below the floor
+	require.NoError(t, gigareceipt.PruneAfter(cfg, 3), "a rerun must be a no-op")
 
-	// The refusal must not have mutated anything: reopening should show the store exactly as it was.
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	require.Equal(t, int64(count), store.LatestVersion())
-	r, err := store.GetReceiptFromStore(ctx, litTxHash(count, 0))
+	require.Equal(t, int64(3), store.LatestVersion())
+	require.Equal(t, int64(3), store.EarliestVersion(), "the floor must drop to the target")
+	writeLitBlock(t, store, ctx, 4, litReceipt(4, 0, addr, topic))
+	r, err := store.GetReceiptFromStore(ctx, litTxHash(4, 0))
 	require.NoError(t, err)
-	require.Equal(t, uint64(count), r.BlockNumber)
+	require.Equal(t, uint64(4), r.BlockNumber)
+}
+
+// TestOfflinePruneAfterToZero verifies that PruneAfter to block 0 empties the store, retention floor
+// included, that the emptied store takes block 1 again, and that a rerun is a no-op.
+func TestOfflinePruneAfterToZero(t *testing.T) {
+	dir := t.TempDir()
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+
+	cfg := offlineCfg(dir)
+	cfg.ExternalPruning = true // drive PruneHistory directly, no jittered background pruner racing the test
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+
+	addr := common.HexToAddress("0xc0de")
+	topic := common.HexToHash("0xdead")
+	const count = 10
+	for block := uint64(1); block <= count; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+	prunable, ok := store.(controllertypes.PrunableStore)
+	require.True(t, ok)
+	require.NoError(t, prunable.PruneHistory(6)) // retention floor now at block 6
+	require.NoError(t, store.Close())
+
+	require.NoError(t, gigareceipt.PruneAfter(cfg, 0))
+	require.NoError(t, gigareceipt.PruneAfter(cfg, 0), "a rerun must be a no-op")
+
+	head, err := gigareceipt.GetLatestBlock(cfg)
+	require.NoError(t, err)
+	require.Zero(t, head)
+	stored, _, _, err := gigareceipt.GetRange(cfg)
+	require.NoError(t, err)
+	require.False(t, stored, "no receipt may survive a rollback to 0")
+
+	store, ctx = setupLittIdx(t, dir)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.Zero(t, store.LatestVersion())
+	require.Zero(t, store.EarliestVersion(), "the floor must drop to 0")
+	writeLitBlock(t, store, ctx, 1, litReceipt(1, 0, addr, topic))
+	r, err := store.GetReceiptFromStore(ctx, litTxHash(1, 0))
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), r.BlockNumber)
+}
+
+// TestOfflinePruneAfterOnAFreshStore verifies that PruneAfter on a directory that holds no store creates
+// nothing.
+func TestOfflinePruneAfterOnAFreshStore(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, gigareceipt.PruneAfter(offlineCfg(dir), 0))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "rolling back a store that does not exist must not create one")
 }
 
 // TestOfflinePruneAfterRefusesBelowOldestReceipt verifies that PruneAfter refuses a target below the

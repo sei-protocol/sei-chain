@@ -8,9 +8,7 @@ import (
 
 // BUDHasher computes the BUD hash of each block submitted to it, and reports the hashes in submission order.
 type BUDHasher interface {
-	// Submit hands over a block's mutations to be hashed, and may block while the hasher is behind. Mutations
-	// that cannot be hashed stop the hasher rather than failing this call. Errors if the hasher has stopped, or if
-	// ctx is done first.
+	// Submit hands over a block's mutations to be hashed, and may block while the hasher is behind.
 	Submit(
 		ctx context.Context,
 		// The height of the block the mutations belong to.
@@ -20,8 +18,10 @@ type BUDHasher interface {
 		mutations []mutation.Mutation,
 	) error
 
-	// Close reports the BUD hash of every block submitted before the call, then stops the hasher and returns once
-	// it has stopped. A block submitted concurrently with the call may or may not be reported. Errors if a block
-	// failed to be hashed or reported.
+	// Flush returns once the BUD hash of every block submitted before the call has been reported.
+	Flush(ctx context.Context) error
+
+	// Close reports the BUD hash of every block submitted before the call, then stops the hasher. A block
+	// submitted concurrently with the call may or may not be reported.
 	Close() error
 }

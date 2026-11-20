@@ -317,7 +317,10 @@ func TestABIKeepsV2Methods(t *testing.T) {
 	require.NoError(t, err)
 	v2, err := abi.JSON(bytes.NewReader(bz))
 	require.NoError(t, err)
-	for sig := range retiredMethods {
+	for sig, reason := range retiredMethods {
+		if reason == authzUnsupported {
+			continue // V2 serves no authorization methods.
+		}
 		var found bool
 		for _, m := range v2.Methods {
 			found = found || m.Sig == sig

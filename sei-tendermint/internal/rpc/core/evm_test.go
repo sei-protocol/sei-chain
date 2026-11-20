@@ -153,7 +153,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, testExecutionResult, got)
 		require.Equal(t, msg, app.gotMsg)
 		require.Equal(t, testOverrides, app.gotOverrides)
-		require.Equal(t, abevm.BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("past block gas estimate", func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, msg, app.gotMsg)
 		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, uint64(9_000_000), app.gotGasCap)
-		require.Equal(t, abevm.BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("estimate gas after calls", func(t *testing.T) {
@@ -202,7 +202,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, msg, app.gotMsg)
 		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
-		require.Equal(t, abevm.BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("create access list", func(t *testing.T) {
@@ -227,7 +227,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, testAccessList, accessList)
 		require.Equal(t, testExecutionResult, result)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, abevm.BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("execution parameters", func(t *testing.T) {
@@ -264,7 +264,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, int64(4), gotHeight)
 		require.NoError(t, stateBeforeErr)
 		require.True(t, releaseBefore != nil)
-		require.Equal(t, abevm.BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 		require.Equal(t, txs, app.gotTxs)
 	})
 }

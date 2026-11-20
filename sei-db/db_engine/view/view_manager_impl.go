@@ -89,6 +89,11 @@ type viewManager struct {
 	// Protected by versionLock.
 	flushScanBlockHeight uint64
 
+	// Set once Close begins, after which no block may be committed.
+	//
+	// Protected by versionLock.
+	closing bool
+
 	// One past the highest block whose view is eligible for retirement.
 	//
 	// Protected by versionLock.
@@ -433,9 +438,9 @@ func (c *viewManager) Commit(blockHeight uint64) (View, error) {
 	c.metrics.setViewPhase("acquire_version_lock")
 	c.versionLock.Lock()
 
-	// A bricked manager does no more work. Free to check here: versionLock, which guards fatalErr,
-	// is already held.
-	if c.fatalErr != nil {
+	// A bricked or closing manager does no more work. Free to check here: versionLock, which guards
+	// both, is already held.
+	if c.fatalErr != nil || c.closing {
 		err := fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
 		c.versionLock.Unlock()
 		return nil, err
@@ -559,7 +564,7 @@ func (c *viewManager) sealShardsLocked() error {
 // re-acquire versionLock internally as it awaits for the lifecycle runner to catch up.
 func (c *viewManager) lifecycleBackpressureLocked() error {
 	for c.unflushedCount > c.config.MaxUnflushedVersions {
-		if c.ctx.Err() != nil {
+		if c.ctx.Err() != nil || c.closing {
 			return c.shutdownErrorLocked()
 		}
 		c.lifecycleBackpressureCond.Wait()
@@ -567,7 +572,7 @@ func (c *viewManager) lifecycleBackpressureLocked() error {
 	// Re-check after the loop: a waiter may have been woken because a partial flush brought us back
 	// below the cap, but if the lifecycle runner has since exited (cancelling the context), there is
 	// no one to flush future work and the caller must not proceed.
-	if c.ctx.Err() != nil {
+	if c.ctx.Err() != nil || c.closing {
 		return c.shutdownErrorLocked()
 	}
 	return nil
@@ -1271,11 +1276,30 @@ func (c *viewManager) Close() error {
 }
 
 func (c *viewManager) closeInternal() error {
+	// Stop serving reads and accepting writes, the same as a brick does. First, because an open view
+	// holds back the flush of later blocks only while its reads can fall through to the database.
+	// First failure wins inside the shard, so a brick that already ran keeps reporting its own cause
+	// rather than ErrViewManagerClosed.
+	c.versionLock.Lock()
+	c.closing = true
+	for _, s := range c.shards {
+		s.TakeOutOfService(ErrViewManagerClosed)
+	}
+	c.versionLock.Unlock()
+	// A Commit waiting on backpressure must give up rather than seal into a shard out of service.
+	c.lifecycleBackpressureCond.Broadcast()
+	readsDrained := c.awaitReadsDrained()
+
 	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
 	// buffered, so it does not block when the runner has already exited (manager failure), and
 	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
 	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
+
+	var flushErr error
+	if readsDrained {
+		flushErr = c.flushFinalizedViews()
+	}
 
 	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
 	// View callers, and reads still awaiting results. The cancel happens under versionLock
@@ -1284,13 +1308,6 @@ func (c *viewManager) closeInternal() error {
 	// wakeup.
 	c.versionLock.Lock()
 	c.cancel()
-
-	// Stop serving reads and accepting writes, the same as a brick does: the runner is gone, so any
-	// write accepted from here on could never be flushed. First failure wins inside the shard, so a
-	// brick that already ran keeps reporting its own cause rather than ErrViewManagerClosed.
-	for _, s := range c.shards {
-		s.TakeOutOfService(ErrViewManagerClosed)
-	}
 	c.versionLock.Unlock()
 	c.lifecycleBackpressureCond.Broadcast()
 
@@ -1310,10 +1327,59 @@ func (c *viewManager) closeInternal() error {
 	if c.fatalErr != nil {
 		return errors.Join(fmt.Errorf("view manager failed: %w", c.fatalErr), leakedErr)
 	}
+	if flushErr != nil {
+		return errors.Join(flushErr, leakedErr)
+	}
 	if dbErr != nil {
 		return errors.Join(fmt.Errorf("close underlying database: %w", dbErr), leakedErr)
 	}
 	return leakedErr
+}
+
+// awaitReadsDrained waits until no shard is reading the database, and reports whether it got there. It
+// gives up, returning false, if the manager is bricked first. Every shard must be out of service.
+func (c *viewManager) awaitReadsDrained() bool {
+	for _, s := range c.shards {
+		select {
+		case <-s.ReadsDrained():
+		case <-c.ctx.Done():
+			return false
+		}
+	}
+	return true
+}
+
+// flushFinalizedViews writes every finalized block not yet on disk to the database, whatever views remain
+// open. Reads must be refused and drained, and the lifecycle runner stopped. A bricked manager writes
+// nothing.
+func (c *viewManager) flushFinalizedViews() error {
+	c.versionLock.Lock()
+	if c.fatalErr != nil {
+		c.versionLock.Unlock()
+		return nil
+	}
+	// Flushed blocks form a prefix, and flushing stops at the first unfinalized block.
+	firstBlockHeight := c.oldestBlockHeight
+	for firstBlockHeight < c.currentBlockHeight && c.versionMap[firstBlockHeight].flushedToDisk {
+		firstBlockHeight++
+	}
+	lastBlockHeight := firstBlockHeight
+	finalWritesByBlockHeight := make(map[uint64][]*proto.KVPair)
+	for lastBlockHeight < c.currentBlockHeight && c.versionMap[lastBlockHeight].finalized {
+		finalWritesByBlockHeight[lastBlockHeight] = c.versionMap[lastBlockHeight].finalWrites
+		lastBlockHeight++
+	}
+	// The flush scan stops at a reserved view, so the blocks past it were never counted as unflushed.
+	if lastBlockHeight > c.flushScanBlockHeight {
+		c.unflushedCount += lastBlockHeight - max(c.flushScanBlockHeight, firstBlockHeight)
+		c.flushScanBlockHeight = lastBlockHeight
+	}
+	c.versionLock.Unlock()
+
+	if err := c.flushViews(firstBlockHeight, lastBlockHeight, finalWritesByBlockHeight); err != nil {
+		return fmt.Errorf("write the finalized blocks to the database at close: %w", err)
+	}
+	return nil
 }
 
 // assertNoLeakedIterators checks that every iterator handed out has been closed, returning an error

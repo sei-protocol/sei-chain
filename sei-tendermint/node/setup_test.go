@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -371,7 +372,7 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
@@ -457,3 +458,9 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 }
 
 func (setupEVMApp) EvmChainID() uint64 { return 1 }
+
+// storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still
+// running, and t.Context() is cancelled before the cleanup that closes it runs.
+func storageContext(t *testing.T) context.Context {
+	return context.WithoutCancel(t.Context())
+}

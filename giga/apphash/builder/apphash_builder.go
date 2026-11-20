@@ -60,6 +60,9 @@ type AppHashBuilder interface {
 	// the builder stops.
 	GetAppHash(ctx context.Context, blockHeight uint64) (*apphash.AppHashData, error)
 
+	// Fully processes all work submitted before the call.
+	Flush(ctx context.Context) error
+
 	// Returns lowest and highest blocks whose app hashes are currently available.
 	Bounds() (
 		// The lowest block whose app hash is available. Valid only if ok.

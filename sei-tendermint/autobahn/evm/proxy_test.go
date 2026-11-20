@@ -157,7 +157,7 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		require.Same(t, testExecutionResult, got)
 		require.Same(t, msg, app.gotMsg)
 		require.Equal(t, testOverrides, app.gotOverrides)
-		require.Equal(t, BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("past block gas estimate", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		require.Same(t, msg, app.gotMsg)
 		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, uint64(9_000_000), app.gotGasCap)
-		require.Equal(t, BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("estimate gas after calls", func(t *testing.T) {
@@ -206,7 +206,7 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		require.Same(t, msg, app.gotMsg)
 		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
-		require.Equal(t, BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("create access list", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		require.Equal(t, testAccessList, accessList)
 		require.Same(t, testExecutionResult, result)
 		require.Same(t, msg, app.gotMsg)
-		require.Equal(t, BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("execution parameters", func(t *testing.T) {
@@ -261,7 +261,7 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, release)
 		require.Equal(t, header.Number, blockCtx.BlockNumber)
-		require.Equal(t, BlockRef{Height: atypes.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 		require.Equal(t, txs, app.gotTxs)
 		release()
 		require.Equal(t, 2, app.released)

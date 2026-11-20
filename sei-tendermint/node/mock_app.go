@@ -19,11 +19,13 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 var _ abevm.Application = (*MockApp)(nil)
@@ -67,8 +69,8 @@ type MockApp struct {
 	app         abevm.Application
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
-	// hashes receives each finalized block's state, BUD, and receipt hashes.
-	hashes utils.Option[builder.AppHashBuilder]
+	// storage receives an empty block for each finalized block. None disables storage writes.
+	storage utils.Option[*bootstrap.GigaStorageManager]
 }
 
 func NewMockApp(app abevm.Application) *MockApp {
@@ -259,7 +261,7 @@ func (app *MockApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockRe
 		}
 		height = state.lastBlockHeight
 	}
-	if err := app.reportFinalizedHashes(ctx, height); err != nil {
+	if err := app.commitEmptyBlock(ctx, height); err != nil {
 		return abevm.FinalizeBlockResp{}, err
 	}
 	for state := range app.state.Lock() {
@@ -268,26 +270,27 @@ func (app *MockApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockRe
 	return response, nil
 }
 
-// reportFinalizedHashes reports zero state, BUD, and receipt hashes for a finalized mock block.
-func (app *MockApp) reportFinalizedHashes(ctx context.Context, height int64) error {
-	hashes, ok := app.hashes.Get()
+// commitEmptyBlock feeds a committed mock block to every store as a block with no state changes and no receipts.
+func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
+	storage, ok := app.storage.Get()
 	if !ok {
 		return nil
 	}
 	if height < 1 {
 		return fmt.Errorf("mock app finalized height = %d, want >= 1", height)
 	}
+	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{}); err != nil {
+		return fmt.Errorf("commit the state of block %d: %w", height, err)
+	}
+	if receiptDB := storage.ReceiptDB(); receiptDB != nil {
+		receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: height}, false).WithContext(ctx)
+		if err := receiptDB.SetReceipts(receiptCtx, nil); err != nil {
+			return fmt.Errorf("store the receipts of block %d: %w", height, err)
+		}
+	}
 	//nolint:gosec // height is at least 1
-	blockHeight := uint64(height)
-	var zero [32]byte
-	if err := hashes.ReportReceiptHash(ctx, blockHeight, apphash.ReceiptHash(zero)); err != nil {
-		return fmt.Errorf("report the receipt hash of block %d: %w", blockHeight, err)
-	}
-	if err := hashes.ReportStateHash(ctx, blockHeight, zero, nil); err != nil {
-		return fmt.Errorf("report the state hash of block %d: %w", blockHeight, err)
-	}
-	if err := hashes.ReportBUDHash(ctx, blockHeight, zero); err != nil {
-		return fmt.Errorf("report the BUD hash of block %d: %w", blockHeight, err)
+	if err := storage.ReceiptHasher().Submit(ctx, uint64(height), nil); err != nil {
+		return fmt.Errorf("submit the receipts of block %d to be hashed: %w", height, err)
 	}
 	return nil
 }

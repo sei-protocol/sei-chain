@@ -25,13 +25,13 @@ type CommitteeWeights = map[types.PublicKey]uint64
 
 // InitConfig contains the initial block height and fixed block gas limit.
 type InitConfig struct {
-	InitialHeight types.RoadIndex
+	InitialHeight types.RoadHeight
 	GasLimit      uint64
 }
 
 // FinalizeBlockReq contains a block and its consensus-owned epoch data.
 type FinalizeBlockReq struct {
-	Height     types.RoadIndex
+	Height     types.RoadHeight
 	Time       time.Time
 	Hash       common.Hash
 	Txs        []EvmTx
@@ -55,7 +55,7 @@ type EpochState struct {
 
 // BlockRef contains the execution context of a historical EVM block.
 type BlockRef struct {
-	Height     types.RoadIndex
+	Height     types.RoadHeight
 	Time       uint64
 	ParentHash common.Hash
 }

@@ -67,8 +67,8 @@ func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
 	c := vs.Epoch.Committee()
 	lane := c.Lanes().At(0)
 	n := LaneRangeOpt(vs.CommitQC, lane).Next()
-	header := NewBlock(lane, n, BlockHeaderHash{}, &Payload{}).Header()
-	vote := NewLaneVote(header)
+	header := NewLaneBlock(lane, n, LaneBlockHeaderHash{}, &Payload{}).Header()
+	vote := NewLaneVote(vs.Epoch.EpochIndex(), header)
 	votes := make([]*Signed[*LaneVote], 0, len(keys))
 	for _, k := range TestKeysWithWeight(c, keys, c.LaneQuorum()) {
 		votes = append(votes, Sign(k, vote))
@@ -164,20 +164,20 @@ func SignedForTesting[T Msg](msg T, sig *Signature) *Signed[T] {
 	return newSigned(msg, sig)
 }
 
-// NewBlockForTesting builds a Block with an injected payload hash instead of computing
+// NewLaneBlockForTesting builds a LaneBlock with an injected payload hash instead of computing
 // payload.Hash(). FOR TESTS/BENCHMARKS ONLY: the header's payloadHash need not match the
 // payload, so LaneProposal.Verify will fail. This skips a full marshal + SHA-256 of the payload.
-func NewBlockForTesting(
+func NewLaneBlockForTesting(
 	lane LaneID,
-	blockNumber BlockNumber,
-	parentHash BlockHeaderHash,
+	height LaneHeight,
+	parentHash LaneBlockHeaderHash,
 	payload *Payload,
 	payloadHash PayloadHash,
-) *Block {
-	return &Block{
-		header: &BlockHeader{
+) *LaneBlock {
+	return &LaneBlock{
+		header: &LaneBlockHeader{
 			lane:        lane,
-			blockNumber: blockNumber,
+			height:      height,
 			parentHash:  parentHash,
 			payloadHash: payloadHash,
 		},
@@ -185,24 +185,24 @@ func NewBlockForTesting(
 	}
 }
 
-// GenBlockNumber generates a random BlockNumber.
-func GenBlockNumber(rng utils.Rng) BlockNumber {
-	return BlockNumber(rng.Uint64())
+// GenLaneHeight generates a random LaneHeight.
+func GenLaneHeight(rng utils.Rng) LaneHeight {
+	return LaneHeight(rng.Uint64())
 }
 
 // GenLaneRangeFor generates a random LaneRange whose lane ID is drawn from c.
 func GenLaneRangeFor(rng utils.Rng, c *Committee) *LaneRange {
 	lanes := c.Lanes()
 	lane := lanes.At(rng.Intn(lanes.Len()))
-	first := GenBlockNumber(rng)
+	first := GenLaneHeight(rng)
 	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
 	if length == 0 {
-		return NewLaneRange(lane, first, utils.None[*BlockHeader]())
+		return NewLaneRange(lane, first, utils.None[*LaneBlockHeader]())
 	}
-	header := NewBlock(
+	header := NewLaneBlock(
 		lane,
-		first+BlockNumber(length-1),
-		GenBlockHeaderHash(rng),
+		first+LaneHeight(length-1),
+		GenLaneBlockHeaderHash(rng),
 		GenPayload(rng),
 	).Header()
 	return NewLaneRange(lane, first, utils.Some(header))
@@ -211,23 +211,23 @@ func GenLaneRangeFor(rng utils.Rng, c *Committee) *LaneRange {
 // GenLaneRange generates a random LaneRange.
 func GenLaneRange(rng utils.Rng) *LaneRange {
 	lane := GenLaneID(rng)
-	first := GenBlockNumber(rng)
+	first := GenLaneHeight(rng)
 	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
 	if length == 0 {
-		return NewLaneRange(lane, first, utils.None[*BlockHeader]())
+		return NewLaneRange(lane, first, utils.None[*LaneBlockHeader]())
 	}
-	header := NewBlock(
+	header := NewLaneBlock(
 		lane,
-		first+BlockNumber(length-1),
-		GenBlockHeaderHash(rng),
+		first+LaneHeight(length-1),
+		GenLaneBlockHeaderHash(rng),
 		GenPayload(rng),
 	).Header()
 	return NewLaneRange(lane, first, utils.Some(header))
 }
 
-// GenBlockHeaderHash generates a random BlockHeaderHash.
-func GenBlockHeaderHash(rng utils.Rng) BlockHeaderHash {
-	return BlockHeaderHash(hashable.GenHash[*pb.BlockHeader](rng))
+// GenLaneBlockHeaderHash generates a random LaneBlockHeaderHash.
+func GenLaneBlockHeaderHash(rng utils.Rng) LaneBlockHeaderHash {
+	return LaneBlockHeaderHash(hashable.GenHash[*pb.LaneBlockHeader](rng))
 }
 
 // GenPayloadHash generates a random PayloadHash.
@@ -235,11 +235,11 @@ func GenPayloadHash(rng utils.Rng) PayloadHash {
 	return PayloadHash(hashable.GenHash[*pb.Payload](rng))
 }
 
-// GenBlockHeader generates a random BlockHeader.
-func GenBlockHeader(rng utils.Rng) *BlockHeader {
-	return &BlockHeader{
+// GenLaneBlockHeader generates a random LaneBlockHeader.
+func GenLaneBlockHeader(rng utils.Rng) *LaneBlockHeader {
+	return &LaneBlockHeader{
 		lane:        GenLaneID(rng),
-		blockNumber: GenBlockNumber(rng),
+		height:      GenLaneHeight(rng),
 		payloadHash: GenPayloadHash(rng),
 	}
 }
@@ -276,12 +276,12 @@ func GenEthPayload(rng utils.Rng) *Payload {
 	return utils.OrPanic1(payload.Build())
 }
 
-// GenBlock generates a random Block.
-func GenBlock(rng utils.Rng) *Block {
-	return NewBlock(
+// GenLaneBlock generates a random LaneBlock.
+func GenLaneBlock(rng utils.Rng) *LaneBlock {
+	return NewLaneBlock(
 		GenLaneID(rng),
-		GenBlockNumber(rng),
-		GenBlockHeaderHash(rng),
+		GenLaneHeight(rng),
+		GenLaneBlockHeaderHash(rng),
 		GenPayload(rng),
 	)
 }
@@ -293,12 +293,12 @@ func GenSigned[T Msg](rng utils.Rng, msg T) *Signed[T] {
 
 // GenLaneProposal generates a random LaneProposal.
 func GenLaneProposal(rng utils.Rng) *LaneProposal {
-	return NewLaneProposal(GenBlock(rng))
+	return NewLaneProposal(GenLaneBlock(rng))
 }
 
 // GenLaneVote generates a random LaneVote.
 func GenLaneVote(rng utils.Rng) *LaneVote {
-	return NewLaneVote(GenBlockHeader(rng))
+	return NewLaneVote(GenEpochIndex(rng), GenLaneBlockHeader(rng))
 }
 
 // GenLaneQC generates a random LaneQC.
@@ -310,9 +310,9 @@ func GenLaneQC(rng utils.Rng) *LaneQC {
 	))
 }
 
-// GenRoadIndex generates a random RoadIndex.
-func GenRoadIndex(rng utils.Rng) RoadIndex {
-	return RoadIndex(rng.Uint64())
+// GenRoadHeight generates a random RoadHeight.
+func GenRoadHeight(rng utils.Rng) RoadHeight {
+	return RoadHeight(rng.Uint64())
 }
 
 // GenViewNumber generates a random ViewNumber.
@@ -323,7 +323,7 @@ func GenViewNumber(rng utils.Rng) ViewNumber {
 // GenView generates a random View.
 func GenView(rng utils.Rng) View {
 	return View{
-		Index:      GenRoadIndex(rng),
+		Height:     GenRoadHeight(rng),
 		Number:     GenViewNumber(rng),
 		EpochIndex: GenEpochIndex(rng),
 	}
@@ -338,16 +338,16 @@ func GenEpochIndex(rng utils.Rng) EpochIndex {
 // epochIndex and Roads.First are randomized so that tests
 // exercise epoch-binding checks rather than silently passing on zero values.
 func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
-	first := RoadIndex(rng.Uint64() % 1000)
+	first := RoadHeight(rng.Uint64() % 1000)
 	return NewEpoch(
 		GenEpochIndex(rng),
-		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 10},
+		RoadRange{First: first, Next: first + RoadHeight(rng.Uint64()%10000) + 10},
 		committee)
 }
 
 // CommitQCAt creates a CommitQC at ep.RoadRange().First, signed by all keys.
 func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
-	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First})
+	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First})
 	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, k := range keys {
@@ -363,7 +363,7 @@ func GenProposal(rng utils.Rng) *Proposal {
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
 }
 
 // ProposalAt returns a Proposal at view, consistent with ep, with a single 1-block lane range.
@@ -373,20 +373,20 @@ func ProposalAt(ep *Epoch, view View) *Proposal {
 }
 
 // ProposalAtBlocks is ProposalAt with a lane range of n blocks, n >= 1.
-func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*Block) {
+func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*LaneBlock) {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
-	blocks := make([]*Block, n)
-	var parent BlockHeaderHash
-	num := BlockNumber(0)
+	blocks := make([]*LaneBlock, n)
+	var parent LaneBlockHeaderHash
+	num := LaneHeight(0)
 	for i := 0; i < n; i++ {
-		b := NewBlock(lane, num, parent, &Payload{})
+		b := NewLaneBlock(lane, num, parent, &Payload{})
 		blocks[i] = b
 		parent = b.Header().Hash()
 		num = b.Header().Next()
 	}
 	header := blocks[n-1].Header()
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
@@ -396,7 +396,7 @@ func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
 	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), laneRanges)}
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), laneRanges)}
 }
 
 // GenAppHash generates a random AppHash.
@@ -448,10 +448,10 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 
 // GenSuperBlock generates a random SuperBlock.
 func GenSuperBlock(rng utils.Rng) *SuperBlock {
-	block := GenBlock(rng)
-	qc := GenFullCommitQCAt(rng, GenRoadIndex(rng), 1)
-	qc = NewFullCommitQC(qc.QC(), []*BlockHeader{block.Header()})
-	return NewRoadBlock(qc, []*Block{block}).SuperBlock()
+	block := GenLaneBlock(rng)
+	qc := GenFullCommitQCAt(rng, GenRoadHeight(rng), 1)
+	qc = NewFullCommitQC(qc.QC(), []*LaneBlockHeader{block.Header()})
+	return NewRoadBlock(qc, []*LaneBlock{block}).SuperBlock()
 }
 
 // GenPrepareVote generates a random PrepareVote.
@@ -484,27 +484,27 @@ func GenCommitQC(rng utils.Rng) *CommitQC {
 func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	return &FullCommitQC{
 		qc:      GenCommitQC(rng),
-		headers: utils.GenSlice(rng, GenBlockHeader),
+		headers: utils.GenSlice(rng, GenLaneBlockHeader),
 	}
 }
 
 // GenFullCommitQCAt generates a QC at index with n chained headers matching its lane range.
-func GenFullCommitQCAt(rng utils.Rng, index RoadIndex, n int) *FullCommitQC {
-	headers := make([]*BlockHeader, n)
+func GenFullCommitQCAt(rng utils.Rng, height RoadHeight, n int) *FullCommitQC {
+	headers := make([]*LaneBlockHeader, n)
 	var ranges []*LaneRange
 	if n > 0 {
 		lane := GenLaneID(rng)
-		var parent BlockHeaderHash
+		var parent LaneBlockHeaderHash
 		for i := range headers {
-			headers[i] = NewBlock(lane, BlockNumber(i), parent, GenPayload(rng)).Header() //nolint:gosec // slice indices are nonnegative
+			headers[i] = NewLaneBlock(lane, LaneHeight(i), parent, GenPayload(rng)).Header() //nolint:gosec // slice indices are nonnegative
 			parent = headers[i].Hash()
 		}
 		last := headers[n-1]
 		ranges = append(ranges, NewLaneRange(last.Lane(), 0, utils.Some(last)))
 	}
 	view := GenView(rng)
-	view.Index = index
-	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), ranges)}
+	view.Height = height
+	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), ranges)}
 	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(BuildPrepareQC([]SecretKey{GenSecretKey(rng)}, proposal)))})
 	return NewFullCommitQC(qc, headers)
 }
@@ -524,9 +524,9 @@ func GenTimeoutQC(rng utils.Rng) *TimeoutQC {
 	return NewTimeoutQC(utils.GenSlice(rng, GenFullTimeoutVote))
 }
 
-// GenAppProposalAt generates an AppProposal for road index.
-func GenAppProposalAt(rng utils.Rng, index RoadIndex) *AppProposal {
+// GenAppProposalAt generates an AppProposal for road height.
+func GenAppProposalAt(rng utils.Rng, height RoadHeight) *AppProposal {
 	view := GenView(rng)
-	view.Index = index
+	view.Height = height
 	return NewAppProposal(GenProposalAt(rng, view).View(), GenAppHash(rng))
 }

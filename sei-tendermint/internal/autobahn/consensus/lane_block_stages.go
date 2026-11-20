@@ -24,10 +24,10 @@ func (s *State) runLaneBlockStages(ctx context.Context) error {
 
 // laneBlockStages counts lane block positions past the latest persisted CommitQC by the consensus step each waits on.
 type laneBlockStages struct {
-	laneQC    types.BlockNumber
-	proposal  types.BlockNumber
-	prepareQC types.BlockNumber
-	commitQC  types.BlockNumber
+	laneQC    types.LaneHeight
+	proposal  types.LaneHeight
+	prepareQC types.LaneHeight
+	commitQC  types.LaneHeight
 }
 
 // publish sets the lane_blocks_in_flight gauges to s.

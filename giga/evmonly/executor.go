@@ -78,11 +78,11 @@ func WithMissingAccountState(state StateReader) Option {
 	}
 }
 
-// WithGenesisAlloc credits each account its balance in alloc at the start of
-// block height, before any begin blocker runs. NewExecutor panics if it is
-// combined with WithMissingAccountState, whose balances the alloc would be
-// credited on top of.
-func WithGenesisAlloc(height uint64, alloc map[common.Address]*uint256.Int) Option {
+// WithGenesisAlloc sets up each account in alloc at the start of block height,
+// before any begin blocker runs. NewExecutor panics if it is combined with
+// WithMissingAccountState, whose balances the alloc would be credited on top
+// of.
+func WithGenesisAlloc(height uint64, alloc map[common.Address]GenesisAccount) Option {
 	return func(e *Executor) {
 		e.genesis = newGenesisAlloc(height, alloc)
 	}
