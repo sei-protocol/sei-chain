@@ -367,6 +367,10 @@ func TestDebugTraceBlock(t *testing.T) {
 			require.Empty(t, result.Error)
 		}
 		require.Equal(t, want, hashes)
+
+		var none json.RawMessage
+		err := client.CallContext(t.Context(), &none, "debug_traceBlockByNumber", ethrpc.BlockNumber(1), tracer("callTracer"))
+		require.ErrorContains(t, err, errBlockNotFound.Error(), "a block before the chain's first")
 	})
 
 	t.Run("block whose receipts are not indexed", func(t *testing.T) {

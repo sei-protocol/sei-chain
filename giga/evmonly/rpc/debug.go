@@ -145,7 +145,8 @@ func (api *debugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 }
 
 // traceBlockNumber returns number as the trace backend reads it, with earliest and 0x0 resolved to
-// the earliest block the receipt store retains, and whether it is a head tag.
+// the earliest block the receipt store retains, and whether it is a head tag. It rejects a height
+// below the chain's first block.
 func (api *debugAPI) traceBlockNumber(number ethrpc.BlockNumber) (ethrpc.BlockNumber, bool, error) {
 	kind, err := classifyBlockNumber(number)
 	if err != nil {
@@ -156,6 +157,9 @@ func (api *debugAPI) traceBlockNumber(number ethrpc.BlockNumber) (ethrpc.BlockNu
 		return number, true, nil
 	case earliestBlock:
 		return ethrpc.BlockNumber(earliestRetainedHeight(api.txs.backend, api.store)), false, nil
+	}
+	if number.Int64() < firstBlockHeight(api.txs.backend) {
+		return 0, false, fmt.Errorf("%w: %d", errBlockNotFound, number)
 	}
 	return number, false, nil
 }
