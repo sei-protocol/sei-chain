@@ -1,16 +1,19 @@
 package cdkdatalake
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
 )
 
-// run processes requests until the store is closed or fails, recording the failure. Between requests, it finalizes
-// finished writes and deletes, writes metadata and starts deletes. It also wakes for this when a write finishes and
-// on each tick of config.MetadataWriteInterval.
+// run processes requests until the store is closed or fails, recording the failure, and then releases the store's
+// writer, reader and bucket. Between requests, it finalizes finished writes and deletes, writes metadata and starts
+// deletes. It also wakes for this when a write finishes and on each tick of config.MetadataWriteInterval.
 func (s *cdkDataLake) run() {
 	defer close(s.done)
+	// Deferred after close(s.done), so it runs first and closeErr is set before done is closed.
+	defer s.releaseResources()
 	ticker := time.NewTicker(s.config.MetadataWriteInterval)
 	defer ticker.Stop()
 
@@ -30,8 +33,8 @@ func (s *cdkDataLake) run() {
 		case <-ticker.C:
 		case <-s.writer.Finished():
 		case request := <-s.requests:
-			if closing, ok := request.(*closeRequest); ok {
-				s.handleClose(closing)
+			if _, ok := request.(*closeRequest); ok {
+				s.handleClose()
 				return
 			}
 			if err := s.handleRequest(request); err != nil {
@@ -39,6 +42,16 @@ func (s *cdkDataLake) run() {
 				return
 			}
 		}
+	}
+}
+
+// releaseResources stops the writer and reader and closes the bucket, recording a failure to close the bucket in
+// closeErr.
+func (s *cdkDataLake) releaseResources() {
+	s.writer.Close()
+	s.reader.Close()
+	if err := s.bucket.Close(); err != nil {
+		s.closeErr = errors.Join(s.closeErr, fmt.Errorf("close bucket: %w", err))
 	}
 }
 
@@ -245,9 +258,12 @@ func (s *cdkDataLake) handleFlush(request *flushRequest) error {
 	return nil
 }
 
-// handleClose completes a Close() call by flushing the store and replying with the outcome. The loop exits after it.
-func (s *cdkDataLake) handleClose(request *closeRequest) {
-	request.reply <- s.flush()
+// handleClose completes a Close() call by flushing the store, recording a failure in closeErr. The loop exits after
+// it.
+func (s *cdkDataLake) handleClose() {
+	if err := s.flush(); err != nil {
+		s.closeErr = fmt.Errorf("flush before closing: %w", err)
+	}
 }
 
 // flush makes every accepted write durable. It waits for every write to finish, makes the metadata durable, performs

@@ -392,23 +392,16 @@ func TestCDKDataLakeFirstKeyFollowsPruningWithGaps(t *testing.T) {
 	requireFirstKey(t, openTestDataLake(t, "store", true, config), 40)
 }
 
-func TestCDKDataLakeNewStoreWritesNothingUntilItsFirstPut(t *testing.T) {
+func TestCDKDataLakeMetadataStartsAtTheFirstKey(t *testing.T) {
 	ctx := context.Background()
 	config := DefaultTestDataLakeConfig(t.TempDir())
 	lake, err := NewCDKDataLake(ctx, "store", false, config)
 	require.NoError(t, err)
-	require.NoError(t, lake.Close())
-
-	storeBucket := openTestStoreBucket(t, config, "store")
-	_, ok, err := storeBucket.ReadMetadata(ctx)
-	require.NoError(t, err)
-	require.False(t, ok)
-
-	lake, err = NewCDKDataLake(ctx, "store", false, config)
-	require.NoError(t, err)
 	putTestKeys(t, lake, 42)
 	require.NoError(t, lake.Flush(ctx))
 	require.NoError(t, lake.Close())
+
+	storeBucket := openTestStoreBucket(t, config, "store")
 	require.Equal(t, testStoreMetadata(t, false, 42, 42, 43), readMetadata(t, storeBucket))
 }
 
@@ -992,6 +985,28 @@ func TestCDKDataLakeCallsFailAfterClose(t *testing.T) {
 	_, _, err = lake.Get(ctx, 1)
 	require.Error(t, err)
 	require.Equal(t, uint64(0), lake.GetDurableWatermark())
+}
+
+func TestCDKDataLakeCloseIsRepeatable(t *testing.T) {
+	ctx := context.Background()
+	config := DefaultTestDataLakeConfig(t.TempDir())
+	lake, err := NewCDKDataLake(ctx, "store", false, config)
+	require.NoError(t, err)
+	keys := keyRange(1, 10)
+	putTestKeys(t, lake, keys...)
+
+	const closerCount = 4
+	closed := make(chan error, closerCount)
+	for range closerCount {
+		go func() { closed <- lake.Close() }()
+	}
+	for range closerCount {
+		require.NoError(t, <-closed)
+	}
+	require.NoError(t, lake.Close())
+
+	reopened := openTestDataLake(t, "store", false, config)
+	require.Equal(t, keys, iterateTestKeys(t, reopened, 0, true, false))
 }
 
 func TestCDKDataLakeCloseMakesAcceptedWritesDurable(t *testing.T) {

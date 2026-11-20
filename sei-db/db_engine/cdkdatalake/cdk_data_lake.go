@@ -28,13 +28,13 @@ var _ datalake.DataLake = (*cdkDataLake)(nil)
 // callers' goroutines and hand every change to the store's control loop, a goroutine that owns the fields documented
 // as used only by it.
 type cdkDataLake struct {
-	// The bucket named by the config, owned by the store.
+	// The bucket named by the config. The control loop closes it when it exits.
 	bucket *blob.Bucket
 
-	// Performs the store's writes and deletes.
+	// Performs the store's writes and deletes. Used only by the control loop, which stops it when it exits.
 	writer *bucketWriter
 
-	// Performs the store's reads.
+	// Performs the store's reads. The control loop stops it when it exits.
 	reader *bucketReader
 
 	// The store's configuration.
@@ -52,6 +52,10 @@ type cdkDataLake struct {
 
 	// The error that stopped the control loop, or nil. Set before done is closed, and read only after.
 	failure error
+
+	// Why closing the store failed, or nil: the failure of the flush Close() requests, or of closing the bucket.
+	// Set before done is closed, and read only after.
+	closeErr error
 
 	// One above the highest key in the store. Never less than the scheduled deletion watermark. Used only by the
 	// control loop.
@@ -78,13 +82,13 @@ type cdkDataLake struct {
 	metadataManager *metadataManager
 }
 
-// NewCDKDataLake opens the store named storeName in the bucket named by config, creating it on its first write.
-// Before returning, it finishes an interrupted rollback and repairs the top of the key range left by a crash.
+// NewCDKDataLake opens the store named storeName in the bucket named by config. Before returning, it finishes an
+// interrupted rollback and repairs the top of the key range left by a crash.
 func NewCDKDataLake(
 	ctx context.Context,
 	// Names the store within the bucket. Must match ^[a-zA-Z0-9_-]+$.
 	storeName string,
-	// If true, keys may be skipped.
+	// If true, keys may be skipped. Must match the value the store was first opened with.
 	allowGaps bool,
 	config DataLakeConfig,
 ) (datalake.DataLake, error) {
@@ -100,7 +104,7 @@ func newCDKDataLake(
 	ctx context.Context,
 	// Names the store within the bucket. Must match ^[a-zA-Z0-9_-]+$.
 	storeName string,
-	// If true, keys may be skipped.
+	// If true, keys may be skipped. Must match the value the store was first opened with.
 	allowGaps bool,
 	config DataLakeConfig,
 ) (lake *cdkDataLake, err error) {
@@ -333,36 +337,13 @@ func (s *cdkDataLake) Iterator(
 }
 
 // Close makes every accepted write crash durable, then stops the store's goroutines and closes its bucket. A store
-// that has already failed is closed without flushing.
+// that has failed is not flushed. Close may be called more than once, including concurrently; every call waits for
+// the store to close and returns the same outcome.
 func (s *cdkDataLake) Close() error {
-	flushErr := s.stopControlLoop()
-	s.writer.Close()
-	s.reader.Close()
-	var closeErr error
-	if err := s.bucket.Close(); err != nil {
-		closeErr = fmt.Errorf("close bucket: %w", err)
-	}
-	return errors.Join(flushErr, closeErr)
-}
-
-// stopControlLoop has the control loop flush the store and exit, and waits for it to exit. It returns the flush's
-// failure, or nil if the loop had already stopped.
-func (s *cdkDataLake) stopControlLoop() error {
-	request := &closeRequest{reply: make(chan error, 1)}
-	if err := s.send(context.Background(), request); err != nil {
-		// The store failed before the close, so there is nothing it can flush.
-		return nil
-	}
-	flushErr, err := awaitReply(context.Background(), s, request.reply)
-	if err != nil {
-		// The store failed before the loop reached the close, so there is nothing it can flush.
-		return nil
-	}
+	// The send fails only once the control loop has exited, which the wait below covers.
+	_ = s.send(context.Background(), &closeRequest{})
 	<-s.done
-	if flushErr != nil {
-		return fmt.Errorf("flush before closing: %w", flushErr)
-	}
-	return nil
+	return s.closeErr
 }
 
 // submitPut hands request to the control loop and returns its outcome. It closes request.stream if the put is never
