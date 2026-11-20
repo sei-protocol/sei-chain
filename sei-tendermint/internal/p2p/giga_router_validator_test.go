@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
@@ -100,7 +100,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
-			executor := newTestExecutor(&commonCfg, blockStore)
+			signer := newTestSigner(proxyApp.EvmChainID(), 0)
+			executor := newTestExecutor(&commonCfg, blockStore, signer)
 			dataState, err := BuildDataState(&commonCfg, blockStore)
 			if err != nil {
 				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
@@ -118,7 +119,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
 				},
-			}, cfg.nodeKey, dataState)
+			}, cfg.nodeKey, dataState, signer)
 			if err != nil {
 				return fmt.Errorf("NewGigaValidatorRouter[%v]: %w", i, err)
 			}
@@ -358,7 +359,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
 		},
-	}, nodeKeys[0], dataState)
+	}, nodeKeys[0], dataState, newTestSigner(1, 0))
 	require.NoError(t, err)
 
 	localValidator := validatorKeys[0].Public()
@@ -450,7 +451,7 @@ func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
 					},
 				},
 				ValidatorKey: self.validatorKey,
-			}, self.nodeKey, nil)
+			}, self.nodeKey, nil, newTestSigner(1, 0))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.want)
 		})

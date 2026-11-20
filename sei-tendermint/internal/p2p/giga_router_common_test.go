@@ -185,7 +185,7 @@ func newAppHashTestRouter(
 		data: state,
 		app:  cfg.App,
 	}
-	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
+	return app, hashBuilder, state, router, newTestExecutor(cfg, db, newTestSigner(cfg.App.EvmChainID(), 0))
 }
 
 // TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
@@ -1294,3 +1294,5 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		return nil
 	}))
 }
+
+func (fixedHeightApp) EvmChainID() uint64 { return 1 }

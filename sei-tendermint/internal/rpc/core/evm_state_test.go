@@ -45,7 +45,8 @@ func signedEVMStateTestTx(t *testing.T, gas uint64) *ethtypes.Transaction {
 
 func TestEVMEnvironmentReadsStateWithoutABCI(t *testing.T) {
 	app := abevm.NewProxy(evmStateApp{})
-	env := &Environment{EVM: utils.Some(app)}
+	env := &Environment{EVM: utils.Some(app),
+		EVMSigner: utils.Some(newTestSigner(app.EvmChainID(), 0))}
 	require.False(t, env.App.IsPresent())
 	require.Equal(t, uint64(17), env.EvmBlockNumber())
 	require.Equal(t, uint64(3), env.EvmTransactionCount(common.Address{1}))
@@ -77,26 +78,29 @@ func (a *senderCacheApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 
 func TestEVMEnvironmentCachesSendersWithoutABCI(t *testing.T) {
 	app := &senderCacheApp{}
-	env := &EVMEnvironment{Environment: &Environment{}, Proxy: abevm.NewProxy(app)}
+	proxy := abevm.NewProxy(app)
+	signer := newTestSigner(app.EvmChainID(), 0)
+	env := &EVMEnvironment{
+		Environment: &Environment{EVM: utils.Some(proxy), EVMSigner: utils.Some(signer)},
+		Proxy:       proxy,
+	}
 	tx := signedEVMStateTestTx(t, 0)
 	sender := common.Address{2}
 	env.RememberEvmSender(tx.Hash(), sender)
 	raw := utils.OrPanic1(tx.MarshalBinary())
-	decoded := utils.OrPanic1(env.Proxy.ParseTx(1, raw))
-	_, err := env.Proxy.CheckTx(decoded)
+	_, err := env.Environment.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
 	require.NoError(t, err)
 	require.Equal(t, utils.Some(sender), app.sender)
 	env.ForgetEvmSender(tx.Hash())
-	decoded, err = env.Proxy.ParseTx(1, raw)
-	require.NoError(t, err)
-	_, err = env.Proxy.CheckTx(decoded)
+	_, err = env.Environment.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
 	require.NoError(t, err)
 	require.Equal(t, utils.Some(utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))), app.sender)
 }
 
 func TestEVMEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {
 	app := &senderCacheApp{}
-	env := &Environment{EVM: utils.Some(abevm.NewProxy(app))}
+	env := &Environment{EVM: utils.Some(abevm.NewProxy(app)),
+		EVMSigner: utils.Some(newTestSigner(app.EvmChainID(), 0))}
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(1)}).MarshalBinary())
 	response, err := env.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
 	require.NoError(t, err)
@@ -107,7 +111,7 @@ func TestEVMEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {
 func TestEVMAdmissionResponse(t *testing.T) {
 	app := abevm.NewProxy(evmStateApp{})
 	decode := func(gas uint64) abevm.EvmTx {
-		return utils.OrPanic1(app.ParseTx(1, utils.OrPanic1(signedEVMStateTestTx(t, gas).MarshalBinary())))
+		return utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(utils.OrPanic1(signedEVMStateTestTx(t, gas).MarshalBinary())))
 	}
 	tx := decode(30_000)
 	response, err := evmAdmissionResponse(tx, abevm.AdmittedTx{GasEstimated: 21_000}, nil)
@@ -124,4 +128,8 @@ func TestEVMAdmissionResponse(t *testing.T) {
 	require.Error(t, err)
 	_, err = evmAdmissionResponse(tx, abevm.AdmittedTx{GasEstimated: math.MaxUint64}, nil)
 	require.Error(t, err)
+}
+
+func newTestSigner(chainID uint64, workers int) *abevm.Signer {
+	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
 }

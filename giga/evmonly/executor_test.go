@@ -578,7 +578,7 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 		Txs:     [][]byte{rawTx},
 	})
 
-	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 	require.Nil(t, result)
 	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 

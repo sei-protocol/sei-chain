@@ -88,7 +88,7 @@ func TestEVMOnlyApplicationEvmCallReadsCommittedContractCode(t *testing.T) {
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{deployRaw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -111,7 +111,7 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{deployRaw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -137,7 +137,7 @@ func TestEVMOnlyApplicationEvmCallAfterFinalization(t *testing.T) {
 	deploy, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(blockInfoCode), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(abevm.NewProxy(app).ParseTxs(evmOnlyTestChainID, [][]byte{deploy}, 0)),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{deploy})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})

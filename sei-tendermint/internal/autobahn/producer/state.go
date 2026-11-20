@@ -50,6 +50,7 @@ func (c *Config) maxTxsPerBlock() uint64 {
 type State struct {
 	cfg             *Config
 	app             *abevm.Proxy
+	signer          *abevm.Signer
 	mempool         utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus       *consensus.State
 	checkTxSem      *utils.Semaphore // bounds CheckTx calls.
@@ -59,7 +60,7 @@ type State struct {
 
 // NewState constructs a new block producer state.
 // Mempool starts None; alignMempool creates it for each produce session.
-func NewState(cfg *Config, consensus *consensus.State, app *abevm.Proxy) *State {
+func NewState(cfg *Config, consensus *consensus.State, app *abevm.Proxy, signer *abevm.Signer) *State {
 	limit := rate.Inf
 	burst := 1
 	if l, ok := cfg.MaxTxsPerSecond.Get(); ok {
@@ -69,6 +70,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *abevm.Proxy) *State 
 	return &State{
 		cfg:             cfg,
 		app:             app,
+		signer:          signer,
 		mempool:         utils.NewAtomicSend(utils.None[*mempool]()),
 		consensus:       consensus,
 		checkTxSem:      utils.NewSemaphore(cfg.maxConcurrentCheckTx()),

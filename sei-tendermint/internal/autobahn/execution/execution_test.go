@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
@@ -174,6 +176,7 @@ func (env *testEnv) executor(app *recordingApp) *Executor {
 		App:            abevm.NewProxy(app),
 		AppHashBuilder: recordingBuilder{events: env.events},
 		BlockStore:     env.store,
+		Signer:         newTestSigner(app.EvmChainID(), 0),
 	})
 }
 
@@ -344,4 +347,29 @@ func TestRunCountsGasOnlyAfterFinalization(t *testing.T) {
 	require.ErrorIs(t, executor.Run(t.Context()), errFinalizeFailed)
 	require.Equal(t, before+testGasPerBlock, gasUsedTotal(t), "only the finalized block is counted")
 	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Number)
+}
+
+func newTestSigner(chainID uint64, workers int) *abevm.Signer {
+	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
+}
+
+func TestExecutionReusesAndEvictsInjectedSignerCache(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 1)
+	app := newRecordingApp(env.events, 0)
+	executor := env.executor(app)
+	_, err := executor.initApp(t.Context())
+	require.NoError(t, err)
+	block := env.blocks[0].SuperBlock()
+	require.NotEmpty(t, block.Txs)
+	raw := block.Txs[0]
+	verified, err := executor.cfg.Signer.ParseTx(raw)
+	require.NoError(t, err)
+	claimed := common.Address{1}
+	executor.cfg.Signer.Remember(verified.Hash(), claimed)
+	require.NoError(t, executor.executeBlock(t.Context(), block))
+	require.Equal(t, claimed, app.finalized()[0].Txs[0].Sender())
+	reparsed, err := executor.cfg.Signer.ParseTx(raw)
+	require.NoError(t, err)
+	require.Equal(t, verified.Sender(), reparsed.Sender())
 }

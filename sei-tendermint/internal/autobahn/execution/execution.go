@@ -20,12 +20,12 @@ import (
 
 // Config configures an Executor.
 type Config struct {
-	// ParseWorkers controls transaction decoding; zero uses GOMAXPROCS.
-	ParseWorkers int
 	// GenDoc is the genesis a fresh app is initialized from.
 	GenDoc *types.GenesisDoc
 	// App is the application blocks are executed on.
 	App *abevm.Proxy
+	// Signer parses block transactions and retains admitted senders until execution.
+	Signer *abevm.Signer
 	// AppHashBuilder receives each block's hash before the block runs.
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.
@@ -120,11 +120,12 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) error
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	txs, err := app.ParseTxs(app.EvmChainID(), b.Txs, e.cfg.ParseWorkers)
+	txs, err := e.cfg.Signer.ParseTxs(b.Txs)
 	if err != nil {
 		return fmt.Errorf("decode block transactions: %w", err)
 	}
 
+	e.cfg.Signer.ForgetTxs(txs)
 	resp, err := app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
 		Txs: txs,
 		// The road block hash identifies the block before execution and is fed as the block hash to EVM contracts.

@@ -238,12 +238,7 @@ func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (abevm.EvmTx, abevm.
 		return abevm.EvmTx{}, abevm.AdmittedTx{}, err
 	}
 	defer release()
-	decoded, err := s.app.ParseTx(s.app.EvmChainID(), tx)
-	if err != nil {
-		return abevm.EvmTx{}, abevm.AdmittedTx{}, err
-	}
-	admitted, err := s.app.CheckTx(decoded)
-	return decoded, admitted, err
+	return abevm.CheckTx(s.app, s.signer, tx)
 }
 
 // insertTx inserts a transaction and records its outcome.

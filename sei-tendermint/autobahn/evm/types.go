@@ -62,7 +62,7 @@ type BlockRef struct {
 
 type tx = ethtypes.Transaction
 
-// EvmTx is a decoded replay-protected Ethereum transaction with verified signature and sender.
+// EvmTx is a decoded replay-protected Ethereum transaction with a verified sender.
 type EvmTx struct {
 	*tx
 	sender common.Address

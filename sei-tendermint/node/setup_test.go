@@ -455,3 +455,5 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		})
 	}
 }
+
+func (setupEVMApp) EvmChainID() uint64 { return 1 }

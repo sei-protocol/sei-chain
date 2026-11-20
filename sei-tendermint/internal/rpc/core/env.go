@@ -74,8 +74,9 @@ type ConsensusState interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	App utils.Option[*proxy.Proxy]
-	EVM utils.Option[*abevm.Proxy]
+	App       utils.Option[*proxy.Proxy]
+	EVM       utils.Option[*abevm.Proxy]
+	EVMSigner utils.Option[*abevm.Signer]
 
 	// interfaces defined in types and above
 	StateStore       sm.Store

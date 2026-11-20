@@ -2,6 +2,7 @@ package evm
 
 import (
 	"crypto/ecdsa"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -27,14 +28,14 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 	t.Run("known sender is used without recovery", func(t *testing.T) {
 		prepared, err := parsePreparedTx(rawTx, signer, utils.Some(claimed))
 		require.NoError(t, err)
-		require.Equal(t, claimed, prepared.Sender)
-		require.Equal(t, tx.Hash(), prepared.Tx.Hash())
+		require.Equal(t, claimed, prepared.Sender())
+		require.Equal(t, tx.Hash(), prepared.Hash())
 	})
 
 	t.Run("no known sender recovers", func(t *testing.T) {
 		prepared, err := parsePreparedTx(rawTx, signer, utils.None[common.Address]())
 		require.NoError(t, err)
-		require.Equal(t, sender, prepared.Sender)
+		require.Equal(t, sender, prepared.Sender())
 	})
 
 	t.Run("known sender is ignored for a tx from another chain", func(t *testing.T) {
@@ -53,7 +54,7 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 
 	t.Run("known sender is ignored for a signer without a chain ID", func(t *testing.T) {
 		_, err := parsePreparedTx(rawTx, ethtypes.HomesteadSigner{}, utils.Some(claimed))
-		require.ErrorIs(t, err, ethtypes.ErrInvalidSig)
+		require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 	})
 }
 
@@ -79,7 +80,7 @@ func TestParseBlockTxsMixesKnownAndRecoveredSenders(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, parsed, n)
 		for i, prepared := range parsed {
-			require.Equal(t, senders[i], prepared.Sender)
+			require.Equal(t, senders[i], prepared.Sender())
 		}
 	}
 }
@@ -106,8 +107,8 @@ func TestParseBlockTxsProcessesMultipleClaims(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, parsed, n)
 	for i, prepared := range parsed {
-		require.Equal(t, senders[i], prepared.Sender)
-		require.Equal(t, decodeTx(t, raws[i]).Hash(), prepared.Tx.Hash())
+		require.Equal(t, senders[i], prepared.Sender())
+		require.Equal(t, decodeTx(t, raws[i]).Hash(), prepared.Hash())
 	}
 }
 
@@ -139,31 +140,20 @@ func BenchmarkParsePreparedTx(b *testing.B) {
 
 const testChainID = 713700
 
-type parsedTestTx struct {
-	Tx     *ethtypes.Transaction
-	Sender common.Address
+func parseBlockTxs(raw [][]byte, signer ethtypes.Signer, known []utils.Option[common.Address], workers int) ([]EvmTx, error) {
+	parser := NewSigner(signer, len(known), workers)
+	for i, sender := range known {
+		if sender, ok := sender.Get(); ok {
+			parser.Remember(crypto.Keccak256Hash(raw[i]), sender)
+		}
+	}
+	return parser.ParseTxs(raw)
 }
 
-func parseBlockTxs(raw [][]byte, signer ethtypes.Signer, known []utils.Option[common.Address], workers int) ([]parsedTestTx, error) {
-	txs, err := DecodeBlockTxs(raw, workers, func(*ethtypes.Transaction) error { return nil })
-	if err != nil {
-		return nil, err
-	}
-	senders, err := ResolveBlockSenders(txs, signer, known, workers)
-	if err != nil {
-		return nil, err
-	}
-	parsed := make([]parsedTestTx, len(txs))
-	for i, tx := range txs {
-		parsed[i] = parsedTestTx{Tx: tx, Sender: senders[i]}
-	}
-	return parsed, nil
-}
-
-func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[common.Address]) (parsedTestTx, error) {
+func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[common.Address]) (EvmTx, error) {
 	txs, err := parseBlockTxs([][]byte{raw}, signer, []utils.Option[common.Address]{known}, 1)
 	if err != nil {
-		return parsedTestTx{}, err
+		return EvmTx{}, err
 	}
 	return txs[0], nil
 }
@@ -194,4 +184,35 @@ func signParserTestTx(t testing.TB, key *ecdsa.PrivateKey, chainID *big.Int, dat
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)
 	return raw
+}
+
+func TestSignerOptionalCache(t *testing.T) {
+	tx := signedProxyTestTx(0)
+	raw := utils.OrPanic1(tx.MarshalBinary())
+	sender := proxyTestSender(tx)
+	claimed := common.Address{1}
+	for _, capacity := range []int{0, 1} {
+		t.Run(fmt.Sprintf("capacity=%d", capacity), func(t *testing.T) {
+			signer := NewSigner(ethtypes.LatestSignerForChainID(tx.ChainId()), capacity, 4)
+			require.Equal(t, capacity > 0, signer.cache.IsPresent())
+			signer.Remember(tx.Hash(), claimed)
+			want := sender
+			if capacity > 0 {
+				want = claimed
+			}
+			parsed, err := signer.ParseTx(raw)
+			require.NoError(t, err)
+			require.Equal(t, want, parsed.Sender())
+			batch, err := signer.ParseTxs([][]byte{raw})
+			require.NoError(t, err)
+			require.Equal(t, want, batch[0].Sender())
+			signer.Forget(tx.Hash())
+			parsed, err = signer.ParseTx(raw)
+			require.NoError(t, err)
+			require.Equal(t, sender, parsed.Sender())
+			batch, err = signer.ParseTxs([][]byte{raw})
+			require.NoError(t, err)
+			require.Equal(t, sender, batch[0].Sender())
+		})
+	}
 }

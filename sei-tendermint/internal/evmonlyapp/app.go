@@ -899,13 +899,7 @@ func (a *evmOnlyApplication) finishBlock(height int64) error {
 // Readers of committed state settle it through AwaitCommits.
 func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, block evmonly.BlockContext, txs []abevm.EvmTx) (*evmonly.BlockResult, error) {
 	a.finalizePhases.SetPhase(finalizePhasePrepareTxs)
-	transactions := make([]*ethtypes.Transaction, len(txs))
-	senders := make([]utils.Option[common.Address], len(txs))
-	for i, tx := range txs {
-		transactions[i] = tx.Transaction()
-		senders[i] = utils.Some(tx.Sender())
-	}
-	prepared, err := executor.PrepareDecodedBlock(ctx, block, transactions, senders)
+	prepared, err := executor.PrepareDecodedBlock(ctx, block, txs)
 	if err != nil {
 		return nil, err
 	}

@@ -82,6 +82,7 @@ func makeSeedNode(
 		utils.None[atypes.SecretKey](),
 		cfg,
 		utils.None[*abevm.Proxy](),
+		utils.None[*abevm.Signer](),
 		genDoc,
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),

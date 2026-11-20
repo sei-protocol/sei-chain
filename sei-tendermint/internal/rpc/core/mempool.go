@@ -341,11 +341,7 @@ func (env *Environment) EvmBlockNumber() uint64 {
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
 func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheckTx) (*coretypes.ResultCheckTx, error) {
 	if evm, ok := env.EVM.Get(); ok {
-		tx, err := evm.ParseTx(evm.EvmChainID(), req.Tx)
-		var res abevm.AdmittedTx
-		if err == nil {
-			res, err = evm.CheckTx(tx)
-		}
+		tx, res, err := abevm.CheckTx(evm, env.evmSigner(), req.Tx)
 		response, err := evmAdmissionResponse(tx, res, err)
 		if err != nil {
 			return nil, err

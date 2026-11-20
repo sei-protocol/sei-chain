@@ -9,7 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
@@ -40,28 +40,28 @@ type ResultSink interface {
 	StoreBlockResult(ctx context.Context, height uint64, result *BlockResult, release func()) error
 }
 
-// BlockRequest contains all consensus/runtime inputs needed to execute a block.
-// Txs must be raw Ethereum transaction RLP bytes. Senders, when non-empty, is
-// aligned with Txs and holds the sender of every transaction whose signature
-// the caller has already verified against the executor's chain ID; PrepareBlock
-// uses those instead of recovering them. Transactions whose slot is None are
-// recovered as usual.
+// BlockRequest contains raw transactions and their execution context.
 type BlockRequest struct {
 	Context BlockContext
 	Txs     [][]byte
-	Senders []utils.Option[common.Address]
 }
 
-// DecodedBlock contains decoded transactions and optional verified senders for a block.
+// DecodedBlock contains decoded transactions with verified senders for a block.
 type DecodedBlock struct {
 	context BlockContext
-	txs     []*ethtypes.Transaction
-	// senders is either empty or aligned with txs.
-	senders []utils.Option[common.Address]
+	txs     []abevm.EvmTx
 }
 
-// PreparedBlock contains decoded transactions with recovered senders, as returned by PrepareBlock
-// or RecoverSenders. ExecutePreparedBlock trusts it unchanged and does not recover senders again.
+func (b DecodedBlock) prepared() PreparedBlock {
+	txs := make([]PreparedTx, len(b.txs))
+	for i, tx := range b.txs {
+		txs[i] = PreparedTx{Tx: tx.Transaction(), Sender: tx.Sender()}
+	}
+	return PreparedBlock{Context: b.context, Txs: txs}
+}
+
+// PreparedBlock contains transactions and verified senders ready for execution.
+// ExecutePreparedBlock trusts it unchanged and does not recover senders again.
 type PreparedBlock struct {
 	Context BlockContext
 	Txs     []PreparedTx

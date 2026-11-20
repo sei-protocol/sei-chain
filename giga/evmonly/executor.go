@@ -22,7 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -201,57 +200,37 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 	if err != nil {
 		return PreparedBlock{}, err
 	}
-	return e.RecoverSenders(ctx, decoded)
+	return decoded.prepared(), nil
 }
 
-// DecodeBlock decodes and validates req's transactions, leaving their senders unresolved.
+// DecodeBlock decodes and validates req's transactions and resolves their senders.
 func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return DecodedBlock{}, err
 	}
-	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
-		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
-	}
-	txs, err := abevm.DecodeBlockTxs(req.Txs, e.cfg.ParseWorkers, validateSupportedTx)
+	signer := ethtypes.MakeSigner(e.chainConfig(req.Context), new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
+	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(req.Txs)
 	if err != nil {
 		return DecodedBlock{}, err
 	}
-	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
+	return DecodedBlock{context: req.Context, txs: resolved}, nil
 }
 
-// PrepareDecodedBlock validates decoded transactions and resolves their senders for block.
-func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, txs []*ethtypes.Transaction, senders []utils.Option[common.Address]) (PreparedBlock, error) {
-	return e.RecoverSenders(ctx, DecodedBlock{context: block, txs: txs, senders: senders})
-}
-
-// RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
-// b carries an already verified sender for it.
-func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
-	if err := validateBlockContext(e.chainConfig(b.context), b.context); err != nil {
+// PrepareDecodedBlock validates transactions with verified senders for block and prepares them for execution.
+func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, txs []abevm.EvmTx) (PreparedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(block), block); err != nil {
 		return PreparedBlock{}, err
 	}
-	if len(b.senders) != 0 && len(b.senders) != len(b.txs) {
-		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(b.senders), len(b.txs))
-	}
-	for i, tx := range b.txs {
-		if err := validateSupportedTx(tx); err != nil {
+	signer := abevm.NewSigner(ethtypes.MakeSigner(e.chainConfig(block), new(big.Int).SetUint64(block.Number), block.Time), 0, e.cfg.ParseWorkers)
+	for i, tx := range txs {
+		if err := validateSupportedTx(tx.Transaction()); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+		if err := signer.Admits(tx.Transaction()); err != nil {
 			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
 		}
 	}
-
-	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
-	senders, err := abevm.ResolveBlockSenders(b.txs, signer, b.senders, e.cfg.ParseWorkers)
-	if err != nil {
-		return PreparedBlock{}, err
-	}
-	parsed := make([]PreparedTx, len(b.txs))
-	for i, tx := range b.txs {
-		parsed[i] = PreparedTx{Tx: tx, Sender: senders[i]}
-	}
-	return PreparedBlock{
-		Context: b.context,
-		Txs:     parsed,
-	}, nil
+	return (DecodedBlock{context: block, txs: txs}).prepared(), nil
 }
 
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {

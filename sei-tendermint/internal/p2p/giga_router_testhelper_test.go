@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math/big"
 	"net/netip"
 	"net/url"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -233,12 +235,13 @@ func TestInitChainThenFinalize(t *testing.T) {
 
 // newTestExecutor returns an executor of cfg's app over the blocks store makes
 // durable.
-func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store) *execution.Executor {
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store, signer *abevm.Signer) *execution.Executor {
 	return execution.New(&execution.Config{
 		GenDoc:         cfg.GenDoc,
 		App:            cfg.App,
 		AppHashBuilder: cfg.AppHashBuilder,
 		BlockStore:     store,
+		Signer:         signer,
 	})
 }
 
@@ -246,4 +249,8 @@ func testGigaConsensusParams() *tmtypes.ConsensusParams {
 	params := tmtypes.DefaultConsensusParams()
 	params.Block.MaxGas = 30_000_000
 	return params
+}
+
+func newTestSigner(chainID uint64, workers int) *abevm.Signer {
+	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
 }

@@ -295,6 +295,7 @@ func buildGigaRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	app *abevm.Proxy,
+	signer *abevm.Signer,
 	genDoc *types.GenesisDoc,
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
@@ -341,7 +342,7 @@ func buildGigaRouter(
 		if err != nil {
 			return nil, nil, err
 		}
-		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
+		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState, signer)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -379,11 +380,11 @@ func isClosingRoad(dataState *data.State) func(atypes.RoadIndex) bool {
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
 // BlockStore on app.
-func buildExecutor(app *abevm.Proxy, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager, parseWorkers int) *execution.Executor {
+func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
 	return execution.New(&execution.Config{
-		ParseWorkers:   parseWorkers,
 		GenDoc:         genDoc,
 		App:            app,
+		Signer:         signer,
 		AppHashBuilder: manager.AppHashBuilder(),
 		BlockStore:     manager.BlockStore(),
 	})
@@ -603,6 +604,7 @@ func createRouter(
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
 	app utils.Option[*abevm.Proxy],
+	signer utils.Option[*abevm.Signer],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
@@ -674,7 +676,7 @@ func createRouter(
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
 		giga, closingRoad, err := buildGigaRouter(
-			cfg, nodeKey, validatorKey, proxyApp, genDoc,
+			cfg, nodeKey, validatorKey, proxyApp, signer.OrPanic("Autobahn requires a transaction signer"), genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
 			options.PersistentPeers,
 		)

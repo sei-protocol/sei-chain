@@ -115,7 +115,8 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
 	app := &testEVMApp{}
 	evm := abevm.NewProxy(app)
-	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, Proxy: evm}
+	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm),
+		EVMSigner: utils.Some(newTestSigner(evm.EvmChainID(), 0))}, Proxy: evm}
 	msg := &ethcore.Message{GasLimit: 21_000}
 
 	t.Run("call", func(t *testing.T) {

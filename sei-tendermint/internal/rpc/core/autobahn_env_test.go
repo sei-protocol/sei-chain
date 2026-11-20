@@ -85,6 +85,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
 	app := abevm.NewProxy(broadcastEVMApp{})
+	signer := newTestSigner(app.EvmChainID(), 0)
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -109,7 +110,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 				MaxTxsPerSecond:         utils.None[uint64](),
 				BlockInterval:           time.Second,
 			},
-		}, nodeKey, dataState)
+		}, nodeKey, dataState, signer)
 		require.NoError(t, err)
 		require.True(t, router.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
 		giga = router
@@ -146,5 +147,8 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 		Router:     router,
 		EventSinks: []indexer.EventSink{kvsink.NewEventSink(dbm.NewMemDB(), nil)},
 		Config:     *config.DefaultRPCConfig(),
+		EVMSigner:  utils.Some(signer),
 	}
 }
+
+func (broadcastEVMApp) EvmChainID() uint64 { return 1 }

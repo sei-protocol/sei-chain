@@ -847,7 +847,7 @@ func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
 		Txs:     [][]byte{rawTx},
 	})
 
-	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 	require.Empty(t, prepared.Txs)
 }
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"runtime"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -17,30 +16,16 @@ import (
 
 	proxymetrics "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // ErrTxRejected identifies a transaction rejected during decoding or admission.
 var ErrTxRejected = errors.New("transaction rejected")
 
-// checkedSendersCap bounds the senders remembered per generation.
-// Entries are dropped as their transactions execute; the cap only guards against
-// remembered transactions that never reach a block.
-const checkedSendersCap = 1 << 22
-
-// minTxsPerHashWorker is the transaction count budgeted per hashing worker.
-const minTxsPerHashWorker = 64
-
 // Proxy records application method timings and adapts EVM RPC inputs and results.
-type Proxy struct {
-	app            Application
-	checkedSenders utils.Mutex[*cache[common.Hash, common.Address]]
-}
+type Proxy struct{ app Application }
 
 // NewProxy wraps an EVM application and records its method timings.
-func NewProxy(app Application) *Proxy {
-	return &Proxy{app: app, checkedSenders: utils.NewMutex(new(newCache[common.Hash, common.Address](checkedSendersCap)))}
-}
+func NewProxy(app Application) *Proxy { return &Proxy{app: app} }
 
 func (app *Proxy) Info() *ResponseInfo {
 	defer proxymetrics.Observe("info", "sync")()
@@ -74,22 +59,7 @@ func (app *Proxy) CheckTx(tx EvmTx) (AdmittedTx, error) {
 	if err != nil {
 		return AdmittedTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
-	app.RememberEvmSender(tx.Hash(), tx.Sender())
 	return res, nil
-}
-
-// RememberEvmSender records the sender recovered for the transaction with hash.
-func (app *Proxy) RememberEvmSender(hash common.Hash, sender common.Address) {
-	for senders := range app.checkedSenders.Lock() {
-		senders.push(hash, sender)
-	}
-}
-
-// ForgetEvmSender drops the sender recorded for hash, if any.
-func (app *Proxy) ForgetEvmSender(hash common.Hash) {
-	for senders := range app.checkedSenders.Lock() {
-		senders.pop(hash)
-	}
 }
 
 func (app *Proxy) EvmNonce(addr common.Address) uint64 {
@@ -106,11 +76,6 @@ func (app *Proxy) EvmCommittedNonce(addr common.Address) uint64 {
 
 func (app *Proxy) FinalizeBlock(ctx context.Context, req FinalizeBlockReq) (FinalizeBlockResp, error) {
 	defer proxymetrics.Observe("finalize_block", "sync")()
-	for senders := range app.checkedSenders.Lock() {
-		for _, tx := range req.Txs {
-			senders.pop(tx.Hash())
-		}
-	}
 	return app.app.FinalizeBlock(ctx, req)
 }
 
@@ -272,102 +237,4 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 		return BlockRef{}, fmt.Errorf("invalid EVM block number: %v", header.Number)
 	}
 	return BlockRef{Height: types.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, nil
-}
-
-// ParseTx parses a replay-protected transaction for chainID and recovers or reuses its verified sender.
-// chainID must be positive. Rejections are marked with ErrTxRejected.
-func (app *Proxy) ParseTx(chainID uint64, raw []byte) (EvmTx, error) {
-	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID))
-	tx, err := decodeEVMTransaction(signer, raw)
-	if err != nil {
-		return EvmTx{}, err
-	}
-	hash := tx.Hash()
-	for senders := range app.checkedSenders.Lock() {
-		if sender, ok := senders.get(hash).Get(); ok {
-			return EvmTx{tx: tx, sender: sender}, nil
-		}
-	}
-	sender, err := recoverTxSender(signer, tx)
-	if err != nil {
-		return EvmTx{}, err
-	}
-	return EvmTx{tx: tx, sender: sender}, nil
-}
-
-// ParseTxs parses transactions for chainID and recovers or reuses their verified senders in order.
-// chainID must be positive. A zero worker count uses GOMAXPROCS.
-func (app *Proxy) ParseTxs(chainID uint64, raw [][]byte, workers int) ([]EvmTx, error) {
-	if len(raw) == 0 {
-		return []EvmTx{}, nil
-	}
-	if workers <= 0 {
-		workers = runtime.GOMAXPROCS(0)
-	}
-	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID))
-	hashWorkers := min(workers, (len(raw)+minTxsPerHashWorker-1)/minTxsPerHashWorker)
-	decoded, err := DecodeBlockTxs(raw, hashWorkers, func(tx *ethtypes.Transaction) error {
-		return signerAdmits(signer, tx)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
-	}
-	txs, missing, missingCount := app.cachedTransactions(decoded)
-	if missingCount == 0 {
-		return txs, nil
-	}
-	// Signature recovery remains parallel even for small batches of cache misses.
-	if err := forEach(len(decoded), min(workers, missingCount), func(i int) error {
-		if !missing[i] {
-			return nil
-		}
-		sender, err := recoverTxSender(signer, decoded[i])
-		if err != nil {
-			return err
-		}
-		txs[i] = EvmTx{tx: decoded[i], sender: sender}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return txs, nil
-}
-
-// cachedTransactions returns transactions with cached senders, a cache-miss mask, and its count.
-func (app *Proxy) cachedTransactions(decoded []*ethtypes.Transaction) ([]EvmTx, []bool, int) {
-	txs := make([]EvmTx, len(decoded))
-	missing := make([]bool, len(decoded))
-	missingCount := 0
-	// Hashes are already cached; decoding, hashing, allocation, and recovery stay outside the lock.
-	for senders := range app.checkedSenders.Lock() {
-		for i, tx := range decoded {
-			if sender, ok := senders.get(tx.Hash()).Get(); ok {
-				txs[i] = EvmTx{tx: tx, sender: sender}
-			} else {
-				missing[i] = true
-				missingCount++
-			}
-		}
-	}
-	return txs, missing, missingCount
-}
-
-// decodeEVMTransaction decodes a replay-protected Ethereum transaction admitted by signer.
-func decodeEVMTransaction(signer ethtypes.Signer, raw []byte) (*ethtypes.Transaction, error) {
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(raw); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
-	}
-	if err := signerAdmits(signer, tx); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
-	}
-	return tx, nil
-}
-
-func recoverTxSender(signer ethtypes.Signer, tx *ethtypes.Transaction) (common.Address, error) {
-	sender, err := ethtypes.Sender(signer, tx)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
-	}
-	return sender, nil
 }

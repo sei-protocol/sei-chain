@@ -198,6 +198,7 @@ type testEnv struct {
 	consensus *consensus.State
 	data      *data.State
 	app       *abevm.Proxy
+	signer    *abevm.Signer
 	accounts  accountApp
 
 	inner           utils.Mutex[*testEnvInner]
@@ -267,7 +268,9 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Mark block as executed.
-			_, err = env.app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{Txs: utils.OrPanic1(env.app.ParseTxs(env.app.EvmChainID(), b.Txs, 0)), Hash: common.BytesToHash(b.Hash[:])})
+			txs := utils.OrPanic1(env.signer.ParseTxs(b.Txs))
+			env.signer.ForgetTxs(txs)
+			_, err = env.app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{Txs: txs, Hash: common.BytesToHash(b.Hash[:])})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}
@@ -296,12 +299,14 @@ func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app accountApp
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
 	evm := abevm.NewProxy(app)
+	signer := newTestSigner(app.EvmChainID(), 0)
 	return &testEnv{
 		executionPaused: utils.NewWatch(new(bool)),
 		data:            dataState,
 		consensus:       consensusState,
-		state:           NewState(cfg, consensusState, evm),
+		state:           NewState(cfg, consensusState, evm, signer),
 		app:             evm,
+		signer:          signer,
 		accounts:        app,
 		inner: utils.NewMutex(&testEnvInner{
 			sequenced: map[common.Address][]*txSpec{},
@@ -928,4 +933,8 @@ func (a *testApp) Info() *abevm.ResponseInfo {
 		return &abevm.ResponseInfo{LastBlockAppHash: slices.Clone(inner.appHash)}
 	}
 	panic("unreachable")
+}
+
+func newTestSigner(chainID uint64, workers int) *abevm.Signer {
+	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
 }

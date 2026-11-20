@@ -11,10 +11,12 @@ type cache[K comparable, V any] struct {
 	capacity int
 }
 
+// newCache returns a cache with the given capacity per generation.
 func newCache[K comparable, V any](capacity int) cache[K, V] {
 	return cache[K, V]{fresh: map[K]V{}, capacity: capacity}
 }
 
+// push records a key-value pair in the newest generation.
 func (c *cache[K, V]) push(key K, value V) {
 	// A full fresh generation replaces the stale one.
 	if len(c.fresh) >= c.capacity {
