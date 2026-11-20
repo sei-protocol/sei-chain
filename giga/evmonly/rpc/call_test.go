@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -146,7 +147,8 @@ func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 }
 
-// pastBlockSelectors are the block selectors naming block 3 of a pastBlocksBackend, and earliest.
+// pastBlockSelectors are the block selectors naming block 3 of a pastBlocksBackend, and earliest and
+// 0x0 naming its first block.
 var pastBlockSelectors = []struct {
 	name       string
 	block      ethrpc.BlockNumberOrHash
@@ -154,7 +156,8 @@ var pastBlockSelectors = []struct {
 }{
 	{name: "number", block: ethrpc.BlockNumberOrHashWithNumber(3), wantNumber: 3},
 	{name: "hash", block: ethrpc.BlockNumberOrHashWithHash(traceBlockHash(3), true), wantNumber: 3},
-	{name: "earliest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantNumber: 0},
+	{name: "earliest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantNumber: 1},
+	{name: "0x0", block: ethrpc.BlockNumberOrHashWithNumber(0), wantNumber: 1},
 }
 
 // requirePastHeader checks header is block number's of a pastBlocksBackend, as it executed.
@@ -186,6 +189,35 @@ func TestCallRunsAgainstAPastBlock(t *testing.T) {
 			}
 
 			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, tc.block, nil, nil)
+
+			require.NoError(t, err)
+			require.Equal(t, hexutil.Bytes{0x2a}, got)
+		})
+	}
+}
+
+// On a chain starting above block 1, a call at earliest runs in the first block's context, whose
+// parent the node does not hold.
+func TestCallRunsAtTheFirstBlockOfALaterChain(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	for _, number := range []ethrpc.BlockNumber{ethrpc.EarliestBlockNumber, 0, 3} {
+		t.Run(number.String(), func(t *testing.T) {
+			backend := pastBlocksBackend(5)
+			backend.initialHeight = 3
+			stored := backend.block
+			backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				if req.Height != nil && *req.Height < 3 {
+					return nil, coretypes.WrapErrHeightNotAvailable(int64(*req.Height), utils.Some(int64(3)))
+				}
+				return stored(ctx, req)
+			}
+			backend.callAt = func(_ context.Context, _ *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+				require.Equal(t, int64(3), header.Number.Int64())
+				require.Equal(t, common.Hash{}, header.ParentHash)
+				return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
+			}
+
+			got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(number), nil, nil)
 
 			require.NoError(t, err)
 			require.Equal(t, hexutil.Bytes{0x2a}, got)

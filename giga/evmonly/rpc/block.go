@@ -27,8 +27,8 @@ type blockAPI struct {
 	store   receiptdb.ReceiptStore
 }
 
-// GetBlockByNumber returns the block for number, nil for a zero/negative or
-// future height, or an error for a pruned height.
+// GetBlockByNumber returns the block for number, nil for a future height, or an
+// error for a pruned height.
 func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, fullTx bool) (map[string]any, error) {
 	block, err := api.resolveBlockByNumber(ctx, number)
 	if err != nil || block == nil {
@@ -48,8 +48,7 @@ func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 }
 
 // GetBlockTransactionCountByNumber returns the number of transactions in the
-// block for number, nil for a zero/negative or future height, or an error for a
-// pruned height.
+// block for number, nil for a future height, or an error for a pruned height.
 func (api *blockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number ethrpc.BlockNumber) (*hexutil.Uint, error) {
 	block, err := api.resolveBlockByNumber(ctx, number)
 	if err != nil || block == nil {
@@ -70,8 +69,8 @@ func (api *blockAPI) GetBlockTransactionCountByHash(ctx context.Context, hash co
 
 // GetTransactionByBlockNumberAndIndex returns the transaction at index in the
 // block for number, as eth_getBlockByNumber with full transactions lists it. It
-// returns nil for a zero/negative or future height or an index past the end of
-// the block, and an error for a pruned height.
+// returns nil for a future height or an index past the end of the block, and an
+// error for a pruned height.
 func (api *blockAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, number ethrpc.BlockNumber, index hexutil.Uint) (*export.RPCTransaction, error) {
 	block, err := api.resolveBlockByNumber(ctx, number)
 	if err != nil || block == nil {
@@ -128,22 +127,33 @@ func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (
 	return block, nil
 }
 
-// resolveBlockByNumber returns a nil block for a zero/negative or future
-// height, and coretypes.ErrHeightNotAvailable for a pruned height.
+// resolveBlockByNumber returns the block number names, with earliest and 0x0 naming the earliest
+// block the receipt store retains. It returns a nil block for a future height, and coretypes.ErrHeightNotAvailable
+// for a pruned height.
 func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
-	var height *coretypes.Int64
-	switch number {
-	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
-		// nil height resolves to the current committed block.
-	case ethrpc.EarliestBlockNumber:
-		// The backend cannot name its lowest block, so "earliest" asks for
-		// height 0 and answers null.
-		h := coretypes.Int64(0)
-		height = &h
-	default:
-		h := coretypes.Int64(number.Int64())
-		height = &h
+	kind, err := classifyBlockNumber(number)
+	if err != nil {
+		return nil, err
 	}
+	switch kind {
+	case headBlock:
+		return api.fetchBlock(ctx, nil)
+	case earliestBlock:
+		return api.blockAt(ctx, earliestRetainedHeight(api.backend, api.store))
+	}
+	return api.blockAt(ctx, number.Int64())
+}
+
+// blockAt returns the block at height, or a nil block for a height below 1 or above the head. It
+// returns coretypes.ErrHeightNotAvailable for a pruned height.
+func (api *blockAPI) blockAt(ctx context.Context, height int64) (*coretypes.ResultBlock, error) {
+	h := coretypes.Int64(height)
+	return api.fetchBlock(ctx, &h)
+}
+
+// fetchBlock returns the backend's block at height, or the latest committed block for a nil
+// height, with a nil block for one the backend does not have.
+func (api *blockAPI) fetchBlock(ctx context.Context, height *coretypes.Int64) (*coretypes.ResultBlock, error) {
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
 		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
@@ -162,9 +172,9 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 // reads. Block 0, which no store holds, carries only its number.
 func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*ethtypes.Header, error) {
 	if height == 0 {
-		return genesisBlock().Header(), nil
+		return preChainBlock(0).Header(), nil
 	}
-	block, err := api.resolveBlockByNumber(ctx, ethrpc.BlockNumber(height))
+	block, err := api.blockAt(ctx, height)
 	if err != nil {
 		return nil, err
 	}
@@ -198,9 +208,12 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 }
 
 // parentHash returns the hash of the block before height, which a stored block does not carry. It is
-// zero before the first block.
+// zero for the chain's first block.
 func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash, error) {
-	parent, err := api.resolveBlockByNumber(ctx, ethrpc.BlockNumber(height-1))
+	if height <= firstBlockHeight(api.backend) {
+		return common.Hash{}, nil
+	}
+	parent, err := api.blockAt(ctx, height-1)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
 	}
