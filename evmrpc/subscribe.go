@@ -121,10 +121,14 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 			continue
 		}
 		a.noteNewHeadEvent(evt.header.Height)
-		ctx := ctxProvider(evt.header.Height)
 		baseFeePerGas, err := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, evt.header.Height)
 		if err != nil {
 			dropNewHeadWithoutBaseFee(evt.header.Height, err)
+			continue
+		}
+		ctx, err := ctxAtHeight(ctxProvider, evt.header.Height)
+		if err != nil {
+			dropNewHeadWithoutState(evt.header.Height, err)
 			continue
 		}
 		// Source gasLimit from the active SDK ConsensusParams rather than
@@ -169,6 +173,13 @@ func missedNewHeads(prev, height int64) int64 {
 func dropNewHeadWithoutBaseFee(height int64, err error) {
 	logger.Error("dropping newHeads event: base fee unavailable", "height", height, "err", err)
 	recordNewHeadsDroppedBlocks(context.Background(), 1, newHeadsDropBaseFeeUnavailable)
+}
+
+// dropNewHeadWithoutState logs and counts the newHeads header not sent for height because its own state,
+// which holds its gas limit, could not be read.
+func dropNewHeadWithoutState(height int64, err error) {
+	logger.Error("dropping newHeads event: state unavailable", "height", height, "err", err)
+	recordNewHeadsDroppedBlocks(context.Background(), 1, newHeadsDropStateUnavailable)
 }
 
 // pickHeadBaseFee returns the baseFeePerGas eth_getBlockByNumber reports for the block at height: the base
