@@ -96,20 +96,21 @@ func (b *traceBackend) BlockWithTraceMetadataByHash(ctx context.Context, hash co
 	return eth, nil, err
 }
 
-// BlockWithTraceMetadataByNumber returns the block at number, or nil when there is none. Current-state
-// tags name the latest block whose receipts are indexed, or for calls the latest committed block.
+// BlockWithTraceMetadataByNumber returns the block at number, or nil when there is none. Head tags
+// name the latest block whose receipts are indexed, or for calls the latest committed block;
+// earliest names the earliest block the receipt store retains, and a height below the chain's
+// first block a block holding only its number.
 func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	if number == 0 {
-		return genesisBlock(), nil, nil
+	if number >= 0 && number.Int64() < firstBlockHeight(b.backend) {
+		// The tracer reads the block before the first as the first block's parent; debugAPI
+		// resolves a request's 0x0 before it gets here.
+		return preChainBlock(number.Int64()), nil, nil
 	}
-	if isLatestTag(number) {
-		latest := committedHead(ctx, b.backend)
-		if !b.headersOnly {
-			_, latest = indexedRange(ctx, b.backend, b.blocks.store)
-		}
-		number = ethrpc.BlockNumber(latest) //nolint:gosec // G115: a committed height fits in int64.
+	height, err := b.traceHeight(ctx, number)
+	if err != nil {
+		return nil, nil, err
 	}
-	block, err := b.blocks.resolveBlockByNumber(ctx, number)
+	block, err := b.blocks.blockAt(ctx, height)
 	if err != nil || block == nil {
 		return nil, nil, err
 	}
@@ -117,10 +118,30 @@ func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, numbe
 	return eth, nil, err
 }
 
-// genesisBlock returns block 0, which no store holds: it carries only its number and the zero hash
-// block 1 names as its parent, which is all a trace reads from a parent block.
-func genesisBlock() *ethtypes.Block {
-	block := ethtypes.NewBlockWithHeader(&ethtypes.Header{Number: new(big.Int), Difficulty: new(big.Int), BaseFee: new(big.Int)})
+// traceHeight returns the height number names for a trace.
+func (b *traceBackend) traceHeight(ctx context.Context, number ethrpc.BlockNumber) (int64, error) {
+	kind, err := classifyBlockNumber(number)
+	if err != nil {
+		return 0, err
+	}
+	switch kind {
+	case headBlock:
+		latest := committedHead(ctx, b.backend)
+		if !b.headersOnly {
+			_, latest = indexedRange(ctx, b.backend, b.blocks.store)
+		}
+		return int64(latest), nil //nolint:gosec // G115: a committed height fits in int64.
+	case earliestBlock:
+		return earliestRetainedHeight(b.backend, b.blocks.store), nil
+	}
+	return number.Int64(), nil
+}
+
+// preChainBlock returns block height below the chain's first block, which no store holds: it carries
+// only its number and the zero hash the first block names as its parent, which is all a trace reads
+// from a parent block.
+func preChainBlock(height int64) *ethtypes.Block {
+	block := ethtypes.NewBlockWithHeader(&ethtypes.Header{Number: big.NewInt(height), Difficulty: new(big.Int), BaseFee: new(big.Int)})
 	block.OverwriteHash(common.Hash{})
 	return block
 }
@@ -220,7 +241,7 @@ func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, 
 // block context and state it executed against. Index 0 of an empty block returns no transaction
 // and the state the block started from.
 func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int) (*ethtypes.Transaction, vm.BlockContext, vm.SeiStateDB, tracers.StateReleaseFunc, error) {
-	stored, err := b.blocks.resolveBlockByNumber(ctx, ethrpc.BlockNumber(block.Number().Int64()))
+	stored, err := b.blocks.blockAt(ctx, block.Number().Int64())
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}

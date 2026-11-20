@@ -24,10 +24,6 @@ import (
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
 
-// earliestCommittedHeight is the lowest block height of an unpruned receipt store: a fixed 1, not a
-// runtime read — wrong for an Autobahn-migrated shard (see autobahn/types.Epoch.FirstBlock).
-const earliestCommittedHeight = int64(1)
-
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the admission floor up for
 // eth_gasPrice's suggestion.
 const (
@@ -175,62 +171,46 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	return api.walkFeeHistoryRange(ctx, end, int64(blockCount), gasLimit, rewardPercentiles)
 }
 
-// earliestRetainedHeight returns the lowest block height store retains.
-func earliestRetainedHeight(store receiptdb.ReceiptStore) int64 {
-	if store == nil {
-		return earliestCommittedHeight
-	}
-	// EarliestVersion is 0 until something has pruned the store, in which case
-	// earliestCommittedHeight (this deployment's genesis) is the true earliest.
-	return max(earliestCommittedHeight, store.EarliestVersion())
-}
-
-// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
-func normalizeEarliest(number ethrpc.BlockNumber) ethrpc.BlockNumber {
-	if number == 0 {
-		return ethrpc.EarliestBlockNumber
-	}
-	return number
-}
-
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
 func (api *infoAPI) resolveEndHeight(ctx context.Context, lastBlock ethrpc.BlockNumber) (int64, error) {
 	current := api.store.LatestVersion()
 	if head, ok := pinnedHead(ctx).Get(); ok {
 		current = min(current, int64(head)) //nolint:gosec // G115: a committed height fits in int64.
 	}
-	switch normalizeEarliest(lastBlock) {
-	case ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.LatestBlockNumber, ethrpc.PendingBlockNumber:
+	kind, err := classifyBlockNumber(lastBlock)
+	if err != nil {
+		return 0, err
+	}
+	switch kind {
+	case headBlock:
 		if current <= 0 {
 			return 0, errors.New("no committed block available for fee history")
 		}
 		return current, nil
-	case ethrpc.EarliestBlockNumber:
-		return earliestRetainedHeight(api.store), nil
-	default:
-		if lastBlock < 0 {
-			return 0, fmt.Errorf("requested last block %d is not available", lastBlock)
-		}
-		if int64(lastBlock) > current {
-			return 0, fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current)
-		}
-		return int64(lastBlock), nil
+	case earliestBlock:
+		return earliestRetainedHeight(api.backend, api.store), nil
 	}
+	if int64(lastBlock) > current {
+		return 0, fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current)
+	}
+	return int64(lastBlock), nil
 }
 
 // walkFeeHistoryRange collects gasUsedRatio, baseFee, and reward entries for the blockCount
-// blocks ending at end, oldest first, skipping heights below 1 or pruned below the retention floor.
+// blocks ending at end, oldest first, skipping heights before the chain's first block or pruned
+// below the retention floor.
 func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	result := &FeeHistoryResult{GasUsedRatio: []float64{}}
 	// lastGoodResult is the most recent contiguous run completed before a hole, returned if
 	// nothing follows the hole.
 	var lastGoodResult *FeeHistoryResult
 	start := end - blockCount + 1
+	first := firstBlockHeight(api.backend)
 	for height := start; height <= end; height++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if height < 1 {
+		if height < first {
 			continue
 		}
 		stats, err := api.blockStatsForHeight(ctx, height, rewardPercentiles)

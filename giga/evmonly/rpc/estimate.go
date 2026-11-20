@@ -12,10 +12,12 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 )
 
 type estimateAPI struct {
 	backend Backend
+	store   receiptdb.ReceiptStore
 	blocks  *blockAPI
 	limits  overrideLimits
 	// maxCalls caps the calls one eth_estimateGasAfterCalls request may apply; zero disables the
@@ -63,7 +65,7 @@ func (api *estimateAPI) estimateAfterCalls(
 	if block != nil {
 		selector = *block
 	}
-	height, latest, err := stateHeight(ctx, api.backend, selector)
+	height, latest, err := stateHeight(ctx, api.backend, api.store, selector)
 	if err != nil {
 		return 0, err
 	}

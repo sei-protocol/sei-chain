@@ -56,6 +56,8 @@ type testBackend struct {
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
 	pendingNonce     func(common.Address) utils.Option[uint64]
+	// initialHeight is the genesis InitialHeight GenesisInitialHeight reports.
+	initialHeight int64
 
 	balanceAt          func(common.Address, int64) (uint256.Int, error)
 	codeAt             func(common.Address, int64) ([]byte, error)
@@ -131,6 +133,10 @@ func (b *testBackend) EvmBaseFee() *big.Int {
 
 func (b *testBackend) EvmBlockNumber() uint64 {
 	return b.blockNumber()
+}
+
+func (b *testBackend) GenesisInitialHeight() int64 {
+	return b.initialHeight
 }
 
 func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -32,12 +34,12 @@ func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 	return store
 }
 
-func newTestDataState(t testing.TB, registry *epoch.Registry) *data.State {
+func newTestDataState(t testing.TB, registry *epoch.TestRegistry) *data.State {
 	store := blockstore.NewTestStore(t)
-	return utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
+	return utils.OrPanic1(data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store))
 }
 
-func newTestAvail(t *testing.T, registry *epoch.Registry, key types.SecretKey) (*data.State, *avail.State) {
+func newTestAvail(t *testing.T, registry *epoch.TestRegistry, key types.SecretKey) (*data.State, *avail.State) {
 	t.Helper()
 	ds := newTestDataState(t, registry)
 	av, err := avail.NewState(key, ds, utils.None[string]())
@@ -69,7 +71,7 @@ func encodeWal(tip utils.Option[*types.CommitQC], state *persistedInner) *pb.Per
 // loadInner is a test helper that loads persisted data and creates inner.
 // Mirrors what NewState does: avail first (aligned to the WAL tip via PushCommitQC),
 // then newInner.
-func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.SecretKey) (inner, error) {
+func loadInner(t *testing.T, dir string, registry *epoch.TestRegistry, keys []types.SecretKey) (inner, error) {
 	t.Helper()
 	_, persisted, err := persist.NewPersister[*pb.PersistedInner](utils.Some(dir), innerFile)
 	if err != nil {
@@ -99,7 +101,7 @@ func alignAvailToTip(
 	ctx context.Context,
 	t *testing.T,
 	av *avail.State,
-	registry *epoch.Registry,
+	registry *epoch.TestRegistry,
 	keys []types.SecretKey,
 	tipHeight types.RoadHeight,
 ) error {
@@ -1061,7 +1063,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	store := newTestBlockStore(t, filepath.Join(dir, "blockdb"))
-	ds, err := data.NewState(&data.Config{Registry: registry}, store)
+	ds, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store)
 	if err != nil {
 		t.Fatalf("data.NewState: %v", err)
 	}
@@ -1085,7 +1087,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 }
 
-func newConsensusState(t *testing.T, registry *epoch.Registry, key types.SecretKey) *State {
+func newConsensusState(t *testing.T, registry *epoch.TestRegistry, key types.SecretKey) *State {
 	t.Helper()
 	s, err := NewState(&Config{
 		Key:             key,
