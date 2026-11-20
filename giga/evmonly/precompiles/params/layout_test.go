@@ -70,7 +70,9 @@ func TestLayoutMatchesForge(t *testing.T) {
 		"EVM": {
 			"maxDynamicBaseFeeUpwardAdjustment":   evmMaxDynamicBaseFeeUpwardAdjustment,
 			"maxDynamicBaseFeeDownwardAdjustment": evmMaxDynamicBaseFeeDownwardAdjustment,
-			"__gap":                               {2, 0},
+			"minFeePerGas":                        evmMinFeePerGas,
+			"baseFeeLag":                          evmBaseFeeLag,
+			"__gap":                               {4, 0},
 		},
 	}
 	subspaceOf := map[string]*subspace{"Gov": &govSubspace, "Staking": &stakingSubspace, "EVM": &evmSubspace}
@@ -112,7 +114,10 @@ func TestLayoutCoversEveryDeclaredParam(t *testing.T) {
 			stakingUnbondingTime: true, stakingMaxValidators: true, stakingMaxEntries: true,
 			stakingMaxVotingPowerRatio: true, stakingMaxVotingPowerEnforcementThreshold: true,
 		},
-		&evmSubspace: {evmMaxDynamicBaseFeeUpwardAdjustment: true, evmMaxDynamicBaseFeeDownwardAdjustment: true},
+		&evmSubspace: {
+			evmMaxDynamicBaseFeeUpwardAdjustment: true, evmMaxDynamicBaseFeeDownwardAdjustment: true,
+			evmMinFeePerGas: true, evmBaseFeeLag: true,
+		},
 	} {
 		for _, p := range ss.params {
 			require.True(t, members[p.at], p.key)
@@ -162,5 +167,7 @@ func TestReadsCompilerWrites(t *testing.T) {
 	require.Equal(t, EVM{
 		MaxDynamicBaseFeeUpwardAdjustment:   big.NewInt(18_900_000_000_000_000),
 		MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(3_900_000_000_000_000),
+		MinFeePerGas:                        new(big.Int).Mul(big.NewInt(1_000_000_000), decOne),
+		BaseFeeLag:                          3,
 	}, evmFrom(evmSubspace.read(s)))
 }

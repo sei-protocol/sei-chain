@@ -299,10 +299,13 @@ func TestEveryGovParamChangesThroughAProposal(t *testing.T) {
 // proposal, leaving the param it does not name.
 func TestEVMParamsChangeThroughAProposal(t *testing.T) {
 	h := newElectedHarness(t, equalElectorate)
-	require.NoError(t, chainparams.WriteEVM(h.state, chainparams.EVM{
+	genesis := chainparams.EVM{
 		MaxDynamicBaseFeeUpwardAdjustment:   big.NewInt(6_000_000_000_000_000),
 		MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(6_000_000_000_000_000),
-	}))
+		MinFeePerGas:                        new(big.Int).Mul(big.NewInt(1_000_000_000), big.NewInt(1_000_000_000_000_000_000)),
+		BaseFeeLag:                          2,
+	}
+	require.NoError(t, chainparams.WriteEVM(h.state, genesis))
 	up := big.NewInt(125_000_000_000_000_000) // 12.5%, as a Dec
 
 	id, err := h.submitParamChange(false,
@@ -312,10 +315,9 @@ func TestEVMParamsChangeThroughAProposal(t *testing.T) {
 	h.passID(id)
 
 	require.Equal(t, StatusPassed, h.status(id))
-	require.Equal(t, chainparams.EVM{
-		MaxDynamicBaseFeeUpwardAdjustment:   up,
-		MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(6_000_000_000_000_000),
-	}, chainparams.ReadEVM(h.state))
+	want := genesis
+	want.MaxDynamicBaseFeeUpwardAdjustment = up
+	require.Equal(t, want, chainparams.ReadEVM(h.state))
 }
 
 // TestSubspacesFitTheExecutionCharge checks that applying any set of changes,

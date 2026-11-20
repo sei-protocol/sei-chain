@@ -47,4 +47,6 @@ var (
 var (
 	evmMaxDynamicBaseFeeUpwardAdjustment   = member{0, 0}
 	evmMaxDynamicBaseFeeDownwardAdjustment = member{1, 0}
+	evmMinFeePerGas                        = member{2, 0}
+	evmBaseFeeLag                          = member{3, 0}
 )

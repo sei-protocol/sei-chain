@@ -129,6 +129,21 @@ func TestNextBaseFee(t *testing.T) {
 			want: uint256.Int{},
 		},
 		{
+			name:   "a decrease stops at MinBaseFee",
+			params: BaseFeeParams{MaxIncrease: adjustment(6), MaxDecrease: adjustment(6), MinBaseFee: gwei(1)}, scheduled: *uint256.NewInt(1_000_000_001), gasUsed: 0, gasLimit: gasLimit,
+			want: gwei(1),
+		},
+		{
+			name:   "a fee below MinBaseFee rises to it",
+			params: BaseFeeParams{MaxIncrease: adjustment(6), MaxDecrease: adjustment(6), MinBaseFee: gwei(2)}, scheduled: gwei(1), gasUsed: gasLimit / 2, gasLimit: gasLimit,
+			want: gwei(2),
+		},
+		{
+			name:   "a fee below MinBaseFee rises to it without a gas limit",
+			params: BaseFeeParams{MinBaseFee: gwei(2)}, scheduled: gwei(1), gasUsed: 0, gasLimit: 0,
+			want: gwei(2),
+		},
+		{
 			name:   "an increase past the largest uint256 saturates",
 			params: eip1559, scheduled: maxFee, gasUsed: gasLimit, gasLimit: gasLimit,
 			want: maxFee,

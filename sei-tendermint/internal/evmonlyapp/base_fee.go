@@ -7,36 +7,55 @@ import (
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 )
 
-// evmOnlyBaseFeeLag is how many blocks after a block its gas use sets the base fee of.
-const evmOnlyBaseFeeLag = 2
-
-// evmOnlyBlockMinGasPrice is the chain's minimum gas price, in wei per gas: the base fee a chain's
-// first blocks run at, and the lowest base fee any block runs at. Every node must agree on it, so
-// it is not an operator setting.
-const evmOnlyBlockMinGasPrice = 1_000_000_000
+// evmOnlyGenesisMinFeePerGas is the genesis KeyMinFeePerGas, in wei per gas.
+const evmOnlyGenesisMinFeePerGas = 1_000_000_000
 
 // evmOnlyGenesisEVMParams are the base fee params gov's first EndBlock writes: a block using its
-// whole gas limit raises the base fee by 0.6%, and an empty one lowers it by 0.6%. Base fees are
-// set by them while no params are written: on a chain without gov, and in gov's first block.
+// whole gas limit raises the base fee two blocks later by 0.6%, and an empty one lowers it by 0.6%,
+// never below 1 gwei. Base fees are set by them while no params are written: on a chain without
+// gov, and in gov's first block.
 var evmOnlyGenesisEVMParams = chainparams.EVM{
 	MaxDynamicBaseFeeUpwardAdjustment:   big.NewInt(6_000_000_000_000_000),
 	MaxDynamicBaseFeeDownwardAdjustment: big.NewInt(6_000_000_000_000_000),
+	MinFeePerGas:                        new(big.Int).Mul(big.NewInt(evmOnlyGenesisMinFeePerGas), evmonly.BaseFeeAdjustmentOne.ToBig()),
+	BaseFeeLag:                          2,
 }
 
-// evmOnlyBaseFeeParams returns the base fee rules of the params state holds, or of
+// baseFeeRules are the rules that schedule base fees.
+type baseFeeRules struct {
+	// step moves the base fee from one scheduled block to the next.
+	step evmonly.BaseFeeParams
+	// lag is how many blocks after a block its gas use sets the base fee of.
+	lag int
+}
+
+// evmOnlyBaseFeeRules returns the base fee rules of the params state holds, or of
 // evmOnlyGenesisEVMParams when it holds none.
-func evmOnlyBaseFeeParams(state chainparams.StorageReader) evmonly.BaseFeeParams {
+func evmOnlyBaseFeeRules(state chainparams.StorageReader) baseFeeRules {
 	if !chainparams.HasEVM(state) {
-		return baseFeeParams(evmOnlyGenesisEVMParams)
+		return baseFeeRulesOf(evmOnlyGenesisEVMParams)
 	}
-	return baseFeeParams(chainparams.ReadEVM(state))
+	return baseFeeRulesOf(chainparams.ReadEVM(state))
 }
 
-// baseFeeParams returns the base fee rules p sets. A Dec and a base fee adjustment share their
-// scale.
-func baseFeeParams(p chainparams.EVM) evmonly.BaseFeeParams {
-	var params evmonly.BaseFeeParams
-	params.MaxIncrease.SetFromBig(p.MaxDynamicBaseFeeUpwardAdjustment)
-	params.MaxDecrease.SetFromBig(p.MaxDynamicBaseFeeDownwardAdjustment)
-	return params
+// baseFeeRulesOf returns the base fee rules p sets. A Dec and a base fee adjustment share their
+// scale, so the minimum fee per gas in wei is the Dec's whole part.
+func baseFeeRulesOf(p chainparams.EVM) baseFeeRules {
+	var rules baseFeeRules
+	rules.step.MaxIncrease.SetFromBig(p.MaxDynamicBaseFeeUpwardAdjustment)
+	rules.step.MaxDecrease.SetFromBig(p.MaxDynamicBaseFeeDownwardAdjustment)
+	rules.step.MinBaseFee.SetFromBig(new(big.Int).Quo(p.MinFeePerGas, evmonly.BaseFeeAdjustmentOne.ToBig()))
+	rules.lag = int(p.BaseFeeLag)
+	return rules
+}
+
+// genesisBaseFees returns the base fees of the cursor InitChain writes: the minimum base fee of
+// evmOnlyGenesisEVMParams, for the block before the first and each of the lag blocks after it.
+func genesisBaseFees() evmOnlyBaseFees {
+	rules := baseFeeRulesOf(evmOnlyGenesisEVMParams)
+	fees := make(evmOnlyBaseFees, rules.lag+1)
+	for i := range fees {
+		fees[i] = rules.step.MinBaseFee
+	}
+	return fees
 }

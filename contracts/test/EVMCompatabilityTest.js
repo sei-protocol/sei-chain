@@ -677,8 +677,8 @@ describe("EVM Test", function () {
         ];
 
         it("Check base fee on the right block", async function () {
-          // EVM-only sets a block's base fee from the gas use of the block two before it, so the
-          // heavy block's child does not yet run at a raised base fee.
+          // EVM-only sets a block's base fee from the gas use of the block KeyBaseFeeLag before it,
+          // two at genesis, so the heavy block's child does not yet run at a raised base fee.
           if (await isEvmOnlyChain()) {
             this.skip();
           }

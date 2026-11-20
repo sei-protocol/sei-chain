@@ -16,6 +16,8 @@ type BaseFeeParams struct {
 	MaxIncrease uint256.Int
 	// MaxDecrease is the adjustment a block using no gas lowers the base fee by.
 	MaxDecrease uint256.Int
+	// MinBaseFee is the lowest base fee NextBaseFee returns, in wei.
+	MinBaseFee uint256.Int
 }
 
 // NextBaseFee returns the base fee scheduled after scheduled, the latest one already set, when the
@@ -24,8 +26,22 @@ type BaseFeeParams struct {
 // target and the limit that the block used; below it the fee falls by MaxDecrease times the share
 // of the target the block left unused. The change is rounded down to the wei, an increase is at
 // least one wei, and a result past the largest uint256 saturates. A block without a gas limit
-// leaves scheduled as it is.
+// leaves scheduled as it is. The result is never below MinBaseFee.
 func (p BaseFeeParams) NextBaseFee(scheduled uint256.Int, gasUsed, gasLimit uint64) uint256.Int {
+	return p.Hold(p.adjust(scheduled, gasUsed, gasLimit))
+}
+
+// Hold returns the base fee scheduled after scheduled when no block's gas use moves it: scheduled,
+// or MinBaseFee when that is higher.
+func (p BaseFeeParams) Hold(scheduled uint256.Int) uint256.Int {
+	if scheduled.Lt(&p.MinBaseFee) {
+		return p.MinBaseFee
+	}
+	return scheduled
+}
+
+// adjust returns scheduled moved by the gas use of the block that sets the next base fee.
+func (p BaseFeeParams) adjust(scheduled uint256.Int, gasUsed, gasLimit uint64) uint256.Int {
 	if gasLimit == 0 {
 		return scheduled
 	}

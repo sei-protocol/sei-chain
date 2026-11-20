@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 57,
+      "astId": 61,
       "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
       "label": "gov",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_struct(Gov)28_storage"
     },
     {
-      "astId": 60,
+      "astId": 64,
       "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
       "label": "staking",
       "offset": 0,
@@ -17,22 +17,28 @@
       "type": "t_struct(Staking)44_storage"
     },
     {
-      "astId": 63,
+      "astId": 67,
       "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
       "label": "evm",
       "offset": 0,
       "slot": "27",
-      "type": "t_struct(EVM)54_storage"
+      "type": "t_struct(EVM)58_storage"
     }
   ],
   "types": {
+    "t_array(t_uint256)6_storage": {
+      "base": "t_uint256",
+      "encoding": "inplace",
+      "label": "uint256[6]",
+      "numberOfBytes": "192"
+    },
     "t_array(t_uint256)8_storage": {
       "base": "t_uint256",
       "encoding": "inplace",
       "label": "uint256[8]",
       "numberOfBytes": "256"
     },
-    "t_struct(EVM)54_storage": {
+    "t_struct(EVM)58_storage": {
       "encoding": "inplace",
       "label": "struct ParamsStorage.EVM",
       "members": [
@@ -53,12 +59,28 @@
           "type": "t_uint256"
         },
         {
+          "astId": 51,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "minFeePerGas",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint256"
+        },
+        {
           "astId": 53,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "baseFeeLag",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_uint32"
+        },
+        {
+          "astId": 57,
           "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "__gap",
           "offset": 0,
-          "slot": "2",
-          "type": "t_array(t_uint256)8_storage"
+          "slot": "4",
+          "type": "t_array(t_uint256)6_storage"
         }
       ],
       "numberOfBytes": "320"

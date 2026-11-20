@@ -273,7 +273,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
 	}
-	baseFeeParams := evmOnlyBaseFeeParams(execState)
+	baseFeeRules := evmOnlyBaseFeeRules(execState)
 	for state := range a.cursor.Lock() {
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
@@ -295,7 +295,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 			appHash:   appHash,
 			blockHash: block.BlockHash,
 			gasLimit:  block.GasLimit,
-			baseFees:  state.committed.nextBaseFees(baseFeeParams, result.GasUsed, block.GasLimit),
+			baseFees:  state.committed.nextBaseFees(baseFeeRules, result.GasUsed, block.GasLimit),
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time

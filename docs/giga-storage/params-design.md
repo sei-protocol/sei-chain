@@ -128,7 +128,7 @@ naming `param`.
     change names, a value is not a 32-byte word that fits its type, or it sets
     `voting_period` below `MinChangedVotingPeriod` or
     `KeyMaxDynamicBaseFeeDownwardAdjustment` below
-    `MinChangedBaseFeeDownwardAdjustment`.
+    `MinBaseFeeDownwardAdjustment`.
   - Gov then checks the changes against the current params. A result that fails
     the whole-struct check fails the call with no revert data, and writes
     nothing.
@@ -201,12 +201,13 @@ naming `param`.
 
 ## The evm subspace
 
-The params of the base fee update. A block's target is half its gas limit `L`,
-and the gas `G(h)` block `h` uses sets the base fee two blocks later from `p`,
-the base fee already set for `h+1`:
+The params that schedule base fees. A block's target is half its gas limit `L`,
+and the gas `G(h)` block `h` uses sets the base fee `n` blocks later, where `n`
+is the lag, from `p`, the base fee already set for the block before:
 
-- above the target, `b(h+2) = p × (1 + up × (2G(h) − L) / L)`;
-- below it, `b(h+2) = p × (1 − down × (L − 2G(h)) / L)`.
+- above the target, `b(h+n) = p × (1 + up × (2G(h) − L) / L)`;
+- below it, `b(h+n) = p × (1 − down × (L − 2G(h)) / L)`;
+- and `b(h+n)` is never below `min`.
 
 A full block raises the base fee by `up` and an empty one lowers it by `down`,
 as EIP-1559 does with 12.5% each way.
@@ -215,25 +216,32 @@ as EIP-1559 does with 12.5% each way.
 |---|---|---|
 | `KeyMaxDynamicBaseFeeUpwardAdjustment` | Dec, `up` | 0.006 |
 | `KeyMaxDynamicBaseFeeDownwardAdjustment` | Dec, `down` | 0.006 |
+| `KeyMinFeePerGas` | Dec wei per gas, `min` | 1,000,000,000 (1 gwei) |
+| `KeyBaseFeeLag` | uint32 blocks, `n` | 2 |
 
-- Both are V2's keys, with V2's meaning. V2's `KeyTargetGasUsedPerBlock` has no
-  counterpart, since the target is half the gas limit.
-- The check requires `up` above 0 and `down` at least 0, each at most 1. A
-  param change may not set `down` below 0.01%
-  (`MinChangedBaseFeeDownwardAdjustment`), so that empty blocks bring the base
-  fee down from a spike in hours rather than days. Genesis may set it lower.
+- The first three are V2's keys, with V2's meaning; `KeyBaseFeeLag` is new. V2's
+  `KeyTargetGasUsedPerBlock` has no counterpart, since the target is half the
+  gas limit.
+- The check requires `up` above 0 and at most 1; `down` at least 0.01%
+  (`MinBaseFeeDownwardAdjustment`) and at most 1, so that empty blocks bring
+  the base fee down from a spike in hours rather than days; `min` a whole
+  number of wei; and `n` from 1 to 16 (`MinBaseFeeLag`, `MaxBaseFeeLag`).
 - Gas used past the gas limit counts as the limit. The change is rounded down
   to the wei, and an increase is at least one wei.
-- The base fee never falls below the chain's minimum gas price of 1 gwei, which
-  a chain's first two blocks run at. It is a constant of evmonlyapp, not a param.
+- A chain's first `n` blocks run at the genesis `min`.
+- A base fee once set never changes. A raised `min` applies to the base fees
+  set from then on. When `n` rises, each block that no gas use now sets holds
+  the base fee before it, but not below `min`. When `n` falls, the blocks
+  whose base fees are already set ignore their gas use until fewer than `n`
+  are set.
 - evmonlyapp reads the params from the state each block executes against, so a
   change a proposal applies in a block's EndBlock first sets the base fee update
-  of the next block. That update sets the base fee two blocks later, so the
-  change reaches transactions three blocks after the one that applied it.
+  of the next block. That update sets the base fee `n` blocks later, so the
+  change reaches transactions `n + 1` blocks after the one that applied it.
 - Gov's first EndBlock writes the genesis values. Until then, and on a chain
   without gov, base fees are set by the same values compiled into evmonlyapp.
-- The two-block lag between a block's gas use and the base fee it sets is not a
-  param: it fixes how many base fees the EVM-only cursor stores.
+- The EVM-only cursor stores the base fee its block ran at and each one set
+  after it, `n + 1` in all once the schedule matches the lag.
 
 ## Later subspaces
 
