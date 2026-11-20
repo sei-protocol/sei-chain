@@ -114,9 +114,9 @@ type evmOnlyApplication struct {
 	execution   gigaconfig.ExecutionConfig
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
-	// epochs is the epoch registry each executed block advances.
-	epochs     *EpochRegistry
-	validators []proxy.ValidatorUpdate
+	// epochRegistry is the epoch registry each executed block advances.
+	epochRegistry *EpochRegistry
+	validators    []proxy.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	// alloc, when set, funds the chain at its initial height, and every
@@ -179,7 +179,7 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
 // Storage owns state, receipts and blocks; execution sizes the executor and
 // prices admission; customPrecompiles are the native contracts the chain runs;
-// alloc, when set, is the chain's genesis accounts. epochs is the registry each block
+// alloc, when set, is the chain's genesis accounts. epochRegistry is the registry each block
 // advances; it is opened from storage with OpenEpochRegistry.
 // A block that halts on a due upgrade plan writes UpgradeInfoFileName under
 // homeDir's data directory, when homeDir is set, and prints the halt line to
@@ -189,13 +189,13 @@ func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []proxy.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
-	epochs *EpochRegistry,
+	epochRegistry *EpochRegistry,
 	execution gigaconfig.ExecutionConfig,
 	customPrecompiles utils.Option[precompiles.Registry],
 	alloc utils.Option[GenesisAlloc],
 	homeDir utils.Option[string],
 ) (proxy.EVMApplication, error) {
-	if epochs == nil {
+	if epochRegistry == nil {
 		return nil, errors.New("EVM-only application requires an epoch registry")
 	}
 	if alloc, ok := alloc.Get(); ok {
@@ -214,7 +214,7 @@ func NewEVMOnlyApplication(
 		execution:         execution,
 		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:           storage,
-		epochs:            epochs,
+		epochRegistry:     epochRegistry,
 		validators:        slices.Clone(validators),
 		customPrecompiles: customPrecompiles,
 		alloc:             alloc,
@@ -294,7 +294,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		epochChanges, err := a.epochs.Changes(atypes.RoadHeight(block.Number))
+		epochChanges, err := a.epochRegistry.Changes(atypes.RoadHeight(block.Number))
 		if err != nil {
 			return nil, err
 		}

@@ -237,14 +237,14 @@ func TestEpochRegistryRestartReadsTheRowOfTheClosingRoad(t *testing.T) {
 
 	resumed, reopened := reopenEVMOnlyTestAppWithEpochs(t, app, storage, home, length)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, resumed, reopened) })
-	window := resumed.(*evmOnlyApplication).epochs.Registry().Epochs()
+	window := resumed.(*evmOnlyApplication).epochRegistry.Registry().Epochs()
 	require.Equal(t, atypes.EpochIndex(2), window[len(window)-1].EpochIndex())
 	require.Equal(t, atypes.RoadHeight(2*length+1), window[len(window)-1].RoadRange().First)
 
 	// Execution resumes after the closing road, and the window stays on epoch 2.
 	finalizeAndCommitEVMOnlyTestBlock(t, resumed, evmOnlyTestBlock(length+1))
 	require.NoError(t, resumed.(*evmOnlyApplication).AwaitCommits())
-	window = resumed.(*evmOnlyApplication).epochs.Registry().Epochs()
+	window = resumed.(*evmOnlyApplication).epochRegistry.Registry().Epochs()
 	require.Equal(t, atypes.EpochIndex(2), window[len(window)-1].EpochIndex())
 }
 

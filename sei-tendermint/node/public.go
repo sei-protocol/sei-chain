@@ -211,7 +211,7 @@ func makeEVMApplication(
 	if conf.MockApp {
 		mockApp := NewMockApp(app)
 		mockApp.storage = utils.Some(storage)
-		mockApp.epochs = epochs
+		mockApp.epochRegistry = epochs
 		return mockApp, storage, epochs, nil
 	}
 	return app, storage, epochs, nil

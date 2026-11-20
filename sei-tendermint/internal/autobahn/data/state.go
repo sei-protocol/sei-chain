@@ -27,8 +27,8 @@ var ErrAppHashDivergence = errors.New("AppHash divergence")
 
 // Config is the config for the data State.
 type Config struct {
-	// Registry is the retained epoch window. The anchor moves only once it holds the epochs of the
-	// anchor's road.
+	// Registry is the retained epoch window. The view moves only once it holds the epochs of the
+	// view's road.
 	Registry *epoch.Registry
 	// GenesisTimestamp is the timestamp of the first proposal.
 	GenesisTimestamp time.Time

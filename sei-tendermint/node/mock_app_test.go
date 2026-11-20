@@ -340,7 +340,7 @@ func TestMockAppCommitAdvancesTheEpochRegistry(t *testing.T) {
 
 	app := NewMockApp(mockAppFixture{})
 	app.storage = utils.Some(storage)
-	app.epochs = epochs
+	app.epochRegistry = epochs
 	_, err = app.InitChain(&proxy.RequestInitChain{InitialHeight: 1})
 	require.NoError(t, err)
 	for height := int64(1); height <= length; height++ {

@@ -79,8 +79,8 @@ type MockApp struct {
 	state       utils.RWMutex[*mockAppState]
 	// storage takes each committed block. None means Commit writes nothing.
 	storage utils.Option[*bootstrap.GigaStorageManager]
-	// epochs is the registry Commit advances. None means Commit leaves it alone.
-	epochs *evmonlyapp.EpochRegistry
+	// epochRegistry is the registry Commit advances. None means Commit leaves it alone.
+	epochRegistry *evmonlyapp.EpochRegistry
 }
 
 func NewMockApp(app proxy.EVMApplication) *MockApp {
@@ -306,13 +306,13 @@ func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
 		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
 	}
 	var misc []gigatypes.MiscChange
-	if app.epochs != nil {
+	if app.epochRegistry != nil {
 		road, ok := utils.SafeCast[atypes.RoadHeight](height)
 		if !ok {
 			return fmt.Errorf("mock app commit height = %d does not fit a road height", height)
 		}
 		var err error
-		misc, err = app.epochs.Changes(road)
+		misc, err = app.epochRegistry.Changes(road)
 		if err != nil {
 			return err
 		}
