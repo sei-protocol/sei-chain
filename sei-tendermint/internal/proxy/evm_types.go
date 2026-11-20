@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -79,17 +80,9 @@ type ResponseCheckTxV2 struct {
 
 // RequestFinalizeBlock contains an Autobahn block and its consensus-owned epoch data.
 type RequestFinalizeBlock struct {
-	Txs        [][]byte
-	Hash       []byte
-	Header     *Header
-	EpochState utils.Option[EpochState]
-}
-
-// EpochState is consensus-owned epoch data committed unchanged with a block.
-// Both values are written as given; an empty value is committed as an empty row.
-type EpochState struct {
-	EpochRegistry []byte
-	NextEpoch     []byte
+	Txs    [][]byte
+	Hash   []byte
+	Header *Header
 }
 
 // ResponseFinalizeBlock contains a block's execution results and application hash.
@@ -116,3 +109,10 @@ const CodeTypeOK uint32 = 0
 
 func (r *ExecTxResult) IsOK() bool  { return r.Code == CodeTypeOK }
 func (r *ExecTxResult) IsErr() bool { return !r.IsOK() }
+
+// CallOverrides are the account and block fields a read-only EVM execution replaces.
+// The zero value replaces nothing.
+type CallOverrides struct {
+	State export.StateOverride
+	Block utils.Option[export.BlockOverrides]
+}
