@@ -7,11 +7,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // reportTestBlockHash reports height's block hash to the app hash builder, as execution does before
@@ -25,18 +26,32 @@ func reportTestBlockHash(t *testing.T, manager *GigaStorageManager, height uint6
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
-		reportTestBlockHash(t, manager, uint64(block))
 		commitBlock(t, manager, int64(block), evmBlock(block, block))
 	}
 	awaitAppHashes(t, manager, uint64(through))
 }
 
-// commitBlock commits changes as block height and submits an empty receipt list for the block.
+// commitBlock feeds block height to every store as execution does: it reports the block's hash, commits changes,
+// writes an empty receipt list, and submits that list to the receipt hasher.
 func commitBlock(t *testing.T, manager *GigaStorageManager, height int64, changes *gigatypes.StateChangeSet) {
 	t.Helper()
-	require.NoError(t, manager.StateDB().CommitStateChanges(height, changes))
 	blockHeight := uint64(height) //nolint:gosec // small test heights
+	reportTestBlockHash(t, manager, blockHeight)
+	require.NoError(t, manager.StateDB().CommitStateChanges(height, changes))
+	writeBlockReceipts(t, manager, height)
 	require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), blockHeight, nil))
+}
+
+// writeBlockReceipts writes an empty receipt list for block height to the manager's receipt store, if it has one.
+func writeBlockReceipts(t *testing.T, manager *GigaStorageManager, height int64) {
+	t.Helper()
+	receiptDB := manager.ReceiptDB()
+	if receiptDB == nil {
+		return
+	}
+	storeKey := storetypes.NewKVStoreKey("evm")
+	ctx := testutil.DefaultContext(storeKey, storetypes.NewTransientStoreKey("evm_transient"))
+	require.NoError(t, receiptDB.SetReceipts(ctx.WithBlockHeight(height), nil))
 }
 
 // historicalStateDB returns the manager's historical state DB.
@@ -67,17 +82,14 @@ func TestRecoveryTarget(t *testing.T) {
 		heads storeHeads
 		want  uint64
 	}{
-		{name: "a fresh node has no height to align on"},
+		{name: "a fresh node aligns on 0"},
 		{name: "the lowest head wins",
 			heads: storeHeads{stateWAL: 5, receiptStore: 6, appHashVault: 9}, want: 5},
 		{name: "receipts can be the lowest",
 			heads: storeHeads{stateWAL: 6, receiptStore: 4, appHashVault: 9}, want: 4},
 		{name: "the historical state DB can be the lowest",
-			heads: storeHeads{stateWAL: 7, historicalStateDB: utils.Some[uint64](3), receiptStore: 6,
-				appHashVault: 9}, want: 3},
-		{name: "a historical state DB at block 0 is the lowest",
-			heads: storeHeads{stateWAL: 7, historicalStateDB: utils.Some[uint64](0), receiptStore: 6,
-				appHashVault: 9}, want: 0},
+			heads: storeHeads{stateWAL: 7, historicalStateDB: 3, receiptStore: 6, appHashVault: 9},
+			want:  3},
 		// A historical state DB newly enabled, or disabled, holds nothing to disagree with. Folding its 0 into
 		// the minimum would skip recovery for the stores that do have history.
 		{name: "an empty historical state DB does not collapse the target",
@@ -87,12 +99,20 @@ func TestRecoveryTarget(t *testing.T) {
 		// target and skips recovery for the stores that do have history.
 		{name: "an empty receipt store does not collapse the target",
 			heads: storeHeads{stateWAL: 5, appHashVault: 9}, want: 5},
-		{name: "an empty state WAL yields no target", heads: storeHeads{receiptStore: 7}},
+		{name: "an empty state WAL over an empty live state DB aligns on 0",
+			heads: storeHeads{receiptStore: 7, appHashVault: 9}, want: 0},
+		// A state transplant: state copied in with no WAL to replay.
+		{name: "an empty state WAL counts as the live state DB's version",
+			heads: storeHeads{liveStateDB: 5, receiptStore: 7, appHashVault: 9}, want: 5},
+		{name: "a state WAL holding blocks counts over the live state DB's version",
+			heads: storeHeads{stateWAL: 7, liveStateDB: 5, appHashVault: 9}, want: 7},
 		{name: "the app hash vault can be the lowest",
 			heads: storeHeads{stateWAL: 5, appHashVault: 4}, want: 4},
 		// An empty vault's head is the block before the giga activation height, which holds the stores there.
 		{name: "an empty app hash vault holds the target below a later giga activation",
 			heads: storeHeads{stateWAL: 7, appHashVault: 3}, want: 3},
+		{name: "an empty app hash vault at giga activation 1 aligns on 0",
+			heads: storeHeads{stateWAL: 5}, want: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, recoveryTarget(tc.heads))
@@ -100,30 +120,63 @@ func TestRecoveryTarget(t *testing.T) {
 	}
 }
 
-func TestRequireAppHashesForStateBlocks(t *testing.T) {
+func TestRequireStateWALReplayableFromTheLiveStateDB(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		heads storeHeads
-		// Whether requireAppHashesForStateBlocks() errors.
-		wantErr bool
+		// A substring of the error, or empty when the heads pass.
+		wantErr string
 	}{
-		{name: "a fresh node passes"},
-		{name: "a vault holding app hashes passes", heads: storeHeads{stateWAL: 5, appHashVault: 5}},
-		// An empty vault's head is the block before the giga activation height, which holds the stores there.
-		{name: "an empty vault below a later giga activation passes",
-			heads: storeHeads{stateWAL: 5, appHashVault: 3}},
-		{name: "an empty vault at giga activation 1 refuses a state WAL holding blocks",
-			heads: storeHeads{stateWAL: 5}, wantErr: true},
+		{name: "an empty state WAL passes", heads: storeHeads{liveStateDB: 5}},
+		{name: "a state WAL starting at the block after the live state DB passes",
+			heads: storeHeads{stateWALFirst: 6, stateWAL: 9, liveStateDB: 5}},
+		{name: "a state WAL starting below the live state DB passes",
+			heads: storeHeads{stateWALFirst: 1, stateWAL: 9, liveStateDB: 5}},
+		// A rollback rewinds the live state DB to a snapshot, and checks that one exists.
+		{name: "a live state DB above the state WAL's head passes",
+			heads: storeHeads{stateWALFirst: 1, stateWAL: 3, liveStateDB: 5}},
+		{name: "a fresh live state DB under a state WAL from block 1 passes",
+			heads: storeHeads{stateWALFirst: 1, stateWAL: 3}},
+		{name: "a state WAL starting past the block after the live state DB is refused",
+			heads:   storeHeads{stateWALFirst: 8, stateWAL: 9, liveStateDB: 5},
+			wantErr: "blocks 6-7 are missing"},
+		{name: "a fresh live state DB under a state WAL from block 2 is refused",
+			heads:   storeHeads{stateWALFirst: 2, stateWAL: 3},
+			wantErr: "blocks 1-1 are missing"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := requireAppHashesForStateBlocks(tc.heads)
-			if tc.wantErr {
-				require.Error(t, err)
+			err := requireStateWALReplayableFromTheLiveStateDB(tc.heads)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
 				return
 			}
-			require.NoError(t, err)
+			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
+}
+
+// A state WAL starting past the block after the live state DB's version has lost blocks the live state DB needs,
+// and startup refuses it with every store left as it was found.
+func TestAStateWALTheLiveStateDBCannotReplayIsRefused(t *testing.T) {
+	cfg := newHome(t, disableSS)
+	stateDB := openStandaloneStateDB(t, cfg)
+	commitStateBlocks(t, stateDB, 1, 2)
+	require.NoError(t, stateDB.Close())
+	replaceWALWithBlocks(t, cfg, 5, 7)
+	writeBlockLedger(t, cfg, 7)
+	writeReceipts(t, cfg, 7)
+	writeAppHashes(t, cfg, 7)
+
+	_, err := NewGigaStorageManager(t.Context(), cfg)
+
+	require.ErrorContains(t, err, "blocks 3-4 are missing")
+	walFirst, walHead, err := stateWALRange(cfg)
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), walFirst, "a refused start must not have moved the state WAL")
+	require.Equal(t, uint64(7), walHead, "a refused start must not have moved the state WAL")
+	receiptHead, err := gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), receiptHead, "a refused start must not have cut receipts")
 }
 
 func TestRequireNoStoreAheadOfTheBlockStore(t *testing.T) {
@@ -137,18 +190,16 @@ func TestRequireNoStoreAheadOfTheBlockStore(t *testing.T) {
 		wantErr string
 	}{
 		{name: "stores at the block store pass", blockStoreHead: 5,
-			heads: storeHeads{stateWAL: 5, historicalStateDB: utils.Some[uint64](5), receiptStore: 5,
-				appHashVault: 5}},
+			heads: storeHeads{stateWAL: 5, historicalStateDB: 5, receiptStore: 5, appHashVault: 5}},
 		{name: "stores behind the block store pass", blockStoreHead: 9,
 			heads: storeHeads{stateWAL: 5, receiptStore: 4, appHashVault: 3}},
 		// A home bootstrapped from copied state, or restored from a snapshot, has no blocks yet.
 		{name: "an empty block store passes stores holding blocks",
-			heads: storeHeads{stateWAL: 5, historicalStateDB: utils.Some[uint64](5), receiptStore: 5,
-				appHashVault: 5}},
+			heads: storeHeads{stateWAL: 5, historicalStateDB: 5, receiptStore: 5, appHashVault: 5}},
 		{name: "a state WAL ahead is refused", blockStoreHead: 3,
 			heads: storeHeads{stateWAL: 4}, wantErr: "the state WAL holds block 4"},
 		{name: "a historical state DB ahead is refused", blockStoreHead: 3,
-			heads:   storeHeads{historicalStateDB: utils.Some[uint64](4)},
+			heads:   storeHeads{historicalStateDB: 4},
 			wantErr: "the historical state DB holds block 4"},
 		{name: "a receipt store ahead is refused", blockStoreHead: 3,
 			heads: storeHeads{receiptStore: 4}, wantErr: "the receipt store holds block 4"},
@@ -182,7 +233,7 @@ func TestAStoreAheadOfTheBlockStoreIsRefused(t *testing.T) {
 	_, err := NewGigaStorageManager(t.Context(), cfg)
 
 	require.ErrorContains(t, err, "but the block store ends at block 3")
-	walHead, err := stateWALHead(cfg)
+	_, walHead, err := stateWALRange(cfg)
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), walHead, "a refused start must not have moved the state WAL")
 	receiptHead, err := gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
@@ -205,10 +256,9 @@ func TestAnEmptyBlockStoreStillAlignsTheOtherStores(t *testing.T) {
 	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
-// An empty state WAL is no height to align on, and rolling back to 0 would drop every receipt the node holds. The
-// guard has to cover receipts and not just state: gigareceipt.PruneAfter() rewinds the head, range-deletes the
-// whole tag index and drops every body, none of which a replay can put back.
-func TestAnEmptyWALLeavesReceiptsAlone(t *testing.T) {
+// A state transplant leaves the live state DB at a height with an empty state WAL, which stands at any height, so
+// the live state DB's version sets the target and the receipt store above it rolls back to it.
+func TestAnEmptyWALAlignsTheOtherStoresOnTheLiveStateDB(t *testing.T) {
 	cfg := newHome(t, nil)
 	writeBlockLedger(t, cfg, 5)
 	writeState(t, cfg, 3)
@@ -218,8 +268,84 @@ func TestAnEmptyWALLeavesReceiptsAlone(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(5), manager.ReceiptDB().LatestVersion(),
-		"a zero target must leave the receipt store where it was found")
+	require.Equal(t, int64(3), manager.StateDB().SC().Version())
+	require.Equal(t, int64(3), manager.ReceiptDB().LatestVersion())
+	commitBlock(t, manager, 4, evmBlock(4, 4))
+}
+
+// A new chain that crashes with blocks in the state WAL before the app hash vault stored any app hash can only
+// recover by rolling every store back to 0.
+func TestStateAheadOfAnEmptyAppHashVaultRecoversFromBlock0(t *testing.T) {
+	cfg := newHome(t, nil)
+	writeBlockLedger(t, cfg, 5)
+	writeState(t, cfg, 5)
+	writeReceipts(t, cfg, 5)
+
+	manager := startManager(t, cfg)
+
+	require.Zero(t, manager.StateDB().SC().Version())
+	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
+	require.Zero(t, manager.ReceiptDB().LatestVersion())
+	requireWALTail(t, manager, 0)
+	commitBlocks(t, manager, 1)
+}
+
+// A new chain that crashes with receipts on disk but no state recovers by rolling the receipt store back to 0.
+func TestReceiptsAheadOfEmptyStateRecoverFromBlock0(t *testing.T) {
+	cfg := newHome(t, nil)
+	writeBlockLedger(t, cfg, 3)
+	writeReceipts(t, cfg, 3)
+
+	manager := startManager(t, cfg)
+
+	require.Zero(t, manager.StateDB().SC().Version())
+	require.Zero(t, manager.ReceiptDB().LatestVersion())
+	commitBlocks(t, manager, 1)
+}
+
+// A new chain that crashes with history in the historical state DB but no live state recovers by rolling the
+// historical state DB back to 0.
+func TestHistoricalStateDBAheadOfEmptyStateRecoversFromBlock0(t *testing.T) {
+	cfg := newHome(t, nil)
+	writeBlockLedger(t, cfg, 3)
+	writeState(t, cfg, 3)
+	// Drops the live state DB and the state WAL under it, leaving only the historical state DB's history.
+	require.NoError(t, os.RemoveAll(cfg.FlatKVConfig.DataDir))
+
+	manager := startManager(t, cfg)
+
+	require.Zero(t, manager.StateDB().SC().Version())
+	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
+	commitBlocks(t, manager, 1)
+}
+
+// The stores a rollback to 0 leaves behind align on 0 again at the next startup, and that alignment changes
+// nothing.
+func TestRestartAfterARollbackToBlock0(t *testing.T) {
+	cfg := newHome(t, nil)
+	writeBlockLedger(t, cfg, 5)
+	writeState(t, cfg, 5)
+	writeReceipts(t, cfg, 5)
+	first, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, first.Close())
+
+	manager := startManager(t, cfg)
+
+	require.Zero(t, manager.StateDB().SC().Version())
+	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
+	require.Zero(t, manager.ReceiptDB().LatestVersion())
+	requireWALTail(t, manager, 0)
+	commitBlocks(t, manager, 1)
+}
+
+// Aligning a fresh home on 0 must not create a receipt store before the receipt store itself opens one.
+func TestAligningAFreshHomeCreatesNoReceiptStore(t *testing.T) {
+	cfg := newHome(t, nil)
+
+	require.NoError(t, alignStores(t.Context(), cfg, 0))
+
+	require.NoDirExists(t, cfg.ReceiptDBConfig.DBDirectory)
 }
 
 // Recovering to a target below the WAL head drops every block above it, so the write head resumes at

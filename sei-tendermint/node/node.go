@@ -309,7 +309,8 @@ func makeNode(
 			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
 
-			ReadOnly: opts.freezeHeight > 0,
+			ReadOnly:     opts.freezeHeight > 0,
+			FreezeHeight: opts.freezeHeight,
 		},
 	}
 
@@ -329,6 +330,7 @@ func makeNode(
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
+		opts.giga.StateSync,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

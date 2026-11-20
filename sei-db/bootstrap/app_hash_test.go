@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
-const testAppHashChainID uint64 = 713715
+const testAppHashChainID uint64 = 713700
 
 // How long a test waits for the app hash builder to publish an app hash.
 const appHashPublishTimeout = 10 * time.Second
@@ -112,9 +112,7 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	require.Equal(t, int64(3), version)
 	stored := publishedAppHashes(t, manager, 3, 3)[0]
 
-	reportTestBlockHash(t, manager, 4)
 	commitBlock(t, manager, 4, evmBlock(4, 4))
-	reportTestBlockHash(t, manager, 5)
 	commitBlock(t, manager, 5, evmBlock(5, 5))
 	rebuilt := publishedAppHashes(t, manager, 4, 5)
 	require.Equal(t, uint64(4), rebuilt[0].BlockHeight())
@@ -136,7 +134,8 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 
 	require.Equal(t, int64(3), manager.StateDB().SC().Version())
 	published := publishedAppHashes(t, manager, 3, 3)[0]
-	require.Equal(t, canonicalStateHashes(t, 3)[2], published.StateHash())
+	stateHashes, _ := canonicalHashes(t, 3)
+	require.Equal(t, stateHashes[2], published.StateHash())
 	requireNotPublished(t, manager, 4, "the stored app hashes above the recovered height are not published")
 	require.NoError(t, manager.Close())
 	head, err := builder.GetLatestBlock(*cfg.AppHashBuilderConfig)
@@ -164,7 +163,6 @@ func TestStartupThatReplaysBlocksSetsUpTheAppHashBuilderAtTheLiveStateDBHeight(t
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, uint64(10), published)
-	reportTestBlockHash(t, manager, 11)
 	commitBlock(t, manager, 11, evmBlock(11, 11))
 	awaitAppHashes(t, manager, 11)
 }
@@ -177,9 +175,9 @@ func TestRecoveredStateThatDisagreesWithTheVaultStopsTheNode(t *testing.T) {
 		writeBlockLedger(t, cfg, 3)
 		writeState(t, cfg, 3)
 		writeReceipts(t, cfg, 3)
-		stateHashes := canonicalStateHashes(t, 3)
+		stateHashes, budHashes := canonicalHashes(t, 3)
 		stateHashes[2] = [32]byte{0xff}
-		appendAppHashes(t, cfg, stateHashes)
+		appendAppHashes(t, cfg, stateHashes, budHashes)
 
 		// The builder crashes the process while this waits for its setup to complete.
 		_, _ = NewGigaStorageManager(t.Context(), cfg)
@@ -197,6 +195,7 @@ func TestAppHashCommitsToTheSubmittedReceipts(t *testing.T) {
 
 	reportTestBlockHash(t, manager, 1)
 	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
+	writeBlockReceipts(t, manager, 1)
 	require.NoError(t, manager.ReceiptHasher().Submit(t.Context(), 1, receipts))
 
 	want, err := receipthash.ComputeReceiptHash(receipts)

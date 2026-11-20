@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http/httptest"
 	"strings"
@@ -144,6 +145,7 @@ func TestSendRawTransactionKeepsTheSenderOfAnAdmittedTxOnly(t *testing.T) {
 			broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 				return &coretypes.ResultBroadcastTx{Code: tc.code}, nil
 			},
+			chainID:      func() uint64 { return 713700 },
 			proxy:        utils.None[*ethrpc.Client](),
 			proxyEnabled: true,
 		}
@@ -169,7 +171,8 @@ func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
 			t.Fatal("failed proxy reached local broadcaster")
 			return nil, nil
 		},
-		proxy: utils.Some(remoteClient),
+		chainID: func() uint64 { return 713700 },
+		proxy:   utils.Some(remoteClient),
 	}
 
 	// Test: the shard-owner eth_sendRawTransaction call fails.
@@ -177,6 +180,73 @@ func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
 
 	// Verify: that remote error is returned.
 	require.ErrorContains(t, err, "shard owner rejected")
+}
+
+func TestRejectsUnprotectedTransaction(t *testing.T) {
+	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	require.NoError(t, err)
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1_000_000_000),
+		Gas:      21_000,
+		To:       &to,
+		Value:    big.NewInt(1),
+	}), ethtypes.HomesteadSigner{}, key)
+	require.NoError(t, err)
+	raw, err := tx.MarshalBinary()
+	require.NoError(t, err)
+	for name, proxyEnabled := range map[string]bool{"local": false, "proxied": true} {
+		t.Run(name, func(t *testing.T) {
+			backend := &testBackend{
+				broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+					t.Fatal("unprotected transaction reached local broadcaster")
+					return nil, nil
+				},
+				chainID:      func() uint64 { return 713700 },
+				proxyEnabled: proxyEnabled,
+			}
+
+			_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
+
+			require.ErrorIs(t, err, errUnprotectedTx)
+			require.Zero(t, backend.proxyCalls)
+		})
+	}
+}
+
+// A transaction signed for another chain is not proxied: the node's CheckTx rejects it.
+func TestRejectsForeignChainTransaction(t *testing.T) {
+	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	require.NoError(t, err)
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(0x12345), Gas: 21_000, To: &to}),
+		ethtypes.LatestSignerForChainID(big.NewInt(0x12345)), key)
+	require.NoError(t, err)
+	for name, tx := range map[string]*ethtypes.Transaction{
+		"legacy chain 0": ethtypes.NewTx(&ethtypes.LegacyTx{Gas: 21_000, To: &to, V: big.NewInt(35), R: big.NewInt(1), S: big.NewInt(1)}),
+		"typed chain 0":  ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: new(big.Int), Gas: 21_000, To: &to, V: new(big.Int), R: big.NewInt(1), S: big.NewInt(1)}),
+		"other chain":    signed,
+	} {
+		raw, err := tx.MarshalBinary()
+		require.NoError(t, err)
+		for _, proxyEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s proxy %t", name, proxyEnabled), func(t *testing.T) {
+				backend := &testBackend{
+					broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+						t.Fatal("foreign chain transaction reached local broadcaster")
+						return nil, nil
+					},
+					chainID:      func() uint64 { return 713700 },
+					proxyEnabled: proxyEnabled,
+				}
+
+				_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
+
+				require.ErrorIs(t, err, errInvalidChainID)
+				require.Zero(t, backend.proxyCalls)
+			})
+		}
+	}
 }
 
 type testRemoteSendAPI struct {
@@ -213,7 +283,8 @@ func TestProxiesTransactionToShardOwner(t *testing.T) {
 			t.Fatal("proxied transaction reached local broadcaster")
 			return nil, nil
 		},
-		proxy: utils.Some(remoteClient),
+		chainID: func() uint64 { return 713700 },
+		proxy:   utils.Some(remoteClient),
 	}
 	got, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
 	require.NoError(t, err)
@@ -239,7 +310,7 @@ func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Trans
 		To:       &to,
 		Value:    big.NewInt(1),
 	})
-	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713715)), key)
+	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713700)), key)
 	require.NoError(t, err)
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)

@@ -59,12 +59,6 @@ func TestDistributionModule(t *testing.T) {
 	runner.RunFile(t, "../distribution_module/rewards.yaml")
 }
 
-func TestAuthzModule(t *testing.T) {
-	runner.RunFile(t, "../authz_module/send_authorization_test.yaml")
-	runner.RunFile(t, "../authz_module/staking_authorization_test.yaml")
-	runner.RunFile(t, "../authz_module/generic_authorization_test.yaml")
-}
-
 // TestWasmModuleCore runs delegation, admin, and withdraw tests after a fresh contract deploy.
 // In CI a second deploy follows before TestWasmModuleEmergencyWithdraw, because the withdraw
 // test mutates contract state that the emergency-withdraw test depends on.

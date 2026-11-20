@@ -1,0 +1,35 @@
+# Seidroid Shadow, the next generation of seidroid review, running beside
+# seidroid.yml: it reviews the same pull requests and reports only on its own
+# "Seidroid Review" check, so the two can be compared before either is retired.
+name: Seidroid Shadow
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+jobs:
+  seidroid:
+    # A pull_request run from a fork gets no OIDC token, which the review needs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: sei-protocol/seidroid/.github/workflows/review.yml@12a9f7cdebae719afe1628c265995730b88a041b # v0.3.2
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    with:
+      # Runs the full seidroid app review (scouts, main review, sandboxed shell) on the same
+      # triggers as seidroid.yml, but publishes only its Seidroid Review check: no
+      # review, inline comments, approval, reactions or replies. v1 keeps the
+      # conversation, and the service pairs this check with v1's on each commit.
+      shadow: true
+      allowed-bots: seidroid[bot]

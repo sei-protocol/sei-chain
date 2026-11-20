@@ -17,15 +17,16 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/holiman/uint256"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -74,14 +75,13 @@ type MockApp struct {
 	app         proxy.EVMApplication
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
-	// hashes receives each committed block's state, BUD, and receipt hashes.
-	// None means Commit does not report them.
-	hashes utils.Option[builder.AppHashBuilder]
+	// storage takes an empty block for each committed block. None means Commit writes nothing.
+	storage utils.Option[*bootstrap.GigaStorageManager]
 }
 
 func NewMockApp(app proxy.EVMApplication) *MockApp {
 	chainConfig := *params.AllDevChainProtocolChanges
-	chainConfig.ChainID = new(big.Int).SetUint64(config.AutobahnEVMOnlyChainID)
+	chainConfig.ChainID = new(big.Int).SetUint64(app.EvmChainID())
 	return &MockApp{
 		app:         app,
 		chainConfig: &chainConfig,
@@ -193,9 +193,8 @@ func (app *MockApp) EvmStorageAt(common.Address, common.Hash, int64) (common.Has
 	return common.Hash{}, errMockAppNoExecution
 }
 
-// EvmChainID returns the chain ID of the Autobahn EVM-only executor this app
-// stands in for.
-func (app *MockApp) EvmChainID() uint64 { return config.AutobahnEVMOnlyChainID }
+// EvmChainID returns the chain ID of the EVM-only app this app wraps.
+func (app *MockApp) EvmChainID() uint64 { return app.app.EvmChainID() }
 
 // EvmChainConfig returns the dev chain configuration with the Autobahn EVM-only
 // chain ID.
@@ -286,7 +285,7 @@ func (app *MockApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
 		height = state.lastBlockHeight
 		break
 	}
-	if err := app.reportCommittedHashes(ctx, height); err != nil {
+	if err := app.commitEmptyBlock(ctx, height); err != nil {
 		return nil, err
 	}
 	for state := range app.state.Lock() {
@@ -296,26 +295,27 @@ func (app *MockApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
 	panic("unreachable")
 }
 
-// reportCommittedHashes reports zero state, BUD, and receipt hashes for a committed mock block.
-func (app *MockApp) reportCommittedHashes(ctx context.Context, height int64) error {
-	hashes, ok := app.hashes.Get()
+// commitEmptyBlock feeds a committed mock block to every store as a block with no state changes and no receipts.
+func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
+	storage, ok := app.storage.Get()
 	if !ok {
 		return nil
 	}
 	if height < 1 {
 		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
 	}
+	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{}); err != nil {
+		return fmt.Errorf("commit the state of block %d: %w", height, err)
+	}
+	if receiptDB := storage.ReceiptDB(); receiptDB != nil {
+		receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: height}, false).WithContext(ctx)
+		if err := receiptDB.SetReceipts(receiptCtx, nil); err != nil {
+			return fmt.Errorf("store the receipts of block %d: %w", height, err)
+		}
+	}
 	//nolint:gosec // height is at least 1
-	blockHeight := uint64(height)
-	var zero [32]byte
-	if err := hashes.ReportReceiptHash(ctx, blockHeight, apphash.ReceiptHash(zero)); err != nil {
-		return fmt.Errorf("report the receipt hash of block %d: %w", blockHeight, err)
-	}
-	if err := hashes.ReportStateHash(ctx, blockHeight, zero, nil); err != nil {
-		return fmt.Errorf("report the state hash of block %d: %w", blockHeight, err)
-	}
-	if err := hashes.ReportBUDHash(ctx, blockHeight, zero); err != nil {
-		return fmt.Errorf("report the BUD hash of block %d: %w", blockHeight, err)
+	if err := storage.ReceiptHasher().Submit(ctx, uint64(height), nil); err != nil {
+		return fmt.Errorf("submit the receipts of block %d to be hashed: %w", height, err)
 	}
 	return nil
 }

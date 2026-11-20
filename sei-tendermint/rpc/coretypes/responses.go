@@ -144,6 +144,12 @@ type SyncInfo struct {
 	SnapshotChunksTotal int64         `json:"snapshot_chunks_total,string"`
 	BackFilledBlocks    int64         `json:"backfilled_blocks,string"`
 	BackFillBlocksTotal int64         `json:"backfill_blocks_total,string"`
+
+	// FreezeHeight is the first block height a freeze-mode node does not execute,
+	// or 0 when freeze mode is off.
+	FreezeHeight int64 `json:"freeze_height,omitempty,string"`
+	// Frozen reports whether a freeze-mode node has stopped at its freeze height.
+	Frozen bool `json:"frozen,omitempty"`
 }
 
 type ApplicationInfo struct {

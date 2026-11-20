@@ -81,7 +81,7 @@ func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := opt.Get()
 	require.True(t, ok, "retained QC must be retained")
-	require.Equal(t, retained.first, got.Index())
+	require.Equal(t, retained.first, got.Height())
 }
 
 // testPruneRefusesBelowWatermark asserts the refuse direction of PruneBefore:
@@ -169,7 +169,7 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	require.NoError(t, err, "retained cohort's QC must not report ErrPruned")
 	got, ok := qcOpt.Get()
 	require.True(t, ok, "retained cohort's QC must remain served")
-	require.Equal(t, retained.first, got.Index())
+	require.Equal(t, retained.first, got.Height())
 
 	// The fully-below first cohort is pruned: ErrPruned for both the block and
 	// its covering QC.
@@ -275,7 +275,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 	// Every request lands the watermark inside (or past) the newest cohort:
 	// within the cohort, exactly at the newest block, and well past every block.
 	// All must clamp identically to the cohort's first.
-	for _, prune := range []types.RoadIndex{last.first + 1, newest, last.next + 1000} {
+	for _, prune := range []types.RoadHeight{last.first + 1, newest, last.next + 1000} {
 		t.Run(fmt.Sprintf("prune=%d", prune), func(t *testing.T) {
 			db, _ := openFresh(t, build)
 			defer func() { _ = db.Close() }()
@@ -298,7 +298,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 				require.NoError(t, err)
 				bwn, ok := byHash.Get()
 				require.True(t, ok, "block %d must survive lookup by hash", n)
-				require.Equal(t, n, bwn.QC().Index())
+				require.Equal(t, n, bwn.QC().Height())
 
 				qc, err := db.ReadQC(n)
 				require.NoError(t, err)
@@ -328,9 +328,9 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 
 			// ReadSuffix and pruning both retain the newest complete QC group.
 			entries := drainSuffix(t, db)
-			require.Equal(t, []types.RoadIndex{newest}, presentBlockNumbers(entries),
+			require.Equal(t, []types.RoadHeight{newest}, presentHeights(entries),
 				"ReadSuffix must start at recentFloor() after PruneBefore(%d)", prune)
-			require.Equal(t, []types.RoadIndex{last.first}, qcFirsts(entries),
+			require.Equal(t, []types.RoadHeight{last.first}, qcFirsts(entries),
 				"ReadSuffix must include the QC covering the suffix floor")
 		})
 	}
@@ -375,12 +375,12 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := appQC.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppQC")
-	require.Equal(t, latestApp.qc.Index(), got.Proposal().Index())
+	require.Equal(t, latestApp.qc.Height(), got.Proposal().Height())
 	appProposal, err = db.ReadAppProposal(latestApp.first)
 	require.NoError(t, err)
 	gotProposal, ok := appProposal.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppProposal")
-	require.Equal(t, latestApp.qc.Index(), gotProposal.Index())
+	require.Equal(t, latestApp.qc.Height(), gotProposal.Height())
 }
 
 // testPruneAfterRestart checks the recovered pruning ceiling: how far the
@@ -493,11 +493,11 @@ func TestPruneRetainsWholeSuperBlock(t *testing.T) {
 
 // assertSuffixAbove fails when the recovery suffix surfaces a position, or a
 // covering QC, below floor.
-func assertSuffixAbove(t *testing.T, db *Store, floor types.RoadIndex) {
+func assertSuffixAbove(t *testing.T, db *Store, floor types.RoadHeight) {
 	t.Helper()
 	for _, e := range drainSuffix(t, db) {
 		require.GreaterOrEqual(t, e.n, floor, "iterator must not surface pruned positions")
-		require.GreaterOrEqual(t, e.qc.Index(), floor,
+		require.GreaterOrEqual(t, e.qc.Height(), floor,
 			"iterator must not surface pruned QCs")
 	}
 }
@@ -644,7 +644,7 @@ func TestRecoveredWatermarkTracksOldestBlock(t *testing.T) {
 	require.NoError(t, store.Close())
 	store = openPersistedStore(t, cfg)
 	defer func() { require.NoError(t, store.Close()) }()
-	require.Equal(t, types.RoadIndex(1), store.First())
+	require.Equal(t, types.RoadHeight(1), store.First())
 	requireRetainedBlocks(t, store, blocks, 1)
 }
 
@@ -666,10 +666,10 @@ func TestReclaimsAcrossRestart(t *testing.T) {
 	requireRetainedBlocks(t, store, blocks, 3)
 }
 
-func requireRetainedBlocks(t *testing.T, store *Store, blocks []*types.RoadBlock, first types.RoadIndex) {
+func requireRetainedBlocks(t *testing.T, store *Store, blocks []*types.RoadBlock, first types.RoadHeight) {
 	t.Helper()
 	for _, wantBlock := range blocks {
-		n := wantBlock.QC().Index()
+		n := wantBlock.QC().Height()
 		retained := n >= first
 		block, err := store.ReadBlock(n)
 		if retained {
@@ -684,9 +684,9 @@ func requireRetainedBlocks(t *testing.T, store *Store, blocks []*types.RoadBlock
 		require.NoError(t, err)
 		require.Equal(t, retained, byHash.IsPresent())
 		// Check LittDB itself: the typed read floor must not conceal stale primary or alias keys.
-		keys := []ledgerKey{(blockKey{Index: n}).encode(), (qcKey{Index: n}).encode(), (blockHashKey{Hash: wantBlock.Header().Hash()}).encode()}
+		keys := []ledgerKey{(blockKey{Height: n}).encode(), (qcKey{Height: n}).encode(), (blockHashKey{Hash: wantBlock.Header().Hash()}).encode()}
 		for offset := range wantBlock.LaneBlocks() {
-			keys = append(keys, (laneBlockKey{Index: n, Offset: uint64(offset)}).encode())
+			keys = append(keys, (laneBlockKey{Height: n, Offset: uint64(offset)}).encode())
 		}
 		for _, key := range keys {
 			exists, err := store.table.Exists(key.bytes())

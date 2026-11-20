@@ -14,21 +14,15 @@ import (
 // replayLogInterval bounds how often a running replay reports how far it has got.
 const replayLogInterval = 30 * time.Second
 
-// RollBackLiveStateDB discards the live state DB's state and snapshots above target, working on its files. It
-// leaves the live state DB at or below target, for CatchUpToStateWAL() to replay up to it.
-//
-// It errors when target is 0, or when the state WAL or the live state DB's snapshots cannot reach it. Rolling back
-// to the same target again is a no-op. One that failed or was interrupted completes when run again.
+// RollBackLiveStateDB discards the live state DB's state and snapshots above target, working on its files, and
+// leaves it at or below target for CatchUpToStateWAL() to replay up to it. Rolling back to the same target again
+// is a no-op, and one that failed or was interrupted completes when run again.
 func RollBackLiveStateDB(cfg *config.Config, target uint64) error {
-	if target == 0 {
-		return errors.New("rollback target 0 is invalid: version 0 means no state, so there is nothing to " +
-			"roll back to")
-	}
-	_, first, last, err := statewal.GetRange(StateWALConfig(cfg.DataDir))
+	stored, first, last, err := statewal.GetRange(StateWALConfig(cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("read state WAL range: %w", err)
 	}
-	if last < target {
+	if stored && last < target {
 		return fmt.Errorf("cannot roll back to %d: the state WAL ends at %d, so no replay reaches the target",
 			target, last)
 	}
@@ -76,11 +70,7 @@ func closeLiveStateDB(liveStateDB *CommitStore) error {
 	return nil
 }
 
-// CatchUpToStateWAL replays wal into liveStateDB up to the last block wal holds, and errors unless liveStateDB lands
-// there. Over an empty WAL it replays nothing, and repairs a working copy an interrupted commit left torn.
-//
-// liveStateDB must have no WAL of its own. Replayed blocks are offered to its checkpoint schedule as committed
-// blocks are.
+// CatchUpToStateWAL brings liveStateDB to the last block wal holds. It takes no snapshots.
 func CatchUpToStateWAL(ctx context.Context, liveStateDB *CommitStore, wal statewal.StateWAL) error {
 	stored, _, head, err := wal.GetStoredRange()
 	if err != nil {
@@ -99,13 +89,16 @@ func CatchUpToStateWAL(ctx context.Context, liveStateDB *CommitStore, wal statew
 	from := blockHeight(liveStateDB.Version())
 	logReplayPlan(from, head)
 	err = replay(ctx, wal, from, head, func(block uint64, mutations []mutation.Mutation) error {
-		return liveStateDB.CommitStateChanges(liveStateVersion(block), mutations)
+		return liveStateDB.commitReplayedStateChanges(block, mutations)
 	})
 	if err != nil {
 		return fmt.Errorf("replay the state WAL up to %d: %w", head, err)
 	}
 	if got := blockHeight(liveStateDB.Version()); got != head {
 		return fmt.Errorf("the live state DB landed on %d, not the state WAL's head %d", got, head)
+	}
+	if err := liveStateDB.requireAlignedDBs(); err != nil {
+		return fmt.Errorf("align the live state DB's DBs on the state WAL's head %d: %w", head, err)
 	}
 	return nil
 }

@@ -46,7 +46,7 @@ var AppQCConv = protoutils.Conv[*AppQC, *pb.AppQC]{
 	Decode: func(m *pb.AppQC) (*AppQC, error) {
 		vote, err := AppVoteConv.DecodeReq(m.Vote)
 		if err != nil {
-			return nil, fmt.Errorf("proposal: %w", err)
+			return nil, fmt.Errorf("vote: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {

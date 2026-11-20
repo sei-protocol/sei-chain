@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -65,6 +66,7 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		PersistentStateDir: t.TempDir(),
 		DialInterval:       utils.Duration(10 * time.Second),
+		EVMChainID:         713700,
 	}
 }
 
@@ -83,7 +85,7 @@ func makeTestGigaDeps() (*proxy.EVMProxy, *types.GenesisDoc) {
 		ConsensusParams: &types.ConsensusParams{
 			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
 		},
-		Autobahn: types.DefaultAutobahnParams(),
+		Autobahn: utils.Some(types.DefaultAutobahnParams()),
 	}
 	return app, genDoc
 }
@@ -168,13 +170,16 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		PersistentStateDir: "/tmp/autobahn-state",
 		DialInterval:       utils.Duration(5 * time.Second),
+		EVMChainID:         713700,
 	}
 	cfgFile := writeAutobahnConfig(t, fc)
 
 	nodeKey := makeTestNodeKey([]byte("node1-seed"))
 	valKey := makeTestValidatorKey([]byte("val1-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
-	genDoc.Autobahn.ViewTimeout = 3 * time.Second
+	params := types.DefaultAutobahnParams()
+	params.ViewTimeout = 3 * time.Second
+	genDoc.Autobahn = utils.Some(params)
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
@@ -367,7 +372,7 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(t.Context(), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
@@ -451,4 +456,10 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
 		})
 	}
+}
+
+// storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still
+// running, and t.Context() is cancelled before the cleanup that closes it runs.
+func storageContext(t *testing.T) context.Context {
+	return context.WithoutCancel(t.Context())
 }

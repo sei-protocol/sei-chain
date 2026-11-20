@@ -53,6 +53,13 @@ type readCache struct {
 	// refuses reads rather than serving data the manager can no longer vouch for.
 	outOfServiceErr error
 
+	// The DB reads scheduled whose results have not yet been installed.
+	scheduledReads uint64
+
+	// Closed once the cache is out of service with no scheduled DB read left, so that no read of the
+	// database is still in progress.
+	readsDrained chan struct{}
+
 	// The owning shard's handle on the ViewManager-level metrics. Nil-safe; if nil, no metrics are
 	// recorded.
 	metrics *shardMetrics
@@ -189,6 +196,7 @@ func NewReadCache(
 		reportReadFailure: reportReadFailure,
 		maxSize:           maxSize,
 		entries:           make(map[string]*cacheEntry),
+		readsDrained:      make(chan struct{}),
 	}
 }
 
@@ -291,6 +299,7 @@ func (c *readCache) LookupWLocked(
 	case statusUnknown:
 		entry.status = statusScheduled
 		entry.valueChan = make(chan readResult, 1)
+		c.scheduledReads++
 		return lookupOutcome{valueChan: entry.valueChan, entry: entry, needsSchedule: true}
 	default:
 		// statusFailed lands here, and that is intended: an entry becomes statusFailed only in the
@@ -407,6 +416,7 @@ func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result 
 
 	c := e.cache
 	c.lock.Lock()
+	c.finishScheduledReadWLocked()
 
 	// The failure to report to the manager. The read error wins when both happen, since it is the one
 	// the waiter is about to be handed.
@@ -451,6 +461,9 @@ func (c *readCache) bulkInjectValuesUnlocked(reads []pendingRead) {
 	c.lock.Lock()
 	var failure error
 	for i := range reads {
+		if reads[i].needsSchedule {
+			c.finishScheduledReadWLocked()
+		}
 		// Recorded before the status check below: a failed DB read is fatal whether or not this
 		// entry was still the one waiting on it.
 		if reads[i].result.err != nil && failure == nil {
@@ -508,7 +521,7 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 	return entry
 }
 
-// PutRetiredWLocked installs the diffs retired out of the shard's MVCC layer, oldest version first, so
+// PutRetiredWLocked installs the diffs retired out of the shard's MVCC layer, oldest block first, so
 // that a key several of them wrote is left holding the newest value. A nil value marks the key as
 // known-deleted (the manager-wide tombstone convention); any other value is cached as available.
 // Inserts everything, then evicts overflow once at the end.
@@ -650,5 +663,16 @@ func (c *readCache) ErrIfOutOfServiceRLocked() error {
 func (c *readCache) TakeOutOfServiceWLocked(err error) {
 	if c.outOfServiceErr == nil {
 		c.outOfServiceErr = err
+		if c.scheduledReads == 0 {
+			close(c.readsDrained)
+		}
+	}
+}
+
+// finishScheduledReadWLocked records that a scheduled DB read has returned.
+func (c *readCache) finishScheduledReadWLocked() {
+	c.scheduledReads--
+	if c.scheduledReads == 0 && c.outOfServiceErr != nil {
+		close(c.readsDrained)
 	}
 }

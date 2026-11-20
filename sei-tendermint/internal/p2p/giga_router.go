@@ -76,14 +76,14 @@ type GigaValidatorConfig struct {
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
-	LastCommittedBlockNumber() int64
+	LastCommittedHeight() int64
 	MaxGasEstimatedPerBlock() uint64
-	BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error)
+	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.RoadIndex) ([]*types.Validator, error)
+	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
 	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
 }

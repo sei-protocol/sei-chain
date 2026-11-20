@@ -24,6 +24,8 @@ type GigaStorageConfig struct {
 	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 	BUDHasherConfig      *bud.BUDHasherConfig             // required
+	// The file present while a node holds these stores open. Empty disables it.
+	RunningMarkerPath string
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -65,6 +67,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 
 	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
 	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
+	appHashBuilderConfig.HashLogConfig.Path = utils.GetAppHashLogPath(homePath)
 	receiptHasherConfig := receipthash.DefaultReceiptHasherConfig()
 	budHasherConfig := bud.DefaultBUDHasherConfig()
 

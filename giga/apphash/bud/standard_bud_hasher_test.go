@@ -374,3 +374,18 @@ func TestBUDHashFromMutationsDependsOnEveryMutation(t *testing.T) {
 		require.NotEqual(t, baseline, hash, "edit %d", i)
 	}
 }
+
+// Flush() returns only once every block submitted before it has been reported, and leaves the hasher running.
+func TestBUDHasherFlushReportsEveryBlockAndKeepsRunning(t *testing.T) {
+	report, reported := recordBUDReports(3)
+	hasher := newBUDHasher(t, 3, report)
+
+	require.NoError(t, hasher.Submit(t.Context(), 10, insertsOf("a")))
+	require.NoError(t, hasher.Submit(t.Context(), 11, nil))
+	require.NoError(t, hasher.Flush(t.Context()))
+	require.Len(t, reported, 2)
+
+	require.NoError(t, hasher.Submit(t.Context(), 12, insertsOf("c", "a", "b")))
+	require.NoError(t, hasher.Close())
+	require.Len(t, reported, 3)
+}

@@ -34,7 +34,7 @@ func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server
 				"requested", req.LaneID.Validator, "local", local)
 			return nil
 		}
-		sub := x.state.Avail().SubscribeLaneProposals(req.LaneID, req.FirstBlockNumber)
+		sub := x.state.Avail().SubscribeLaneProposals(req.LaneID, req.FirstHeight)
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {
@@ -106,7 +106,7 @@ func (x *validatorService) serverStreamCommitQCs(ctx context.Context, server rpc
 				}
 				return fmt.Errorf("x.state.Avail().CommitQC(): %w", err)
 			}
-			next = qc.Index() + 1
+			next = qc.Height() + 1
 			if err := stream.Send(ctx, types.CommitQCConv.Encode(qc)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
@@ -137,7 +137,7 @@ func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.
 	return ctx.Err()
 }
 
-func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Client[API], lane types.LaneID, first types.BlockNumber) error {
+func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Client[API], lane types.LaneID, first types.LaneHeight) error {
 	stream, err := StreamLaneProposals.Call(ctx, c)
 	if err != nil {
 		recordFetch(ctx, resLaneProposal, "open_stream")
@@ -146,7 +146,7 @@ func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Cl
 	defer stream.Close()
 	// TODO(gprusak): dissemination of LaneProposals is the main source of bandwidth consumption.
 	// To keep low latency, we need to push the lane proposals (streaming is required).
-	req := &StreamLaneProposalsReq{LaneID: lane, FirstBlockNumber: first}
+	req := &StreamLaneProposalsReq{LaneID: lane, FirstHeight: first}
 	if err := stream.Send(ctx, StreamLaneProposalsReqConv.Encode(req)); err != nil {
 		recordFetch(ctx, resLaneProposal, "send")
 		return fmt.Errorf("client.StreamLaneProposals(): %w", err)

@@ -26,7 +26,7 @@ const tableName = "blocks"
 var logger = seilog.NewLogger("tendermint", "autobahn", "blockstore")
 
 // Store is the durable backing store for the consensus state machine. It persists complete
-// CommitQC groups, indexed by RoadIndex and road block header hash, and execution records.
+// CommitQC groups, indexed by RoadHeight and road block header hash, and execution records.
 // All methods are safe for concurrent use.
 //
 // Writes are visible immediately. Flush makes all previously completed writes
@@ -34,7 +34,7 @@ var logger = seilog.NewLogger("tendermint", "autobahn", "blockstore")
 // gaps: a CommitQC and all its lane blocks survive together, and application
 // records never survive without their preceding QC group and app records.
 //
-// Each write stream must advance by one RoadIndex. At each road, WriteBlock must
+// Each write stream must advance by one RoadHeight. At each road, WriteBlock must
 // precede WriteAppProposal, which must precede WriteAppQC. Rejected writes store
 // nothing. Reads below First return ErrPruned; absent records at or above First
 // return None. Hash lookups return None for unknown or pruned SuperBlocks.
@@ -49,22 +49,22 @@ type Store struct {
 type storeStatus struct {
 	suffix utils.Option[SuffixRange]
 	// blocks holds the road blocks of roads [suffix.First, suffix.NextBlock).
-	blocks map[types.RoadIndex]*types.RoadBlock
+	blocks map[types.RoadHeight]*types.RoadBlock
 	// nextDurable is the lowest road whose block is not durable yet.
-	nextDurable types.RoadIndex
+	nextDurable types.RoadHeight
 }
 
 // SuffixRange contains the road cursors restored by startup recovery.
 // First <= NextAppQC <= NextAppProposal <= NextBlock.
 type SuffixRange struct {
 	// First is the latest AppQC's road, or the first retained QC's road if no AppQC exists.
-	First types.RoadIndex
+	First types.RoadHeight
 	// NextAppQC is the next road awaiting a persisted AppQC.
-	NextAppQC types.RoadIndex
+	NextAppQC types.RoadHeight
 	// NextAppProposal is the next road awaiting a persisted AppProposal.
-	NextAppProposal types.RoadIndex
+	NextAppProposal types.RoadHeight
 	// NextBlock is the next road awaiting a persisted block.
-	NextBlock types.RoadIndex
+	NextBlock types.RoadHeight
 }
 
 // Suffix is a recovery snapshot of retained blocks, application proposals, and application QCs.
@@ -90,7 +90,7 @@ func New(config *Config) (*Store, error) {
 		return nil, fmt.Errorf("littbuilder.NewDB(): %w", err)
 	}
 
-	s := &Store{db: db, status: utils.NewWatch(&storeStatus{blocks: map[types.RoadIndex]*types.RoadBlock{}})}
+	s := &Store{db: db, status: utils.NewWatch(&storeStatus{blocks: map[types.RoadHeight]*types.RoadBlock{}})}
 	Global.pruneWatermarkAt().Set(0)
 
 	// Every record kind lives in one table with a single write shard. The store
@@ -130,7 +130,7 @@ func New(config *Config) (*Store, error) {
 
 // recoverWatermark restores the floor from the oldest surviving SuperBlock.
 // A non-empty store without a SuperBlock cannot supply a recovery anchor.
-func (s *Store) recoverWatermark() (types.RoadIndex, error) {
+func (s *Store) recoverWatermark() (types.RoadHeight, error) {
 	it, err := s.table.Iterator(false)
 	if err != nil {
 		return 0, fmt.Errorf("s.table.Iterator(false): %w", err)
@@ -163,7 +163,7 @@ func (s *Store) recoverWatermark() (types.RoadIndex, error) {
 			if err != nil {
 				return 0, fmt.Errorf("recordKey.decodeBlock(): %w", err)
 			}
-			return key.Index, nil
+			return key.Height, nil
 		case kindAppQC:
 			if _, err := recordKey.decodeAppQC(); err != nil {
 				return 0, fmt.Errorf("recordKey.decodeAppQC(): %w", err)
@@ -200,7 +200,7 @@ func (s *Store) readSuffix() (Suffix, error) {
 	defer func() { _ = it.Close() }()
 	var suffix Suffix
 
-	var first types.RoadIndex
+	var first types.RoadHeight
 	gotAppQC := false
 	for {
 		ok, err := it.Next()
@@ -221,22 +221,22 @@ func (s *Store) readSuffix() (Suffix, error) {
 		if err != nil {
 			return Suffix{}, fmt.Errorf("decodeLedgerKey(): %w", err)
 		}
-		var index types.RoadIndex
+		var height types.RoadHeight
 		switch key.kind {
 		case kindBlock:
 			key, err := key.decodeBlock()
 			if err != nil {
 				return Suffix{}, fmt.Errorf("key.decodeBlock(): %w", err)
 			}
-			index = key.Index
+			height = key.Height
 		case kindAppQC:
 			key, err := key.decodeAppQC()
 			if err != nil {
 				return Suffix{}, fmt.Errorf("key.decodeAppQC(): %w", err)
 			}
-			index = key.Index
+			height = key.Height
 			if !gotAppQC {
-				first = index
+				first = height
 				gotAppQC = true
 			}
 		case kindAppProp:
@@ -244,11 +244,11 @@ func (s *Store) readSuffix() (Suffix, error) {
 			if err != nil {
 				return Suffix{}, fmt.Errorf("key.decodeAppProposal(): %w", err)
 			}
-			index = key.Index
+			height = key.Height
 		default:
 			return Suffix{}, fmt.Errorf("invalid primary ledger key %x", key)
 		}
-		if !gotAppQC || index >= first {
+		if !gotAppQC || height >= first {
 			value, err := it.GetValue()
 			if err != nil {
 				return Suffix{}, fmt.Errorf("it.GetValue(): %w", err)
@@ -265,8 +265,8 @@ func (s *Store) readSuffix() (Suffix, error) {
 				if err != nil {
 					return Suffix{}, fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
 				}
-				if qc.Proposal().Index() != index {
-					return Suffix{}, types.ErrUnexpectedIndex
+				if qc.Proposal().Height() != height {
+					return Suffix{}, types.ErrUnexpectedHeight
 				}
 				suffix.AppQCs = append(suffix.AppQCs, qc)
 			case kindAppProp:
@@ -274,19 +274,19 @@ func (s *Store) readSuffix() (Suffix, error) {
 				if err != nil {
 					return Suffix{}, fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
 				}
-				if proposal.Index() != index {
-					return Suffix{}, types.ErrUnexpectedIndex
+				if proposal.Height() != height {
+					return Suffix{}, types.ErrUnexpectedHeight
 				}
 				suffix.AppProposals = append(suffix.AppProposals, proposal)
 			}
 		}
-		if gotAppQC && key.kind == kindBlock && index <= first {
+		if gotAppQC && key.kind == kindBlock && height <= first {
 			break
 		}
 	}
-	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block *types.RoadBlock) bool { return gotAppQC && block.QC().Index() < first })
-	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(qc *types.AppQC) bool { return gotAppQC && qc.Proposal().Index() < first })
-	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(proposal *types.AppProposal) bool { return gotAppQC && proposal.Index() < first })
+	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block *types.RoadBlock) bool { return gotAppQC && block.QC().Height() < first })
+	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(qc *types.AppQC) bool { return gotAppQC && qc.Proposal().Height() < first })
+	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(proposal *types.AppProposal) bool { return gotAppQC && proposal.Height() < first })
 	slices.Reverse(suffix.Blocks)
 	slices.Reverse(suffix.AppQCs)
 	slices.Reverse(suffix.AppProposals)
@@ -316,20 +316,20 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) WriteBlock(block *types.RoadBlock) error {
-	index := block.QC().Index()
+	height := block.QC().Height()
 
 	for status := range s.status.Lock() {
 		current, ok := status.suffix.Get()
 		if !ok {
 			current = SuffixRange{
-				First:           index,
-				NextBlock:       index,
-				NextAppQC:       index,
-				NextAppProposal: index,
+				First:           height,
+				NextBlock:       height,
+				NextAppQC:       height,
+				NextAppProposal: height,
 			}
 		}
-		if current.NextBlock != index {
-			return fmt.Errorf("block index %d, expected %d: %w", index, current.NextBlock, types.ErrUnexpectedIndex)
+		if current.NextBlock != height {
+			return fmt.Errorf("block height %d, expected %d: %w", height, current.NextBlock, types.ErrUnexpectedHeight)
 		}
 		record := encodeBlock(block)
 		if err := s.table.Put(record.Key.bytes(), record.Value, record.Aliases...); err != nil {
@@ -337,26 +337,26 @@ func (s *Store) WriteBlock(block *types.RoadBlock) error {
 		}
 		if !ok {
 			// Reads below the first QC must return ErrPruned before and after reopening.
-			s.setPruneWatermark(index)
+			s.setPruneWatermark(height)
 		}
-		current.NextBlock = index + 1
+		current.NextBlock = height + 1
 		status.suffix = utils.Some(current)
-		status.blocks[index] = block
+		status.blocks[height] = block
 		return nil
 	}
 	panic("unreachable")
 }
 
 func (s *Store) WriteAppQC(appQC *types.AppQC) error {
-	index := appQC.Proposal().Index()
+	height := appQC.Proposal().Height()
 	for status := range s.status.Lock() {
 		current, ok := status.suffix.Get()
-		if !ok || current.NextAppProposal <= index {
-			return fmt.Errorf("AppQC %d: %w", index, types.ErrMissingAppProposal)
+		if !ok || current.NextAppProposal <= height {
+			return fmt.Errorf("AppQC %d: %w", height, types.ErrMissingAppProposal)
 		}
-		if current.NextAppQC != index {
+		if current.NextAppQC != height {
 			return fmt.Errorf("AppQC.Index() = %d, want %d: %w",
-				index, current.NextAppQC, types.ErrUnexpectedIndex)
+				height, current.NextAppQC, types.ErrUnexpectedHeight)
 		}
 
 		record := encodeAppQC(appQC)
@@ -365,11 +365,11 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 		}
 		// An AppQC follows the local AppProposal, which follows local execution,
 		// so execution needs no block below it.
-		for n := current.First; n < index; n++ {
+		for n := current.First; n < height; n++ {
 			delete(status.blocks, n)
 		}
-		current.First = index
-		current.NextAppQC = index + 1
+		current.First = height
+		current.NextAppQC = height + 1
 		status.suffix = utils.Some(current)
 		return nil
 	}
@@ -377,25 +377,25 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 }
 
 func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
-	index := appProposal.Index()
-	if index == utils.Max[types.RoadIndex]() {
-		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
+	height := appProposal.Height()
+	if height == utils.Max[types.RoadHeight]() {
+		return fmt.Errorf("road height cannot advance: %w", types.ErrUnexpectedHeight)
 	}
 	for status := range s.status.Lock() {
 		current, ok := status.suffix.Get()
-		if !ok || current.NextBlock <= index {
-			return fmt.Errorf("AppProposal %d: %w", index, types.ErrMissingQC)
+		if !ok || current.NextBlock <= height {
+			return fmt.Errorf("AppProposal %d: %w", height, types.ErrMissingQC)
 		}
-		if current.NextAppProposal != index {
+		if current.NextAppProposal != height {
 			return fmt.Errorf("AppProposal.Index() = %v, want %v: %w",
-				index, current.NextAppProposal, types.ErrUnexpectedIndex)
+				height, current.NextAppProposal, types.ErrUnexpectedHeight)
 		}
 
 		record := encodeAppProposal(appProposal)
 		if err := s.table.Put(record.Key.bytes(), record.Value, record.Aliases...); err != nil {
 			return fmt.Errorf("s.table.Put(%x): %w", record.Key.bytes(), err)
 		}
-		current.NextAppProposal = index + 1
+		current.NextAppProposal = height + 1
 		status.suffix = utils.Some(current)
 		return nil
 	}
@@ -415,29 +415,29 @@ func (s *Store) ReadSuffix() (Suffix, error) {
 	panic("unreachable")
 }
 
-func (s *Store) ReadLaneBlock(pos types.LaneBlockPos) (utils.Option[*types.Block], error) {
-	if pos.Index < s.First() {
-		return utils.None[*types.Block](), types.ErrPruned
+func (s *Store) ReadLaneBlock(pos types.LaneBlockPos) (utils.Option[*types.LaneBlock], error) {
+	if pos.Height < s.First() {
+		return utils.None[*types.LaneBlock](), types.ErrPruned
 	}
-	value, exists, err := s.getRecord((laneBlockKey{Index: pos.Index, Offset: pos.Offset}).encode())
+	value, exists, err := s.getRecord((laneBlockKey{Height: pos.Height, Offset: pos.Offset}).encode())
 	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("s.getRecord(): %w", err)
+		return utils.None[*types.LaneBlock](), fmt.Errorf("s.getRecord(): %w", err)
 	}
 	if !exists {
-		return utils.None[*types.Block](), nil
+		return utils.None[*types.LaneBlock](), nil
 	}
-	block, err := types.BlockConv.Unmarshal(value)
+	block, err := types.LaneBlockConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("types.BlockConv.Unmarshal(): %w", err)
+		return utils.None[*types.LaneBlock](), fmt.Errorf("types.LaneBlockConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(block), nil
 }
 
-func (s *Store) ReadBlock(n types.RoadIndex) (utils.Option[*types.RoadBlock], error) {
+func (s *Store) ReadBlock(n types.RoadHeight) (utils.Option[*types.RoadBlock], error) {
 	if n < s.First() {
 		return utils.None[*types.RoadBlock](), types.ErrPruned
 	}
-	value, exists, err := s.getRecord((blockKey{Index: n}).encode())
+	value, exists, err := s.getRecord((blockKey{Height: n}).encode())
 	if err != nil {
 		return utils.None[*types.RoadBlock](), fmt.Errorf("s.getRecord(): %w", err)
 	}
@@ -460,14 +460,14 @@ func (s *Store) ReadBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*t
 		return utils.None[*types.RoadBlock](), nil
 	}
 	// Pruned hash lookups do not decode values that are no longer served.
-	if len(value) >= 8 && types.RoadIndex(binary.BigEndian.Uint64(value)) < s.First() {
+	if len(value) >= 8 && types.RoadHeight(binary.BigEndian.Uint64(value)) < s.First() {
 		return utils.None[*types.RoadBlock](), nil
 	}
 	block, err := decodeBlock(value)
 	if err != nil {
 		return utils.None[*types.RoadBlock](), fmt.Errorf("decodeBlock(): %w", err)
 	}
-	if block.QC().Index() < s.First() {
+	if block.QC().Height() < s.First() {
 		return utils.None[*types.RoadBlock](), nil
 	}
 	if block.Header().Hash() != hash {
@@ -476,12 +476,12 @@ func (s *Store) ReadBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*t
 	return utils.Some(block), nil
 }
 
-func (s *Store) ReadQC(n types.RoadIndex) (utils.Option[*types.FullCommitQC], error) {
+func (s *Store) ReadQC(n types.RoadHeight) (utils.Option[*types.FullCommitQC], error) {
 	// Below-watermark blocks are not served, so neither is their covering QC.
 	if n < s.First() {
 		return utils.None[*types.FullCommitQC](), types.ErrPruned
 	}
-	value, exists, err := s.getRecord((qcKey{Index: n}).encode())
+	value, exists, err := s.getRecord((qcKey{Height: n}).encode())
 	if err != nil {
 		return utils.None[*types.FullCommitQC](), fmt.Errorf("s.getRecord(): %w", err)
 	}
@@ -495,11 +495,11 @@ func (s *Store) ReadQC(n types.RoadIndex) (utils.Option[*types.FullCommitQC], er
 	return utils.Some(qc), nil
 }
 
-func (s *Store) ReadAppProposal(n types.RoadIndex) (utils.Option[*types.AppProposal], error) {
+func (s *Store) ReadAppProposal(n types.RoadHeight) (utils.Option[*types.AppProposal], error) {
 	if n < s.First() {
 		return utils.None[*types.AppProposal](), types.ErrPruned
 	}
-	value, exists, err := s.getRecord((appProposalKey{Index: n}).encode())
+	value, exists, err := s.getRecord((appProposalKey{Height: n}).encode())
 	if err != nil {
 		return utils.None[*types.AppProposal](), fmt.Errorf("s.getRecord(): %w", err)
 	}
@@ -513,11 +513,11 @@ func (s *Store) ReadAppProposal(n types.RoadIndex) (utils.Option[*types.AppPropo
 	return utils.Some(appProposal), nil
 }
 
-func (s *Store) ReadAppQC(n types.RoadIndex) (utils.Option[*types.AppQC], error) {
+func (s *Store) ReadAppQC(n types.RoadHeight) (utils.Option[*types.AppQC], error) {
 	if n < s.First() {
 		return utils.None[*types.AppQC](), types.ErrPruned
 	}
-	value, exists, err := s.getRecord((appQCKey{Index: n}).encode())
+	value, exists, err := s.getRecord((appQCKey{Height: n}).encode())
 	if err != nil {
 		return utils.None[*types.AppQC](), fmt.Errorf("s.getRecord(): %w", err)
 	}
@@ -532,7 +532,7 @@ func (s *Store) ReadAppQC(n types.RoadIndex) (utils.Option[*types.AppQC], error)
 }
 
 // nextBlock returns the road of the next block to write, or 0 when the store is empty.
-func (s *Store) nextBlock() types.RoadIndex {
+func (s *Store) nextBlock() types.RoadHeight {
 	if current, ok := s.Status().Get(); ok {
 		return current.NextBlock
 	}
@@ -541,7 +541,7 @@ func (s *Store) nextBlock() types.RoadIndex {
 
 // WaitForBlock returns the block of road n, waiting until a Flush has made it
 // durable. It returns ErrPruned when n is below First.
-func (s *Store) WaitForBlock(ctx context.Context, n types.RoadIndex) (*types.RoadBlock, error) {
+func (s *Store) WaitForBlock(ctx context.Context, n types.RoadHeight) (*types.RoadBlock, error) {
 	for status, ctrl := range s.status.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < status.nextDurable }); err != nil {
 			return nil, err
@@ -572,7 +572,7 @@ func (s *Store) Status() utils.Option[SuffixRange] {
 }
 
 // restore initializes the cursors and floor from retained records.
-func (s *Store) restore(first types.RoadIndex, suffix Suffix) error {
+func (s *Store) restore(first types.RoadHeight, suffix Suffix) error {
 	suffix, err := validateSuffix(suffix)
 	if err != nil {
 		return err
@@ -580,7 +580,7 @@ func (s *Store) restore(first types.RoadIndex, suffix Suffix) error {
 	for status := range s.status.Lock() {
 		status.suffix = suffix.Status
 		for _, block := range suffix.Blocks {
-			status.blocks[block.QC().Index()] = block
+			status.blocks[block.QC().Height()] = block
 		}
 		if current, ok := suffix.Status.Get(); ok {
 			status.nextDurable = current.NextBlock
@@ -603,32 +603,32 @@ func validateSuffix(suffix Suffix) (Suffix, error) {
 		suffix.Status = utils.None[SuffixRange]()
 		return suffix, nil
 	}
-	first := suffix.Blocks[0].QC().Index()
+	first := suffix.Blocks[0].QC().Height()
 	status := SuffixRange{First: first, NextBlock: first, NextAppProposal: first, NextAppQC: first}
 	for _, block := range suffix.Blocks {
-		if block.QC().Index() != status.NextBlock {
-			return Suffix{}, types.ErrUnexpectedIndex
+		if block.QC().Height() != status.NextBlock {
+			return Suffix{}, types.ErrUnexpectedHeight
 		}
 		status.NextBlock++
 	}
 	for _, proposal := range suffix.AppProposals {
-		if proposal.Index() >= status.NextBlock {
+		if proposal.Height() >= status.NextBlock {
 			return Suffix{}, types.ErrMissingQC
 		}
-		if proposal.Index() != status.NextAppProposal {
-			return Suffix{}, types.ErrUnexpectedIndex
+		if proposal.Height() != status.NextAppProposal {
+			return Suffix{}, types.ErrUnexpectedHeight
 		}
 		status.NextAppProposal++
 	}
 	for _, qc := range suffix.AppQCs {
-		index := qc.Proposal().Index()
-		if index >= status.NextAppProposal {
+		height := qc.Proposal().Height()
+		if height >= status.NextAppProposal {
 			return Suffix{}, types.ErrMissingAppProposal
 		}
-		if index != status.NextAppQC {
-			return Suffix{}, types.ErrUnexpectedIndex
+		if height != status.NextAppQC {
+			return Suffix{}, types.ErrUnexpectedHeight
 		}
-		status.First = index
+		status.First = height
 		status.NextAppQC++
 	}
 	suffix.Status = utils.Some(status)

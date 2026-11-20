@@ -190,7 +190,21 @@ if [ "$AUTOBAHN" = "true" ]; then
   if [ -n "$EVM_GOVERNANCE_VOTING_PERIOD" ]; then
     GOVERNANCE_FLAGS="--evm-governance-voting-period $EVM_GOVERNANCE_VOTING_PERIOD"
   fi
-  seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS --output "$AUTOBAHN_CONFIG"
+  # contracts/test/lib.js and integration_test/autobahn sign for this EVM chain ID.
+  # EVM_ALLOC is the genesis accounts JSON; EVM_PREINSTALLS picks the standard
+  # contracts added to it, defaulting to all of them when EVM_ALLOC funds an
+  # account and none otherwise.
+  ALLOC_FLAGS=""
+  if [ -n "$EVM_ALLOC" ]; then
+    EVM_ALLOC_FILE="$HOME/.sei/config/evm_alloc.json"
+    printf '%s' "$EVM_ALLOC" > "$EVM_ALLOC_FILE"
+    ALLOC_FLAGS="--evm-alloc $EVM_ALLOC_FILE"
+  fi
+  if [ -n "$EVM_PREINSTALLS" ]; then
+    ALLOC_FLAGS="$ALLOC_FLAGS --evm-preinstalls $EVM_PREINSTALLS"
+  fi
+  seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS $ALLOC_FLAGS --evm-chain-id 713700 --output "$AUTOBAHN_CONFIG" ||
+    { echo "ERROR: gen-autobahn-config failed" >&2; exit 1; }
   # Autobahn serves the EVM JSON-RPC only: clear the Tendermint RPC and Cosmos
   # query surfaces it does not serve.
   sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml

@@ -142,12 +142,35 @@ func TestRollBackLiveStateDBRefusesATargetAboveTheWALHead(t *testing.T) {
 	require.ErrorContains(t, rollBack(t, cfg, 5), "the state WAL ends at 3")
 }
 
-// A target of 0 means no state, so there is nothing to roll back to.
-func TestRollBackLiveStateDBRefusesAZeroTarget(t *testing.T) {
+// A target of 0 discards every block the live state DB holds, landing it on its initial snapshot.
+func TestRollBackLiveStateDBToZero(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	writeWALOnly(t, cfg, 1, 1)
+	liveStateDB := openLiveStateDBOwningTheWAL(t, cfg)
+	commitNonceBlocks(t, liveStateDB, 1, 3)
+	require.NoError(t, liveStateDB.Close())
 
-	require.ErrorContains(t, rollBack(t, cfg, 0), "nothing to roll back to")
+	rollBackAndCatchUp(t, cfg, 0)
+
+	rolledBack := reopenWithoutWAL(t, cfg)
+	require.Zero(t, rolledBack.Version())
+	view := rolledBack.OpenView()
+	defer view.Close()
+	_, ok := view.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, gigatypes.Address{1}.Bytes()))
+	require.False(t, ok, "block 1's state must be gone")
+}
+
+// An empty state WAL stands at any height, so a live state DB holding state with no WAL to replay rolls back to
+// the version it already holds.
+func TestRollBackLiveStateDBWithAnEmptyWALToItsOwnVersion(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	liveStateDB := openLiveStateDBOwningTheWAL(t, cfg)
+	commitNonceBlocks(t, liveStateDB, 1, 3)
+	require.NoError(t, liveStateDB.Close())
+	truncateWAL(t, cfg, 0)
+
+	require.NoError(t, rollBack(t, cfg, 3))
+
+	require.Equal(t, int64(3), reopenWithoutWAL(t, cfg).Version())
 }
 
 // A target above where the live state DB sits is not a rollback for it: it replays forward from the height it
@@ -262,4 +285,111 @@ func TestCatchUpRefusesAWALMissingTheBlocksTheLiveStateDBNeeds(t *testing.T) {
 
 	require.ErrorContains(t, CatchUpToStateWAL(t.Context(), liveStateDB, &gapWAL{first: 3, last: 4}),
 		"missing (data loss or corruption)")
+}
+
+// commitFlushedNonceBlocks commits blocks from through through to liveStateDB and waits until every DB has
+// written the last of them to disk, so closing it leaves all four DBs at through.
+func commitFlushedNonceBlocks(t *testing.T, liveStateDB *CommitStore, from uint64, through uint64) {
+	t.Helper()
+	commitNonceBlocks(t, liveStateDB, from, through)
+	require.NoError(t, liveStateDB.flushLatestVersion())
+}
+
+// leaveCodeDBABlockBehind commits blocks 1-3 to a live state DB under cfg and closes it with its code DB put back
+// to block 2 and its account DB at block 3, as a crash between the two DBs' flushes leaves them. It returns the
+// state hash of block 3.
+func leaveCodeDBABlockBehind(t *testing.T, cfg *config.Config) []byte {
+	t.Helper()
+	liveStateDB := openLiveStateDBOwningTheWAL(t, cfg)
+	commitFlushedNonceBlocks(t, liveStateDB, 1, 2)
+	require.NoError(t, liveStateDB.Close())
+	codeAtBlock2 := copyDataDB(t, cfg, codeDBDir)
+
+	liveStateDB = openLiveStateDBOwningTheWAL(t, cfg)
+	// Block 3 changes an account, so only the account DB's rows and hash move.
+	commitFlushedNonceBlocks(t, liveStateDB, 3, 3)
+	hash := rootHash(liveStateDB)
+	require.NoError(t, liveStateDB.Close())
+	restoreDataDB(t, cfg, codeDBDir, codeAtBlock2)
+	accountVersion, err := readCommittedVersion(filepath.Join(cfg.DataDir, workingDirName, accountDBDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(3), accountVersion)
+	codeVersion, err := readCommittedVersion(filepath.Join(cfg.DataDir, workingDirName, codeDBDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(2), codeVersion)
+	return hash
+}
+
+// Catching up replays a block into the DBs missing it and leaves the one already holding it alone, so the state
+// hash comes out as it was before the crash.
+func TestCatchUpSkipsADataDBAlreadyHoldingTheBlock(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	wantHash := leaveCodeDBABlockBehind(t, cfg)
+
+	caughtUp := reopenWithoutWAL(t, cfg)
+	wal, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, wal.Close()) }()
+	caughtUp.SetCheckpointScheduler(controller.NewCheckpointScheduler(rollbackTestCheckpointConfig))
+	require.NoError(t, CatchUpToStateWAL(t.Context(), caughtUp, wal))
+
+	gotHash, gotVersion := rootHashAndVersion(caughtUp)
+	require.Equal(t, int64(3), gotVersion)
+	require.Equal(t, wantHash, gotHash)
+}
+
+// Outside replay, a block committed to a DB that already holds it is an error.
+func TestCommittingABlockADataDBAlreadyHoldsIsRejected(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	leaveCodeDBABlockBehind(t, cfg)
+
+	liveStateDB := reopenWithoutWAL(t, cfg)
+	require.Equal(t, int64(2), liveStateDB.Version())
+	require.ErrorContains(t, liveStateDB.CommitStateChanges(3, nil),
+		"cannot commit block 3: the account DB's next block is 4")
+}
+
+// A view of a store whose data DBs hold different blocks describes no real state, so OpenView refuses one until
+// catching up has aligned them.
+func TestOpenViewPanicsWhileDataDBsDisagree(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	leaveCodeDBABlockBehind(t, cfg)
+
+	liveStateDB := reopenWithoutWAL(t, cfg)
+	require.PanicsWithValue(t,
+		"flatkv: OpenView: account view holds block 3, not block 2",
+		func() { liveStateDB.OpenView() })
+
+	wal, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, wal.Close()) }()
+	liveStateDB.SetCheckpointScheduler(controller.NewCheckpointScheduler(rollbackTestCheckpointConfig))
+	require.NoError(t, CatchUpToStateWAL(t.Context(), liveStateDB, wal))
+	liveStateDB.OpenView().Close()
+}
+
+// Catching up takes no snapshot, whatever the schedule picks; the first block committed after it can.
+func TestCatchUpTakesNoSnapshots(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	writeWALOnly(t, cfg, 1, 3)
+	liveStateDB := reopenWithoutWAL(t, cfg)
+	before, err := SnapshotVersions(cfg.DataDir)
+	require.NoError(t, err)
+
+	wal, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, wal.Close()) }()
+	liveStateDB.SetCheckpointScheduler(controller.NewCheckpointScheduler(
+		seidbconfig.CheckpointConfig{BlockInterval: 1}))
+	require.NoError(t, CatchUpToStateWAL(t.Context(), liveStateDB, wal))
+	require.NoError(t, liveStateDB.FlushSnapshots())
+	afterCatchUp, err := SnapshotVersions(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, before, afterCatchUp)
+
+	commitNonceBlocks(t, liveStateDB, 4, 4)
+	require.NoError(t, liveStateDB.FlushSnapshots())
+	afterCommit, err := SnapshotVersions(cfg.DataDir)
+	require.NoError(t, err)
+	require.Contains(t, afterCommit, int64(4))
 }

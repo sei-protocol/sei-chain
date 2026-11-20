@@ -88,7 +88,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
+	firstHeight := atypes.RoadHeight(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
 		genesisWeights[k] = 1
@@ -97,7 +97,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstRoad, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
+	registry, err := epoch.NewRegistry(genesisCommittee, firstHeight, cfg.GenDoc.GenesisTime, cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).EpochLength, utils.Some(cfg.PersistentStateDir))
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
@@ -108,7 +108,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	return ds, nil
 }
 
-func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
+func (r *gigaRouterCommon) LastCommittedHeight() int64 {
 	return r.app.LastBlockHeight()
 }
 
@@ -122,7 +122,7 @@ func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
 
 // BlockByNumber returns the finalized SuperBlock at road n as a CometBFT ResultBlock.
 // Its hash, height, timestamp, and transactions match the block passed to FinalizeBlock.
-func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error) {
+func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error) {
 	gb, err := r.data.SuperBlock(ctx, n)
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
@@ -332,18 +332,6 @@ type memberSession struct {
 	addr   GigaNodeAddr
 }
 
-// keepReplicas is the union of the commit and anchor committees.
-func keepReplicas(anchor data.Anchor, commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
-	keep := map[atypes.PublicKey]struct{}{}
-	for lane := range commitEpoch.Committee().Lanes().All() {
-		keep[lane.Validator] = struct{}{}
-	}
-	for lane := range anchor.Epochs[0].Committee().Lanes().All() {
-		keep[lane.Validator] = struct{}{}
-	}
-	return keep
-}
-
 // validatorAddr returns the address to dial validator at. The configured
 // committee book wins; the live overlay only covers members it omits.
 func (r *gigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAddr, bool) {
@@ -362,16 +350,26 @@ func sameGigaNodeAddr(a, b GigaNodeAddr) bool {
 	return a.Key == b.Key && a.HostPort == b.HostPort && a.EVMRPC.String() == b.EVMRPC.String()
 }
 
+// inAnchorEpochs reports whether validator is a member of an epoch Anchor holds.
+func inAnchorEpochs(anchor data.Anchor, validator atypes.PublicKey) bool {
+	for _, ep := range anchor.Epochs {
+		if ep.Committee().HasReplica(validator) {
+			return true
+		}
+	}
+	return false
+}
+
 // acceptInbound returns the committee identity a verified inbound connection
 // proved, recording the giga address it advertised. None means the peer is
 // served the block-sync subset: it carried no claim, or it claimed a validator
-// outside the current commit committee.
+// outside the Anchor epochs.
 func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[atypes.PublicKey] {
 	claim, ok := hConn.msg.GigaClaim.Get()
 	if !ok {
 		return utils.None[atypes.PublicKey]()
 	}
-	if !r.data.Anchor().Load().NextIndexEpoch().Committee().HasReplica(claim.Validator) {
+	if !inAnchorEpochs(r.data.Anchor().Load(), claim.Validator) {
 		return utils.None[atypes.PublicKey]()
 	}
 	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
@@ -398,44 +396,41 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 	return utils.Some(claim.Validator)
 }
 
-// stopStaleSessions stops sessions for validators outside keepReplicas or
-// dialing an address that is no longer current, and drops the overlay addresses
-// of the departed. Departures are only acted on once Anchor is at most one
-// epoch behind commitEpoch.
+// stopStaleSessions stops sessions for validators outside epochs or dialing an
+// address that is no longer current, and drops the overlay addresses of the
+// departed.
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
-	anchor data.Anchor,
-	commitEpoch *atypes.Epoch,
+	epochs []*atypes.Epoch,
 ) error {
-	// Until Anchor is within one epoch, validators of the epochs in between are
-	// in neither endpoint committee, and the AppQCs for those epochs cannot form
-	// without them.
-	settled := commitEpoch.EpochIndex() <= anchor.Epochs[0].EpochIndex()+1
-	keep := keepReplicas(anchor, commitEpoch)
-	if settled {
-		for addrs := range r.liveAddrs.Lock() {
-			dropped := false
-			for validator := range addrs {
-				if _, ok := keep[validator]; !ok {
-					delete(addrs, validator)
-					dropped = true
-				}
+	kept := func(validator atypes.PublicKey) bool {
+		for _, ep := range epochs {
+			if ep.Committee().HasReplica(validator) {
+				return true
 			}
-			if dropped {
-				r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
+		}
+		return false
+	}
+	for addrs := range r.liveAddrs.Lock() {
+		dropped := false
+		for validator := range addrs {
+			if !kept(validator) {
+				delete(addrs, validator)
+				dropped = true
 			}
+		}
+		if dropped {
+			r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
 		}
 	}
 	var stale []*memberSession
 	// Cancel every stale session before waiting for any of them.
 	for validator, session := range live {
-		if _, kept := keep[validator]; !kept {
-			if !settled {
+		if kept(validator) {
+			if addr, ok := r.validatorAddr(validator); ok && sameGigaNodeAddr(session.addr, addr) {
 				continue
 			}
-		} else if addr, ok := r.validatorAddr(validator); ok && sameGigaNodeAddr(session.addr, addr) {
-			continue
 		}
 		session.cancel()
 		stale = append(stale, session)
@@ -449,8 +444,9 @@ func (r *gigaRouterCommon) stopStaleSessions(
 	return nil
 }
 
-// runPerCommitteeMember runs tasks for each reachable member needed by the commit epoch or Anchor.
-func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...committeeMemberTask) error {
+// runPerCommitteeMember runs tasks for each reachable member of the Anchor
+// epochs, or of the commit epoch when currentCommitteeOnly is set.
+func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		live := map[atypes.PublicKey]*memberSession{}
 		addrUpdates := r.liveAddrVersion.Subscribe()
@@ -460,41 +456,51 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 				session.cancel()
 			}
 		}()
-		// Anchor is republished on every persist batch; only its epoch can
-		// change the keep set.
+		// Anchor is republished on every persist batch, so the wait compares
+		// the epoch indices it depends on rather than the Anchor value.
 		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
 
 		for ctx.Err() == nil {
 			addrVersion := addrUpdates.Load()
 			anchor := r.data.Anchor().Load()
-			commitEpoch := anchor.NextIndexEpoch()
-			if err := r.stopStaleSessions(ctx, live, anchor, commitEpoch); err != nil {
+			commitEpoch := anchor.NextHeightEpoch()
+			// A member of Epochs[0] may hold the only copy of a lane block, or of
+			// the headers a CommitQC needs. Epochs[1] is the next committee while
+			// the commit epoch is Epochs[0].
+			epochs := anchor.Epochs[:]
+			if currentCommitteeOnly {
+				epochs = []*atypes.Epoch{commitEpoch}
+			}
+			if err := r.stopStaleSessions(ctx, live, epochs); err != nil {
 				return err
 			}
-			for validator := range keepReplicas(anchor, commitEpoch) {
-				if _, ok := live[validator]; ok {
-					continue
+			for _, ep := range epochs {
+				for lane := range ep.Committee().Lanes().All() {
+					validator := lane.Validator
+					if _, ok := live[validator]; ok {
+						continue
+					}
+					addr, ok := r.validatorAddr(validator)
+					if !ok {
+						logger.Error("committee member has no configured address; not dialing", "validator", validator)
+						continue
+					}
+					taskCtx, cancel := context.WithCancel(ctx)
+					done := make(chan struct{})
+					live[validator] = &memberSession{cancel: cancel, done: done, addr: addr}
+					s.SpawnNamed(addr.String(), func() error {
+						defer close(done)
+						return utils.IgnoreCancel(scope.Run(taskCtx, func(ctx context.Context, ms scope.Scope) error {
+							for _, task := range tasks {
+								ms.Spawn(func() error { return task(ctx, validator, addr) })
+							}
+							return nil
+						}))
+					})
 				}
-				addr, ok := r.validatorAddr(validator)
-				if !ok {
-					logger.Error("committee member has no configured address; not dialing", "validator", validator)
-					continue
-				}
-				taskCtx, cancel := context.WithCancel(ctx)
-				done := make(chan struct{})
-				live[validator] = &memberSession{cancel: cancel, done: done, addr: addr}
-				s.SpawnNamed(addr.String(), func() error {
-					defer close(done)
-					return utils.IgnoreCancel(scope.Run(taskCtx, func(ctx context.Context, ms scope.Scope) error {
-						for _, task := range tasks {
-							ms.Spawn(func() error { return task(ctx, validator, addr) })
-						}
-						return nil
-					}))
-				})
 			}
 			if err := utils.WaitAny(ctx, func() bool {
-				return r.data.Anchor().Load().NextIndexEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
+				return r.data.Anchor().Load().NextHeightEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
 					epochOf(r.data.Anchor().Load()) != epochOf(anchor) ||
 					addrUpdates.Load() != addrVersion
 			}, r.data.Anchor(), addrUpdates); err != nil {
@@ -505,17 +511,21 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 	})
 }
 
-// runUntilMembershipChange runs f until validator leaves the current commit
-// committee. It reports whether a leave ended f.
+// runUntilMembershipChange runs f until validator leaves the set that
+// runPerCommitteeMember dials, and reports whether a leave ended f.
 func (r *gigaRouterCommon) runUntilMembershipChange(
 	ctx context.Context,
 	validator atypes.PublicKey,
+	currentCommitteeOnly bool,
 	f func(ctx context.Context) error,
 ) (changed bool, err error) {
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
 			_, err := r.data.Anchor().Wait(ctx, func(anchor data.Anchor) bool {
-				return !anchor.NextIndexEpoch().Committee().HasReplica(validator)
+				if currentCommitteeOnly {
+					return !anchor.NextHeightEpoch().Committee().HasReplica(validator)
+				}
+				return !inAnchorEpochs(anchor, validator)
 			})
 			if err != nil {
 				return err
@@ -529,9 +539,9 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 	return changed, utils.IgnoreCancel(err)
 }
 
-// RunInboundConn serves an inbound giga connection. A peer proving current
-// commit-committee membership is served as a validator; every other peer is
-// served as a fullnode for the life of this socket.
+// RunInboundConn serves an inbound giga connection. A peer proving membership
+// of an Anchor epoch is served as a validator; every other peer is served
+// as a fullnode for the life of this socket.
 func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
@@ -539,7 +549,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	if member, ok := r.acceptInbound(hConn).Get(); ok {
 		return r.runInboundValidator(ctx, hConn, member)
 	}
-	// A member who inbounds before they appear in our anchor's first commit epoch is
+	// A member who inbounds before they appear in an Anchor epoch is
 	// served as a fullnode for this socket's life; their own dialer redials
 	// after DialInterval and re-handshakes into the validator role.
 	return r.runInboundFullnode(ctx, hConn)
@@ -575,7 +585,7 @@ func (r *gigaRouterCommon) runInboundValidator(ctx context.Context, hConn *hands
 	server := rpc.NewServer[giga.API]()
 	return r.poolInCommittee.InsertAndRun(ctx, member, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
-			changed, err := r.runUntilMembershipChange(ctx, member, func(ctx context.Context) error {
+			changed, err := r.runUntilMembershipChange(ctx, member, false, func(ctx context.Context) error {
 				return r.service.RunServer(ctx, server, true)
 			})
 			if err != nil {
@@ -612,7 +622,7 @@ func (r *gigaRouterCommon) runInboundMux(
 
 // Validators returns the Autobahn validator set that certified global height n.
 // Before the first CommitQC, the genesis road resolves to the genesis committee.
-func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, error) {
+func (r *gigaRouterCommon) Validators(n atypes.RoadHeight) ([]*types.Validator, error) {
 	qc, err := r.data.TryQC(n)
 	anchor := r.data.Anchor().Load()
 	if err != nil {
@@ -623,7 +633,7 @@ func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, e
 		}
 		return nil, heightLookupError(n, err)
 	}
-	ep, ok := anchor.EpochAt(qc.Index()).Get()
+	ep, ok := anchor.EpochAt(qc.Height()).Get()
 	if !ok {
 		return nil, heightLookupError(n, atypes.ErrPruned)
 	}
@@ -631,7 +641,7 @@ func (r *gigaRouterCommon) Validators(n atypes.RoadIndex) ([]*types.Validator, e
 }
 
 // heightLookupError returns the RPC error for a data lookup at global height n.
-func heightLookupError(n atypes.RoadIndex, err error) error {
+func heightLookupError(n atypes.RoadHeight, err error) error {
 	switch {
 	case errors.Is(err, atypes.ErrPruned):
 		return coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())

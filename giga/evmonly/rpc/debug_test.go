@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math/big"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +35,7 @@ import (
 )
 
 const (
-	traceChainID  = 713715
+	traceChainID  = 713700
 	traceGasLimit = 30_000_000
 	// traceTransfer is the gas a plain value transfer uses.
 	traceTransfer = 21_000
@@ -658,4 +660,19 @@ func TestDebugTraceTransactionSurfacesBlockReadError(t *testing.T) {
 
 	_, err := api.TraceTransaction(t.Context(), hash, nil)
 	require.ErrorIs(t, err, errBlockDown)
+}
+
+// TestTraceMethodsMatchDebugAPI holds gigaconfig.TraceMethods, which config validation requires a
+// deadline for, to the debug_trace* methods debugAPI serves.
+func TestTraceMethodsMatchDebugAPI(t *testing.T) {
+	api := reflect.TypeOf(&debugAPI{})
+	var served []string
+	for i := range api.NumMethod() {
+		name := api.Method(i).Name
+		if strings.HasPrefix(name, "Trace") {
+			served = append(served, "debug_"+strings.ToLower(name[:1])+name[1:])
+		}
+	}
+	require.NotEmpty(t, served)
+	require.ElementsMatch(t, served, gigaconfig.TraceMethods())
 }

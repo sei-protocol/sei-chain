@@ -117,8 +117,8 @@ func flatChanges(v2 []v2ParamChange) ([]paramChange, error) {
 
 // encodeParam returns raw, a V2 JSON value, as the 32-byte abi.encode of k's
 // value. A Dec is a decimal string or number, a Duration nanoseconds or a Go
-// duration string such as "30s", and Coins a usei coin string or V2's coin
-// array.
+// duration string such as "30s", Coins a usei coin string or V2's coin array,
+// and an Int a whole-number string or number.
 func encodeParam(k chainparams.Key, raw json.RawMessage) ([]byte, error) {
 	var v *big.Int
 	var err error
@@ -129,6 +129,8 @@ func encodeParam(k chainparams.Key, raw json.RawMessage) ([]byte, error) {
 		v, err = parseDurationValue(raw)
 	case chainparams.KindCoins:
 		v, err = parseCoinsValue(raw)
+	case chainparams.KindInt:
+		v, err = parseIntValue(raw)
 	default:
 		err = fmt.Errorf("unknown param kind %d", k.Kind)
 	}
@@ -216,8 +218,21 @@ func parseCoinsValue(raw json.RawMessage) (*big.Int, error) {
 	return depositWei(s)
 }
 
+func parseIntValue(raw json.RawMessage) (*big.Int, error) {
+	s, err := jsonScalar(raw)
+	if err != nil {
+		return nil, err
+	}
+	v, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return nil, fmt.Errorf("integer %q: want a whole number", s)
+	}
+	return v, nil
+}
+
 // formatParam returns v, a value of k, as V2 JSON: a Dec as a decimal string,
-// a Duration as nanoseconds, and Coins as a usei coin array.
+// a Duration as nanoseconds, Coins as a usei coin array, and an Int as a
+// number when it is a uint32 and a string otherwise.
 func formatParam(k chainparams.Key, v *big.Int) (json.RawMessage, error) {
 	switch k.Kind {
 	case chainparams.KindDec:
@@ -229,6 +244,12 @@ func formatParam(k chainparams.Key, v *big.Int) (json.RawMessage, error) {
 		return json.Marshal(strconv.FormatUint(v.Uint64(), 10))
 	case chainparams.KindCoins:
 		return json.Marshal(weiToCoins(v))
+	case chainparams.KindInt:
+		// V2's amino JSON writes uint32 as a number, and sdk.Int as a string.
+		if k.SolType == "uint32" && v.IsUint64() {
+			return json.Marshal(v.Uint64())
+		}
+		return json.Marshal(v.String())
 	default:
 		return nil, fmt.Errorf("unknown param kind %d", k.Kind)
 	}
