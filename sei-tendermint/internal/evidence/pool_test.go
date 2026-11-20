@@ -546,6 +546,11 @@ func TestAddEvidenceRejectsWrongABCIField(t *testing.T) {
 	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
 	utilsrequire.False(t, isInvalidEvidence)
 
+	// CheckEvidence rejects a second copy with the same wrong timestamp
+	checked := copyDuplicateVoteEvidence(ev)
+	checked.Timestamp = checked.Timestamp.Add(time.Nanosecond)
+	utilsrequire.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{checked}))
+
 	// nothing reached the pending bucket
 	pendingEvs, _ = pool.PendingEvidence(defaultEvidenceMaxBytes)
 	utilsrequire.Empty(t, pendingEvs)
