@@ -113,7 +113,6 @@ func (e *EpochRegistry) Changes(road atypes.RoadHeight) ([]gigatypes.MiscChange,
 	panic("unreachable")
 }
 
-// EpochRegistry returns the application's retained epoch window, oldest first.
 func (a *evmOnlyApplication) EpochRegistry() (*atypes.EpochRegistry, error) {
 	return a.epochRegistry.Registry(), nil
 }

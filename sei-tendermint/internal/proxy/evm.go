@@ -20,7 +20,6 @@ type EVMApplication interface {
 	// Application state and initialization.
 	Info() *ResponseInfo
 	GetValidators() []ValidatorUpdate
-	// EpochRegistry returns the retained epoch window, oldest first.
 	EpochRegistry() (*atypes.EpochRegistry, error)
 	LastBlockHeight() int64
 	InitChain(*RequestInitChain) (*ResponseInitChain, error)
