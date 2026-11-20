@@ -937,6 +937,7 @@ func (b *Backend) CurrentHeader() *ethtypes.Header {
 	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
 		header, err = b.getHeader(tmBlock)
 		if err != nil {
+			logger.Error("current header falls back to eth-only header: state unavailable", "height", height, "err", err)
 			header = b.fallbackToEthHeaderOnly(height)
 		}
 	} else {
