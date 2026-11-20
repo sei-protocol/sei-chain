@@ -1,4 +1,4 @@
-package evmonly
+package evm
 
 import (
 	"math/big"
@@ -16,9 +16,8 @@ type CallOverrides struct {
 	Block utils.Option[export.BlockOverrides]
 }
 
-// blockContext returns the go-ethereum context blockCtx executes at, with the block overrides applied.
-func (o CallOverrides) blockContext(blockCtx BlockContext) (vm.BlockContext, error) {
-	evmCtx := EVMBlockContext(blockCtx)
+// BlockContext returns the block context with the block overrides applied.
+func (o CallOverrides) BlockContext(evmCtx vm.BlockContext) (vm.BlockContext, error) {
 	if block, ok := o.Block.Get(); ok {
 		if err := block.Apply(&evmCtx); err != nil {
 			return vm.BlockContext{}, err
@@ -35,9 +34,9 @@ func (o CallOverrides) BaseFee(base *big.Int) *big.Int {
 	return base
 }
 
-// applyState applies the state overrides to stateDB, and has evm run a precompile an override moves
+// ApplyState applies the state overrides to stateDB, and has evm run a precompile an override moves
 // at its new address. As in go-ethereum, only go-ethereum's own precompiles can be moved.
-func (o CallOverrides) applyState(evm *vm.EVM, stateDB vm.SeiStateDB) error {
+func (o CallOverrides) ApplyState(evm *vm.EVM, stateDB vm.SeiStateDB) error {
 	if len(o.State) == 0 {
 		return nil
 	}

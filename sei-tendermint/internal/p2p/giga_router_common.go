@@ -12,12 +12,12 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -47,7 +47,8 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	app             *proxy.EVMProxy
+	app             *abevm.Proxy
+	signer          *abevm.Signer
 	offer           utils.Option[handshakeOffer]
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
@@ -57,6 +58,21 @@ type gigaRouterCommon struct {
 	// block-sync subset. Persistent and block-sync peers do not consume it.
 	inboundFullnodeCount utils.Mutex[*int64]
 	inboundFullnodeCap   int64
+}
+
+// CheckTx checks a transaction for admission without inserting it into the mempool.
+func (r *gigaRouterCommon) CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error) {
+	return abevm.CheckTx(r.app, r.signer, raw)
+}
+
+// RememberEvmSender records a verified sender for local admission.
+func (r *gigaRouterCommon) RememberEvmSender(hash common.Hash, sender common.Address) {
+	r.signer.Remember(hash, sender)
+}
+
+// ForgetEvmSender removes the cached sender for hash.
+func (r *gigaRouterCommon) ForgetEvmSender(hash common.Hash) {
+	r.signer.Forget(hash)
 }
 
 func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer]) {
@@ -197,35 +213,12 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 		// while the app's validator set never changes, as for the EVM-only and mock
 		// apps Autobahn runs. Read the next epoch's validator set from app state
 		// once it keeps one.
-		weights, err := committeeWeights(r.app.GetValidators())
-		if err != nil {
-			return err
-		}
+		weights := r.app.GetValidators()
 		appHash := entry.AppHash()
 		if err := r.data.PushAppHash(ctx, n, appHash[:], weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 	}
-}
-
-// committeeWeights maps a bonded validator set to Autobahn voting power.
-func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(vals))
-	for _, v := range vals {
-		if v.Power <= 0 {
-			continue
-		}
-		apk := v.PubKey
-		if _, dup := weights[apk]; dup {
-			return nil, fmt.Errorf("duplicate public key %s", apk)
-		}
-		power, ok := utils.SafeCast[uint64](v.Power)
-		if !ok {
-			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
-		}
-		weights[apk] = power
-	}
-	return weights, nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.

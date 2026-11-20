@@ -11,7 +11,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -34,6 +34,20 @@ func (env *Environment) EvmProxyEnabled() bool {
 		return r.EvmProxyEnabled()
 	}
 	return false
+}
+
+// RememberEvmSender records a verified sender for local admission through Autobahn.
+func (env *Environment) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if r, ok := env.gigaRouter().Get(); ok {
+		r.RememberEvmSender(hash, sender)
+	}
+}
+
+// ForgetEvmSender removes a transaction's cached sender through Autobahn.
+func (env *Environment) ForgetEvmSender(hash common.Hash) {
+	if r, ok := env.gigaRouter().Get(); ok {
+		r.ForgetEvmSender(hash)
+	}
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
@@ -68,7 +82,7 @@ func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.Req
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		if _, err := v.TryInsertTx(ctx, req.Tx); err != nil {
+		if _, err := v.TryInsertTx(ctx, req.Tx); err != nil && !errors.Is(err, abevm.ErrTxRejected) {
 			return nil, err
 		}
 		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
@@ -99,7 +113,8 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		r, err := v.InsertTx(ctx, req.Tx)
+		_, err := v.InsertTx(ctx, req.Tx)
+		r, err := evmAdmissionStatus(err)
 		if err != nil {
 			return nil, err
 		}
@@ -339,17 +354,41 @@ func (env *Environment) EvmBlockNumber() uint64 {
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
 func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheckTx) (*coretypes.ResultCheckTx, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		res, err := evm.CheckTxSafe(ctx, &proxy.RequestCheckTxV2{Tx: req.Tx})
+	if router, ok := env.gigaRouter().Get(); ok {
+		tx, res, err := router.CheckTx(req.Tx)
+		response, err := evmAdmissionResponse(tx, res, err)
 		if err != nil {
 			return nil, err
 		}
-		r := res.ResponseCheckTx
-		return &coretypes.ResultCheckTx{ResponseCheckTx: abci.ResponseCheckTx{Code: r.Code, Data: r.Data, Log: r.Log, GasWanted: r.GasWanted, Codespace: r.Codespace, Priority: r.Priority, GasEstimated: r.GasEstimated}}, nil
+		return &coretypes.ResultCheckTx{ResponseCheckTx: response}, nil
 	}
 	res, err := env.abciApplication().CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: req.Tx})
 	if err != nil {
 		return nil, err
 	}
 	return &coretypes.ResultCheckTx{ResponseCheckTx: *res.ResponseCheckTx}, nil
+}
+
+// evmAdmissionStatus converts admission errors to public ABCI status fields.
+func evmAdmissionStatus(err error) (abci.ResponseCheckTx, error) {
+	if errors.Is(err, abevm.ErrTxRejected) {
+		return abci.ResponseCheckTx{Code: 1, Log: err.Error()}, nil
+	}
+	return abci.ResponseCheckTx{}, err
+}
+
+// evmAdmissionResponse combines transaction gas data with app admission metadata.
+func evmAdmissionResponse(tx abevm.EvmTx, admitted abevm.AdmittedTx, err error) (abci.ResponseCheckTx, error) {
+	status, err := evmAdmissionStatus(err)
+	if err != nil || status.Code != abci.CodeTypeOK {
+		return status, err
+	}
+	gasWanted, wantedOK := utils.SafeCast[int64](tx.Gas())
+	gasEstimated, estimatedOK := utils.SafeCast[int64](admitted.GasEstimated)
+	if !wantedOK || !estimatedOK {
+		return abci.ResponseCheckTx{}, fmt.Errorf("EVM admission gas exceeds int64")
+	}
+	status.GasWanted = gasWanted
+	status.GasEstimated = gasEstimated
+	return status, nil
 }

@@ -15,11 +15,11 @@ import (
 	"golang.org/x/time/rate"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -73,10 +73,10 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 // testGenesisMaxGas is the gas limit baked into the test genesis doc.
 const testGenesisMaxGas int64 = 50_000_000
 
-type setupEVMApp struct{ proxy.EVMApplication }
+type setupEVMApp struct{ abevm.Application }
 
-func makeTestGigaDeps() (*proxy.EVMProxy, *types.GenesisDoc) {
-	app := proxy.NewEVM(setupEVMApp{})
+func makeTestGigaDeps() (*abevm.Proxy, *types.GenesisDoc) {
+	app := abevm.NewProxy(setupEVMApp{})
 	genDoc := &types.GenesisDoc{
 		ChainID: "test-chain",
 		// Nontrivial InitialHeight so any future code that assumes the
@@ -384,8 +384,7 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.Equal(t, "evmonly", app.Info().Data)
 	validators := app.GetValidators()
 	require.Len(t, validators, 1)
-	require.Equal(t, int64(1), validators[0].Power)
-	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.Bytes())
+	require.Equal(t, uint64(1), validators[validator.ValidatorKey])
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this
@@ -457,6 +456,8 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		})
 	}
 }
+
+func (setupEVMApp) EvmChainID() uint64 { return 1 }
 
 // storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still
 // running, and t.Context() is cancelled before the cleanup that closes it runs.

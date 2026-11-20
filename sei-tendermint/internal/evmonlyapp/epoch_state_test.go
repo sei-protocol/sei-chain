@@ -3,12 +3,12 @@ package evmonlyapp
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 func TestEpochStateMiscChanges(t *testing.T) {
-	state := proxy.EpochState{
+	state := abevm.EpochState{
 		EpochRegistry: nil,
 		NextEpoch:     []byte("next-epoch"),
 	}

@@ -18,6 +18,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -56,7 +57,7 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 	address := common.HexToAddress("0x7000000000000000000000000000000000000007")
 	code := hexutil.Bytes{0x60, 0x00}
 	number := (*hexutil.Big)(common.Big2)
-	want := evmonly.CallOverrides{
+	want := abevm.CallOverrides{
 		State: export.StateOverride{address: {Code: &code, StateDiff: map[common.Hash]common.Hash{{1}: {2}}}},
 		Block: utils.Some(export.BlockOverrides{Number: number}),
 	}
@@ -94,7 +95,7 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 	for _, method := range []string{"eth_call", "eth_estimateGas"} {
 		for _, block := range []string{"latest", "0x3"} {
 			t.Run(method+" at "+block, func(t *testing.T) {
-				backend.gotOverrides = evmonly.CallOverrides{}
+				backend.gotOverrides = abevm.CallOverrides{}
 				var got json.RawMessage
 				require.NoError(t, client.CallContext(t.Context(), &got, method, call, block, stateArg, blockArg))
 				require.Equal(t, want, backend.gotOverrides)
@@ -112,10 +113,10 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 	// eth_estimateGasAfterCalls takes a state override and no block override.
 	for _, block := range []string{"latest", "0x3"} {
 		t.Run("eth_estimateGasAfterCalls at "+block, func(t *testing.T) {
-			backend.gotOverrides = evmonly.CallOverrides{}
+			backend.gotOverrides = abevm.CallOverrides{}
 			var got json.RawMessage
 			require.NoError(t, client.CallContext(t.Context(), &got, "eth_estimateGasAfterCalls", call, []any{call}, block, stateArg))
-			require.Equal(t, evmonly.CallOverrides{State: want.State}, backend.gotOverrides)
+			require.Equal(t, abevm.CallOverrides{State: want.State}, backend.gotOverrides)
 
 			tooMany := map[string]any{address.Hex(): map[string]any{}, common.Address{1}.Hex(): map[string]any{}}
 			err := client.CallContext(t.Context(), &got, "eth_estimateGasAfterCalls", call, []any{call}, block, tooMany)

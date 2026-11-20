@@ -9,9 +9,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -45,7 +46,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		}
 		urlByValidator[validatorKey.Public()] = rpcURL
 	}
-	cp := types.DefaultConsensusParams()
+	cp := testGigaConsensusParams()
 	cp.Block.MaxGas = 12345
 	genDoc := &types.GenesisDoc{
 		ChainID:         "giga-router-fullnode-test",
@@ -55,8 +56,8 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	app := newTestApp()
-	proxyApp := proxy.NewEVM(app)
+	app := newTestApp(genDoc.AppState)
+	proxyApp := abevm.NewProxy(app)
 
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
@@ -81,7 +82,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 
 	// Fullnodes have no validator key and no Producer config.
 	// App is required for execution but isn't exercised by this test.
-	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
 	for validator, rpcURL := range urlByValidator {

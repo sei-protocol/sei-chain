@@ -12,13 +12,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	kvsink "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/kv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -46,7 +46,7 @@ func (stubAppHashBuilder) Flush(context.Context) error           { return nil }
 func (stubAppHashBuilder) Bounds() (uint64, uint64, bool, error) { return 0, 0, false, nil }
 func (stubAppHashBuilder) Close() error                          { return nil }
 
-type broadcastEVMApp struct{ proxy.EVMApplication }
+type broadcastEVMApp struct{ abevm.Application }
 
 func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
 
@@ -64,6 +64,11 @@ func newAutobahnFullnodeEnv(t *testing.T) *Environment {
 }
 
 func newAutobahnEnv(t *testing.T, validator bool) *Environment {
+	t.Helper()
+	return newAutobahnEnvWithApp(t, validator, abevm.NewProxy(broadcastEVMApp{}))
+}
+
+func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Environment {
 	t.Helper()
 	rng := utils.TestRng()
 	_, keys := atypes.GenCommittee(rng, 1)
@@ -85,7 +90,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	}
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	app := proxy.NewEVM(broadcastEVMApp{})
+	signer := newTestSigner(app.EvmChainID(), 0)
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -110,12 +115,12 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 				MaxTxsPerSecond:         utils.None[uint64](),
 				BlockInterval:           time.Second,
 			},
-		}, nodeKey, dataState)
+		}, nodeKey, dataState, signer)
 		require.NoError(t, err)
 		require.True(t, router.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
 		giga = router
 	} else {
-		router, err := p2p.NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState)
+		router, err := p2p.NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState, signer)
 		require.NoError(t, err)
 		require.False(t, router.Mempool().IsPresent())
 		giga = router
@@ -149,3 +154,5 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 		Config:     *config.DefaultRPCConfig(),
 	}
 }
+
+func (broadcastEVMApp) EvmChainID() uint64 { return 1 }

@@ -50,14 +50,14 @@ func TestEVMOnlyAllocWithABalanceStartsOtherAccountsEmpty(t *testing.T) {
 		funder:   {Balance: uint256.NewInt(1_000)},
 		contract: genesisTestContract(),
 	}}).(*evmOnlyApplication)
-	_, err := app.InitChain(evmOnlyTestInitChain())
+	err := app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1))
 
 	requireGenesisTestContract(t, app, contract)
-	require.Equal(t, *uint256.NewInt(1_000), app.EvmBalance(funder, nil))
-	require.Equal(t, uint256.Int{}, app.EvmBalance(contract, nil))
-	require.Equal(t, uint256.Int{}, app.EvmBalance(common.Address{0xaa}, nil))
+	require.Equal(t, *uint256.NewInt(1_000), app.EvmBalance(funder))
+	require.Equal(t, uint256.Int{}, app.EvmBalance(contract))
+	require.Equal(t, uint256.Int{}, app.EvmBalance(common.Address{0xaa}))
 }
 
 // TestGenesisAllocOfBalancesKeepsItsDigest pins the digest of an alloc that sets balances alone to the
