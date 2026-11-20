@@ -272,9 +272,18 @@ func (u *stateSyncUploader) proofPath(height int64) string {
 	return filepath.Join(u.proofDir, statesyncproof.FileName(types.RoadHeight(height))) //nolint:gosec // height is positive.
 }
 
-// upload uploads the archive of the checkpoint at height, then advances latest.txt to height. It
-// returns the newest archive height in the store, or 0 when FlatKV pruned the checkpoint first.
+// upload uploads the archive of the checkpoint at height, unless the store already has it, then
+// advances latest.txt to height. It returns the newest archive height in the store, or 0 when
+// FlatKV pruned the checkpoint first.
 func (u *stateSyncUploader) upload(ctx context.Context, height int64) (newest int64, err error) {
+	present, err := u.hasArchive(ctx, height)
+	if err != nil {
+		return 0, err
+	}
+	if present {
+		logger.Info("state sync archive is already in the store", "height", height)
+		return statesync.AdvanceLatest(ctx, u.store, u.chainID, height)
+	}
 	start := time.Now()
 	defer func() {
 		if rmErr := os.RemoveAll(u.stagingDir); rmErr != nil {
@@ -306,6 +315,15 @@ func (u *stateSyncUploader) upload(ctx context.Context, height int64) (newest in
 	logger.Info("uploaded state sync archive", "height", height, "bytes", size, "rows", m.RowCount,
 		"duration", time.Since(start))
 	return newest, nil
+}
+
+// hasArchive reports whether the store has the archive of the checkpoint at height.
+func (u *stateSyncUploader) hasArchive(ctx context.Context, height int64) (bool, error) {
+	_, err := u.store.Stat(ctx, statesync.ArchiveKey(u.chainID, height))
+	if errors.Is(err, statesync.ErrObjectNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // stage hard-links the checkpoint at height into the staging dir and reads its state sync proof

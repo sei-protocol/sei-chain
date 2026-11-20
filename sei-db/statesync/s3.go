@@ -126,6 +126,22 @@ func (s *S3Store) Get(ctx context.Context, key string) (io.ReadCloser, ObjectInf
 	return out.Body, ObjectInfo{Version: aws.ToString(out.ETag), Modified: aws.ToTime(out.LastModified)}, nil
 }
 
+// Stat returns the ETag of the object at key as the version, and its Last-Modified time.
+func (s *S3Store) Stat(ctx context.Context, key string) (ObjectInfo, error) {
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var notFound *s3types.NotFound
+		if errors.As(err, &notFound) {
+			return ObjectInfo{}, fmt.Errorf("%s: %w", s.url(key), ErrObjectNotFound)
+		}
+		return ObjectInfo{}, fmt.Errorf("stat %s: %w", s.url(key), err)
+	}
+	return ObjectInfo{Version: aws.ToString(out.ETag), Modified: aws.ToTime(out.LastModified)}, nil
+}
+
 func (s *S3Store) url(key string) string {
 	return "s3://" + s.bucket + "/" + key
 }

@@ -143,6 +143,16 @@ func (s *fakeStore) Get(_ context.Context, key string) (io.ReadCloser, statesync
 	return io.NopCloser(bytes.NewReader(obj.data)), statesync.ObjectInfo{Version: obj.version, Modified: obj.modified}, nil
 }
 
+func (s *fakeStore) Stat(_ context.Context, key string) (statesync.ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	obj, ok := s.objects[key]
+	if !ok {
+		return statesync.ObjectInfo{}, fmt.Errorf("%s: %w", key, statesync.ErrObjectNotFound)
+	}
+	return statesync.ObjectInfo{Version: obj.version, Modified: obj.modified}, nil
+}
+
 func (s *fakeStore) object(key string) ([]byte, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -369,6 +379,37 @@ func TestStateSyncUploadKeepsAnArchiveTheStoreHas(t *testing.T) {
 	store := newFakeStore()
 	archiveKey := statesync.ArchiveKey(uploadChainID, height)
 	store.set(archiveKey, []byte("archive of another node"))
+	store.put = func(_ context.Context, key string, _ io.Reader) error {
+		if key == archiveKey {
+			return errors.New("the archive is sent again")
+		}
+		return nil
+	}
+	u := h.uploader(store)
+
+	require.NoError(t, u.sweep(t.Context()))
+
+	data, _ := store.object(archiveKey)
+	require.Equal(t, "archive of another node", string(data))
+	latest, err := statesync.ReadLatest(t.Context(), store, uploadChainID)
+	require.NoError(t, err)
+	require.Equal(t, height, latest)
+	require.Equal(t, height, u.uploaded)
+	require.NoDirExists(t, u.stagingDir)
+}
+
+func TestStateSyncUploadKeepsAnArchiveWrittenDuringTheUpload(t *testing.T) {
+	h := newUploadHome(t)
+	height := h.commit(t)
+	h.writeProof(t, height)
+	store := newFakeStore()
+	archiveKey := statesync.ArchiveKey(uploadChainID, height)
+	store.put = func(_ context.Context, key string, _ io.Reader) error {
+		if key == archiveKey {
+			store.set(archiveKey, []byte("archive of another node"))
+		}
+		return nil
+	}
 
 	require.NoError(t, h.uploader(store).sweep(t.Context()))
 
