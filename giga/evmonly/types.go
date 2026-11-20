@@ -87,6 +87,9 @@ type BlockContext struct {
 	ParentHash  common.Hash
 	BlockHash   common.Hash
 	PrevRandao  common.Hash
+	// ClosingEpoch is the consensus epoch this block is the last block of, if
+	// it is one.
+	ClosingEpoch utils.Option[uint64]
 }
 
 // BlockResult is the executor output consumed by the new runtime boundary.

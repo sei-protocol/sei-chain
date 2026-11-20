@@ -114,13 +114,14 @@ func truncateUTF8(s string, n int) string {
 
 func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockContext {
 	return precompiles.BlockContext{
-		Number:      block.Number,
-		UnixNano:    unixNano(block.Time),
-		ChainID:     cloneOptionalBig(chainID),
-		BaseFee:     cloneOptionalBig(block.BaseFee),
-		BlobBaseFee: cloneOptionalBig(block.BlobBaseFee),
-		Coinbase:    block.Coinbase,
-		PrevRandao:  block.PrevRandao,
+		Number:       block.Number,
+		UnixNano:     unixNano(block.Time),
+		ChainID:      cloneOptionalBig(chainID),
+		BaseFee:      cloneOptionalBig(block.BaseFee),
+		BlobBaseFee:  cloneOptionalBig(block.BlobBaseFee),
+		Coinbase:     block.Coinbase,
+		PrevRandao:   block.PrevRandao,
+		ClosingEpoch: block.ClosingEpoch,
 	}
 }
 

@@ -33,12 +33,13 @@ var (
 // undelegations.
 const endBlockBudget = 3_000
 
-// EndBlock updates the bonded set, then completes the validators, unbonding
-// entries and redelegation entries whose unbonding period is over, in that
-// order, as x/staking's BlockValidatorUpdates does. Before staking's params are
-// written it does nothing. Its failures are a bonded set that could not be
-// updated, which is kept as it was, and queue entries whose stored data does
-// not add up, which are dropped. It returns no error.
+// EndBlock updates the bonded set, snapshots it when the block closes an epoch,
+// then completes the validators, unbonding entries and redelegation entries
+// whose unbonding period is over, in that order, as x/staking's
+// BlockValidatorUpdates does. Before staking's params are written it does
+// nothing. Its failures are a bonded set that could not be updated, which is
+// kept as it was, a snapshot that could not be taken, and queue entries whose
+// stored data does not add up, which are dropped. It returns no error.
 func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	if !chainparams.HasStaking(state) {
 		return nil, nil
@@ -48,6 +49,11 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 	var failures []error
 	if err := p.updateBondedSet(block, s, params); err != nil {
 		failures = append(failures, fmt.Errorf("%w: bonded set kept as it was: %w", precompiles.ErrDegraded, err))
+	}
+	if epoch, ok := block.ClosingEpoch.Get(); ok {
+		if err := snapshotEpoch(s, epoch); err != nil {
+			failures = append(failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
+		}
 	}
 	drain(block, s.validatorQueue(), "validator", &failures,
 		func(common.Hash) uint64 { return 1 },
@@ -153,6 +159,28 @@ func (p Precompile) applyBondedSet(block precompiles.BlockContext, s store, para
 		s.setLastValidators(next)
 		s.setLastTotalPower(total)
 	}
+	return nil
+}
+
+// epochSnapshotsKept is how many epoch snapshots are kept, as the committee
+// serving an epoch is the bonded set at the end of the epoch two before it.
+const epochSnapshotsKept = 3
+
+// snapshotEpoch copies the bonded set, with each member's consensus key, into
+// epoch's snapshot and deletes the one that no longer falls among the latest
+// epochSnapshotsKept.
+func snapshotEpoch(s store, epoch uint64) error {
+	set, err := bondedValidators(s)
+	if err != nil {
+		return err
+	}
+	// The keys are copied rather than looked up when the snapshot is read,
+	// because a member can be removed before its snapshot is retired.
+	s.setEpochValidators(epoch, set)
+	if epoch >= epochSnapshotsKept {
+		s.setEpochValidators(epoch-epochSnapshotsKept, nil)
+	}
+	s.setLatestSnapshotEpoch(epoch)
 	return nil
 }
 

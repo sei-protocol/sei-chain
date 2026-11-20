@@ -145,6 +145,12 @@ func (s store) validatorPower(op common.Address) *big.Int {
 	return consensusPower(s.Uint256(at(validatorBase(op), validatorTokens)))
 }
 
+// consensusPubkey returns op's stored consensus key, zero when op has no
+// validator.
+func (s store) consensusPubkey(op common.Address) common.Hash {
+	return s.Word(at(validatorBase(op), validatorConsensusPubkey))
+}
+
 func (s store) validatorSet() solstorage.Set {
 	return solstorage.Set{Store: s.Store, Base: solstorage.Slot(slotValidatorSet)}
 }
@@ -205,6 +211,62 @@ func (s store) setLastValidators(set []validatorPower) {
 		s.SetWord(solstorage.Offset(data, i), common.Hash{})
 	}
 	s.SetWord(base, solstorage.Slot(uint64(len(set))))
+}
+
+func epochValidatorsBase(epoch uint64) common.Hash {
+	return solstorage.MapUint64(solstorage.Slot(slotEpochValidators), epoch)
+}
+
+// epochValidators returns the bonded set snapshotted at the end of epoch, or
+// none when that epoch has no snapshot. It fails on a set longer than any
+// MaxValidators allows.
+func (s store) epochValidators(epoch uint64) ([]BondedValidator, error) {
+	base := epochValidatorsBase(epoch)
+	n := s.Uint64(base, 0)
+	if n > uint64(chainparams.MaxBondedValidators) {
+		return nil, fmt.Errorf("%w: %d validators", errInvalidStoredSet, n)
+	}
+	data := solstorage.ArrayData(base)
+	out := make([]BondedValidator, n)
+	for i := range out {
+		e := solstorage.Offset(data, uint64(i)*epochValidatorSlots) //nolint:gosec // i is below n
+		out[i] = BondedValidator{
+			Operator:        s.AddressAt(at(e, epochValidatorOperator), epochValidatorOperator.offset),
+			ConsensusPubkey: s.Word(at(e, epochValidatorConsensusPubkey)),
+			Power:           s.Uint64(at(e, epochValidatorPower), epochValidatorPower.offset),
+		}
+	}
+	return out, nil
+}
+
+// setEpochValidators replaces epoch's snapshot, zeroing elements the new one no
+// longer covers.
+func (s store) setEpochValidators(epoch uint64, set []BondedValidator) {
+	base := epochValidatorsBase(epoch)
+	old := min(s.Uint64(base, 0), uint64(chainparams.MaxBondedValidators))
+	data := solstorage.ArrayData(base)
+	for i, v := range set {
+		e := solstorage.Offset(data, uint64(i)*epochValidatorSlots) //nolint:gosec // i is non-negative
+		s.SetWord(at(e, epochValidatorOperator), common.Hash{})
+		s.SetAddressAt(at(e, epochValidatorOperator), epochValidatorOperator.offset, v.Operator)
+		s.SetUint64(at(e, epochValidatorPower), epochValidatorPower.offset, v.Power)
+		s.SetWord(at(e, epochValidatorConsensusPubkey), v.ConsensusPubkey)
+	}
+	for i := uint64(len(set)) * epochValidatorSlots; i < old*epochValidatorSlots; i++ {
+		s.SetWord(solstorage.Offset(data, i), common.Hash{})
+	}
+	s.SetWord(base, solstorage.Slot(uint64(len(set))))
+}
+
+// latestSnapshotEpoch returns the latest epoch with a snapshot, and false
+// before any.
+func (s store) latestSnapshotEpoch() (uint64, bool) {
+	next := s.Uint64(solstorage.Slot(slotNextSnapshotEpoch), 0)
+	return next - 1, next > 0
+}
+
+func (s store) setLatestSnapshotEpoch(epoch uint64) {
+	s.SetUint64(solstorage.Slot(slotNextSnapshotEpoch), 0, epoch+1)
 }
 
 // lastTotalPower returns the consensus power of the bonded set as last stored.

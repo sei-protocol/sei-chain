@@ -12,22 +12,24 @@ var Address = common.HexToAddress("0x0000000000000000000000000000000000001005")
 const (
 	slotLastValidators              = 0
 	slotLastTotalPower              = 1
-	slotValidators                  = 2
-	slotValidatorSet                = 3
-	slotValidatorsByConsensusPubkey = 5
-	slotValidatorsByPower           = 6
-	slotDelegations                 = 7
-	slotDelegationsByDelegator      = 8
-	slotDelegationsByValidator      = 9
-	slotUnbondingDelegations        = 10
-	slotRedelegationEntryCounts     = 11
-	slotRedelegationsByValDst       = 12
-	slotUnbondingQueueBounds        = 13
-	slotUnbondingQueue              = 14
-	slotRedelegationQueueBounds     = 15
-	slotRedelegationQueue           = 16
-	slotValidatorQueueBounds        = 17
-	slotValidatorQueue              = 18
+	slotEpochValidators             = 2
+	slotNextSnapshotEpoch           = 3
+	slotValidators                  = 4
+	slotValidatorSet                = 5
+	slotValidatorsByConsensusPubkey = 7
+	slotValidatorsByPower           = 8
+	slotDelegations                 = 9
+	slotDelegationsByDelegator      = 10
+	slotDelegationsByValidator      = 11
+	slotUnbondingDelegations        = 12
+	slotRedelegationEntryCounts     = 13
+	slotRedelegationsByValDst       = 14
+	slotUnbondingQueueBounds        = 15
+	slotUnbondingQueue              = 16
+	slotRedelegationQueueBounds     = 17
+	slotRedelegationQueue           = 18
+	slotValidatorQueueBounds        = 19
+	slotValidatorQueue              = 20
 )
 
 // member is a struct member's position relative to the struct's base slot.
@@ -65,6 +67,16 @@ var (
 	validatorPowerOperator = member{0, 0}
 	validatorPowerPower    = member{0, 20}
 )
+
+// StakingStorage.EpochValidator members.
+var (
+	epochValidatorOperator        = member{0, 0}
+	epochValidatorPower           = member{0, 20}
+	epochValidatorConsensusPubkey = member{1, 0}
+)
+
+// epochValidatorSlots is how many slots a StakingStorage.EpochValidator takes.
+const epochValidatorSlots = 2
 
 // StakingStorage.UnbondingDelegationEntry members.
 var (

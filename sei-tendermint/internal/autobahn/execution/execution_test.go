@@ -308,6 +308,29 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	}
 }
 
+func TestRunMarksTheLastBlockOfEachEpochInTheGenesisEpochLength(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 5)
+	params := types.DefaultAutobahnParams()
+	params.EpochLength = 2
+	env.genDoc.Autobahn = utils.Some(params)
+	require.NoError(t, env.write(0, 5, true))
+	app := newRecordingApp(env.events, 0)
+	executor := env.executor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(4))
+	}))
+
+	var closing []utils.Option[atypes.EpochIndex]
+	for _, req := range app.finalized() {
+		closing = append(closing, req.Header.ClosingEpoch)
+	}
+	none := utils.None[atypes.EpochIndex]()
+	require.Equal(t, []utils.Option[atypes.EpochIndex]{none, utils.Some[atypes.EpochIndex](0), none, utils.Some[atypes.EpochIndex](1), none}, closing)
+}
+
 // TestNewPublishesTheAppTipAsExecuted verifies that the executed-block feed
 // starts at the app's committed tip, before any block runs.
 func TestNewPublishesTheAppTipAsExecuted(t *testing.T) {

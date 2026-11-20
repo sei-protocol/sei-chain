@@ -270,3 +270,19 @@ func TestPrecompileStateMetersLogs(t *testing.T) {
 	require.ErrorIs(t, s.err, vm.ErrOutOfGas)
 	require.Empty(t, db.logs, "the log is dropped")
 }
+
+func TestReadOnlyStateReadsTheViewAndFailsOnAWrite(t *testing.T) {
+	slot, value := testHash(0x01), testHash(0x02)
+	source := NewMemoryState()
+	source.SetState(registeredPrecompileAddress, slot, value)
+	view := NewMemoryStore(source).OpenView()
+	defer view.Close()
+
+	state := ReadOnlyState(view)
+	require.Equal(t, value, state.GetState(registeredPrecompileAddress, slot))
+	require.False(t, state.Failed())
+
+	state.SetState(registeredPrecompileAddress, slot, common.Hash{})
+	require.True(t, state.Failed())
+	require.Equal(t, value, view.GetStorage(registeredPrecompileAddress, slot), "the view is unchanged")
+}

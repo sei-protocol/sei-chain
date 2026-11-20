@@ -23,6 +23,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -84,6 +85,33 @@ func evmOnlyTestBlock(height int64, txs ...[]byte) *proxy.RequestFinalizeBlock {
 			Time:   time.Unix(1_700_000_000+height, 0),
 		},
 	}
+}
+
+// evmOnlyTestClosingBlock returns an empty block at height that closes epoch closes.
+func evmOnlyTestClosingBlock(height int64, closes atypes.EpochIndex) *proxy.RequestFinalizeBlock {
+	req := evmOnlyTestBlock(height)
+	req.Header.ClosingEpoch = utils.Some(closes)
+	return req
+}
+
+// closingEpochRecorder is staking, with each EndBlock only recording the epoch
+// its block closes.
+type closingEpochRecorder struct {
+	staking.Precompile
+	closed *[]utils.Option[uint64]
+}
+
+func (r closingEpochRecorder) EndBlock(block precompiles.BlockContext, _ precompiles.State) ([]error, error) {
+	*r.closed = append(*r.closed, block.ClosingEpoch)
+	return nil, nil
+}
+
+func TestEVMOnlyApplicationTellsEndBlockersWhichEpochABlockCloses(t *testing.T) {
+	var closed []utils.Option[uint64]
+	app := newStakingEVMOnlyTestApp(t, []proxy.ValidatorUpdate{{Power: 1}}, closingEpochRecorder{closed: &closed})
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestClosingBlock(2, 7))
+	require.Equal(t, []utils.Option[uint64]{utils.None[uint64](), utils.Some[uint64](7)}, closed)
 }
 
 func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app proxy.EVMApplication, req *proxy.RequestFinalizeBlock) []byte {

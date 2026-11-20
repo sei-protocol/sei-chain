@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // memState is a map-backed precompiles.State and LogSink.
@@ -171,7 +172,18 @@ func (h *harness) block() precompiles.BlockContext {
 // endBlock runs EndBlock at the current block, then starts the next block one
 // second later.
 func (h *harness) endBlock() {
-	failures, err := h.staking.EndBlock(h.block(), h.state)
+	h.endBlockWith(h.block())
+}
+
+// endEpoch ends the current block as the last block of epoch.
+func (h *harness) endEpoch(epoch uint64) {
+	block := h.block()
+	block.ClosingEpoch = utils.Some(epoch)
+	h.endBlockWith(block)
+}
+
+func (h *harness) endBlockWith(block precompiles.BlockContext) {
+	failures, err := h.staking.EndBlock(block, h.state)
 	require.NoError(h.t, err)
 	h.failures = failures
 	h.number++

@@ -116,7 +116,8 @@ type evmOnlyApplication struct {
 	storage     *bootstrap.GigaStorageManager
 	// epochRegistry is the epoch registry each executed block advances.
 	epochRegistry *EpochRegistry
-	validators    []proxy.ValidatorUpdate
+	// validators are the configured validators, served until staking bonds a set.
+	validators []proxy.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	// alloc, when set, funds the chain at its initial height, and every
@@ -417,10 +418,6 @@ func (a *evmOnlyApplication) EvmGasLimit() uint64 {
 		return state.committed.gasLimit
 	}
 	panic("unreachable")
-}
-
-func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
-	return slices.Clone(a.validators)
 }
 
 func (a *evmOnlyApplication) CheckTx(_ context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
@@ -1022,8 +1019,12 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		defer a.finalizePhases.Reset()
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
 		senders := a.takeSenders(req.Txs)
+		block := a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash)
+		if epoch, ok := req.Header.ClosingEpoch.Get(); ok {
+			block.ClosingEpoch = utils.Some(uint64(epoch))
+		}
 		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
-			Context: a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash),
+			Context: block,
 			Txs:     req.Txs,
 			Senders: senders,
 		})

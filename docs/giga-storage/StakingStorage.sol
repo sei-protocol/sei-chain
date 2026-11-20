@@ -51,6 +51,13 @@ contract StakingStorage {
         uint64 power;
     }
 
+    /// @dev A member of an epoch snapshot.
+    struct EpochValidator {
+        address operator;
+        uint64 power;
+        bytes32 consensusPubkey; // ed25519
+    }
+
     struct Delegation {
         uint256 shares;
     }
@@ -97,6 +104,11 @@ contract StakingStorage {
 
     ValidatorPower[] internal lastValidators; // 0x11: the bonded set, as last sent to consensus
     uint256 internal lastTotalPower; // 0x12
+    /// @dev The bonded set at the end of each epoch's last block, with each
+    /// member's consensus key. Consensus derives an epoch's committee from the
+    /// set two epochs before it, so the latest three are kept.
+    mapping(uint64 => EpochValidator[]) internal epochValidators; // epoch =>
+    uint64 internal nextSnapshotEpoch; // the epoch after the latest in epochValidators, 0 before any
 
     mapping(address => Validator) internal validators; // 0x21: operator =>
     AddressSet internal validatorSet; // every operator in validators
