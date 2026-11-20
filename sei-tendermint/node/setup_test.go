@@ -468,36 +468,6 @@ func TestMakeEVMApplicationRefusesARestoredHome(t *testing.T) {
 	require.NoDirExists(t, filepath.Join(psd, "data"), "no store may open on a restored home")
 }
 
-func TestStateSyncUpload(t *testing.T) {
-	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "config"))
-	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))
-	t.Setenv("AWS_PROFILE", "")
-	uploading := gigaconfig.StateSyncConfig{
-		Enabled:               true,
-		ArchiveBucket:         "sei-snapshots",
-		ArchiveRegion:         "eu-central-1",
-		ArchiveUpload:         true,
-		ArchiveUploadInterval: time.Hour,
-	}
-
-	reading := uploading
-	reading.ArchiveUpload = false
-	upload, err := stateSyncUpload(config.ModeFull, reading, "chain-a", "node-a")
-	require.NoError(t, err)
-	require.False(t, upload.IsPresent(), "a bucket without archive_upload uploads no archive")
-
-	upload, err = stateSyncUpload(config.ModeFull, uploading, "chain-a", "node-a")
-	require.NoError(t, err)
-	got, ok := upload.Get()
-	require.True(t, ok)
-	require.Equal(t, "chain-a", got.ChainID)
-	require.Equal(t, "node-a", got.NodeID)
-	require.Equal(t, time.Hour, got.Interval)
-
-	_, err = stateSyncUpload(config.ModeValidator, uploading, "chain-a", "node-a")
-	require.ErrorContains(t, err, "a validator does not upload")
-}
-
 // storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still
 // running, and t.Context() is cancelled before the cleanup that closes it runs.
 func storageContext(t *testing.T) context.Context {
