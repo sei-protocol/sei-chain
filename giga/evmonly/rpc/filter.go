@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -138,7 +137,7 @@ func indexedRange(backend Backend, store receiptdb.ReceiptStore) (uint64, uint64
 	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative
 	}
-	earliest := uint64(earliestRetainedHeight(store)) //nolint:gosec // never below earliestCommittedHeight
+	earliest := uint64(earliestRetainedHeight(backend, store)) //nolint:gosec // never below the first block
 	return earliest, latest
 }
 
@@ -154,17 +153,18 @@ func checkIndexed(fromBlock, toBlock, earliest, latest uint64) error {
 	return nil
 }
 
-// resolveLogBound maps a filter bound to a height: nil and head tags are latest,
-// "earliest" and 0x0 are the retention floor, other numbers pass through.
+// resolveLogBound maps a filter bound to a height: an omitted bound or a head tag is latest,
+// earliest and 0x0 are the retention floor, and a height passes through.
 func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
-	if bound != nil && bound.IsInt64() && (bound.Int64() == ethrpc.EarliestBlockNumber.Int64() || bound.Sign() == 0) {
-		return earliest, nil
+	kind, err := classifyFilterBound(bound)
+	if err != nil {
+		return 0, err
 	}
-	if bound == nil || bound.Sign() < 0 {
+	switch kind {
+	case headBlock:
 		return latest, nil
-	}
-	if !bound.IsUint64() || bound.Uint64() > math.MaxInt64 {
-		return 0, &invalidParamsError{error: fmt.Errorf("eth_getLogs block number %s exceeds int64", bound)}
+	case earliestBlock:
+		return earliest, nil
 	}
 	return bound.Uint64(), nil
 }

@@ -91,7 +91,9 @@ func TestGetBlockReceipts(t *testing.T) {
 		{name: "height not yet indexed", arg: byNumber(10), wantHeight: heightOf(10), block: unindexedBlock},
 		{name: "hash not yet indexed", arg: byHash, block: unindexedBlock},
 		{name: "future height", arg: byNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
-		{name: "earliest", arg: byNumber(ethrpc.EarliestBlockNumber), wantHeight: heightOf(0), blockErr: fmt.Errorf("%w: 0", coretypes.ErrZeroOrNegativeHeight)},
+		// earliest and 0x0 resolve to the earliest block the receipt store retains.
+		{name: "earliest", arg: byNumber(ethrpc.EarliestBlockNumber), floors: []int64{9}, wantHeight: heightOf(9), block: twoTxBlock, want: both},
+		{name: "0x0", arg: byNumber(0), floors: []int64{9}, wantHeight: heightOf(9), block: twoTxBlock, want: both},
 		{name: "nil block", arg: byNumber(9), wantHeight: heightOf(9)},
 		{name: "unknown hash, empty result", arg: byHash, block: &coretypes.ResultBlock{}},
 		{name: "unknown hash, nil result", arg: byHash},
