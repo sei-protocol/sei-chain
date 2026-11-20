@@ -21,7 +21,8 @@ func checkCmd() *cobra.Command {
 credentials and region that the node uses. It prints the bucket, the region and the source of the
 credentials, then reads latest.txt, which needs s3:GetObject and s3:ListBucket.
 
-With --write, it also starts a multipart upload and aborts it, which needs s3:PutObject and
+With --write, it also starts a multipart upload and aborts it, and puts an object with an If-Match
+that no object meets, which the bucket must refuse. This needs s3:PutObject and
 s3:AbortMultipartUpload and leaves no object. A node that uploads archives needs --write to pass.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			t, err := resolveTarget(cmd)

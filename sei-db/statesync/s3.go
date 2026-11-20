@@ -1,6 +1,7 @@
 package statesync
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,12 @@ import (
 // is canceled. Close of the storage waits for it; the bucket lifecycle rule removes the parts of
 // an abort that does not complete.
 const abortTimeout = 5 * time.Second
+
+// unmatchedVersion is an ETag that no object has.
+const unmatchedVersion = `"00000000000000000000000000000000"`
+
+// errConditionsIgnored is the error of a bucket that writes an object whose If-Match is not met.
+var errConditionsIgnored = errors.New("the bucket ignores If-Match, which the archive upload needs")
 
 // S3Store is an ObjectStore in one S3 bucket.
 type S3Store struct {
@@ -135,9 +142,27 @@ func (s *S3Store) CredentialSource(ctx context.Context) (string, error) {
 	return creds.Source, nil
 }
 
-// CheckWrite starts a multipart upload at key and aborts it. It needs s3:PutObject and
-// s3:AbortMultipartUpload, as an archive upload does, and leaves no object.
+// CheckWrite checks that the store can upload an archive: it starts a multipart upload at key and
+// aborts it, then puts key with an If-Match that no object meets. It needs s3:PutObject and
+// s3:AbortMultipartUpload, and leaves no object on a bucket that honors If-Match. It returns an
+// error wrapping errConditionsIgnored when the bucket writes the object anyway.
 func (s *S3Store) CheckWrite(ctx context.Context, key string) error {
+	if err := s.checkMultipartUpload(ctx, key); err != nil {
+		return err
+	}
+	err := s.Put(ctx, key, bytes.NewReader(nil), 0, Precondition{Version: unmatchedVersion})
+	switch {
+	case errors.Is(err, ErrPreconditionFailed):
+		return nil
+	case err == nil:
+		return fmt.Errorf("%w; remove %s", errConditionsIgnored, s.url(key))
+	default:
+		return fmt.Errorf("conditional put at %s: %w", s.url(key), err)
+	}
+}
+
+// checkMultipartUpload starts a multipart upload at key and aborts it.
+func (s *S3Store) checkMultipartUpload(ctx context.Context, key string) error {
 	out, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),

@@ -52,6 +52,9 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 		return fmt.Errorf("lock the FlatKV root (is a node running on this home?): %w", err)
 	}
 	defer func() { _ = lock.Unlock() }()
+	if err := requireSameFilesystem(t.layout.PersistentStateDir, t.layout.FlatKVDir); err != nil {
+		return err
+	}
 
 	staging := filepath.Join(t.layout.PersistentStateDir, importStagingDirName)
 	if err := removeImportLeftovers(staging, t.layout); err != nil {
@@ -286,6 +289,23 @@ func foreignFiles(layout node.AutobahnLayout, staging string) ([]string, error) 
 		return nil, fmt.Errorf("read the persistent state dir: %w", err)
 	}
 	return foreign, nil
+}
+
+// requireSameFilesystem refuses when the persistent state dir psd, which holds the staging dir, and
+// the FlatKV root flatKVDir are on different filesystems.
+func requireSameFilesystem(psd, flatKVDir string) error {
+	// The import installs the checkpoint with a rename from the staging dir into the FlatKV root.
+	var a, b unix.Stat_t
+	if err := unix.Stat(psd, &a); err != nil {
+		return fmt.Errorf("stat %s: %w", psd, err)
+	}
+	if err := unix.Stat(flatKVDir, &b); err != nil {
+		return fmt.Errorf("stat %s: %w", flatKVDir, err)
+	}
+	if a.Dev != b.Dev {
+		return fmt.Errorf("import stages in %s, which is not on the filesystem of the FlatKV root %s; put both on one filesystem", psd, flatKVDir)
+	}
+	return nil
 }
 
 // requireFreeSpace refuses when the filesystem of dir has less than size bytes free.

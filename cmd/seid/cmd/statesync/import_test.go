@@ -246,6 +246,16 @@ func TestImportRejectsALockedHome(t *testing.T) {
 	require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(nil), io.Discard), "is a node running")
 }
 
+func TestRequireSameFilesystem(t *testing.T) {
+	psd := t.TempDir()
+	flatKVDir := filepath.Join(psd, "data", "flatkv")
+	require.NoError(t, os.MkdirAll(flatKVDir, 0o750))
+
+	require.NoError(t, requireSameFilesystem(psd, flatKVDir))
+	// /dev is a devfs or devtmpfs mount on macOS and Linux.
+	require.ErrorContains(t, requireSameFilesystem(psd, "/dev"), "not on the filesystem of the FlatKV root")
+}
+
 func TestResolveTargetRefuses(t *testing.T) {
 	_, err := resolveTargetFromConfig(&tmcfg.Config{}, configtest.AppOpts{"giga.state_sync.enabled": true})
 	require.ErrorContains(t, err, "autobahn-config-file")
@@ -267,7 +277,7 @@ func TestResolveSourceRejects(t *testing.T) {
 		"s3 with empty key": {from: "s3://bucket/"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := resolveSource(t.Context(), tg, tc.from, tc.height)
+			_, err := resolveSource(t.Context(), tg, tc.from, tc.height, "")
 			require.Error(t, err)
 		})
 	}
@@ -280,7 +290,7 @@ func TestResolveSourceReadsALocalFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, p.archive(t, testChainID, height), 0o600))
 	tg := freshHome(t)
 
-	src, err := resolveSource(t.Context(), tg, path, 0)
+	src, err := resolveSource(t.Context(), tg, path, 0, "")
 	require.NoError(t, err)
 	require.NoError(t, runImport(t.Context(), tg, src, io.Discard))
 

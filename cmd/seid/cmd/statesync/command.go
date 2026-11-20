@@ -37,7 +37,7 @@ func Cmd() *cobra.Command {
 }
 
 func importCmd() *cobra.Command {
-	var from string
+	var from, region string
 	var height int64
 	cmd := &cobra.Command{
 		Use:   "import",
@@ -47,8 +47,10 @@ downloads the archive from [giga.state_sync] archive_bucket: at --height, or els
 in latest.txt. It writes every row of the archived checkpoint into a new FlatKV database.
 
 The persistent state dir must hold no data, or only the data of an earlier import, which import
-replaces. If import fails or stops, run the same command again. It refuses when the persistent
-state dir has less free space than twice the archived checkpoint.`,
+replaces: it deletes the earlier import before it downloads the new archive. If import fails or
+stops, run the same command again. The persistent state dir and the FlatKV dir must be on one
+filesystem, and import refuses when that filesystem has less free space than twice the archived
+checkpoint.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if height < 0 {
 				return fmt.Errorf("--height %d is negative", height)
@@ -58,7 +60,7 @@ state dir has less free space than twice the archived checkpoint.`,
 				return err
 			}
 			return withSignals(cmd.Context(), func(ctx context.Context) error {
-				src, err := resolveSource(ctx, t, from, height)
+				src, err := resolveSource(ctx, t, from, height, region)
 				if err != nil {
 					return err
 				}
@@ -68,6 +70,7 @@ state dir has less free space than twice the archived checkpoint.`,
 	}
 	cmd.Flags().StringVar(&from, "from", "", "archive to import: s3://<bucket>/<key> or a local path (default: archive_bucket)")
 	cmd.Flags().Int64Var(&height, "height", 0, "height of the archive in archive_bucket (default: the height in latest.txt)")
+	cmd.Flags().StringVar(&region, "region", "", "AWS region of the bucket (default: archive_region, then the AWS SDK default)")
 	return cmd
 }
 
@@ -117,8 +120,12 @@ type source struct {
 }
 
 // resolveSource returns the archive at from, or when from is empty, the archive at height in the
-// snapshot bucket of t, or at the height in its latest.txt when height is 0.
-func resolveSource(ctx context.Context, t target, from string, height int64) (source, error) {
+// archive bucket of t, or at the height in its latest.txt when height is 0. A bucket is in region,
+// or in the archive region of t when region is empty.
+func resolveSource(ctx context.Context, t target, from string, height int64, region string) (source, error) {
+	if region == "" {
+		region = t.stateSync.ArchiveRegion
+	}
 	if from != "" && height != 0 {
 		return source{}, errors.New("--height selects an archive in archive_bucket and cannot be used with --from")
 	}
@@ -126,7 +133,7 @@ func resolveSource(ctx context.Context, t target, from string, height int64) (so
 		if t.stateSync.ArchiveBucket == "" {
 			return source{}, errors.New("set --from, or [giga.state_sync] archive_bucket in app.toml")
 		}
-		store, err := ssarchive.NewS3Store(ctx, t.stateSync.ArchiveBucket, t.stateSync.ArchiveRegion)
+		store, err := ssarchive.NewS3Store(ctx, t.stateSync.ArchiveBucket, region)
 		if err != nil {
 			return source{}, err
 		}
@@ -137,7 +144,7 @@ func resolveSource(ctx context.Context, t target, from string, height int64) (so
 		if !ok || bucket == "" || key == "" {
 			return source{}, fmt.Errorf("--from %q is not s3://<bucket>/<key>", from)
 		}
-		store, err := ssarchive.NewS3Store(ctx, bucket, t.stateSync.ArchiveRegion)
+		store, err := ssarchive.NewS3Store(ctx, bucket, region)
 		if err != nil {
 			return source{}, err
 		}

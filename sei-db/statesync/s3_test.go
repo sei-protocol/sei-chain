@@ -18,13 +18,14 @@ import (
 
 const testBucket = "snapshots"
 
-// fakeS3 is an S3 endpoint that keeps objects in memory and honors If-Match and If-None-Match. It
-// answers AccessDenied to each request whose method is in deny.
+// fakeS3 is an S3 endpoint that keeps objects in memory and honors If-Match and If-None-Match
+// unless ignoreConditions is set. It answers AccessDenied to each request whose method is in deny.
 type fakeS3 struct {
-	mu      sync.Mutex
-	objects map[string]memObject
-	etags   int
-	deny    map[string]bool
+	mu               sync.Mutex
+	objects          map[string]memObject
+	etags            int
+	deny             map[string]bool
+	ignoreConditions bool
 	// uploads holds the multipart uploads that are started and not aborted.
 	uploads map[string]bool
 }
@@ -65,11 +66,11 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", obj.modified.Format(http.TimeFormat))
 		_, _ = w.Write(obj.data)
 	case http.MethodPut:
-		if ifMatch := r.Header.Get("If-Match"); ifMatch != "" && !ok {
+		if ifMatch := r.Header.Get("If-Match"); ifMatch != "" && !ok && !f.ignoreConditions {
 			writeS3Error(w, http.StatusNotFound, "NoSuchKey")
 			return
 		}
-		if (r.Header.Get("If-None-Match") == "*" && ok) || (r.Header.Get("If-Match") != "" && r.Header.Get("If-Match") != obj.version) {
+		if !f.ignoreConditions && ((r.Header.Get("If-None-Match") == "*" && ok) || (r.Header.Get("If-Match") != "" && r.Header.Get("If-Match") != obj.version)) {
 			writeS3Error(w, http.StatusPreconditionFailed, "PreconditionFailed")
 			return
 		}
@@ -203,10 +204,20 @@ func TestS3StoreCheckWriteLeavesNothing(t *testing.T) {
 	require.Empty(t, fake.uploads)
 }
 
+func TestS3StoreCheckWriteRefusesABucketThatIgnoresConditions(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+	fake.ignoreConditions = true
+
+	err := store.CheckWrite(t.Context(), WriteCheckKey(testChainID))
+
+	require.ErrorIs(t, err, errConditionsIgnored)
+}
+
 func TestS3StoreCheckWriteReportsADeniedStep(t *testing.T) {
 	for method, step := range map[string]string{
 		http.MethodPost:   "start a multipart upload",
 		http.MethodDelete: "abort the multipart upload",
+		http.MethodPut:    "conditional put",
 	} {
 		t.Run(method, func(t *testing.T) {
 			store, fake := newFakeS3StoreWith(t)
