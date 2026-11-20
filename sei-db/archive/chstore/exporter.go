@@ -92,10 +92,10 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 	return e, nil
 }
 
-// ArchiveBlock copies block into the current batch, keeping no reference to it. It returns an error
-// for a block other than the one it expects next, for one it cannot encode, once a batch has failed to
-// be written, and once the exporter is closed. When the block fills the batch, it waits for the
-// previous batch to be written.
+// ArchiveBlock copies block into the current batch, keeping no reference to it. It returns an error,
+// without adding block, for a block other than the one it expects next, for one it cannot encode, once
+// a batch has failed to be written, and once the exporter is closed. When the block fills the batch,
+// it waits for the previous batch to be written.
 func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBlock) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -122,7 +122,7 @@ func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBloc
 	}
 	e.next = number + 1
 	if b := e.cur; b.blocks >= maxBatchBlocks || b.txs >= maxBatchTxs || b.bytes >= maxBatchBytes || b.maxRows() >= maxBatchRows {
-		return e.flush(ctx)
+		e.flush()
 	}
 	return nil
 }
@@ -153,7 +153,7 @@ func (e *Exporter) Close() error {
 		close(e.stop)
 		e.mu.Lock()
 		e.closed = true
-		_ = e.flush(context.Background())
+		e.flush()
 		e.mu.Unlock()
 		close(e.full)
 		<-e.done
@@ -164,17 +164,14 @@ func (e *Exporter) Close() error {
 
 // flush hands the current batch to the writer, waiting while it writes the previous one. The
 // caller holds mu.
-func (e *Exporter) flush(ctx context.Context) error {
+func (e *Exporter) flush() {
 	if e.cur.blocks == 0 {
-		return nil
+		return
 	}
-	select {
-	case e.full <- e.cur:
-		e.cur = <-e.free
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	// Not cancellable: the blocks in cur are already accepted, and a write attempt is bounded by
+	// writeTimeout.
+	e.full <- e.cur
+	e.cur = <-e.free
 }
 
 // flushPeriodically hands the current batch to the writer every flushInterval, until Close. A
