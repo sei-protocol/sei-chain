@@ -24,7 +24,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/ratelimiter"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/seilog"
@@ -123,7 +123,7 @@ type Server struct {
 
 // Start binds the EVM-only JSON-RPC HTTP listener on port and WebSocket listener on wsPort, on
 // all interfaces, and returns their server enforcing limits.
-func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int, limits gigaconfig.RPCConfig) (*Server, error) {
+func Start(backend Backend, receiptStore receiptdb.ReceiptStore, port int, wsPort int, limits gigaconfig.RPCConfig) (*Server, error) {
 	rpcServer, err := newHandler(backend, receiptStore, limits)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func websocketHandler(rpcServer *ethrpc.Server) http.Handler {
 	return rpcServer.WebsocketHandler(wsAllowedOrigins)
 }
 
-func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigaconfig.RPCConfig) (*ethrpc.Server, error) {
+func newHandler(backend Backend, receiptStore receiptdb.ReceiptStore, limits gigaconfig.RPCConfig) (*ethrpc.Server, error) {
 	if receiptStore == nil {
 		return nil, errors.New("EVM-only RPC requires a receipt store")
 	}
