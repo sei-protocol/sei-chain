@@ -166,8 +166,9 @@ func Start(backend Backend, receiptStore receiptdb.ReceiptStore, port int, wsPor
 type headPinKey struct{}
 
 // pinHeadPerRequest serves each HTTP request through next with one committed head, read from
-// backend the first time a call in the request needs it, so every call in a batch resolves
-// current-state tags to the same block.
+// backend the first time a call in the request needs it. Block, receipt, fee-history, filter and
+// trace lookups in the request resolve current-state tags to that head; state reads at those tags
+// still read live state.
 func pinHeadPerRequest(backend Backend, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		head := sync.OnceValue(backend.EvmBlockNumber)
