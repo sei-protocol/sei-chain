@@ -19,7 +19,7 @@ func TestExecutorPrepareBlockResolvesSender(t *testing.T) {
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
 
 	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
-	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{
+	prepared, err := executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
@@ -28,13 +28,13 @@ func TestExecutorPrepareBlockResolvesSender(t *testing.T) {
 	require.Equal(t, sender, prepared.Txs[0].Sender)
 
 	wrongChain := signLegacyTx(t, key, big.NewInt(testChainID+1), 0, &recipient, big.NewInt(1), nil)
-	_, err = executor.PrepareBlock(t.Context(), BlockRequest{
+	_, err = executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{wrongChain},
 	})
 	require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 
-	prepared, err = executor.PrepareBlock(t.Context(), BlockRequest{
+	prepared, err = executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
@@ -57,7 +57,7 @@ func TestExecutorDecodeResolvesSenders(t *testing.T) {
 	req := BlockRequest{Context: blockContext(chainID), Txs: raws}
 	executor := NewExecutor(Config{ParseWorkers: 4}, withTestState(NewMemoryState()))
 
-	decoded, err := executor.DecodeBlock(t.Context(), req)
+	decoded, err := executor.DecodeBlock(req)
 	require.NoError(t, err)
 	require.Len(t, decoded.txs, n)
 	for i, tx := range decoded.txs {
@@ -65,7 +65,7 @@ func TestExecutorDecodeResolvesSenders(t *testing.T) {
 	}
 	recovered, err := executor.PrepareDecodedBlock(t.Context(), decoded.context, decoded.txs)
 	require.NoError(t, err)
-	prepared, err := executor.PrepareBlock(t.Context(), req)
+	prepared, err := executor.PrepareBlock(req)
 	require.NoError(t, err)
 
 	require.Equal(t, prepared.Context, recovered.Context)
@@ -76,6 +76,6 @@ func TestExecutorDecodeResolvesSenders(t *testing.T) {
 		require.Equal(t, prepared.Txs[i].Tx.Hash(), recovered.Txs[i].Tx.Hash())
 	}
 
-	_, err = executor.DecodeBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{{0x01}}})
+	_, err = executor.DecodeBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{{0x01}}})
 	require.Error(t, err)
 }

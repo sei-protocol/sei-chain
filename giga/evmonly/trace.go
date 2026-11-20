@@ -36,7 +36,7 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 	if len(req.Txs) == 0 {
 		return replayed, nil
 	}
-	prepared, err := e.PrepareBlock(ctx, req)
+	prepared, err := e.PrepareBlock(req)
 	if err != nil {
 		return nil, err
 	}

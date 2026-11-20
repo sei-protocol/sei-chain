@@ -22,7 +22,7 @@ type BlockExecutor interface {
 // of ordered block execution.
 type PreparedBlockExecutor interface {
 	BlockExecutor
-	PrepareBlock(context.Context, BlockRequest) (PreparedBlock, error)
+	PrepareBlock(BlockRequest) (PreparedBlock, error)
 	ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
 }
 

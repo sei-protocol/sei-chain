@@ -180,7 +180,7 @@ func (e *Executor) MarkWaitingForBlock() {
 // execute in separate stages instead, where ExecutePreparedBlock leaves the commit running behind
 // the next block rather than waiting for it here.
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
-	prepared, err := e.PrepareBlock(ctx, req)
+	prepared, err := e.PrepareBlock(req)
 	if err != nil {
 		return nil, err
 	}
@@ -195,8 +195,8 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 	return result, nil
 }
 
-func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	decoded, err := e.DecodeBlock(ctx, req)
+func (e *Executor) PrepareBlock(req BlockRequest) (PreparedBlock, error) {
+	decoded, err := e.DecodeBlock(req)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
@@ -204,7 +204,7 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 }
 
 // DecodeBlock decodes and validates req's transactions and resolves their senders.
-func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
+func (e *Executor) DecodeBlock(req BlockRequest) (DecodedBlock, error) {
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return DecodedBlock{}, err
 	}
