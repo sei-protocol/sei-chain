@@ -303,25 +303,19 @@ func (app *Proxy) ParseTxs(chainID uint64, raw [][]byte, workers int) ([]EvmTx, 
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
 	}
-	decoded := make([]*ethtypes.Transaction, len(raw))
 	hashWorkers := min(workers, (len(raw)+minTxsPerHashWorker-1)/minTxsPerHashWorker)
-	if err := ForEachTx(context.Background(), len(raw), hashWorkers, func(i int) error {
-		tx, err := decodeEVMTransaction(chainID, raw[i])
-		if err != nil {
-			return err
-		}
-		tx.Hash()
-		decoded[i] = tx
-		return nil
-	}); err != nil {
-		return nil, err
+	decoded, err := DecodeBlockTxs(context.Background(), raw, hashWorkers, func(tx *ethtypes.Transaction) error {
+		return validateEVMTransaction(chainID, tx)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
 	txs, missing, missingCount := app.cachedTransactions(decoded)
 	if missingCount == 0 {
 		return txs, nil
 	}
 	// Signature recovery remains parallel even for small batches of cache misses.
-	if err := ForEachTx(context.Background(), len(decoded), min(workers, missingCount), func(i int) error {
+	if err := forEachTx(context.Background(), len(decoded), min(workers, missingCount), func(i int) error {
 		if !missing[i] {
 			return nil
 		}
@@ -358,21 +352,28 @@ func (app *Proxy) cachedTransactions(decoded []*ethtypes.Transaction) ([]EvmTx, 
 
 // decodeEVMTransaction decodes a replay-protected Ethereum transaction for chainID.
 func decodeEVMTransaction(chainID uint64, raw []byte) (*ethtypes.Transaction, error) {
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(raw); err != nil {
+	tx, err := decodeRawTx(raw)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
-	if !tx.Protected() {
-		return nil, fmt.Errorf("%w: unprotected Ethereum transaction", ErrTxRejected)
-	}
-	if chainID == 0 || !tx.ChainId().IsUint64() || tx.ChainId().Uint64() != chainID {
-		return nil, fmt.Errorf("%w: %w: expected %d, got %s", ErrTxRejected, ethtypes.ErrInvalidChainId, chainID, tx.ChainId())
+	if err := validateEVMTransaction(chainID, tx); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
 	return tx, nil
 }
 
+func validateEVMTransaction(chainID uint64, tx *ethtypes.Transaction) error {
+	if !tx.Protected() {
+		return fmt.Errorf("unprotected Ethereum transaction")
+	}
+	if chainID == 0 || !tx.ChainId().IsUint64() || tx.ChainId().Uint64() != chainID {
+		return fmt.Errorf("%w: expected %d, got %s", ethtypes.ErrInvalidChainId, chainID, tx.ChainId())
+	}
+	return nil
+}
+
 func recoverTxSender(tx *ethtypes.Transaction) (common.Address, error) {
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
+	sender, err := resolveSender(tx, ethtypes.LatestSignerForChainID(tx.ChainId()), utils.None[common.Address]())
 	if err != nil {
 		return common.Address{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}

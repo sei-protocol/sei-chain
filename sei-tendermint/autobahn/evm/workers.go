@@ -11,9 +11,9 @@ import (
 // parseClaim is the number of transactions a worker takes per claim.
 const parseClaim = 16
 
-// ForEachTx calls fn for every index below n, with workers goroutines claiming parseClaim indexes
+// forEachTx calls fn for every index below n, with workers goroutines claiming parseClaim indexes
 // at a time. It reports the first failure, wrapped with the index of the transaction that caused it.
-func ForEachTx(ctx context.Context, n int, workers int, fn func(i int) error) error {
+func forEachTx(ctx context.Context, n int, workers int, fn func(i int) error) error {
 	if n == 0 {
 		return nil
 	}
