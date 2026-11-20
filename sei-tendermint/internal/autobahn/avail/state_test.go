@@ -881,7 +881,7 @@ func TestRestartRestoresCommitQCPastAnchorEpoch(t *testing.T) {
 	require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
 	require.NoError(t, store.Flush())
 
-	ds, err := data.NewState(&data.Config{Registry: registry, Genesis: epoch.GenesisSchedule{Timestamp: testGenesisTimestamp}}, store)
+	ds, err := data.NewState(&data.Config{Registry: registry, GenesisTimestamp: testGenesisTimestamp}, store)
 	require.NoError(t, err)
 	tip := types.BuildCommitQC(registry.MustEpoch(3), keys, utils.Some(qc), nil)
 	dir := t.TempDir()

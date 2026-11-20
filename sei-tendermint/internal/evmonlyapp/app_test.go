@@ -478,12 +478,7 @@ func openEVMOnlyTestEpochsWithLength(
 	length atypes.RoadHeight,
 ) *EpochRegistry {
 	t.Helper()
-	schedule := epoch.GenesisSchedule{
-		FirstRoad: atypes.RoadHeight(initialHeight), //nolint:gosec // G115: test heights are positive.
-		Length:    length,
-		Timestamp: time.Unix(1_700_000_000, 0),
-	}
-	epochs, err := OpenEpochRegistry(storage, schedule, evmOnlyTestGenesisValidators(validators))
+	epochs, err := OpenEpochRegistry(storage, atypes.RoadHeight(initialHeight), length, evmOnlyTestGenesisValidators(validators)) //nolint:gosec // G115: test heights are positive.
 	require.NoError(t, err)
 	return epochs
 }

@@ -313,10 +313,6 @@ func buildGigaRouter(
 			logger.Warn("Autobahn: local validator key is in the address book but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
 		}
 	}
-	schedule, err := genesisEpochSchedule(genDoc)
-	if err != nil {
-		return nil, err
-	}
 	if cfg.Mode == config.ModeValidator {
 		valKey, ok := validatorKey.Get()
 		if !ok {
@@ -341,7 +337,7 @@ func buildGigaRouter(
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		valCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore, epochs.Registry(), schedule)
+		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore, epochs.Registry(), genDoc.GenesisTime)
 		if err != nil {
 			return nil, err
 		}
@@ -364,7 +360,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore, epochs.Registry(), schedule)
+	dataState, err := p2p.BuildDataState(fnCfg, blockStore, epochs.Registry(), genDoc.GenesisTime)
 	if err != nil {
 		return nil, err
 	}

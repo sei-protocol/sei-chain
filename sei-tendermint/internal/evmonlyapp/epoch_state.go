@@ -20,16 +20,17 @@ const epochRegistryKey = "epoch_registry"
 // EpochRegistry is the epoch registry an application writes. Its window is the one consensus
 // waits on.
 type EpochRegistry struct {
-	registry *epoch.Registry
-	schedule epoch.GenesisSchedule
-	weights  map[atypes.PublicKey]uint64
+	registry  *epoch.Registry
+	firstRoad atypes.RoadHeight
+	weights   map[atypes.PublicKey]uint64
 }
 
 // OpenEpochRegistry returns the epoch registry storage holds, or the genesis registry for validators
-// when storage holds none.
+// when storage holds none. The genesis registry starts epoch 0 at firstRoad and lasts length roads
+// per epoch.
 func OpenEpochRegistry(
 	storage *bootstrap.GigaStorageManager,
-	schedule epoch.GenesisSchedule,
+	firstRoad, length atypes.RoadHeight,
 	validators []proxy.ValidatorUpdate,
 ) (*EpochRegistry, error) {
 	weights, err := epochWeights(validators)
@@ -38,7 +39,7 @@ func OpenEpochRegistry(
 	}
 	row, found := storage.StateDB().SC().Get(epochRegistryModule, []byte(epochRegistryKey))
 	if !found {
-		row, err = epoch.GenesisRow(weights, schedule)
+		row, err = epoch.GenesisRow(weights, firstRoad, length)
 		if err != nil {
 			return nil, err
 		}
@@ -51,7 +52,7 @@ func OpenEpochRegistry(
 	if err != nil {
 		return nil, err
 	}
-	return &EpochRegistry{registry: registry, schedule: schedule, weights: weights}, nil
+	return &EpochRegistry{registry: registry, firstRoad: firstRoad, weights: weights}, nil
 }
 
 // Registry returns the window consensus reads.
@@ -91,7 +92,7 @@ func (e *EpochRegistry) Changes(road atypes.RoadHeight) ([]gigatypes.MiscChange,
 	if next, ok := advanced.Get(); ok {
 		e.registry.Store(next)
 		window = next
-	} else if road != e.schedule.FirstRoad {
+	} else if road != e.firstRoad {
 		return nil, nil
 	}
 	return []gigatypes.MiscChange{{

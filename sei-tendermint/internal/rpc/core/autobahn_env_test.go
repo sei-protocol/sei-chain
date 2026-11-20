@@ -95,14 +95,9 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
 	}
-	schedule := epoch.GenesisSchedule{
-		FirstRoad: atypes.RoadHeight(genDoc.InitialHeight),
-		Length:    epoch.DefaultEpochLength,
-		Timestamp: genDoc.GenesisTime,
-	}
-	registry, err := epoch.TestGenesisRegistry(committee, schedule.FirstRoad, schedule.Length)
+	registry, err := epoch.TestGenesisRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), epoch.DefaultEpochLength)
 	require.NoError(t, err)
-	dataState, err := p2p.BuildDataState(&commonCfg, blockStore, registry, schedule)
+	dataState, err := p2p.BuildDataState(&commonCfg, blockStore, registry, genDoc.GenesisTime)
 	require.NoError(t, err)
 	var giga p2p.GigaRouter
 	if validator {

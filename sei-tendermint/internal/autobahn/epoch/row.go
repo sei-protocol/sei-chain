@@ -3,7 +3,6 @@ package epoch
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -18,29 +17,19 @@ const DefaultEpochLength types.RoadHeight = 108_000
 // keptEpochs is the number of newest epochs a row retains.
 const keptEpochs = 3
 
-// GenesisSchedule is the genesis arithmetic of the epoch registry.
-type GenesisSchedule struct {
-	// FirstRoad is the first road of epoch 0.
-	FirstRoad types.RoadHeight
-	// Length is the number of roads in each epoch.
-	Length types.RoadHeight
-	// Timestamp is the genesis timestamp.
-	Timestamp time.Time
-}
-
-// GenesisRow returns the row holding genesis epochs 0 and 1, both committed to weights.
-func GenesisRow(weights map[types.PublicKey]uint64, s GenesisSchedule) ([]byte, error) {
-	if s.Length == 0 {
+// GenesisRow returns the row holding genesis epochs 0 and 1, both committed to weights. Epoch 0
+// starts at firstRoad and each epoch lasts length roads.
+func GenesisRow(weights map[types.PublicKey]uint64, firstRoad, length types.RoadHeight) ([]byte, error) {
+	if length == 0 {
 		return nil, errors.New("epoch length must be greater than 0")
 	}
 	committee, err := types.NewCommittee(weights)
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	first := s.FirstRoad
 	return Encode([]*types.Epoch{
-		types.NewEpoch(0, types.RoadRange{First: first, Next: first + s.Length}, committee),
-		types.NewEpoch(1, types.RoadRange{First: first + s.Length, Next: first + 2*s.Length}, committee),
+		types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + length}, committee),
+		types.NewEpoch(1, types.RoadRange{First: firstRoad + length, Next: firstRoad + 2*length}, committee),
 	}), nil
 }
 

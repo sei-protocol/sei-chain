@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -82,8 +83,8 @@ func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes
 }
 
 // BuildDataState validates the common config and returns an initialised data.State backed by
-// blockStore. registry is the epoch window the state waits on, and genesis is the schedule its
-// epochs were derived from.
+// blockStore. registry is the epoch window the state waits on, and genesisTimestamp is the
+// timestamp of the first proposal.
 //
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
 // if construction of the GigaRouter fails. data.State never closes it.
@@ -91,7 +92,7 @@ func BuildDataState(
 	cfg *GigaRouterCommonConfig,
 	blockStore *ablockstore.Store,
 	registry *epoch.Registry,
-	genesis epoch.GenesisSchedule,
+	genesisTimestamp time.Time,
 ) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
@@ -108,7 +109,7 @@ func BuildDataState(
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	ds, err := data.NewState(&data.Config{Registry: registry, Genesis: genesis}, blockStore)
+	ds, err := data.NewState(&data.Config{Registry: registry, GenesisTimestamp: genesisTimestamp}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}

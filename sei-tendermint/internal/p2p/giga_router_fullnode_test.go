@@ -76,8 +76,8 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
-	registry, schedule := testGenesisEpochs(t, genDoc, addrs)
-	dataState, err := BuildDataState(cfg, blockStore, registry, schedule)
+	registry := testGenesisEpochs(t, genDoc, addrs)
+	dataState, err := BuildDataState(cfg, blockStore, registry, genDoc.GenesisTime)
 	require.NoError(t, err)
 
 	// Fullnodes have no validator key and no Producer config.

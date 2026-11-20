@@ -180,8 +180,8 @@ func newAppHashTestRouter(
 		App:                proxy.NewEVM(app),
 		AppHashBuilder:     hashBuilder,
 	}
-	registry, schedule := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
-	state, err := BuildDataState(cfg, db, registry, schedule)
+	registry := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
+	state, err := BuildDataState(cfg, db, registry, genDoc.GenesisTime)
 	require.NoError(t, err)
 	router := &gigaRouterCommon{
 		cfg:  cfg,
@@ -191,18 +191,9 @@ func newAppHashTestRouter(
 	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
 }
 
-// testGenesisSchedule returns the schedule a node derives from genDoc with the default epoch length.
-func testGenesisSchedule(genDoc *tmtypes.GenesisDoc) epoch.GenesisSchedule {
-	return epoch.GenesisSchedule{
-		FirstRoad: atypes.RoadHeight(genDoc.InitialHeight),
-		Length:    epoch.DefaultEpochLength,
-		Timestamp: genDoc.GenesisTime,
-	}
-}
-
-// testGenesisEpochs returns a registry whose genesis epochs are committed to the validators in
-// addrs with unit weight, and the schedule it was built from.
-func testGenesisEpochs(t *testing.T, genDoc *tmtypes.GenesisDoc, addrs map[atypes.PublicKey]GigaNodeAddr) (*epoch.Registry, epoch.GenesisSchedule) {
+// testGenesisEpochs returns a registry whose genesis epochs start at genDoc's initial height with
+// the default epoch length and are committed to the validators in addrs with unit weight.
+func testGenesisEpochs(t *testing.T, genDoc *tmtypes.GenesisDoc, addrs map[atypes.PublicKey]GigaNodeAddr) *epoch.Registry {
 	t.Helper()
 	weights := make(map[atypes.PublicKey]uint64, len(addrs))
 	for key := range addrs {
@@ -210,10 +201,9 @@ func testGenesisEpochs(t *testing.T, genDoc *tmtypes.GenesisDoc, addrs map[atype
 	}
 	committee, err := atypes.NewCommittee(weights)
 	require.NoError(t, err)
-	schedule := testGenesisSchedule(genDoc)
-	registry, err := epoch.TestGenesisRegistry(committee, schedule.FirstRoad, schedule.Length)
+	registry, err := epoch.TestGenesisRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), epoch.DefaultEpochLength)
 	require.NoError(t, err)
-	return registry, schedule
+	return registry
 }
 
 // TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
@@ -329,7 +319,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
-	state, err := BuildDataState(cfg, db, registry, testGenesisSchedule(genDoc))
+	state, err := BuildDataState(cfg, db, registry, genDoc.GenesisTime)
 	require.NoError(t, err)
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
@@ -1228,8 +1218,8 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 			persistentKeys[1].Public().NodeID(): {},
 		},
 	}
-	registry, schedule := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
-	state, err := BuildDataState(cfg, db, registry, schedule)
+	registry := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
+	state, err := BuildDataState(cfg, db, registry, genDoc.GenesisTime)
 	require.NoError(t, err)
 	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
 	require.NoError(t, err)

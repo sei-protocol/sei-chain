@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -14,10 +13,6 @@ import (
 )
 
 const testFirstRoad types.RoadHeight = 1
-
-func testSchedule(length types.RoadHeight) GenesisSchedule {
-	return GenesisSchedule{FirstRoad: testFirstRoad, Length: length, Timestamp: time.Unix(1, 0)}
-}
 
 // testWeights returns weights for n validators with distinct keys, all weight 1000.
 func testWeights(rng utils.Rng, n int) map[types.PublicKey]uint64 {
@@ -30,7 +25,7 @@ func testWeights(rng utils.Rng, n int) map[types.PublicKey]uint64 {
 
 func testRegistry(t *testing.T, weights map[types.PublicKey]uint64, length types.RoadHeight) *Registry {
 	t.Helper()
-	row, err := GenesisRow(weights, testSchedule(length))
+	row, err := GenesisRow(weights, testFirstRoad, length)
 	require.NoError(t, err)
 	epochs, err := Decode(row)
 	require.NoError(t, err)
@@ -42,7 +37,7 @@ func testRegistry(t *testing.T, weights map[types.PublicKey]uint64, length types
 func TestGenesisRowHoldsEpochsZeroAndOne(t *testing.T) {
 	rng := utils.TestRng()
 	weights := testWeights(rng, 3)
-	epochs, err := Decode(utils.OrPanic1(GenesisRow(weights, testSchedule(10))))
+	epochs, err := Decode(utils.OrPanic1(GenesisRow(weights, testFirstRoad, 10)))
 	require.NoError(t, err)
 	require.Len(t, epochs, 2)
 	require.Equal(t, types.RoadRange{First: 1, Next: 11}, epochs[0].RoadRange())
@@ -52,16 +47,16 @@ func TestGenesisRowHoldsEpochsZeroAndOne(t *testing.T) {
 }
 
 func TestGenesisRowRejects(t *testing.T) {
-	_, err := GenesisRow(testWeights(utils.TestRng(), 1), testSchedule(0))
+	_, err := GenesisRow(testWeights(utils.TestRng(), 1), testFirstRoad, 0)
 	require.Error(t, err)
-	_, err = GenesisRow(map[types.PublicKey]uint64{}, testSchedule(10))
+	_, err = GenesisRow(map[types.PublicKey]uint64{}, testFirstRoad, 10)
 	require.Error(t, err)
 }
 
 func TestAdvanceOnlyDerivesAtTheRoadBeforeTheBoundary(t *testing.T) {
 	rng := utils.TestRng()
 	weights := testWeights(rng, 3)
-	epochs := utils.OrPanic1(Decode(utils.OrPanic1(GenesisRow(weights, testSchedule(10)))))
+	epochs := utils.OrPanic1(Decode(utils.OrPanic1(GenesisRow(weights, testFirstRoad, 10))))
 	// Epoch 2 is derived at LastRoad(0) = 10, the road before epoch 1's boundary.
 	for road := types.RoadHeight(1); road < 10; road++ {
 		next, err := Advance(epochs, road, weights)
@@ -97,7 +92,7 @@ func TestAdvanceKeepsTheThreeNewestEpochs(t *testing.T) {
 func TestAdvanceRejects(t *testing.T) {
 	rng := utils.TestRng()
 	weights := testWeights(rng, 3)
-	epochs := utils.OrPanic1(Decode(utils.OrPanic1(GenesisRow(weights, testSchedule(10)))))
+	epochs := utils.OrPanic1(Decode(utils.OrPanic1(GenesisRow(weights, testFirstRoad, 10))))
 	_, err := Advance(epochs, 11, weights)
 	require.Error(t, err)
 	_, err = Advance(nil, 10, weights)

@@ -2,7 +2,6 @@ package epoch
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -44,7 +43,7 @@ func genRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey, map[typ
 		weights[sk.Public()] = 1000 + uint64(rng.Intn(1000)) //nolint:gosec
 	}
 	firstHeight := types.GenRoadHeight(rng)%1000000 + 1
-	row, err := GenesisRow(weights, GenesisSchedule{FirstRoad: firstHeight, Length: DefaultEpochLength, Timestamp: time.Now()})
+	row, err := GenesisRow(weights, firstHeight, DefaultEpochLength)
 	utils.OrPanic(err)
 	epochs, err := Decode(row)
 	utils.OrPanic(err)

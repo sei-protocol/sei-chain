@@ -19,7 +19,6 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -183,11 +182,11 @@ func makeEVMApplication(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
 	}
-	schedule, err := genesisEpochSchedule(genDoc)
+	firstRoad, err := genesisFirstRoad(genDoc)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	epochs, err := evmonlyapp.OpenEpochRegistry(storage, schedule, validators)
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, firstRoad, genesisEpochLength(genDoc), validators)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("open epoch registry: %w", err)
 	}
@@ -218,17 +217,18 @@ func makeEVMApplication(
 	return app, storage, epochs, nil
 }
 
-// genesisEpochSchedule returns the epoch schedule genDoc starts at.
-func genesisEpochSchedule(genDoc *tmtypes.GenesisDoc) (epoch.GenesisSchedule, error) {
+// genesisFirstRoad returns the first road of epoch 0, which is the genesis initial height.
+func genesisFirstRoad(genDoc *tmtypes.GenesisDoc) (atypes.RoadHeight, error) {
 	first, ok := utils.SafeCast[atypes.RoadHeight](genDoc.InitialHeight)
 	if !ok || first < 1 {
-		return epoch.GenesisSchedule{}, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
+		return 0, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
 	}
-	return epoch.GenesisSchedule{
-		FirstRoad: first,
-		Length:    genDoc.Autobahn.Or(tmtypes.DefaultAutobahnParams()).EpochLength,
-		Timestamp: genDoc.GenesisTime,
-	}, nil
+	return first, nil
+}
+
+// genesisEpochLength returns the number of roads in each epoch genDoc configures.
+func genesisEpochLength(genDoc *tmtypes.GenesisDoc) atypes.RoadHeight {
+	return genDoc.Autobahn.Or(tmtypes.DefaultAutobahnParams()).EpochLength
 }
 
 // evmOnlyGenesisAlloc returns the committee's evm_alloc at the genesis initial height, or None when it

@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"math/big"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
@@ -24,7 +23,6 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -337,11 +335,7 @@ func TestMockAppCommitAdvancesTheEpochRegistry(t *testing.T) {
 	})
 
 	key := atypes.GenSecretKey(utils.TestRng())
-	epochs, err := evmonlyapp.OpenEpochRegistry(storage, epoch.GenesisSchedule{
-		FirstRoad: 1,
-		Length:    length,
-		Timestamp: time.Unix(1, 0),
-	}, []proxy.ValidatorUpdate{{PubKey: key.Public(), Power: 1}})
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, 1, length, []proxy.ValidatorUpdate{{PubKey: key.Public(), Power: 1}})
 	require.NoError(t, err)
 
 	app := NewMockApp(mockAppFixture{})

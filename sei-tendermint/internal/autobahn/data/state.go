@@ -30,8 +30,8 @@ type Config struct {
 	// Registry is the retained epoch window. The anchor moves only once it holds the epochs of the
 	// anchor's road.
 	Registry *epoch.Registry
-	// Genesis is the genesis schedule of the epochs.
-	Genesis epoch.GenesisSchedule
+	// GenesisTimestamp is the timestamp of the first proposal.
+	GenesisTimestamp time.Time
 }
 
 // blockEntry contains a FullCommitQC, its lane blocks, and its verifying epoch.
@@ -281,8 +281,8 @@ func (s *State) First() types.RoadHeight {
 	return s.blockStore.First()
 }
 
-// GenesisTimestamp returns the genesis timestamp.
-func (s *State) GenesisTimestamp() time.Time { return s.cfg.Genesis.Timestamp }
+// GenesisTimestamp returns the timestamp of the first proposal.
+func (s *State) GenesisTimestamp() time.Time { return s.cfg.GenesisTimestamp }
 
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
