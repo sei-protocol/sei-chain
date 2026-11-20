@@ -195,7 +195,7 @@ func TestEVMOnlyApplicationResumesItsBaseFeesAfterRestart(t *testing.T) {
 	raised := raisedBaseFee(*uint256.NewInt(evmOnlyGenesisMinFeePerGas))
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
-	app, err := newEVMOnlyTestAppOnChain(storage, evmOnlyTestChainID)
+	app, err := newEVMOnlyTestAppOnChain(t, storage, evmOnlyTestChainID)
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyBaseFeeTestInitChain())
 	require.NoError(t, err)

@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -33,6 +32,7 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 		evmOnlyTestChainID,
 		nil,
 		storage,
+		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
 		utils.None[GenesisAlloc](),
@@ -58,7 +58,7 @@ func precompileCall(t *testing.T, app proxy.EVMApplication, to common.Address, c
 	msg := callMessage(common.Address{}, &to)
 	msg.Data = input
 	msg.GasLimit = 1_000_000
-	result, err := app.(*evmOnlyApplication).EvmCall(t.Context(), msg, evmonly.CallOverrides{})
+	result, err := app.(*evmOnlyApplication).EvmCall(t.Context(), msg, proxy.CallOverrides{})
 	require.NoError(t, err)
 	if result.Err != nil {
 		return nil, result.Err

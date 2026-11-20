@@ -29,8 +29,6 @@ type ExportConfig struct {
 	// LastAppQC returns the road of the latest AppQC in BlockStore, or None when it holds none.
 	// Proofs are written only at or below it.
 	LastAppQC func() utils.Option[types.RoadHeight]
-	// IsClosingRoad reports whether road is the last road of an epoch.
-	IsClosingRoad func(road types.RoadHeight) bool
 }
 
 // BlockStore is the part of the Autobahn BlockStore that Exporter reads.
@@ -49,7 +47,7 @@ type Exporter struct {
 	checkpoints utils.Option[map[types.RoadHeight]struct{}]
 	// exported holds the retained checkpoints whose proof file is on disk and decodes.
 	exported map[types.RoadHeight]struct{}
-	// skipped holds the retained checkpoints that get no proof file: LastRoad(X), or records that are
+	// skipped holds the retained checkpoints that get no proof file because their records are
 	// pruned, missing or inconsistent.
 	skipped map[types.RoadHeight]struct{}
 }
@@ -177,16 +175,8 @@ func (e *Exporter) exportable(checkpoints map[types.RoadHeight]struct{}) []types
 	return out
 }
 
-// exportCheckpoint writes the proof file of checkpoint index, or skips it when it is LastRoad(X).
+// exportCheckpoint writes the proof file of the checkpoint at height.
 func (e *Exporter) exportCheckpoint(height types.RoadHeight) error {
-	// The committee of epoch X+2 is computed when a node executes LastRoad(X). A node restored at
-	// H never executes H, so a checkpoint at LastRoad(X) cannot be restored.
-	// TODO: remove this skip when the restore from a state sync snapshot sets up the committee of
-	// epoch X+2 itself, so that a node can restore from any road.
-	if e.cfg.IsClosingRoad(height) {
-		e.skipped[height] = struct{}{}
-		return nil
-	}
 	return e.exportProof(height)
 }
 

@@ -14,7 +14,6 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
@@ -92,7 +91,7 @@ type testEVMApp struct {
 	gotHeader    *ethtypes.Header
 	gotHeight    int64
 	gotTxs       [][]byte
-	gotOverrides evmonly.CallOverrides
+	gotOverrides CallOverrides
 }
 
 var _ EVMApplication = (*testEVMApp)(nil)
@@ -104,40 +103,40 @@ var (
 	testBaseFee         = big.NewInt(7)
 	testNextBaseFee     = big.NewInt(8)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
-	testOverrides       = evmonly.CallOverrides{State: export.StateOverride{common.Address{1}: {}}}
+	testOverrides       = CallOverrides{State: export.StateOverride{common.Address{1}: {}}}
 )
 
-func (app *testEVMApp) EvmCall(_ context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+func (app *testEVMApp) EvmCall(_ context.Context, msg *core.Message, overrides CallOverrides) (*core.ExecutionResult, error) {
 	app.gotOverrides = overrides
 	app.gotMsg = msg
 	return testExecutionResult, nil
 }
 
-func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap = msg, gasCap
 	return 21_000, []byte{0x01}, nil
 }
 
-func (app *testEVMApp) EvmCallAt(_ context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+func (app *testEVMApp) EvmCallAt(_ context.Context, msg *core.Message, header *ethtypes.Header, overrides CallOverrides) (*core.ExecutionResult, error) {
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotHeader = msg, header
 	return testExecutionResult, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap, app.gotHeader = msg, gasCap, header
 	return 22_000, []byte{0x02}, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotCalls, app.gotMsg, app.gotGasCap = calls, msg, gasCap
 	return 42_000, []byte{0x02}, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAfterCallsAt(_ context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAfterCallsAt(_ context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotCalls, app.gotMsg, app.gotGasCap, app.gotHeader = calls, msg, gasCap, header
 	return 43_000, []byte{0x03}, nil
