@@ -353,43 +353,36 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	}
 }
 
-// A block that writes only outside the EVM module hands over an empty change set, and the undo log
-// takes it as a block that changed nothing.
-func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
+// Writes outside the EVM module keep their history like EVM writes do, so a read below a block does not
+// see what the block wrote there.
+func TestUndoStateDBServesHistoryOutsideTheEVMModule(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{3}
 	require.NoError(t, db.CommitStateChanges(1, nonceChanges(addr, 0, 1)))
-
-	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
-		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{2}}},
+	for block, value := range map[int64]byte{2: 2, 3: 3} {
+		require.NoError(t, db.CommitStateChanges(block, &gigatypes.StateChangeSet{
+			Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{value}}},
+		}))
+	}
+	require.NoError(t, db.CommitStateChanges(4, &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Delete: true}},
 	}))
 	db.UndoSS().WaitForPendingWrites()
 
-	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
-	for height, want := range []uint64{0, 1, 1} {
+	require.Equal(t, int64(4), db.UndoSS().GetLatestVersion())
+	for height, want := range []struct {
+		nonce  uint64
+		cursor []byte
+	}{{0, nil}, {1, nil}, {1, []byte{2}}, {1, []byte{3}}, {1, nil}} {
 		view, ok := db.OpenViewAt(int64(height))
 		require.True(t, ok, "height %d", height)
-		require.Equal(t, want, view.GetNonce(addr), "height %d", height)
+		require.Equal(t, want.nonce, view.GetNonce(addr), "height %d", height)
+		cursor, found := view.Get("cursor", []byte("head"))
+		require.Equal(t, want.cursor != nil, found, "height %d", height)
+		require.Equal(t, want.cursor, cursor, "height %d", height)
 		view.Close()
 	}
-}
-
-// A past height serves only the EVM module.
-func TestUndoStateDBServesNoHistoryOutsideTheEVMModule(t *testing.T) {
-	db := newUndoTestHome(t).open(t)
-	defer func() { require.NoError(t, db.Close()) }()
-	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
-		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{1}}},
-	}))
-	require.NoError(t, db.CommitStateChanges(2, nonceChanges(common.Address{2}, 0, 1)))
-	db.UndoSS().WaitForPendingWrites()
-
-	view, ok := db.OpenViewAt(1)
-	require.True(t, ok)
-	defer view.Close()
-	require.Zero(t, view.GetNonce(common.Address{2}))
-	require.Panics(t, func() { view.Get("cursor", []byte("head")) })
 }
 
 // Seeding an empty SC to a later height, as InitChain does for a chain that starts above block 1, leaves
