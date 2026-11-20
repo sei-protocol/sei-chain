@@ -209,6 +209,16 @@ func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash,
 	return common.BytesToHash(parent.BlockID.Hash), nil
 }
 
+// headerParentHash returns the parentHash an eth_getBlockBy* or newHeads header reports for the
+// block at height: the parent's hash, or zero when the parent is before the first block or pruned.
+func (api *blockAPI) headerParentHash(ctx context.Context, height int64) (common.Hash, error) {
+	parentHash, err := api.parentHash(ctx, height)
+	if errors.Is(err, coretypes.ErrHeightNotAvailable) {
+		return common.Hash{}, nil
+	}
+	return parentHash, err
+}
+
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
 // sha3Uncles, difficulty, extraData, uncles, and totalDifficulty are always
 // their zero value; unlike evmrpc's v2 encoder, mixHash does not report PREVRANDAO.
@@ -248,8 +258,12 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	if err != nil {
 		return nil, err
 	}
+	parentHash, err := api.headerParentHash(ctx, number)
+	if err != nil {
+		return nil, err
+	}
 
-	result := headerFields(block, blockUnix, gasLimit, baseFee, gasUsed)
+	result := headerFields(block, parentHash, blockUnix, gasLimit, baseFee, gasUsed)
 	result["size"] = hexutil.Uint64(block.Block.Size()) //nolint:gosec // G115: block size is positive.
 	result["uncles"] = []common.Hash{}                  // inapplicable to Sei
 	result["transactions"] = transactions
@@ -282,22 +296,26 @@ func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.Result
 
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
 // decodes.
-func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
+func (api *blockAPI) encodeHeader(ctx context.Context, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	gasLimit := backend.EvmGasLimit()
-	baseFee := backend.EvmBaseFee()
-	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
+	parentHash, err := api.headerParentHash(ctx, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	gasLimit := api.backend.EvmGasLimit()
+	baseFee := api.backend.EvmBaseFee()
+	return headerFields(block, parentHash, blockUnix, gasLimit, baseFee, gasUsed), nil
 }
 
 // headerFields returns the Ethereum JSON header fields of block.
-func headerFields(block *coretypes.ResultBlock, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
+func headerFields(block *coretypes.ResultBlock, parentHash common.Hash, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
 	return map[string]any{
 		"number":           (*hexutil.Big)(big.NewInt(block.Block.Height)),
 		"hash":             common.BytesToHash(block.BlockID.Hash),
-		"parentHash":       common.BytesToHash(block.Block.LastBlockID.Hash),
+		"parentHash":       parentHash,
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
