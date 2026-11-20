@@ -2,7 +2,7 @@ package testutil
 
 import (
 	"fmt"
-	"strings"
+	"path/filepath"
 
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 
@@ -19,7 +19,7 @@ func TxSignExec(clientCtx client.Context, from fmt.Stringer, filename string, ex
 	args = append(args,
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 		fmt.Sprintf("--from=%s", from.String()),
-		fmt.Sprintf("--%s=%s", flags.FlagHome, strings.Replace(clientCtx.HomeDir, "simd", "simcli", 1)),
+		fmt.Sprintf("--%s=%s", flags.FlagHome, clientHome(clientCtx.HomeDir)),
 		fmt.Sprintf("--%s=%s", flags.FlagChainID, clientCtx.ChainID),
 		filename,
 	)
@@ -110,6 +110,12 @@ func TxMultiSignBatchExec(clientCtx client.Context, filename string, from string
 	args = append(args, extraArgs...)
 
 	return clitestutil.ExecTestCLICmd(clientCtx, cli.GetMultiSignBatchCmd(), args)
+}
+
+// clientHome returns the client home directory that a testutil network creates beside
+// the validator home nodeHome.
+func clientHome(nodeHome string) string {
+	return filepath.Join(filepath.Dir(nodeHome), "seicli")
 }
 
 // DONTCOVER

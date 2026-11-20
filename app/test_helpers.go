@@ -623,7 +623,7 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 }
 
 // DefaultConsensusParams defines the default Tendermint consensus params used in
-// SimApp testing.
+// App testing.
 var DefaultConsensusParams = &tmproto.ConsensusParams{
 	Block: &tmproto.BlockParams{
 		MaxBytes: 200000,
@@ -665,10 +665,9 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 	return app, GenesisState{}
 }
 
-// SetupWithGenesisValSet initializes a new SimApp with a validator set and genesis accounts
-// that also act as delegators. For simplicity, each validator is bonded with a delegation
-// of one consensus engine unit (10^6) in the default token of the simapp from first genesis
-// account. A Nop logger is set in SimApp.
+// SetupWithGenesisValSet initializes a new App with a validator set and genesis accounts
+// that also act as delegators. Each validator is bonded with a delegation of one consensus
+// engine unit (10^6) of the bond denom from the first genesis account.
 func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *App {
 	app, genesisState := setup(t, true, 5)
 	// set genesis accounts
@@ -747,7 +746,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	return app
 }
 
-// SetupWithGenesisAccounts initializes a new SimApp with the provided genesis
+// SetupWithGenesisAccounts initializes a new App with the provided genesis
 // accounts and possible balances.
 func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *App {
 	app, genesisState := setup(t, true, 0)
@@ -827,7 +826,7 @@ func createIncrementalAccounts(accNum int) []sdk.AccAddress {
 	return addresses
 }
 
-// AddTestAddrsFromPubKeys adds the addresses into the SimApp providing only the public keys.
+// AddTestAddrsFromPubKeys funds the address of each of pubKeys with accAmt of the bond denom.
 func AddTestAddrsFromPubKeys(app *App, ctx sdk.Context, pubKeys []cryptotypes.PubKey, accAmt sdk.Int) {
 	initCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), accAmt))
 
