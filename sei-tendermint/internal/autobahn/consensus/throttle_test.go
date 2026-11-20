@@ -56,7 +56,7 @@ func TestConsensusMaxRate(t *testing.T) {
 						if _, err := state.Data().SuperBlock(ctx, n); err != nil {
 							return utils.IgnoreCancel(err)
 						}
-						if err := state.Data().PushAppHash(ctx, n, types.AppHash{}, nil); err != nil {
+						if err := state.Data().PushAppHash(ctx, n, types.AppHash{}); err != nil {
 							return utils.IgnoreCancel(err)
 						}
 					}

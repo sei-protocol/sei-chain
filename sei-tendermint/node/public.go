@@ -16,6 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -154,7 +156,8 @@ func genesisDocument(conf *config.Config, gen *tmtypes.GenesisDoc) (*tmtypes.Gen
 	return gen, nil
 }
 
-// makeEVMApplication opens Autobahn storage and constructs its EVM application.
+// makeEVMApplication opens Autobahn storage and the epoch registry it holds, and constructs the EVM
+// application over both.
 // The caller owns the returned storage after construction succeeds.
 func makeEVMApplication(
 	ctx context.Context,
@@ -179,6 +182,14 @@ func makeEVMApplication(
 	if err != nil {
 		return nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
 	}
+	firstRoad, err := genesisFirstRoad(genDoc)
+	if err != nil {
+		return nil, nil, err
+	}
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, firstRoad, genesisEpochLength(genDoc), validators)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open epoch registry: %w", err)
+	}
 	customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, giga.Execution.UnsafeSkipUpgrades)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load EVM-only governance: %w", err)
@@ -188,6 +199,7 @@ func makeEVMApplication(
 		committee.EVMChainID,
 		validators,
 		storage,
+		epochs,
 		giga.Execution,
 		customPrecompiles,
 		evmOnlyGenesisAlloc(committee, genDoc),
@@ -199,9 +211,24 @@ func makeEVMApplication(
 	if conf.MockApp {
 		mockApp := NewMockApp(app)
 		mockApp.storage = utils.Some(storage)
+		mockApp.epochRegistry = epochs
 		return mockApp, storage, nil
 	}
 	return app, storage, nil
+}
+
+// genesisFirstRoad returns the first road of epoch 0, which is the genesis initial height.
+func genesisFirstRoad(genDoc *tmtypes.GenesisDoc) (atypes.RoadHeight, error) {
+	first, ok := utils.SafeCast[atypes.RoadHeight](genDoc.InitialHeight)
+	if !ok || first < 1 {
+		return 0, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
+	}
+	return first, nil
+}
+
+// genesisEpochLength returns the number of roads in each epoch genDoc configures.
+func genesisEpochLength(genDoc *tmtypes.GenesisDoc) atypes.RoadHeight {
+	return genDoc.Autobahn.Or(tmtypes.DefaultAutobahnParams()).EpochLength
 }
 
 // evmOnlyGenesisAlloc returns the committee's evm_alloc at the genesis initial height, or None when it

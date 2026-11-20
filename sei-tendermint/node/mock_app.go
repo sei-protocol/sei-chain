@@ -17,12 +17,13 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/holiman/uint256"
 
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -75,8 +76,10 @@ type MockApp struct {
 	app         proxy.EVMApplication
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
-	// storage takes an empty block for each committed block. None means Commit writes nothing.
+	// storage takes each committed block. None means Commit writes nothing.
 	storage utils.Option[*bootstrap.GigaStorageManager]
+	// epochRegistry is the registry Commit advances. None means Commit leaves it alone.
+	epochRegistry *evmonlyapp.EpochRegistry
 }
 
 func NewMockApp(app proxy.EVMApplication) *MockApp {
@@ -201,32 +204,32 @@ func (app *MockApp) EvmChainID() uint64 { return app.app.EvmChainID() }
 func (app *MockApp) EvmChainConfig() *params.ChainConfig { return app.chainConfig }
 
 // EvmCall always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmCall(context.Context, *ethcore.Message, evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *MockApp) EvmCall(context.Context, *ethcore.Message, proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGas always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmCallAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, *ethtypes.Header, evmonly.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, *ethtypes.Header, proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, *ethtypes.Header, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, *ethtypes.Header, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCalls always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCallsAt always errors: the mock app keeps no EVM state to execute against.
-func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, *ethtypes.Header, evmonly.CallOverrides) (uint64, []byte, error) {
+func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, *ethtypes.Header, proxy.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errMockAppNoExecution
 }
 
@@ -295,16 +298,29 @@ func (app *MockApp) Commit(ctx context.Context) (*proxy.ResponseCommit, error) {
 	panic("unreachable")
 }
 
-// commitEmptyBlock feeds a committed mock block to every store as a block with no state changes and no receipts.
+// commitEmptyBlock feeds a committed mock block to every store as a block with no account changes
+// and no receipts. It writes the epoch registry row of that road.
 func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
+	if height < 1 {
+		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
+	}
+	var misc []gigatypes.MiscChange
+	if app.epochRegistry != nil {
+		road, ok := utils.SafeCast[atypes.RoadHeight](height)
+		if !ok {
+			return fmt.Errorf("mock app commit height = %d does not fit a road height", height)
+		}
+		var err error
+		misc, err = app.epochRegistry.Changes(road)
+		if err != nil {
+			return err
+		}
+	}
 	storage, ok := app.storage.Get()
 	if !ok {
 		return nil
 	}
-	if height < 1 {
-		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
-	}
-	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{}); err != nil {
+	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{Misc: misc}); err != nil {
 		return fmt.Errorf("commit the state of block %d: %w", height, err)
 	}
 	if receiptDB := storage.ReceiptDB(); receiptDB != nil {
@@ -469,4 +485,12 @@ func parseFastCheckTx(txBytes []byte) (*proxy.ResponseCheckTxV2, error) {
 		EVMSenderAddress: evmAddr,
 		SeiSenderAddress: seiAddr,
 	}, nil
+}
+
+// EpochRegistry returns the mock application's retained epoch window.
+func (app *MockApp) EpochRegistry() (*atypes.EpochRegistry, error) {
+	if app.epochRegistry != nil {
+		return app.epochRegistry.Registry(), nil
+	}
+	return app.app.EpochRegistry()
 }
