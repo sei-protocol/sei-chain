@@ -20,7 +20,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -188,7 +189,7 @@ func TestEncodeBlockEmptyBlockHasZeroGasUsedAndNoTransactions(t *testing.T) {
 // multiTxBlock builds a two-transaction ResultBlock and the matching receipt
 // store entries, returning the block, its two decoded transactions in order,
 // and the store.
-func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime time.Time) (*coretypes.ResultBlock, *ethtypes.Transaction, *ethtypes.Transaction, receipt.ReceiptStore) {
+func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime time.Time) (*coretypes.ResultBlock, *ethtypes.Transaction, *ethtypes.Transaction, receiptdb.ReceiptStore) {
 	t.Helper()
 	tx1, raw1 := testSignedTransaction(t)
 	sender1, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx1)
@@ -198,7 +199,7 @@ func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime t
 	require.NoError(t, err)
 
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{
 			TxHash: tx1.Hash(),
 			Receipt: &evmtypes.Receipt{
@@ -620,7 +621,7 @@ func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		block *coretypes.ResultBlock
-		store receipt.ReceiptStore
+		store receiptdb.ReceiptStore
 		want  hexutil.Uint
 	}{
 		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore, want: 2},
@@ -824,7 +825,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 		},
 	}
 	replayStore := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, replayStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, replayStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  tx.Hash(),
 		Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 3, TransactionIndex: 7, From: sender.Hex()},
 	}}))
@@ -832,7 +833,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 	for _, tc := range []struct {
 		name  string
 		block *coretypes.ResultBlock
-		store receipt.ReceiptStore
+		store receiptdb.ReceiptStore
 	}{
 		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore},
 		{name: "replayed transaction with an earlier block's receipt", block: oneTxBlock, store: replayStore},
@@ -891,7 +892,7 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		block           *coretypes.ResultBlock
-		store           receipt.ReceiptStore
+		store           receiptdb.ReceiptStore
 		wantErr         error
 		wantErrContains string
 	}{
