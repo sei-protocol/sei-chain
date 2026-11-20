@@ -17,6 +17,7 @@ import (
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -405,13 +406,15 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 }
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
-// persistent-state directory, laid out for nodeMode unless storage pins a mode.
+// persistent-state directory, laid out for nodeMode unless storage pins a mode,
+// with the history archive when archiveConfig enables one.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
 	nodeMode string,
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
+	archiveConfig gigaconfig.ArchiveConfig,
 	genDoc *types.GenesisDoc,
 ) (*bootstrap.GigaStorageManager, error) {
 	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
@@ -428,6 +431,14 @@ func openAutobahnStorageManager(
 	}
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
+	if archiveConfig.Enabled() {
+		storageConfig.ArchiveConfig = &clickhouse.Config{
+			Addr:     archiveConfig.ClickHouseAddr,
+			Database: archiveConfig.Database,
+			User:     archiveConfig.User,
+			Password: archiveConfig.Password,
+		}
+	}
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 

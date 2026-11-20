@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
@@ -37,6 +38,9 @@ type GigaStorageManager struct {
 
 	// receiptDB is nil when ReceiptDBConfig.Enable is false.
 	receiptDB receipt.ReceiptStore
+
+	// archive is nil when ArchiveConfig is nil.
+	archive archive.ArchivalStore
 
 	// stateDB owns the live state DB, the historical state DB and the state WAL they share, along
 	// with the checkpoint schedule those stores run on.
@@ -96,6 +100,15 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 
 	if err := assertInvariants(cfg, blockStoreHead, heads); err != nil {
 		return nil, fmt.Errorf("assert storage invariants: %w", err)
+	}
+	timer.SetPhase("archive")
+	archiveStore, err := openArchive(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	if archiveStore != nil {
+		defer closeOnFailure(&retErr, "archive", archiveStore.Close)
+		heads.archive = archiveStore.LatestBlock()
 	}
 	timer.SetPhase("align_stores")
 	if err := alignStores(ctx, cfg, recoveryTarget(heads)); err != nil {
@@ -173,6 +186,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		cfg:            cfg,
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
+		archive:        archiveStore,
 		stateDB:        stateDB,
 		gc:             gc,
 		appHashBuilder: appHashBuilder,
@@ -309,6 +323,9 @@ func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStor
 // ReceiptDB returns the receipt store, or nil when receipts are disabled.
 func (m *GigaStorageManager) ReceiptDB() receipt.ReceiptStore { return m.receiptDB }
 
+// Archive returns the history archive, or nil when no archive is configured.
+func (m *GigaStorageManager) Archive() archive.ArchivalStore { return m.archive }
+
 // StateDB returns the Giga state DB over the state WAL, the live state DB and the historical state DB.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }
 
@@ -344,6 +361,12 @@ func (m *GigaStorageManager) Close() error {
 		timer.SetPhase("receipt_store")
 		if err := m.receiptDB.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close receipt store: %w", err))
+		}
+	}
+	if m.archive != nil {
+		timer.SetPhase("archive")
+		if err := m.archive.Close(); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close archive: %w", err))
 		}
 	}
 	timer.SetPhase("state_db")

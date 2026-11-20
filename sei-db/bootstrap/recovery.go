@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
+	"github.com/sei-protocol/sei-chain/sei-db/archive/chstore"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
@@ -41,6 +43,10 @@ type storeHeads struct {
 	// The newest block whose app hash the vault holds, or the block before the giga activation height when it
 	// holds none.
 	appHashVault uint64
+
+	// The newest block the history archive holds, or 0 when it holds none or none is configured. Unlike the
+	// others it is read from the open archive.
+	archive uint64
 }
 
 // readStoreHeads reads the head of every store recovery aligns. It reads their files, so it must run before they
@@ -215,7 +221,7 @@ func requireStateWALReplayableFromTheLiveStateDB(heads storeHeads) error {
 }
 
 // recoveryTarget returns the height the stores align on: the lowest of the live state's reachable height, the
-// app hash vault's head, and the heads of the historical state DB and receipt store that hold blocks.
+// app hash vault's head, and the heads of the historical state DB, receipt store and archive that hold blocks.
 func recoveryTarget(heads storeHeads) uint64 {
 
 	heights := make([]uint64, 0)
@@ -226,7 +232,7 @@ func recoveryTarget(heads storeHeads) uint64 {
 
 	// The remaining stores can legally be empty at any height, and so we can ignore them when deciding
 	// the recovery target when they are empty.
-	for _, head := range []uint64{heads.historicalStateDB, heads.receiptStore} {
+	for _, head := range []uint64{heads.historicalStateDB, heads.receiptStore, heads.archive} {
 		if head > 0 {
 			heights = append(heights, head)
 		}
@@ -291,4 +297,17 @@ func openReceiptStore(cfg *config.GigaStorageConfig) (receipt.ReceiptStore, erro
 			cfg.ReceiptDBConfig.DBDirectory, err)
 	}
 	return receiptDB, nil
+}
+
+// openArchive opens the history archive, returning nil when no archive is configured.
+func openArchive(ctx context.Context, cfg *config.GigaStorageConfig) (archive.ArchivalStore, error) {
+	if cfg.ArchiveConfig == nil {
+		return nil, nil
+	}
+	exporter, err := chstore.StartExporter(ctx, *cfg.ArchiveConfig)
+	if err != nil {
+		// Returned as a nil Store, not a Store holding a nil exporter.
+		return nil, err
+	}
+	return exporter, nil
 }
