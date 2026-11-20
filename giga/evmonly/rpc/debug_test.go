@@ -347,6 +347,27 @@ func TestDebugTraceBlock(t *testing.T) {
 		})
 	}
 
+	t.Run("earliest on a chain starting at block 2, whose parent is not stored", func(t *testing.T) {
+		chain.backend.initialHeight = 2
+		first := chain.blocks[1]
+		delete(chain.blocks, 1)
+		defer func() {
+			chain.backend.initialHeight = 0
+			chain.blocks[1] = first
+		}()
+		var got []struct {
+			TxHash common.Hash `json:"txHash"`
+			Error  string      `json:"error"`
+		}
+		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.EarliestBlockNumber, tracer("callTracer")))
+		hashes := make([]common.Hash, len(got))
+		for i, result := range got {
+			hashes[i] = result.TxHash
+			require.Empty(t, result.Error)
+		}
+		require.Equal(t, want, hashes)
+	})
+
 	t.Run("block whose receipts are not indexed", func(t *testing.T) {
 		chain.backend.blockNumber = func() uint64 { return 3 }
 		chain.blocks[3] = traceResultBlock(3, nil)

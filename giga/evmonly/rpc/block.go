@@ -171,7 +171,7 @@ func (api *blockAPI) fetchBlock(ctx context.Context, height *coretypes.Int64) (*
 // reads. Block 0, which no store holds, carries only its number.
 func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*ethtypes.Header, error) {
 	if height == 0 {
-		return genesisBlock().Header(), nil
+		return preChainBlock(0).Header(), nil
 	}
 	block, err := api.blockAt(ctx, height)
 	if err != nil {
@@ -207,8 +207,11 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 }
 
 // parentHash returns the hash of the block before height, which a stored block does not carry. It is
-// zero before the first block.
+// zero for the chain's first block.
 func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash, error) {
+	if height <= firstBlockHeight(api.backend) {
+		return common.Hash{}, nil
+	}
 	parent, err := api.blockAt(ctx, height-1)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)

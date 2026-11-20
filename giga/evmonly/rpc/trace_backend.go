@@ -98,13 +98,13 @@ func (b *traceBackend) BlockWithTraceMetadataByHash(ctx context.Context, hash co
 
 // BlockWithTraceMetadataByNumber returns the block at number, or nil when there is none. Head tags
 // name the latest block whose receipts are indexed, or for calls the latest committed block;
-// earliest names the earliest block the receipt store retains, and 0 the block before the chain's
-// first.
+// earliest names the earliest block the receipt store retains, and a height below the chain's
+// first block a block holding only its number.
 func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	if number == 0 {
-		// The tracer reads block 0 as the parent of block 1; debugAPI resolves a request's 0x0
-		// before it gets here.
-		return genesisBlock(), nil, nil
+	if number >= 0 && number.Int64() < firstBlockHeight(b.backend) {
+		// The tracer reads the block before the first as the first block's parent; debugAPI
+		// resolves a request's 0x0 before it gets here.
+		return preChainBlock(number.Int64()), nil, nil
 	}
 	height, err := b.traceHeight(number)
 	if err != nil {
@@ -118,7 +118,7 @@ func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, numbe
 	return eth, nil, err
 }
 
-// traceHeight returns the height a non-zero number names for a trace.
+// traceHeight returns the height number names for a trace.
 func (b *traceBackend) traceHeight(number ethrpc.BlockNumber) (int64, error) {
 	kind, err := classifyBlockNumber(number)
 	if err != nil {
@@ -137,10 +137,11 @@ func (b *traceBackend) traceHeight(number ethrpc.BlockNumber) (int64, error) {
 	return number.Int64(), nil
 }
 
-// genesisBlock returns block 0, which no store holds: it carries only its number and the zero hash
-// block 1 names as its parent, which is all a trace reads from a parent block.
-func genesisBlock() *ethtypes.Block {
-	block := ethtypes.NewBlockWithHeader(&ethtypes.Header{Number: new(big.Int), Difficulty: new(big.Int), BaseFee: new(big.Int)})
+// preChainBlock returns block height below the chain's first block, which no store holds: it carries
+// only its number and the zero hash the first block names as its parent, which is all a trace reads
+// from a parent block.
+func preChainBlock(height int64) *ethtypes.Block {
+	block := ethtypes.NewBlockWithHeader(&ethtypes.Header{Number: big.NewInt(height), Difficulty: new(big.Int), BaseFee: new(big.Int)})
 	block.OverwriteHash(common.Hash{})
 	return block
 }
