@@ -14,8 +14,8 @@ import (
 
 // GetValidators returns staking's bonded set after the latest finalized block,
 // and the configured validators until staking has bonded one. It returns none
-// once a block is known to have failed to commit or the stored set does not add
-// up, and autobahn cannot stage an empty committee.
+// once a block is known to have failed to commit, or when the stored set does
+// not add up.
 func (a *evmOnlyApplication) GetValidators() []proxy.ValidatorUpdate {
 	bonded, err := a.bondedValidators()
 	if err != nil {

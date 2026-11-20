@@ -8,11 +8,23 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+func TestGenesisEpochUsesAutobahnEpochLength(t *testing.T) {
+	params := types.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genDoc := &types.GenesisDoc{InitialHeight: 7, GenesisTime: time.Unix(1, 0), Autobahn: utils.Some(params)}
+	firstRoad, err := genesisFirstRoad(genDoc)
+	require.NoError(t, err)
+	require.Equal(t, atypes.RoadHeight(7), firstRoad)
+	require.Equal(t, atypes.RoadHeight(3), genesisEpochLength(genDoc))
+}
 
 func genesisAt(initialHeight int64) *types.GenesisDoc {
 	return &types.GenesisDoc{InitialHeight: initialHeight}

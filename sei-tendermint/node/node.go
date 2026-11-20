@@ -309,7 +309,8 @@ func makeNode(
 			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
 
-			ReadOnly: opts.freezeHeight > 0,
+			ReadOnly:     opts.freezeHeight > 0,
+			FreezeHeight: opts.freezeHeight,
 		},
 	}
 
@@ -348,6 +349,9 @@ func makeNode(
 		manager, ok := gigaStorageManager.Get()
 		if !ok {
 			return nil, errors.New("autobahn requires a storage manager")
+		}
+		if _, ok := node.giga.Get(); !ok {
+			return nil, errors.New("autobahn requires a router")
 		}
 		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
 		node.rpcEnv.Executor = node.executor

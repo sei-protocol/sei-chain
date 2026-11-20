@@ -36,6 +36,7 @@ func TestEVMOnlyApplicationRefusesAnAllocThatFundsNoAccount(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	_, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID, nil, storage,
+		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
 		utils.Some(GenesisAlloc{InitialHeight: 1, Accounts: map[common.Address]evmonly.GenesisAccount{{0xc0}: genesisTestContract()}}),

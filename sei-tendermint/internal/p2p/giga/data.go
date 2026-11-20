@@ -21,8 +21,9 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 		return fmt.Errorf("client.StreamFullCommitQCs(): %w", err)
 	}
 	defer stream.Close()
+	next := s.data.NextQC()
 	if err := stream.Send(ctx, StreamFullCommitQCsReqConv.Encode(&StreamFullCommitQCsReq{
-		NextBlock: s.data.NextQC(),
+		NextBlock: next,
 	})); err != nil {
 		recordFetch(ctx, resFullCommitQC, "send")
 		return fmt.Errorf("stream.Send(): %w", err)
@@ -38,7 +39,11 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			recordFetch(ctx, resFullCommitQC, "decode")
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		// TODO: add DoS protection (i.e. that only useful state.Data() has been actually sent).
+		if qc.Height() < next {
+			recordFetch(ctx, resFullCommitQC, "out_of_order")
+			return fmt.Errorf("qc.Height() = %v, want >= %v: %w", qc.Height(), next, types.ErrUnexpectedHeight)
+		}
+		next = qc.Height() + 1
 		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
 			recordFetch(ctx, resFullCommitQC, "process")
 			return fmt.Errorf("s.PushCommitQC(): %w", err)

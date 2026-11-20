@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
@@ -54,4 +55,17 @@ func (suite *GenesisTestSuite) TestInitGenesis() {
 
 func TestGenesisTestSuite(t *testing.T) {
 	suite.Run(t, new(GenesisTestSuite))
+}
+
+// TestInitGenesisStoresTheDisabledMsgTypeURLs initializes a params store that does not hold
+// the disabled message type URLs.
+func TestInitGenesisStoresTheDisabledMsgTypeURLs(t *testing.T) {
+	_, ctx, _, _, k := testComponents()
+	subspace, ok := k.GetSubspace(types.ModuleName)
+	require.True(t, ok)
+
+	k.InitGenesis(ctx, types.DefaultGenesis())
+
+	require.True(t, subspace.Has(ctx, types.ParamStoreKeyDisabledMsgTypeURLs))
+	require.Empty(t, k.GetDisabledMsgTypeURLs(ctx))
 }

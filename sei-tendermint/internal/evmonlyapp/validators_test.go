@@ -62,6 +62,7 @@ func newStakingEVMOnlyTestApp(t *testing.T, configured []proxy.ValidatorUpdate, 
 		evmOnlyTestChainID,
 		configured,
 		storage,
+		openEVMOnlyTestEpochs(t, storage, configured, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some[precompiles.Registry](registry),
 		utils.None[GenesisAlloc](),
@@ -112,7 +113,7 @@ func TestEVMOnlyApplicationServesNoValidatorsAfterAFailedCommit(t *testing.T) {
 	// The failed commit leaves the receipt store ahead of the state, so the shutdown is not clean.
 	t.Cleanup(func() { require.Error(t, storage.Close()) })
 	configured := []proxy.ValidatorUpdate{{PubKey: autobahnKey(ed25519.TestSecretKey([]byte("configured")).Public()), Power: 1}}
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, configured, storage, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, configured, storage, openEVMOnlyTestEpochs(t, storage, configured, 1), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)

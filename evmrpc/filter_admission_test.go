@@ -12,7 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -210,12 +211,12 @@ type emptyRangeReceiptStore struct {
 	fakeReceiptStore
 }
 
-func (*emptyRangeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *receipt.LogBudget) ([]*ethtypes.Log, error) {
+func (*emptyRangeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *logfilter.LogBudget) ([]*ethtypes.Log, error) {
 	return nil, nil
 }
 
 // newAdmissionTestAPI returns a FilterAPI over blocks admissionEarliest to admissionHead. Without
-// k, a read that passes admission fails with receipt.ErrNotConfigured and one refused by it fails
+// k, a read that passes admission fails with receiptdb.ErrNotConfigured and one refused by it fails
 // with the admission error, before any receipt is read.
 func newAdmissionTestAPI(limiter *rate.Limiter, metrics *WorkerPoolMetrics, k *keeper.Keeper) *FilterAPI {
 	cfg := &FilterConfig{timeout: time.Minute, maxLog: DefaultMaxLogLimit, maxBlock: admissionMaxBlock, maxFilters: DefaultMaxFilters}
@@ -309,7 +310,7 @@ func TestLogReadsShareAdmission(t *testing.T) {
 				requireRefusedWith(t, err, tc.refused)
 				return
 			}
-			require.ErrorIs(t, err, receipt.ErrNotConfigured, "admitted, so the read reached the receipt store")
+			require.ErrorIs(t, err, receiptdb.ErrNotConfigured, "admitted, so the read reached the receipt store")
 		})
 	}
 }
@@ -323,7 +324,7 @@ func TestFilterReadsSpendTheGetLogsBudget(t *testing.T) {
 		t.Run(r.name, func(t *testing.T) {
 			t.Parallel()
 			api := newAdmissionTestAPI(limiterWithTokens(1), idleMetrics(), nil)
-			require.ErrorIs(t, r.read(t, api, lastBlocks(500)), receipt.ErrNotConfigured, "the filter read takes the only token")
+			require.ErrorIs(t, r.read(t, api, lastBlocks(500)), receiptdb.ErrNotConfigured, "the filter read takes the only token")
 			_, err := api.GetLogs(t.Context(), lastBlocks(500))
 			requireRefusedWith(t, err, rateLimitedMsg)
 		})

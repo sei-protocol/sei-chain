@@ -125,7 +125,7 @@ func logLevelListCmd() *cobra.Command {
 
 func adminClient(cmd *cobra.Command) (types.AdminServiceClient, *grpc.ClientConn, error) {
 	addr, _ := cmd.Flags().GetString("admin-addr")
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient("passthrough:///"+addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to admin gRPC server at %s: %w", addr, err)
 	}

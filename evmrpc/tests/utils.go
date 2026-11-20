@@ -20,7 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -217,7 +217,7 @@ func setupTestServer(
 	settleCommittedBlocks(a, ctxProvider)
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		// These tests seed receipts by other means and would otherwise read against an unset window.
-		if err := receipt.PinVersions(store, 1, store.LatestVersion()); err != nil {
+		if err := receiptdb.PinVersions(store, 1, store.LatestVersion()); err != nil {
 			panic(err)
 		}
 	}

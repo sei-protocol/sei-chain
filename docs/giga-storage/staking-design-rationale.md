@@ -293,17 +293,16 @@ that cost is small.
 ### The epoch snapshot
 
 V2 hands CometBFT a new validator set every block. Autobahn changes its
-committee once per epoch: it reads the bonded set after an epoch's last block,
-derives the committee two epochs ahead from it, and keeps that committee in
-consensus-owned state the precompiles do not read. Rewards need the committee
-that served a block.
+committee once per epoch: on an epoch's last block, the app derives the
+committee two epochs ahead and writes it to the epoch registry, which the
+precompiles do not read. Rewards need the committee that served a block.
 
 So at the end of an epoch's last block, EndBlock copies `lastValidators`, with
 each member's consensus key, into `epochValidators[epoch]`, and the committee
 that served a block in epoch E is the snapshot of epoch E−2. The snapshot is
 committed state, so every node reads the same one, and a node that state-syncs
-gets it too. Consensus marks the block that closes an epoch, so the app never
-repeats the epoch length. The keys are copied because a member can leave the
+gets it too. Consensus marks the block that closes an epoch, so staking never
+needs the epoch length. The keys are copied because a member can leave the
 bonded set, finish unbonding with no shares and be removed while its snapshot
 is still read.
 
