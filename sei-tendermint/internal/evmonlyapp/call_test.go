@@ -89,7 +89,7 @@ func TestEVMOnlyApplicationEvmCallReadsCommittedContractCode(t *testing.T) {
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -114,7 +114,7 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -181,11 +181,11 @@ var blockInfoCode = []byte{
 func TestEVMOnlyApplicationExecutesAgainstAPastBlock(t *testing.T) {
 	app := newUndoLogEVMOnlyTestApp(t)
 	deployRaw, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(blockInfoCode), 300_000)
-	first := evmOnlyTestBlock(1)
-	second := evmOnlyTestBlock(2, deployRaw)
+	first := evmOnlyTestBlock(app, 1)
+	second := evmOnlyTestBlock(app, 2, deployRaw)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, second)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 
@@ -233,9 +233,9 @@ func TestEVMOnlyApplicationExecutesAgainstAPastBlock(t *testing.T) {
 // A call or gas estimate, at the latest block or a past one, runs with the overrides it is given.
 func TestEVMOnlyApplicationAppliesCallOverrides(t *testing.T) {
 	app := newUndoLogEVMOnlyTestApp(t)
-	first := evmOnlyTestBlock(1)
+	first := evmOnlyTestBlock(app, 1)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
 	code := hexutil.Bytes(blockInfoCode)
@@ -287,9 +287,9 @@ func TestEVMOnlyApplicationAppliesCallOverrides(t *testing.T) {
 // A validator keeps no history, so it executes only against the latest block's state.
 func TestEVMOnlyApplicationValidatorExecutesOnlyAgainstTheLatestBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	first := evmOnlyTestBlock(1)
+	first := evmOnlyTestBlock(app, 1)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
 	to := common.Address{1}
 
 	_, err := app.EvmCallAt(t.Context(), callMessage(common.Address{}, &to), traceTestHeader(2, first.Hash), evmonly.CallOverrides{})

@@ -355,10 +355,10 @@ func (a *evmOnlyApplication) CheckTx(tx proxy.EvmTx) (proxy.AdmittedTx, error) {
 	if tx.Gas() > math.MaxInt64 {
 		return proxy.AdmittedTx{}, errors.New("transaction gas limit exceeds int64")
 	}
-	if err := a.checkGasCoversIntrinsic(tx.Transaction, tx.Sender); err != nil {
+	if err := a.checkGasCoversIntrinsic(tx.Transaction(), tx.Sender()); err != nil {
 		return proxy.AdmittedTx{}, err
 	}
-	if err := a.checkSenderCanPay(tx.Transaction, tx.Sender); err != nil {
+	if err := a.checkSenderCanPay(tx.Transaction(), tx.Sender()); err != nil {
 		return proxy.AdmittedTx{}, err
 	}
 	return proxy.AdmittedTx{GasEstimated: tx.Gas()}, nil
@@ -444,7 +444,7 @@ func (a *evmOnlyApplication) checkAdmissionPolicy(tx proxy.EvmTx) error {
 	// that is the fee cap, so admitting on it let through transactions the
 	// executor then refused — and an executor refusal is a node panic, not a
 	// failed receipt.
-	if evmonly.EffectiveGasPrice(tx.Transaction, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
+	if evmonly.EffectiveGasPrice(tx.Transaction(), evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
 		return fmt.Errorf("insufficient fee: effective gas price is below %s", a.minGasPrice)
 	}
 	return nil
@@ -912,8 +912,8 @@ func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor
 	transactions := make([]*ethtypes.Transaction, len(txs))
 	senders := make([]utils.Option[common.Address], len(txs))
 	for i, tx := range txs {
-		transactions[i] = tx.Transaction
-		senders[i] = utils.Some(tx.Sender)
+		transactions[i] = tx.Transaction()
+		senders[i] = utils.Some(tx.Sender())
 	}
 	prepared, err := executor.PrepareDecodedBlock(ctx, block, transactions, senders)
 	if err != nil {

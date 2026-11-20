@@ -307,7 +307,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 
 	// Quick check the evm pending nonce.
 	// It has a side effect of resetting the pending nonce, if gap is detected.
-	addr := decoded.Sender
+	addr := decoded.Sender()
 	if got, want := decoded.Nonce(), s.evmNextPendingNonce(mp, addr); got != want {
 		return proxy.AdmittedTx{}, fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
 	}

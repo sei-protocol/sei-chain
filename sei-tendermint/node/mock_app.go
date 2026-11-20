@@ -319,7 +319,7 @@ func (state *mockAppState) finalizeBlock(req proxy.FinalizeBlockReq, txs []mockA
 			continue
 		}
 		tx := parsed.tx
-		sender := parsed.tx.Sender
+		sender := parsed.tx.Sender()
 		wantNonce := state.nextNonce[sender]
 		if tx.Nonce() == wantNonce {
 			gasUsed += tx.Gas()

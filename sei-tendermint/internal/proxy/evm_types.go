@@ -72,3 +72,6 @@ type EvmTx struct {
 }
 
 func (tx EvmTx) Sender() common.Address { return tx.sender }
+
+// Transaction returns the underlying Ethereum transaction for read-only use.
+func (tx EvmTx) Transaction() *ethtypes.Transaction { return tx.tx }

@@ -99,7 +99,7 @@ func TestEVMOnlyApplicationStartsGovAtTheFirstBlock(t *testing.T) {
 	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, "gov", "votingparams.voting_period")
 	require.Error(t, err, "params refuses calls before the first block writes them")
 
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1))
 	_, err = precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, "gov", "votingparams.voting_period")
 	require.NoError(t, err)
 	out, err := govCall(t, app, gov.ParamsMethod)
@@ -109,7 +109,7 @@ func TestEVMOnlyApplicationStartsGovAtTheFirstBlock(t *testing.T) {
 	require.Equal(t, uint64(40*time.Second), got.VotingPeriod)
 
 	submit := signedGovTx(t, 0, nil, gov.SubmitTextProposalMethod, "t", "d", false)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2, submit))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2, submit))
 	out, err = govCall(t, app, gov.ProposalMethod, uint64(500))
 	require.NoError(t, err)
 	var prop gov.ProposalData

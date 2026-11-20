@@ -50,8 +50,8 @@ func (tx *txSpec) transaction() *ethtypes.Transaction {
 func (tx *txSpec) encode() []byte { return utils.OrPanic1(tx.transaction().MarshalBinary()) }
 
 func decodeTxSpec(raw []byte) (*txSpec, error) {
-	tx, err := proxy.DecodeTx(raw)
-	if err != nil {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
 		return nil, err
 	}
 	return decodeTxSpecData(tx.Data())

@@ -32,16 +32,16 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{tx1, tx2}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{tx1, tx2}, 0)),
 		Height: 3})
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 	require.Equal(t, uint64(52_000), res.GasUsed)
 
-	decoded := utils.OrPanic1(proxy.DecodeTx(tx2))
+	decoded := utils.OrPanic1(proxy.NewEVM(app).DecodeTx(tx2))
 	_, checkErr := app.CheckTx(decoded)
 	require.NoError(t, checkErr)
-	require.Equal(t, addr, decoded.Sender)
+	require.Equal(t, addr, decoded.Sender())
 }
 
 func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
@@ -78,7 +78,7 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{tx0, tx2, tx1}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{tx0, tx2, tx1}, 0)),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(62_000), res.GasUsed)
@@ -87,7 +87,7 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	duplicate, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{tx1}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{tx1}, 0)),
 		Height: 2})
 	require.NoError(t, err)
 	require.Zero(t, duplicate.GasUsed)
@@ -107,7 +107,7 @@ func TestMockAppFinalizeBlockSkipsInvalidTransactions(t *testing.T) {
 	unprotected := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key))
 
 	res, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{tx0, utils.OrPanic1(unprotected.MarshalBinary()), tx1}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{tx0, utils.OrPanic1(unprotected.MarshalBinary()), tx1}, 0)),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(52_000), res.GasUsed)
@@ -354,19 +354,25 @@ func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint
 
 func TestCheckMockTxEVMTransaction(t *testing.T) {
 	raw, ethTx := buildFastCheckTxBytes(t)
-	decoded := utils.OrPanic1(proxy.DecodeTx(raw))
+	app := NewMockApp(mockAppFixture{})
+	decoded := utils.OrPanic1(proxy.NewEVM(app).DecodeTx(raw))
 	res, err := checkMockTx(decoded)
 	require.NoError(t, err)
 	require.Equal(t, uint64(123456), res.GasEstimated)
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(ethTx.ChainId()), ethTx)
 	require.NoError(t, err)
-	require.Equal(t, sender, decoded.Sender)
-	require.NotEqual(t, common.Address{}, decoded.Sender)
+	require.Equal(t, sender, decoded.Sender())
+	require.NotEqual(t, common.Address{}, decoded.Sender())
 }
 
 func TestMockAppRejectsUnprotectedTransaction(t *testing.T) {
 	wrapped := NewMockApp(mockAppFixture{})
-	_, err := wrapped.CheckTx(proxy.EvmTx{Transaction: ethtypes.NewTx(&ethtypes.LegacyTx{})})
+	key, err := ethcrypto.GenerateKey()
+	require.NoError(t, err)
+	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
+	require.NoError(t, err)
+	decoded := utils.OrPanic1(proxy.NewEVM(wrapped).DecodeTx(utils.OrPanic1(signed.MarshalBinary())))
+	_, err = wrapped.CheckTx(decoded)
 	require.Error(t, err)
 }
 
@@ -375,7 +381,7 @@ func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
 	txBytes, _ := buildFastCheckTxBytes(t)
 
 	wrapped := NewMockApp(app)
-	res, checkErr := wrapped.CheckTx(utils.OrPanic1(proxy.DecodeTx(txBytes)))
+	res, checkErr := wrapped.CheckTx(utils.OrPanic1(proxy.NewEVM(wrapped).DecodeTx(txBytes)))
 	require.False(t, app.called)
 	require.Equal(t, uint64(123456), res.GasEstimated)
 	require.NoError(t, checkErr)

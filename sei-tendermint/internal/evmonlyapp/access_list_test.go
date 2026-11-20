@@ -24,7 +24,7 @@ func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
 	runtime := storeCode(slot, common.BytesToHash([]byte{0x22}))
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1, Time: time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
@@ -70,10 +70,10 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	slot := common.BytesToHash([]byte{0x11})
 	runtime := storeCode(slot, common.BytesToHash([]byte{0x22}))
 	deployRaw, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
-	first := evmOnlyTestBlock(1)
+	first := evmOnlyTestBlock(app, 1)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, first)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2, deployRaw))
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2, deployRaw))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
 	beforeDeploy, deployed := traceTestHeader(1, common.Hash{}), traceTestHeader(2, first.Hash)

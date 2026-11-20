@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
@@ -24,30 +26,33 @@ func (a *evmCheckApp) CheckTx(tx EvmTx) (AdmittedTx, error) { return a.check(tx)
 func TestEVMCheckTx(t *testing.T) {
 	t.Run("accepted", func(t *testing.T) {
 		want := AdmittedTx{GasEstimated: 21_000}
-		raw := EvmTx{Transaction: ethtypes.NewTx(&ethtypes.LegacyTx{Data: []byte{2}})}
+		raw := signedProxyTestTx(0)
 		app := NewEVM(&evmCheckApp{check: func(tx EvmTx) (AdmittedTx, error) {
-			require.True(t, raw == tx)
+			require.Equal(t, raw.Hash(), tx.Hash())
 			return want, nil
 		}})
-		got, err := app.CheckTx(raw)
+		decoded := utils.OrPanic1(app.DecodeTx(utils.OrPanic1(raw.MarshalBinary())))
+		got, err := app.CheckTx(decoded)
 		require.NoError(t, err)
 		require.Equal(t, want, got)
 	})
 	t.Run("rejected", func(t *testing.T) {
 		cause := errors.New("invalid transaction")
 		app := NewEVM(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { return AdmittedTx{}, cause }})
-		_, err := app.CheckTx(EvmTx{Transaction: ethtypes.NewTx(&ethtypes.LegacyTx{})})
+		_, err := app.CheckTx(utils.OrPanic1(app.DecodeTx(utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))))
 		require.ErrorIs(t, err, ErrTxRejected)
 		require.ErrorIs(t, err, cause)
 	})
 	t.Run("panic propagates", func(t *testing.T) {
 		app := NewEVM(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { panic("store failure") }})
-		require.Panics(t, func() { _, _ = app.CheckTx(EvmTx{Transaction: ethtypes.NewTx(&ethtypes.LegacyTx{})}) })
+		require.Panics(t, func() {
+			_, _ = app.CheckTx(utils.OrPanic1(app.DecodeTx(utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))))
+		})
 	})
 }
 
 func TestDecodeTxRejectsMalformedInput(t *testing.T) {
-	_, err := DecodeTx([]byte{1})
+	_, err := NewEVM(&evmCheckApp{}).DecodeTx([]byte{1})
 	require.ErrorIs(t, err, ErrTxRejected)
 }
 
@@ -56,37 +61,41 @@ func (a *evmCheckApp) FinalizeBlock(_ context.Context, req FinalizeBlockReq) (Fi
 	return FinalizeBlockResp{}, nil
 }
 
-func signedProxyTestTx(nonce uint64) EvmTx {
+func signedProxyTestTx(nonce uint64) *ethtypes.Transaction {
 	key := utils.OrPanic1(crypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe512961708279011d44f4d6b2c7d7f7"))
 	tx := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: nonce}), ethtypes.LatestSignerForChainID(big.NewInt(1)), key))
-	return EvmTx{Transaction: tx, Sender: crypto.PubkeyToAddress(key.PublicKey)}
+	return tx
+}
+
+func proxyTestSender(tx *ethtypes.Transaction) common.Address {
+	return utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))
 }
 
 func TestEVMProxySenderCacheLifecycle(t *testing.T) {
 	tx := signedProxyTestTx(0)
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	app := &evmCheckApp{check: func(got EvmTx) (AdmittedTx, error) {
-		require.Equal(t, tx.Sender, got.Sender)
+		require.Equal(t, proxyTestSender(tx), got.Sender())
 		return AdmittedTx{}, nil
 	}}
 	proxy := NewEVM(app)
 	decoded, err := proxy.DecodeTx(raw)
 	require.NoError(t, err)
-	require.Equal(t, tx.Sender, decoded.Sender)
+	require.Equal(t, proxyTestSender(tx), decoded.Sender())
 	_, err = proxy.CheckTx(decoded)
 	require.NoError(t, err)
 	for senders := range proxy.checkedSenders.Lock() {
-		require.Equal(t, utils.Some(tx.Sender), senders.peek(tx.Hash()))
+		require.Equal(t, utils.Some(proxyTestSender(tx)), senders.peek(tx.Hash()))
 	}
 	decodedBlock, err := proxy.DecodeTxs([][]byte{raw}, 1)
 	require.NoError(t, err)
 	_, err = proxy.FinalizeBlock(t.Context(), FinalizeBlockReq{Txs: decodedBlock})
 	require.NoError(t, err)
-	require.Equal(t, tx.Sender, app.finalized[0].Sender)
+	require.Equal(t, proxyTestSender(tx), app.finalized[0].Sender())
 	for senders := range proxy.checkedSenders.Lock() {
 		require.False(t, senders.peek(tx.Hash()).IsPresent())
 	}
-	proxy.RememberEvmSender(tx.Hash(), tx.Sender)
+	proxy.RememberEvmSender(tx.Hash(), proxyTestSender(tx))
 	proxy.ForgetEvmSender(tx.Hash())
 	for senders := range proxy.checkedSenders.Lock() {
 		require.False(t, senders.peek(tx.Hash()).IsPresent())
@@ -99,7 +108,8 @@ func TestEVMProxyDoesNotCacheRejectedAdmission(t *testing.T) {
 		return AdmittedTx{}, errors.New("invalid transaction")
 	}}
 	proxy := NewEVM(app)
-	_, err := proxy.CheckTx(tx)
+	decoded := utils.OrPanic1(proxy.DecodeTx(utils.OrPanic1(tx.MarshalBinary())))
+	_, err := proxy.CheckTx(decoded)
 	require.ErrorIs(t, err, ErrTxRejected)
 	for senders := range proxy.checkedSenders.Lock() {
 		require.False(t, senders.peek(tx.Hash()).IsPresent())
@@ -108,13 +118,13 @@ func TestEVMProxyDoesNotCacheRejectedAdmission(t *testing.T) {
 
 func TestDecodeTxRejectsInvalidSignature(t *testing.T) {
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.LegacyTx{}).MarshalBinary())
-	_, err := DecodeTx(raw)
+	_, err := NewEVM(&evmCheckApp{}).DecodeTx(raw)
 	require.ErrorIs(t, err, ErrTxRejected)
 }
 
 func TestDecodeTxRejectsZeroChainID(t *testing.T) {
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(0)}).MarshalBinary())
-	_, err := DecodeTx(raw)
+	_, err := NewEVM(&evmCheckApp{}).DecodeTx(raw)
 	require.ErrorIs(t, err, ErrTxRejected)
 	require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 }
@@ -124,9 +134,9 @@ func TestDecodeTxRecoversUnprotectedSender(t *testing.T) {
 	require.NoError(t, err)
 	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
 	require.NoError(t, err)
-	tx, err := DecodeTx(utils.OrPanic1(signed.MarshalBinary()))
+	tx, err := NewEVM(&evmCheckApp{}).DecodeTx(utils.OrPanic1(signed.MarshalBinary()))
 	require.NoError(t, err)
-	require.Equal(t, crypto.PubkeyToAddress(key.PublicKey), tx.Sender)
+	require.Equal(t, crypto.PubkeyToAddress(key.PublicKey), tx.Sender())
 }
 
 func TestDecodeTxsPreservesOrder(t *testing.T) {
@@ -135,15 +145,15 @@ func TestDecodeTxsPreservesOrder(t *testing.T) {
 		raw[i] = utils.OrPanic1(signedProxyTestTx(uint64(i)).MarshalBinary())
 	}
 	for _, workers := range []int{0, 1, 4} {
-		txs, err := DecodeTxs(raw, workers)
+		txs, err := NewEVM(&evmCheckApp{}).DecodeTxs(raw, workers)
 		require.NoError(t, err)
 		require.Equal(t, len(raw), len(txs))
 		for i, tx := range txs {
 			require.Equal(t, uint64(i), tx.Nonce())
-			require.Equal(t, signedProxyTestTx(uint64(i)).Sender, tx.Sender)
+			require.Equal(t, proxyTestSender(signedProxyTestTx(uint64(i))), tx.Sender())
 		}
 	}
 	raw[17] = []byte{1}
-	_, err := DecodeTxs(raw, 0)
+	_, err := NewEVM(&evmCheckApp{}).DecodeTxs(raw, 0)
 	require.ErrorIs(t, err, ErrTxRejected)
 }

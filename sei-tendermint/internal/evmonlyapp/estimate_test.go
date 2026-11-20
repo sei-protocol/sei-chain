@@ -23,7 +23,7 @@ func TestEVMOnlyApplicationEvmEstimateGasReadsCommittedContractCode(t *testing.T
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -48,7 +48,7 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
 	_, err := app.FinalizeBlock(t.Context(), proxy.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(proxy.DecodeTxs([][]byte{deployRaw}, 0)),
+		Txs:    utils.OrPanic1(proxy.NewEVM(app).DecodeTxs([][]byte{deployRaw}, 0)),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})

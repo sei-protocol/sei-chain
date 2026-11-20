@@ -152,7 +152,7 @@ func (app *EVMProxy) CheckTx(tx EvmTx) (AdmittedTx, error) {
 	if err != nil {
 		return AdmittedTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
-	app.RememberEvmSender(tx.Hash(), tx.Sender)
+	app.RememberEvmSender(tx.Hash(), tx.Sender())
 	return res, nil
 }
 
@@ -357,31 +357,19 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 	return BlockRef{Height: types.RoadIndex(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, nil
 }
 
-// DecodeTx decodes an Ethereum transaction and recovers its sender.
-// Invalid encodings and signatures are marked with ErrTxRejected.
-func DecodeTx(raw []byte) (EvmTx, error) {
-	return decodeTx(raw, func(common.Hash) utils.Option[common.Address] {
-		return utils.None[common.Address]()
-	})
-}
-
 // DecodeTx decodes an Ethereum transaction and recovers or reuses its verified sender.
 // Invalid encodings and signatures are marked with ErrTxRejected.
 func (app *EVMProxy) DecodeTx(raw []byte) (EvmTx, error) {
-	return decodeTx(raw, func(hash common.Hash) utils.Option[common.Address] {
-		for senders := range app.checkedSenders.Lock() {
-			return senders.peek(hash)
-		}
-		panic("unreachable")
-	})
-}
-
-func decodeTx(raw []byte, cached func(common.Hash) utils.Option[common.Address]) (EvmTx, error) {
 	tx := new(ethtypes.Transaction)
 	if err := tx.UnmarshalBinary(raw); err != nil {
 		return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
 	}
-	sender, ok := cached(tx.Hash()).Get()
+	hash := tx.Hash()
+	var cached utils.Option[common.Address]
+	for senders := range app.checkedSenders.Lock() {
+		cached = senders.peek(hash)
+	}
+	sender, ok := cached.Get()
 	if !ok {
 		var signer ethtypes.Signer = ethtypes.HomesteadSigner{}
 		if tx.Protected() {
@@ -396,22 +384,12 @@ func decodeTx(raw []byte, cached func(common.Hash) utils.Option[common.Address])
 			return EvmTx{}, fmt.Errorf("%w: %w", ErrTxRejected, err)
 		}
 	}
-	return EvmTx{Transaction: tx, Sender: sender}, nil
+	return EvmTx{tx: tx, sender: sender}, nil
 }
 
 // DecodeTxs decodes transactions and recovers or reuses their verified senders in order.
 // A zero worker count uses GOMAXPROCS.
 func (app *EVMProxy) DecodeTxs(raw [][]byte, workers int) ([]EvmTx, error) {
-	return decodeTxs(raw, workers, app.DecodeTx)
-}
-
-// DecodeTxs decodes Ethereum transactions and recovers their senders in order.
-// A zero worker count uses GOMAXPROCS.
-func DecodeTxs(raw [][]byte, workers int) ([]EvmTx, error) {
-	return decodeTxs(raw, workers, DecodeTx)
-}
-
-func decodeTxs(raw [][]byte, workers int, decode func([]byte) (EvmTx, error)) ([]EvmTx, error) {
 	txs := make([]EvmTx, len(raw))
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -419,7 +397,7 @@ func decodeTxs(raw [][]byte, workers int, decode func([]byte) (EvmTx, error)) ([
 	workers = min(workers, len(raw))
 	if workers <= 1 {
 		for i, rawTx := range raw {
-			tx, err := decode(rawTx)
+			tx, err := app.DecodeTx(rawTx)
 			if err != nil {
 				return nil, fmt.Errorf("transaction %d: %w", i, err)
 			}
@@ -431,7 +409,7 @@ func decodeTxs(raw [][]byte, workers int, decode func([]byte) (EvmTx, error)) ([
 		for worker := range workers {
 			s.Spawn(func() error {
 				for i := worker; i < len(raw); i += workers {
-					tx, err := decode(raw[i])
+					tx, err := app.DecodeTx(raw[i])
 					if err != nil {
 						return fmt.Errorf("transaction %d: %w", i, err)
 					}
