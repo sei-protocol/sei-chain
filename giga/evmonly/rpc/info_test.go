@@ -401,6 +401,22 @@ func TestFeeHistoryZeroIsEarliest(t *testing.T) {
 	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
 }
 
+// TestFeeHistoryEarliestIsTheChainsFirstBlock verifies "earliest" on a chain starting above
+// block 1 resolves to its first block.
+func TestFeeHistoryEarliestIsTheChainsFirstBlock(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	for h := uint64(3); h <= 5; h++ {
+		setBlockReceipt(t, store, h, 10, 100)
+	}
+	backend := testInfoBackend(1000, 1)
+	backend.initialHeight = 3
+
+	api := &infoAPI{backend: backend, store: store}
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.EarliestBlockNumber, nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
+}
+
 // TestFeeHistoryRestartsAfterAGenuineInteriorHole verifies an interior ErrNotFound hole restarts
 // the accumulation instead of misattributing a later block's data.
 func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {

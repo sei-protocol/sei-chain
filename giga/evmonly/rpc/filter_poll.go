@@ -17,10 +17,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-// NewFilter installs a log filter for crit and returns its ID. Its polls start at a numeric
-// fromBlock, where earliest is block 0, and otherwise at the block after the latest indexed one.
+// NewFilter installs a log filter for crit and returns its ID. Its polls start at a fromBlock
+// height, at the earliest indexed block for an earliest fromBlock, and otherwise at the block
+// after the latest indexed one.
 func (api *filterAPI) NewFilter(_ context.Context, crit filters.FilterCriteria) (ethrpc.ID, error) {
-	cursor, err := api.pollStart(crit)
+	crit, cursor, err := api.pollStart(crit)
 	if err != nil {
 		return "", err
 	}
@@ -79,38 +80,55 @@ func (api *filterAPI) UninstallFilter(_ context.Context, id ethrpc.ID) bool {
 	return api.filters.remove(id)
 }
 
-// pollStart returns the first block a log filter for crit polls: 0 for a blockHash filter or an
-// earliest fromBlock, a numeric fromBlock as given, and otherwise the block after the latest indexed one. It rejects a
-// numeric fromBlock above 0 below the earliest indexed block, and a numeric toBlock below the
-// start.
-func (api *filterAPI) pollStart(crit filters.FilterCriteria) (uint64, error) {
-	for _, bound := range []*big.Int{crit.FromBlock, crit.ToBlock} {
-		if bound != nil && !bound.IsInt64() {
-			return 0, &invalidParamsError{error: fmt.Errorf("filter block number %s exceeds int64", bound)}
-		}
+// pollStart returns crit as a log filter polls it, and the first block it polls. Each bound of the
+// returned criteria is nil to follow the head or a height: an earliest fromBlock is 0 and an
+// earliest toBlock is the earliest indexed block. The first block is 0 for a blockHash filter or
+// an earliest fromBlock, a fromBlock height as given, and otherwise the block after the latest
+// indexed one. It rejects a fromBlock height below the earliest indexed block, and a toBlock
+// below the first block.
+func (api *filterAPI) pollStart(crit filters.FilterCriteria) (filters.FilterCriteria, uint64, error) {
+	fromKind, err := classifyFilterBound(crit.FromBlock)
+	if err != nil {
+		return crit, 0, err
+	}
+	toKind, err := classifyFilterBound(crit.ToBlock)
+	if err != nil {
+		return crit, 0, err
 	}
 	if crit.BlockHash != nil {
-		return 0, nil
+		return crit, 0, nil
 	}
 	earliest, latest := indexedRange(api.backend, api.store)
 	start := latest + 1
-	if crit.FromBlock != nil && normalizeEarliest(ethrpc.BlockNumber(crit.FromBlock.Int64())) == ethrpc.EarliestBlockNumber {
+	switch fromKind {
+	case headBlock:
+		crit.FromBlock = nil
+	case earliestBlock:
+		crit.FromBlock = new(big.Int)
 		start = 0
-	} else if from, ok := numericBound(crit.FromBlock); ok {
-		if from > 0 && from < earliest {
-			return 0, fmt.Errorf("%w: fromBlock %d; earliest available block is %d", errLogRangePruned, from, earliest)
+	case heightBlock:
+		start = crit.FromBlock.Uint64()
+		if start < earliest {
+			return crit, 0, fmt.Errorf("%w: fromBlock %d; earliest available block is %d", errLogRangePruned, start, earliest)
 		}
-		start = from
 	}
-	if to, ok := numericBound(crit.ToBlock); ok && to < start {
-		return 0, &invalidParamsError{error: fmt.Errorf("toBlock %d is before the filter's start block %d", to, start)}
+	switch toKind {
+	case headBlock:
+		crit.ToBlock = nil
+		return crit, start, nil
+	case earliestBlock:
+		// Resolved once at install, so later pruning cannot move the filter's last block.
+		crit.ToBlock = new(big.Int).SetUint64(earliest)
 	}
-	return start, nil
+	if to := crit.ToBlock.Uint64(); to < start {
+		return crit, 0, &invalidParamsError{error: fmt.Errorf("toBlock %d is before the filter's start block %d", to, start)}
+	}
+	return crit, start, nil
 }
 
 // pollLogs returns the logs crit matches from cursor on, and the cursor the next poll starts
 // from, also when it returns an error. A poll scans from cursor to the latest indexed block, or to
-// a numeric toBlock below it, and fewer blocks when that range exceeds the block or log caps. A
+// a toBlock below it, and fewer blocks when that range exceeds the block or log caps. A
 // cursor of 0 scans from the earliest indexed block. A cursor above 0 below that block fails the
 // poll naming the pruned blocks, and the returned cursor is the earliest block. A block whose
 // logs alone exceed the log caps fails the poll that reaches it, and the returned cursor is past
@@ -198,12 +216,12 @@ func (api *filterAPI) logsWithBackoff(ctx context.Context, crit filters.FilterCr
 	}
 }
 
-// pollWindow returns the blocks a log filter's poll scans: from cursor to latest, or to a numeric
-// toBlock below it, and at most maxBlocksForLogs blocks. ok is false when the range is empty.
+// pollWindow returns the blocks a log filter's poll scans: from cursor to latest, or to a toBlock
+// below it, and at most maxBlocksForLogs blocks. ok is false when the range is empty.
 func pollWindow(toBlock *big.Int, cursor, latest uint64) (from, to uint64, ok bool) {
 	to = latest
-	if bound, isNumber := numericBound(toBlock); isNumber {
-		to = min(to, bound)
+	if toBlock != nil {
+		to = min(to, toBlock.Uint64())
 	}
 	if cursor > to {
 		return 0, 0, false
@@ -215,32 +233,23 @@ func pollWindow(toBlock *big.Int, cursor, latest uint64) (from, to uint64, ok bo
 }
 
 // logsExhausted reports whether no poll from cursor on can match a log for crit: cursor is past
-// its numeric toBlock, or its blockHash block has been polled. A tag toBlock follows the head and
-// is never passed.
+// its toBlock, or its blockHash block has been polled. A nil toBlock follows the head and is never
+// passed.
 func logsExhausted(crit filters.FilterCriteria, cursor uint64) bool {
 	if crit.BlockHash != nil {
 		return cursor > 0
 	}
-	to, ok := numericBound(crit.ToBlock)
-	return ok && cursor > to
+	return crit.ToBlock != nil && cursor > crit.ToBlock.Uint64()
 }
 
-// prunedLogsError reports the blocks from cursor up to earliest, or up to crit's numeric toBlock
-// when it is lower, whose logs were pruned before a filter polled them.
+// prunedLogsError reports the blocks from cursor up to earliest, or up to crit's toBlock when it
+// is lower, whose logs were pruned before a filter polled them.
 func prunedLogsError(crit filters.FilterCriteria, cursor, earliest uint64) error {
 	last := earliest - 1
-	if to, ok := numericBound(crit.ToBlock); ok {
-		last = min(last, to)
+	if crit.ToBlock != nil {
+		last = min(last, crit.ToBlock.Uint64())
 	}
 	return fmt.Errorf("%w: logs of blocks %d to %d were pruned before the filter read them", errLogRangePruned, cursor, last)
-}
-
-// numericBound returns a filter bound that is a block number rather than a tag.
-func numericBound(bound *big.Int) (uint64, bool) {
-	if bound == nil || bound.Sign() < 0 {
-		return 0, false
-	}
-	return bound.Uint64(), true
 }
 
 // exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
