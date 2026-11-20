@@ -17,6 +17,7 @@ import (
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -414,6 +415,9 @@ func openAutobahnStorageManager(
 	if err != nil {
 		return nil, err
 	}
+	if err := refuseRestoredHome(directory); err != nil {
+		return nil, err
+	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
@@ -425,6 +429,23 @@ func openAutobahnStorageManager(
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// errRestoredHome is the error of a persistent state dir that holds a state sync restore marker.
+var errRestoredHome = errors.New("this build cannot start a node from a state sync import")
+
+// refuseRestoredHome returns an error wrapping errRestoredHome when the persistent state dir psd
+// holds a state sync restore marker.
+func refuseRestoredHome(psd string) error {
+	marker := p2p.RestoreMarkerFile(psd)
+	data, err := os.ReadFile(marker) //nolint:gosec // marker is under the configured persistent state dir.
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read the state sync restore marker: %w", err)
+	}
+	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errRestoredHome)
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
@@ -657,8 +678,8 @@ func createRouter(
 	}
 	// Wire up Autobahn if enabled. Role dispatch (validator vs fullnode)
 	// happens inside buildGigaRouter based on cfg.Mode.
-	// startStateSyncProofExport is nil unless this is an Autobahn node with [giga.state_sync] enabled.
-	var startStateSyncProofExport func() error
+	// startStateSyncExport is nil unless this is an Autobahn node with [giga.state_sync] enabled.
+	var startStateSyncExport func() error
 	if cfg.AutobahnConfigFile != "" {
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		proxyApp, ok := app.Get()
@@ -679,7 +700,13 @@ func createRouter(
 		}
 		options.Giga = utils.Some(giga)
 		if stateSync.Enabled {
-			startStateSyncProofExport = manager.StartStateSyncProofExport
+			upload, err := stateSyncUpload(cfg.Mode, stateSync, genDoc.ChainID, string(nodeKey.ID()))
+			if err != nil {
+				return nil, closer, noneDB, err
+			}
+			startStateSyncExport = func() error {
+				return startStateSyncExportOf(manager, upload)
+			}
 		}
 	}
 
@@ -698,12 +725,56 @@ func createRouter(
 		return nil, closer, noneDB, fmt.Errorf("p2p.NewRouter(): %w", err)
 	}
 	// After the last step that can fail, so a failed createRouter leaves no export running.
-	if startStateSyncProofExport != nil {
-		if err := startStateSyncProofExport(); err != nil {
-			return nil, closer, noneDB, fmt.Errorf("start state sync proof export: %w", err)
+	if startStateSyncExport != nil {
+		if err := startStateSyncExport(); err != nil {
+			return nil, closer, noneDB, err
 		}
 	}
 	return router, closer, noneDB, nil
+}
+
+// stateSyncUpload returns the state sync archive upload of node nodeID of chain chainID, or None
+// when stateSync does not enable it. It returns an error when mode is the validator mode.
+func stateSyncUpload(
+	mode string,
+	stateSync gigaconfig.StateSyncConfig,
+	chainID string,
+	nodeID string,
+) (utils.Option[bootstrap.StateSyncUploadConfig], error) {
+	none := utils.None[bootstrap.StateSyncUploadConfig]()
+	if !stateSync.ArchiveUpload {
+		return none, nil
+	}
+	if mode == config.ModeValidator {
+		return none, fmt.Errorf("%s: a validator does not upload state sync archives", gigaconfig.FlagStateSyncArchiveUpload)
+	}
+	store, err := ssarchive.NewS3Store(context.Background(), stateSync.ArchiveBucket, stateSync.ArchiveRegion)
+	if err != nil {
+		return none, fmt.Errorf("state sync archive store: %w", err)
+	}
+	return utils.Some(bootstrap.StateSyncUploadConfig{
+		Store:    store,
+		ChainID:  chainID,
+		NodeID:   nodeID,
+		Interval: stateSync.ArchiveUploadInterval,
+	}), nil
+}
+
+// startStateSyncExportOf starts the state sync proof export of manager, and the archive upload when
+// upload is present.
+func startStateSyncExportOf(
+	manager *bootstrap.GigaStorageManager,
+	upload utils.Option[bootstrap.StateSyncUploadConfig],
+) error {
+	if err := manager.StartStateSyncProofExport(); err != nil {
+		return fmt.Errorf("start state sync proof export: %w", err)
+	}
+	if cfg, ok := upload.Get(); ok {
+		if err := manager.StartStateSyncUpload(cfg); err != nil {
+			return fmt.Errorf("start state sync archive upload: %w", err)
+		}
+	}
+	return nil
 }
 
 func makeNodeInfo(

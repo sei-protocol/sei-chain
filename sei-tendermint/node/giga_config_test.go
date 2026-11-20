@@ -3,6 +3,8 @@ package node
 import (
 	"encoding/binary"
 	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -153,6 +155,17 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	require.Equal(t, uint64(713701), app.EvmChainID())
 }
 
+func TestMakeEVMApplicationRefusesARestoredHome(t *testing.T) {
+	psd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restored"), []byte("7\n"), 0o600))
+
+	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+
+	require.ErrorIs(t, err, errRestoredHome)
+	_, err = os.Stat(filepath.Join(psd, "data"))
+	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a restored home")
+}
+
 // The builder's first block is the genesis height. A chain that starts above 1
 // still publishes the app hash of that first block.
 func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
@@ -189,4 +202,34 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
 	require.Equal(t, uint64(initialHeight), got.BlockHeight())
+}
+
+func TestStateSyncUpload(t *testing.T) {
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AWS_PROFILE", "")
+	uploading := gigaconfig.StateSyncConfig{
+		Enabled:               true,
+		ArchiveBucket:         "sei-snapshots",
+		ArchiveRegion:         "eu-central-1",
+		ArchiveUpload:         true,
+		ArchiveUploadInterval: time.Hour,
+	}
+
+	reading := uploading
+	reading.ArchiveUpload = false
+	upload, err := stateSyncUpload(config.ModeFull, reading, "chain-a", "node-a")
+	require.NoError(t, err)
+	require.False(t, upload.IsPresent(), "a bucket without archive_upload uploads no archive")
+
+	upload, err = stateSyncUpload(config.ModeFull, uploading, "chain-a", "node-a")
+	require.NoError(t, err)
+	got, ok := upload.Get()
+	require.True(t, ok)
+	require.Equal(t, "chain-a", got.ChainID)
+	require.Equal(t, "node-a", got.NodeID)
+	require.Equal(t, time.Hour, got.Interval)
+
+	_, err = stateSyncUpload(config.ModeValidator, uploading, "chain-a", "node-a")
+	require.Error(t, err)
 }
