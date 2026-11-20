@@ -226,7 +226,7 @@ func (w *bucketWriter) performMetadata(write *metadataWrite) error {
 // retryAfter decides whether to attempt a write again after an attempt that returned err, sleeping the backoff
 // first if so.
 func (w *bucketWriter) retryAfter(
-	// Describes the write for error messages.
+	// Describes the write for error messages and logs.
 	description string,
 	// The attempt's error, or nil if it succeeded.
 	err error,
@@ -247,6 +247,8 @@ func (w *bucketWriter) retryAfter(
 	if !isRetryableCDKError(err) || !w.config.mayRetry(retries) {
 		return false, fmt.Errorf("%s failed after %d retries: %w", description, retries, err)
 	}
+	logger.Warn("retrying a failed backing store operation",
+		"operation", description, "retry", retries+1, "err", err)
 	if !sleepBackoff(w.ctx, w.config) {
 		return false, fmt.Errorf("%s abandoned while retrying: %w", description, err)
 	}

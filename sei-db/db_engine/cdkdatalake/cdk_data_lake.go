@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/sei-protocol/seilog"
 	"gocloud.dev/blob"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
@@ -21,6 +22,8 @@ import (
 	// _ "gocloud.dev/blob/azureblob"
 	// _ "gocloud.dev/blob/gcsblob"
 )
+
+var logger = seilog.NewLogger("db", "db-engine", "cdkdatalake")
 
 var _ datalake.DataLake = (*cdkDataLake)(nil)
 

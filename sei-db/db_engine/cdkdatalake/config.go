@@ -59,8 +59,8 @@ func DefaultDataLakeConfig() DataLakeConfig {
 		RequestBufferSize:     1024,
 		DeletesPerCycle:       8,
 		RetryBackoff:          time.Second,
-		InfiniteRetries:       true,
-		MaxRetries:            4,
+		InfiniteRetries:       false,
+		MaxRetries:            64,
 		PrefetchDepth:         8,
 	}
 }

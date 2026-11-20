@@ -331,7 +331,7 @@ func (r *bucketReader) performKeyPage(read *keyPageRead) {
 // retryAfter decides whether to attempt a read again after an attempt that returned err, sleeping the backoff
 // first if so.
 func (r *bucketReader) retryAfter(
-	// Describes the read for error messages.
+	// Describes the read for error messages and logs.
 	description string,
 	// The attempt's error, or nil if it succeeded.
 	err error,
@@ -352,6 +352,8 @@ func (r *bucketReader) retryAfter(
 	if !isRetryableCDKError(err) || !r.config.mayRetry(retries) {
 		return false, fmt.Errorf("%s failed after %d retries: %w", description, retries, err)
 	}
+	logger.Warn("retrying a failed backing store operation",
+		"operation", description, "retry", retries+1, "err", err)
 	if !sleepBackoff(r.ctx, r.config) {
 		return false, fmt.Errorf("%s abandoned while retrying: %w", description, err)
 	}
