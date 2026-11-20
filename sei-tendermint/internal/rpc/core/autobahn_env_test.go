@@ -115,7 +115,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 		require.True(t, router.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
 		giga = router
 	} else {
-		router, err := p2p.NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState)
+		router, err := p2p.NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState, signer)
 		require.NoError(t, err)
 		require.False(t, router.Mempool().IsPresent())
 		giga = router

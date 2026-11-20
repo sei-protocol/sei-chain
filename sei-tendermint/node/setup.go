@@ -365,7 +365,7 @@ func buildGigaRouter(
 	if err != nil {
 		return nil, nil, err
 	}
-	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
+	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState, signer)
 	if err != nil {
 		return nil, nil, err
 	}

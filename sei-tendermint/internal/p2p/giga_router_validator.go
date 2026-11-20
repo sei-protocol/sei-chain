@@ -77,6 +77,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:             cfg.App,
+			signer:          signer,
 			offer: utils.Some(handshakeOffer{
 				ValidatorKey: cfg.ValidatorKey,
 				EVMRPC:       self.EVMRPC,

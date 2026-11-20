@@ -36,6 +36,20 @@ func (env *Environment) EvmProxyEnabled() bool {
 	return false
 }
 
+// RememberEvmSender records a verified sender for local admission through Autobahn.
+func (env *Environment) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if r, ok := env.gigaRouter().Get(); ok {
+		r.RememberEvmSender(hash, sender)
+	}
+}
+
+// ForgetEvmSender removes a transaction's cached sender through Autobahn.
+func (env *Environment) ForgetEvmSender(hash common.Hash) {
+	if r, ok := env.gigaRouter().Get(); ok {
+		r.ForgetEvmSender(hash)
+	}
+}
+
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 	if giga, ok := env.gigaRouter().Get(); ok {
 		if v, ok := giga.Mempool().Get(); ok {

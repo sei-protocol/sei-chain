@@ -83,6 +83,10 @@ type GigaRouter interface {
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
+	// RememberEvmSender records a verified sender for local admission.
+	RememberEvmSender(hash common.Hash, sender common.Address)
+	// ForgetEvmSender removes the cached sender for hash.
+	ForgetEvmSender(hash common.Hash)
 	Mempool() utils.Option[*producer.State]
 	Validators(n atypes.RoadIndex) ([]*types.Validator, error)
 	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])

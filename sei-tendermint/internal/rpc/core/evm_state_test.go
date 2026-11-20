@@ -76,25 +76,29 @@ func (a *senderCacheApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	return abevm.AdmittedTx{}, nil
 }
 
-func TestEVMEnvironmentCachesSendersWithoutABCI(t *testing.T) {
-	app := &senderCacheApp{}
-	proxy := abevm.NewProxy(app)
-	signer := newTestSigner(app.EvmChainID(), 0)
-	env := &EVMEnvironment{
-		Environment: &Environment{EVM: utils.Some(proxy), EVMSigner: utils.Some(signer)},
-		Proxy:       proxy,
+func TestEVMEnvironmentCachesSendersThroughGigaRouter(t *testing.T) {
+	for _, validator := range []bool{false, true} {
+		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
+			autobahn := newAutobahnEnv(t, validator)
+			app := &senderCacheApp{}
+			proxy := abevm.NewProxy(app)
+			env := &EVMEnvironment{
+				Environment: &Environment{Router: autobahn.Router, EVM: utils.Some(proxy), EVMSigner: autobahn.EVMSigner},
+				Proxy:       proxy,
+			}
+			tx := signedEVMStateTestTx(t, 0)
+			sender := common.Address{2}
+			env.RememberEvmSender(tx.Hash(), sender)
+			raw := utils.OrPanic1(tx.MarshalBinary())
+			_, err := env.Environment.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
+			require.NoError(t, err)
+			require.Equal(t, utils.Some(sender), app.sender)
+			env.ForgetEvmSender(tx.Hash())
+			_, err = env.Environment.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
+			require.NoError(t, err)
+			require.Equal(t, utils.Some(utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))), app.sender)
+		})
 	}
-	tx := signedEVMStateTestTx(t, 0)
-	sender := common.Address{2}
-	env.RememberEvmSender(tx.Hash(), sender)
-	raw := utils.OrPanic1(tx.MarshalBinary())
-	_, err := env.Environment.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
-	require.NoError(t, err)
-	require.Equal(t, utils.Some(sender), app.sender)
-	env.ForgetEvmSender(tx.Hash())
-	_, err = env.Environment.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
-	require.NoError(t, err)
-	require.Equal(t, utils.Some(utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))), app.sender)
 }
 
 func TestEVMEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {

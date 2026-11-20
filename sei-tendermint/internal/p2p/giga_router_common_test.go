@@ -180,12 +180,14 @@ func newAppHashTestRouter(
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
+	signer := newTestSigner(cfg.App.EvmChainID(), 0)
 	router := &gigaRouterCommon{
-		cfg:  cfg,
-		data: state,
-		app:  cfg.App,
+		cfg:    cfg,
+		data:   state,
+		app:    cfg.App,
+		signer: signer,
 	}
-	return app, hashBuilder, state, router, newTestExecutor(cfg, db, newTestSigner(cfg.App.EvmChainID(), 0))
+	return app, hashBuilder, state, router, newTestExecutor(cfg, db, signer)
 }
 
 // TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
@@ -1208,7 +1210,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
-	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
+	router, err := NewGigaFullnodeRouter(cfg, localKey, state, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
 
 	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}

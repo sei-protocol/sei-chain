@@ -48,6 +48,7 @@ type gigaRouterCommon struct {
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 	app             *abevm.Proxy
+	signer          *abevm.Signer
 	offer           utils.Option[handshakeOffer]
 	selfAddr        utils.Option[NodeAddress]
 	liveAddrs       utils.RWMutex[map[atypes.PublicKey]GigaNodeAddr]
@@ -57,6 +58,16 @@ type gigaRouterCommon struct {
 	// block-sync subset. Persistent and block-sync peers do not consume it.
 	inboundFullnodeCount utils.Mutex[*int64]
 	inboundFullnodeCap   int64
+}
+
+// RememberEvmSender records a verified sender for local admission.
+func (r *gigaRouterCommon) RememberEvmSender(hash common.Hash, sender common.Address) {
+	r.signer.Remember(hash, sender)
+}
+
+// ForgetEvmSender removes the cached sender for hash.
+func (r *gigaRouterCommon) ForgetEvmSender(hash common.Hash) {
+	r.signer.Forget(hash)
 }
 
 func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer]) {

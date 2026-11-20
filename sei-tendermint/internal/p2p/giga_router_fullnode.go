@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
@@ -21,7 +22,7 @@ type gigaFullnodeRouter struct {
 
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
-func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State) (*gigaFullnodeRouter, error) {
+func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State, signer *abevm.Signer) (*gigaFullnodeRouter, error) {
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
@@ -34,6 +35,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			poolOut:              giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:              utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:                  cfg.App,
+			signer:               signer,
 			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
