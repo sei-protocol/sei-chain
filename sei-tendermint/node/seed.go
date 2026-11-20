@@ -50,6 +50,7 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
+	ctx context.Context,
 	cfg *config.Config,
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
@@ -76,6 +77,7 @@ func makeSeedNode(
 	}
 
 	router, peerCloser, _, err := createRouter(
+		ctx,
 		func() *types.NodeInfo { return &nodeInfo },
 		nodeKey,
 		utils.None[atypes.SecretKey](),
@@ -85,6 +87,7 @@ func makeSeedNode(
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
 		gigaconfig.StateSyncConfig{},
+		utils.None[atypes.RoadHeight](),
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

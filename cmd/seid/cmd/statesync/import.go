@@ -123,7 +123,8 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 	if err := os.RemoveAll(staging); err != nil {
 		return fmt.Errorf("remove staging dir: %w", err)
 	}
-	_, _ = fmt.Fprintf(stderr, "Imported height %d.\n", m.Height)
+	_, _ = fmt.Fprintf(stderr, "Imported height %d. Start the node as a fullnode; on start it seeds height %d from %s and syncs from there.\n",
+		m.Height, m.Height, t.layout.RestoreProofFile)
 	return nil
 }
 
