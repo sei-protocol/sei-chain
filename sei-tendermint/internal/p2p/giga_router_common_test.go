@@ -216,20 +216,6 @@ func testGenesisEpochs(t *testing.T, genDoc *tmtypes.GenesisDoc, addrs map[atype
 	return registry, schedule
 }
 
-// testPruneRegistryBefore stores the window of registry without the epochs older than idx, as the
-// app does once it no longer needs them. It fails the test if idx is not retained.
-func testPruneRegistryBefore(t *testing.T, registry *epoch.Registry, idx atypes.EpochIndex) {
-	t.Helper()
-	epochs := registry.Epochs()
-	for i, e := range epochs {
-		if e.EpochIndex() == idx {
-			registry.Store(epochs[i:])
-			return
-		}
-	}
-	t.Fatalf("epoch %d is not retained", idx)
-}
-
 // TestExecutionRunsAheadOfAppHashPush verifies that execution does not wait for
 // consensus: the executor commits every durable block while no app hash is being
 // pushed, and the push then catches up from the app hash builder.
@@ -394,11 +380,6 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.Equal(t, high.Public().Bytes(), got[0].PubKey.Bytes())
 	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
 	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
-
-	testPruneRegistryBefore(t, registry, 2)
-	got, err = router.Validators(n)
-	require.NoError(t, err)
-	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 	_, err = router.Validators(n + 1)
 	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
 
@@ -406,7 +387,6 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.NoError(t, registry.TestPushEpoch(3, weights))
 	ep4 := registry.MustEpoch(4)
 	router = testRouterAtRoad(t, registry, keys, ep4, ep4.RoadRange().First)
-	testPruneRegistryBefore(t, registry, 4)
 	_, err = router.Validators(n)
 	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 }

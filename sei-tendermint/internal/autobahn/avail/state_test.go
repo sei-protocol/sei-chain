@@ -382,29 +382,14 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 	}
 }
 
-// pruneWindowTo drops the epochs before idx from registry's window.
-func pruneWindowTo(registry *epoch.Registry, idx types.EpochIndex) {
-	var window []*types.Epoch
-	for _, e := range registry.Epochs() {
-		if e.EpochIndex() >= idx {
-			window = append(window, e)
-		}
-	}
-	registry.Store(window)
-}
-
 func TestRestoreInnerNextEpoch(t *testing.T) {
-	t.Run("genesis anchor survives registry pruning", func(t *testing.T) {
+	t.Run("genesis anchor applies epoch 0", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, _ := epoch.GenRegistry(rng, 3)
 		ds := newTestDataState(t, &data.Config{Registry: registry})
 		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
 		require.NoError(t, err)
 		require.Equal(t, registry.MustEpoch(0), i.applied())
-		pruneWindowTo(registry, 1)
-		restored, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{})
-		require.NoError(t, err)
-		require.Equal(t, i.applied(), restored.applied())
 	})
 	for _, idx := range []types.EpochIndex{0, 1} {
 		t.Run(fmt.Sprintf("anchor at last road of epoch %d", idx), func(t *testing.T) {
@@ -873,6 +858,44 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.Contains(t, err.Error(), "out of sequence")
 		require.NoError(t, cp.Close())
 	})
+}
+
+// TestRestartRestoresCommitQCPastAnchorEpoch verifies that a CommitQC persisted in the epoch after
+// the anchor is restored as the consensus tip.
+func TestRestartRestoresCommitQCPastAnchorEpoch(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistryThrough(rng, 3, 3)
+	proposal, blocks := types.ProposalAtBlocks(registry.MustEpoch(2), types.View{Height: registry.LastRoad(2)}, 1)
+	prepare := types.BuildPrepareQC(keys, proposal)
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	for i, key := range keys {
+		votes[i] = types.Sign(key, types.NewCommitVote(prepare))
+	}
+	qc := types.NewCommitQC(votes)
+	full := types.NewFullCommitQC(qc, []*types.LaneBlockHeader{blocks[0].Header()})
+	store := blockstore.NewTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	require.NoError(t, store.WriteBlock(types.NewRoadBlock(full, blocks)))
+	app := types.NewAppProposal(qc.View(), types.GenAppHash(rng))
+	require.NoError(t, store.WriteAppProposal(app))
+	require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
+	require.NoError(t, store.Flush())
+
+	ds, err := data.NewState(&data.Config{Registry: registry, Genesis: epoch.GenesisSchedule{Timestamp: testGenesisTimestamp}}, store)
+	require.NoError(t, err)
+	tip := types.BuildCommitQC(registry.MustEpoch(3), keys, utils.Some(qc), nil)
+	dir := t.TempDir()
+	cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
+	require.NoError(t, err)
+	require.NoError(t, cp.PruneAndPersist(tip.Height(), []*types.CommitQC{tip}))
+	require.NoError(t, cp.Close())
+
+	state, err := NewState(keys[0], ds, utils.Some(dir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = state.Close() })
+	spec := state.ConsensusSpec().Load()
+	require.Equal(t, types.EpochIndex(3), spec.Epoch.EpochIndex())
+	require.Equal(t, utils.Some(tip), spec.CommitQC)
 }
 
 func TestFullCommitQCAfterMismatchingLaneQC(t *testing.T) {

@@ -281,9 +281,6 @@ func (s *State) First() types.RoadHeight {
 	return s.blockStore.First()
 }
 
-// Registry returns the epoch registry this state reads.
-func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
-
 // GenesisTimestamp returns the genesis timestamp.
 func (s *State) GenesisTimestamp() time.Time { return s.cfg.Genesis.Timestamp }
 

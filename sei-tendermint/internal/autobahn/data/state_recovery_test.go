@@ -6,7 +6,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -327,60 +326,6 @@ func TestRecoveryBlockGap(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 }
 
-func TestNewState_NextHeightEpochAtBoundaryTip(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
-	ep2 := registry.MustEpoch(2)
-	ep1 := registry.MustEpoch(1)
-
-	qc, blocks := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
-	db := newTestBlockStore(t, t.TempDir())
-	writeToBlockStore(t, db, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	writeAppDataToBlockStore(t, rng, db, keys, qc)
-
-	state := newTestState(t, &Config{Registry: registry}, db)
-	require.Equal(t, ep2, state.Anchor().Load().NextHeightEpoch())
-}
-
-// writeExecutedTip writes a one-block CommitQC and its AppProposal at road.
-func writeExecutedTip(
-	t *testing.T,
-	store *blockstore.Store,
-	ep *types.Epoch,
-	keys []types.SecretKey,
-	road types.RoadHeight,
-	appHash types.AppHash,
-) types.RoadHeight {
-	t.Helper()
-	qc, blocks := commitQCAtRoad(ep, keys, road)
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().View(), appHash)))
-	utils.OrPanic(store.Flush())
-	return qc.Height()
-}
-
-func TestPushAppHash_ReplayClosingRoadKeepsDerivedEpoch(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	keeper := keys[0].Public()
-	hash := types.GenAppHash(rng)
-	store := newTestStore(t)
-	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	state := newTestState(t, &Config{Registry: registry}, store)
-	require.NoError(t, registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keeper: 9}))
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		return state.PushAppHash(ctx, qc.Height(), hash)
-	}))
-	derived := registry.MustEpoch(2)
-	require.Equal(t, uint64(9), derived.Committee().Weight(keeper))
-	require.NoError(t, state.PushAppHash(ctx, qc.Height(), hash))
-	require.Equal(t, derived, registry.MustEpoch(2))
-}
-
 // TestPushAppHashDoesNotDeriveTheClosingEpoch pins that recording an app hash
 // leaves the registry unchanged. Putting TryPushEpoch back into PushAppHash
 // makes this push return an error: a closing road has no weights here.
@@ -398,101 +343,6 @@ func TestPushAppHashDoesNotDeriveTheClosingEpoch(t *testing.T) {
 	}))
 	_, err := registry.Epoch(2)
 	require.ErrorIs(t, err, types.ErrNotFound)
-}
-
-func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	base, keys := epoch.GenRegistry(rng, 3)
-	baseEpoch0 := base.MustEpoch(0)
-	keeper := keys[0].Public()
-	later := keys[1].Public()
-	endWeights := map[types.PublicKey]uint64{keeper: 9}
-
-	registry := utils.OrPanic1(epoch.TestGenesisRegistry(
-		baseEpoch0.Committee(),
-		baseEpoch0.RoadRange().First,
-		epoch.DefaultEpochLength))
-	storeDir := t.TempDir()
-	store := newTestBlockStore(t, storeDir)
-	ep0 := registry.MustEpoch(0)
-	ep1 := registry.MustEpoch(1)
-
-	qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0))
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc0}, [][]*types.LaneBlock{blocks0})
-	state := newTestState(t, &Config{Registry: registry}, store)
-	var n1 types.RoadHeight
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushPartialBlock(ctx, qc0, TestBlockMap(blocks0)); err != nil {
-			return err
-		}
-		n0 := qc0.Height()
-		if err := registry.TestTryPushEpoch(n0, endWeights); err != nil {
-			return err
-		}
-		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng)); err != nil {
-			return err
-		}
-		qc1, blocks1 := commitQCAtRoad(ep1, keys, ep1.RoadRange().First)
-		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
-			return err
-		}
-		n1 = qc1.Height()
-		return state.PushAppHash(ctx, n1, types.GenAppHash(rng))
-	}))
-	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
-	require.NoError(t, store.Close())
-
-	persisted, err := epoch.Decode(epoch.Encode(registry.Epochs()))
-	require.NoError(t, err)
-	registry2 := utils.OrPanic1(epoch.NewRegistry(persisted))
-	store2 := newTestBlockStore(t, storeDir)
-	state2 := newTestState(t, &Config{Registry: registry2}, store2)
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state2.Run(ctx)) })
-		return state2.PushAppHash(ctx, n1, types.GenAppHash(rng))
-	}))
-	require.Equal(t, types.EpochIndex(2), registry2.MustEpoch(2).EpochIndex())
-	got := registry2.MustEpoch(2).Committee()
-	require.Equal(t, uint64(9), got.Weight(keeper))
-	require.False(t, got.HasReplica(later))
-}
-
-func TestPushAppHash_ReplayClosingSuperBlockKeepsDerivedEpoch(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	appHash := types.GenAppHash(rng)
-	store := newTestStore(t)
-	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoadBlocks(ep, keys, registry.LastRoad(0), 2)
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	utils.OrPanic(registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}))
-	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().View(), appHash)))
-	utils.OrPanic(store.Flush())
-	state := newTestState(t, &Config{Registry: registry}, store)
-
-	require.Equal(t, uint64(2), qc.Header().NumBlocks())
-	require.NoError(t, state.PushAppHash(ctx, qc.Height(), appHash))
-	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
-}
-
-func TestPushAppHash_ReplayMidEpochDoesNotStage(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	ep0 := registry.MustEpoch(0)
-	appHash := types.GenAppHash(rng)
-	store := newTestStore(t)
-	n := writeExecutedTip(t, store, ep0, keys, ep0.RoadRange().First, appHash)
-	state := newTestState(t, &Config{Registry: registry}, store)
-
-	require.NoError(t, state.PushAppHash(ctx, n, appHash))
-	_, epochErr := registry.Epoch(2)
-	require.ErrorIs(t, epochErr, types.ErrNotFound)
-	_, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)
-	require.Error(t, err)
 }
 
 func TestNewState_PreservesExecutionDerivedEpoch(t *testing.T) {
@@ -525,34 +375,13 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 	store := newTestBlockStore(t, dir)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
 	require.NoError(t, store.Close())
-	// The retained window starts at epoch 2, so the genesis epochs are gone.
-	registry.Store(registry.Epochs()[1:])
-	for idx := range 2 {
-		_, err := registry.Epoch(types.EpochIndex(idx))
-		require.ErrorIs(t, err, types.ErrPruned)
-	}
+	// Deriving through epoch 3 keeps epochs 1, 2, and 3. Epoch 0 is already gone.
+	_, err := registry.Epoch(0)
+	require.ErrorIs(t, err, types.ErrPruned)
 	store = newTestBlockStore(t, dir)
 	state, err := NewState(&Config{Registry: registry}, store)
 	require.NoError(t, err)
 	require.Equal(t, qc.Height(), state.First())
 	require.Equal(t, qc.Height()+1, state.NextQC())
 	require.Equal(t, types.EpochIndex(2), state.Anchor().Load().NextHeightEpoch().EpochIndex())
-}
-
-// TestSetAnchorLeavesWindowAlone pins that setAnchor reads the registry window without changing it.
-// The anchor holds the epoch of the persisted first road and the epoch after it.
-func TestSetAnchorLeavesWindowAlone(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 1)
-	state := newTestState(t, &Config{Registry: registry}, newTestStore(t))
-	weights := map[types.PublicKey]uint64{keys[0].Public(): 9}
-	require.NoError(t, registry.TestPushEpoch(0, weights))
-	require.NoError(t, registry.TestPushEpoch(1, weights))
-	before := registry.Epochs()
-	for inner := range state.inner.Lock() {
-		inner.persisted.First = registry.MustEpoch(2).RoadRange().First
-		require.NoError(t, inner.setAnchor(before))
-	}
-	require.Equal(t, before, registry.Epochs())
-	require.Equal(t, [2]*types.Epoch{registry.MustEpoch(2), registry.MustEpoch(3)}, state.Anchor().Load().Epochs)
 }

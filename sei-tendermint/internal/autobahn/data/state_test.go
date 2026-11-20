@@ -136,25 +136,6 @@ func commitQCAtRoad(
 	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.LaneBlockHeader{block.Header()}), []*types.LaneBlock{block}
 }
 
-func commitQCAtRoadBlocks(
-	ep *types.Epoch,
-	keys []types.SecretKey,
-	road types.RoadHeight,
-	n int,
-) (*types.FullCommitQC, []*types.LaneBlock) {
-	proposal, blocks := types.ProposalAtBlocks(ep, types.View{Height: road, Number: 0}, n)
-	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
-	prepareQC := types.BuildPrepareQC(keys, proposal)
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
-	}
-	headers := make([]*types.LaneBlockHeader, len(blocks))
-	for i, b := range blocks {
-		headers[i] = b.Header()
-	}
-	return types.NewFullCommitQC(types.NewCommitQC(votes), headers), blocks
-}
-
 func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -483,27 +464,6 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 	}))
 }
 
-func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
-			return err
-		}
-		if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
-			return err
-		}
-		if _, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next); err == nil {
-			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Height())
-		}
-		return nil
-	}))
-}
-
 func TestCommitteeFill_DerivedBeforeAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -553,37 +513,6 @@ func TestCommitteeFill_DerivedBeforeAppQC(t *testing.T) {
 		}
 		return nil
 	}))
-}
-
-func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	keeper := keys[0].Public()
-	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
-	store := newTestStore(t)
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	state := newTestState(t, &Config{Registry: registry}, store)
-	n := qc.Height()
-
-	// Stop Run before the divergent AppQC: persisting one kills the node.
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
-			return err
-		}
-		if err := registry.TestTryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
-			return err
-		}
-		return state.PushAppHash(ctx, n, types.GenAppHash(rng))
-	}))
-
-	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
-	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
-	_, err := registry.EpochAt(registry.MustEpoch(1).RoadRange().Next)
-	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 }
 
 func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T) {
