@@ -22,7 +22,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -873,7 +872,7 @@ func memiavlReportContext(dbDir string, height int64, normalization string, stre
 }
 
 type compositeMigrateEVMSource struct {
-	opened   gigatypes.LiveStateStore
+	opened   flatkv.LiveStateStore
 	boundary migration.MigrationBoundary
 	memIAVL  *memiavlLeafStream
 	ctx      digestPrintContext
@@ -967,7 +966,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 	return d.emit(source.ctx)
 }
 
-func readFlatKVMigrationState(store gigatypes.LiveStateStore) (migration.MigrationBoundary, bool, uint64, error) {
+func readFlatKVMigrationState(store flatkv.LiveStateStore) (migration.MigrationBoundary, bool, uint64, error) {
 	if data, ok := store.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey)); ok {
 		if len(data) != 8 {
 			return migration.MigrationBoundary{}, false, 0, fmt.Errorf("flatkv migration version length=%d, want 8", len(data))
@@ -997,7 +996,7 @@ func shouldIncludeFlatKVEVMLogicalDigestKey(physKey []byte) bool {
 }
 
 func consumeCompositeFlatKV(
-	opened gigatypes.LiveStateStore,
+	opened flatkv.LiveStateStore,
 	consume semanticLogicalConsumer,
 	accounts map[string]*semanticAccountDigestState,
 	allowAccountKey func([]byte) bool,

@@ -7,7 +7,7 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -38,7 +38,7 @@ func BuildRouter(
 	ctx context.Context,
 	writeMode types.WriteMode,
 	memIAVL *memiavl.CommitStore,
-	flatKV gigatypes.LiveStateStore,
+	flatKV flatkv.LiveStateStore,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
 	migrationBatchSize int,
 	options ...RouterOption,
@@ -152,7 +152,7 @@ func buildMemiavlOnlyRouter(
 func buildMigrateEVMRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
-	flatKV gigatypes.LiveStateStore,
+	flatKV flatkv.LiveStateStore,
 	migrationBatchSize int,
 	opts routerOptions,
 ) (Router, error) {
@@ -226,7 +226,7 @@ func buildMigrateEVMRouter(
 // Build a router for handling write mode EVMMigrated. Operates on a schema at migration version 1.
 func buildEVMMigratedRouter(
 	memIAVL *memiavl.CommitStore,
-	flatKV gigatypes.LiveStateStore,
+	flatKV flatkv.LiveStateStore,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -279,7 +279,7 @@ func buildEVMMigratedRouter(
 func buildMigrateCosmosRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
-	flatKV gigatypes.LiveStateStore,
+	flatKV flatkv.LiveStateStore,
 	migrationBatchSize int,
 	opts routerOptions,
 ) (Router, error) {
@@ -337,7 +337,7 @@ func buildMigrateCosmosRouter(
 
 // Build a router for handling write mode FlatKVOnly. Operates on a schema at migration version 2.
 func buildFlatKVOnlyRouter(
-	flatKV gigatypes.LiveStateStore,
+	flatKV flatkv.LiveStateStore,
 ) (Router, error) {
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
@@ -375,7 +375,7 @@ func buildFlatKVOnlyRouter(
 // CRITICAL: this is a test-only router and should never be deployed to production machines.
 func buildTestOnlyDualWriteRouter(
 	memIAVL *memiavl.CommitStore,
-	flatKV gigatypes.LiveStateStore,
+	flatKV flatkv.LiveStateStore,
 ) (Router, error) {
 	if memIAVL == nil {
 		return nil, fmt.Errorf("memIAVL is nil")
@@ -476,7 +476,7 @@ func buildMemIAVLProofBuilder(memIAVL *memiavl.CommitStore) DBProofBuilder {
 }
 
 // Build a function capable of reading data from flatkv.
-func buildFlatKVReader(flatKV gigatypes.LiveStateStore) DBReader {
+func buildFlatKVReader(flatKV flatkv.LiveStateStore) DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
 		value, found := flatKV.Get(store, key)
 		return value, found, nil
@@ -484,7 +484,7 @@ func buildFlatKVReader(flatKV gigatypes.LiveStateStore) DBReader {
 }
 
 // Build a function capable of writing data to flatkv.
-func buildFlatKVWriter(flatKV gigatypes.LiveStateStore) DBWriter {
+func buildFlatKVWriter(flatKV flatkv.LiveStateStore) DBWriter {
 	return func(changesets []*proto.NamedChangeSet, _ bool) error {
 		// Stamp at the next commit height so Apply/Commit versions match
 		// under the sequential composite commit path. Note this is called
@@ -512,7 +512,7 @@ func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*Route
 }
 
 // Build a route to a flatkv store for the given module names.
-func routeToFlatKV(flatKV gigatypes.LiveStateStore, moduleNames ...string) (*Route, error) {
+func routeToFlatKV(flatKV flatkv.LiveStateStore, moduleNames ...string) (*Route, error) {
 	return NewRoute(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
