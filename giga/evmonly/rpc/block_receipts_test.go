@@ -15,7 +15,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -25,7 +26,7 @@ import (
 // floorReceiptStore overrides EarliestVersion on an otherwise real store,
 // answering successive calls from floors and repeating the last one.
 type floorReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	floors []int64
 }
 
@@ -149,8 +150,8 @@ func TestGetBlockReceipts(t *testing.T) {
 func TestGetBlockReceiptsMatchesGetTransactionReceipt(t *testing.T) {
 	tx1, raw1 := testSignedTransaction(t)
 	tx2, raw2 := secondSignedTransaction(t)
-	receiptAt := func(hash common.Hash, blockNumber uint64, index uint32) receipt.ReceiptRecord {
-		return receipt.ReceiptRecord{TxHash: hash, Receipt: &evmtypes.Receipt{
+	receiptAt := func(hash common.Hash, blockNumber uint64, index uint32) receipttypes.ReceiptRecord {
+		return receipttypes.ReceiptRecord{TxHash: hash, Receipt: &evmtypes.Receipt{
 			TxHashHex: hash.Hex(), BlockNumber: blockNumber, TransactionIndex: index, GasUsed: 21_000, CumulativeGasUsed: 21_000,
 		}}
 	}
@@ -165,25 +166,25 @@ func TestGetBlockReceiptsMatchesGetTransactionReceipt(t *testing.T) {
 
 	for _, tc := range []struct {
 		name        string
-		records     []receipt.ReceiptRecord
+		records     []receipttypes.ReceiptRecord
 		want        []common.Hash
 		wantIndexes []hexutil.Uint64
 	}{
 		{
 			name:        "every transaction has a receipt",
-			records:     []receipt.ReceiptRecord{receiptAt(tx1.Hash(), 9, 0), receiptAt(tx2.Hash(), 9, 1)},
+			records:     []receipttypes.ReceiptRecord{receiptAt(tx1.Hash(), 9, 0), receiptAt(tx2.Hash(), 9, 1)},
 			want:        []common.Hash{tx1.Hash(), tx2.Hash()},
 			wantIndexes: []hexutil.Uint64{0, 1},
 		},
 		{
 			name:        "replay keeps its receipt at the earlier block",
-			records:     []receipt.ReceiptRecord{receiptAt(tx1.Hash(), 9, 0), receiptAt(tx2.Hash(), 3, 7)},
+			records:     []receipttypes.ReceiptRecord{receiptAt(tx1.Hash(), 9, 0), receiptAt(tx2.Hash(), 3, 7)},
 			want:        []common.Hash{tx1.Hash()},
 			wantIndexes: []hexutil.Uint64{0},
 		},
 		{
 			name:        "rejected transaction has no receipt",
-			records:     []receipt.ReceiptRecord{receiptAt(tx2.Hash(), 9, 1)},
+			records:     []receipttypes.ReceiptRecord{receiptAt(tx2.Hash(), 9, 1)},
 			want:        []common.Hash{tx2.Hash()},
 			wantIndexes: []hexutil.Uint64{1},
 		},
@@ -197,7 +198,7 @@ func TestGetBlockReceiptsMatchesGetTransactionReceipt(t *testing.T) {
 				},
 				blockNumber: func() uint64 { return 9 },
 			}
-			for _, store := range []receipt.ReceiptStore{memory, hashOnlyReceiptStore{ReceiptStore: memory}} {
+			for _, store := range []receiptdb.ReceiptStore{memory, hashOnlyReceiptStore{ReceiptStore: memory}} {
 				got, err := (&blockAPI{backend: backend, store: store}).GetBlockReceipts(t.Context(), ethrpc.BlockNumberOrHashWithNumber(9))
 				require.NoError(t, err)
 				require.Equal(t, tc.want, receiptTxHashes(got))
@@ -225,12 +226,12 @@ func TestGetBlockReceiptsSurfacesStoreErrors(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		store   receipt.ReceiptStore
+		store   receiptdb.ReceiptStore
 		wantErr error
 	}{
 		{
 			name: "iterator error",
-			store: stubIteratingReceiptStore{ReceiptStore: memory, iterate: func(uint64) (receipt.ReceiptIterator, error) {
+			store: stubIteratingReceiptStore{ReceiptStore: memory, iterate: func(uint64) (receiptdb.ReceiptIterator, error) {
 				return nil, iterateErr
 			}},
 			wantErr: iterateErr,

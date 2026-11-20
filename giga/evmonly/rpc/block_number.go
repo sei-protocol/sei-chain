@@ -7,7 +7,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 )
 
 // blockNumberKind is what a requested block number names.
@@ -55,7 +55,7 @@ func firstBlockHeight(backend Backend) int64 {
 
 // earliestRetainedHeight returns the lowest block height store retains, never below the chain's
 // first block.
-func earliestRetainedHeight(backend Backend, store receiptpkg.ReceiptStore) int64 {
+func earliestRetainedHeight(backend Backend, store receiptdb.ReceiptStore) int64 {
 	first := firstBlockHeight(backend)
 	if store == nil {
 		return first

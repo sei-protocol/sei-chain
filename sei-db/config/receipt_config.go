@@ -80,7 +80,7 @@ type ReceiptStoreConfig struct {
 	// constructs the collector, since it is only correct when this store is registered with a
 	// running one.
 	//
-	// Only the littidx backend supports it; newReceiptBackend rejects it on pebbledb.
+	// Only the littidx backend supports it; pebble.NewReceiptStore rejects it.
 	ExternalPruning bool `mapstructure:"-"`
 
 	// EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed receipt storage.
@@ -102,7 +102,8 @@ type ReceiptStoreConfig struct {
 	LogFilterParallelism int `mapstructure:"log-filter-parallelism"`
 
 	// RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles stored per
-	// block ([0, 100], no duplicates). littidx only; empty defaults to gigareceipt.DefaultRewardPercentiles.
+	// block ([0, 100], no duplicates). littidx only; empty defaults to DefaultRewardPercentiles
+	// in sei-db/receipt_db/metrics.
 	RewardPercentiles []float64 `mapstructure:"rs-reward-percentiles"`
 }
 

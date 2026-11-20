@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -79,7 +80,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 		if flatkvResult != nil {
 			extras = append(extras, flatkvStateSizeAnalysis(flatkvResult, flatkvActualHeight))
 		}
-		if err := exportResultsToDynamoDB(moduleResults, extras, actualHeight, dynamoDBTable, awsRegion); err != nil {
+		if err := exportResultsToDynamoDB(cmd.Context(), moduleResults, extras, actualHeight, dynamoDBTable, awsRegion); err != nil {
 			panic(err)
 		}
 		fmt.Println("Successfully exported to DynamoDB!")
@@ -279,12 +280,13 @@ func collectAllModuleData(module string, db *memiavl.DB) map[string]*ModuleResul
 // because it remains the canonical "observation height" even when FlatKV
 // resolved to a slightly older snapshot.
 func exportResultsToDynamoDB(
+	ctx context.Context,
 	moduleResults map[string]*ModuleResult,
 	extras []*utils.StateSizeAnalysis,
 	height int64,
 	tableName, awsRegion string,
 ) error {
-	dynamoClient, err := utils.NewDynamoDBClient(tableName, awsRegion)
+	dynamoClient, err := utils.NewDynamoDBClient(ctx, tableName, awsRegion)
 	if err != nil {
 		return fmt.Errorf("failed to create DynamoDB client: %w", err)
 	}
@@ -295,12 +297,12 @@ func exportResultsToDynamoDB(
 	}
 	analyses = append(analyses, extras...)
 
-	if err := dynamoClient.ExportMultipleAnalyses(analyses); err != nil {
+	if err := dynamoClient.ExportMultipleAnalyses(ctx, analyses); err != nil {
 		return fmt.Errorf("failed to export analyses to DynamoDB: %w", err)
 	}
 
 	metadataTableName := tableName + "_metadata"
-	_, err = dynamoClient.UpdateLatestHeightIfGreater(metadataTableName, height)
+	_, err = dynamoClient.UpdateLatestHeightIfGreater(ctx, metadataTableName, height)
 	return err
 }
 

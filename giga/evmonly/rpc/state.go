@@ -13,7 +13,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -29,7 +29,7 @@ var (
 
 type stateAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 }
 
 // GetBalance returns the address balance in the committed EVM state after block.
@@ -87,7 +87,7 @@ func readState[T any](ctx context.Context, read func() (T, error)) (T, error) {
 // stateHeight returns the block a state query reads: the latest committed state for a head tag,
 // or else the block a number or hash names, with earliest and 0x0 naming the earliest block store
 // retains and requireCanonical ignored.
-func stateHeight(ctx context.Context, backend Backend, store receiptpkg.ReceiptStore, block ethrpc.BlockNumberOrHash) (height int64, latest bool, err error) {
+func stateHeight(ctx context.Context, backend Backend, store receiptdb.ReceiptStore, block ethrpc.BlockNumberOrHash) (height int64, latest bool, err error) {
 	if hash, ok := block.Hash(); ok {
 		if height, err = blockHeightByHash(ctx, backend, hash); err != nil {
 			return 0, false, err

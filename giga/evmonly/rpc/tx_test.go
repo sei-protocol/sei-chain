@@ -24,7 +24,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -170,7 +171,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 	topic := common.HexToHash("0x4567")
 	bloom := ethtypes.Bloom{9}
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxType:            uint32(ethtypes.DynamicFeeTxType),
@@ -262,7 +263,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 func TestGetTransactionReceiptReturnsNullBeforeBlockCommit(t *testing.T) {
 	txHash := common.Hash{1}
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:   txHash.Hex(),
@@ -313,7 +314,7 @@ func TestGetTransactionByHash(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -383,7 +384,7 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 	require.NoError(t, err)
 
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -429,7 +430,7 @@ func TestGetTransactionByHashReturnsNullForUnknownHash(t *testing.T) {
 func TestGetTransactionByHashReturnsNullBeforeBlockCommit(t *testing.T) {
 	txHash := common.Hash{1}
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:   txHash.Hex(),
@@ -454,7 +455,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	blockHash := common.HexToHash("0xabcd")
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -511,7 +512,7 @@ func TestLookupFinalizedTxSurfacesStoreAndBlockErrors(t *testing.T) {
 	txHash := common.Hash{1}
 	// Setup: one real receipt so overflow/lookup cases have something to find.
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:   txHash.Hex(),
@@ -624,7 +625,7 @@ func TestLookupFinalizedTxSurfacesStoreAndBlockErrors(t *testing.T) {
 func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -681,7 +682,7 @@ func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T
 func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -721,7 +722,7 @@ func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.
 	blockHash := common.HexToHash("0xabcd")
 	created := common.HexToAddress("0x4000000000000000000000000000000000000004")
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        txHash.Hex(),
@@ -755,7 +756,7 @@ func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.
 func TestTransactionErrorMethods(t *testing.T) {
 	failed, succeeded, unfinalized := common.Hash{1}, common.Hash{2}, common.Hash{3}
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: failed, Receipt: &evmtypes.Receipt{TxHashHex: failed.Hex(), BlockNumber: 7, VmError: "execution reverted"}},
 		{TxHash: succeeded, Receipt: &evmtypes.Receipt{TxHashHex: succeeded.Hex(), BlockNumber: 7}},
 		{TxHash: unfinalized, Receipt: &evmtypes.Receipt{TxHashHex: unfinalized.Hex(), BlockNumber: 8}},
@@ -796,7 +797,7 @@ func TestTransactionErrorMethods(t *testing.T) {
 			var vmError string
 			err := client.CallContext(t.Context(), &vmError, "eth_getVMError", tc.hash)
 			if tc.notFound {
-				require.ErrorContains(t, err, receipt.ErrNotFound.Error())
+				require.ErrorContains(t, err, receiptdb.ErrNotFound.Error())
 				return
 			}
 			require.NoError(t, err)

@@ -13,7 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -34,7 +35,7 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txInde
 	store := ctx.TransientStore(k.transientStoreKey)
 	bz := store.Get(types.NewTransientReceiptKey(txIndex, txHash))
 	if bz == nil {
-		return nil, receipt.ErrNotFound
+		return nil, receiptdb.ErrNotFound
 	}
 	r := &types.Receipt{}
 	if err := r.Unmarshal(bz); err != nil {
@@ -53,7 +54,7 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if k.receiptStore == nil {
-		return nil, receipt.ErrNotConfigured
+		return nil, receiptdb.ErrNotConfigured
 	}
 	if goCtx := ctx.Context(); goCtx != nil {
 		if err := goCtx.Err(); err != nil {
@@ -73,7 +74,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 // Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if k.receiptStore == nil {
-		return nil, receipt.ErrNotConfigured
+		return nil, receiptdb.ErrNotConfigured
 	}
 	return k.receiptStore.GetReceiptFromStore(ctx, txHash)
 }
@@ -91,7 +92,7 @@ func (k *Keeper) GetReceiptWithRetry(goCtx context.Context, ctx sdk.Context, txH
 		}
 
 		// If it's not a "not found" error, return immediately
-		if !errors.Is(err, receipt.ErrNotFound) {
+		if !errors.Is(err, receiptdb.ErrNotFound) {
 			return nil, err
 		}
 
@@ -121,11 +122,11 @@ func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, rcpt *types.Re
 	for {
 		if _, err := k.GetReceipt(ctx, txHash); err == nil {
 			return nil
-		} else if err != nil && !errors.Is(err, receipt.ErrNotFound) {
+		} else if err != nil && !errors.Is(err, receiptdb.ErrNotFound) {
 			return err
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%w: after async flush", receipt.ErrNotFound)
+			return fmt.Errorf("%w: after async flush", receiptdb.ErrNotFound)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -161,7 +162,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
-	records := make([]receipt.ReceiptRecord, 0)
+	records := make([]receipttypes.ReceiptRecord, 0)
 
 	// TransientReceiptStore is recreated on commit meaning it will only contain receipts for a single block at a time
 	// and will never flush a subset of block's receipts.
@@ -180,7 +181,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 		}
 
 		txHash := types.TransientReceiptKey(iter.Key()).TransactionHash()
-		records = append(records, receipt.ReceiptRecord{TxHash: txHash, Receipt: rcpt})
+		records = append(records, receipttypes.ReceiptRecord{TxHash: txHash, Receipt: rcpt})
 	}
 	return k.receiptStore.SetReceipts(ctx, records)
 }

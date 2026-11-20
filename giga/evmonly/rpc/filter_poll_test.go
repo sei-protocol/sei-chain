@@ -17,7 +17,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -52,7 +54,7 @@ func (fx *pollFixture) commit(t *testing.T) uint64 {
 	t.Helper()
 	height := fx.head.Add(1)
 	hash := filterTxHash(height, 0)
-	require.NoError(t, fx.store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, fx.store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: hash,
 		Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: height, Logs: []*evmtypes.Log{
 			{Address: filterContractA.Hex(), Topics: []string{filterTopicX.Hex()}},
@@ -264,7 +266,7 @@ func TestGetFilterChangesCapsEachPoll(t *testing.T) {
 					logs[i] = &evmtypes.Log{Address: filterContractA.Hex(), Index: uint32(i)} //nolint:gosec // small test count
 				}
 				hash := filterTxHash(height, 0)
-				require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+				require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 					TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: height, Logs: logs},
 				}}))
 			}
@@ -276,7 +278,7 @@ func TestGetFilterChangesCapsEachPoll(t *testing.T) {
 			for i, want := range tc.polls {
 				got, err := api.GetFilterChanges(t.Context(), id)
 				if want == nil {
-					require.ErrorIs(t, err, receipt.ErrTooManyLogs, "poll %d", i)
+					require.ErrorIs(t, err, logfilter.ErrTooManyLogs, "poll %d", i)
 					continue
 				}
 				require.NoError(t, err, "poll %d", i)

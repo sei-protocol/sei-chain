@@ -10,8 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -23,7 +22,7 @@ const logsRetryInterval = 100 * time.Millisecond
 
 type subscribeAPI struct {
 	backend Backend
-	store   receipt.ReceiptStore
+	store   receiptdb.ReceiptStore
 	logs    *filterAPI
 	limits  *subscriptionLimiter
 }

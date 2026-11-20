@@ -11,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -54,7 +54,7 @@ func (e *invalidParamsError) Unwrap() error {
 
 type filterAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 	filters *filterRegistry
 	// maxBlockFilterHashes caps the unpolled blocks a block filter may fall behind by; zero
 	// disables the cap.
@@ -79,8 +79,8 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 // rangeLogs returns the logs crit's addresses and topics match in the indexed blocks fromBlock
 // through toBlock, within the per-query log caps.
 func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria, fromBlock, toBlock uint64) ([]*ethtypes.Log, error) {
-	budget := receiptpkg.NewLogBudget(maxLogsPerQuery, receiptpkg.DefaultMaxLogBytes)
-	logs, err := api.store.FilterLogs(receiptContext(receiptpkg.WithStrictTopicCount(ctx)), fromBlock, toBlock, crit, budget)
+	budget := logfilter.NewLogBudget(maxLogsPerQuery, logfilter.DefaultMaxLogBytes)
+	logs, err := api.store.FilterLogs(receiptContext(logfilter.WithStrictTopicCount(ctx)), fromBlock, toBlock, crit, budget)
 	if err != nil {
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
@@ -132,7 +132,7 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 // indexedRange returns the inclusive height range the receipt store can
 // answer for: from its retention floor to the lower of the committed head and
 // the last block whose receipts it has indexed.
-func indexedRange(backend Backend, store receiptpkg.ReceiptStore) (uint64, uint64) {
+func indexedRange(backend Backend, store receiptdb.ReceiptStore) (uint64, uint64) {
 	latest := backend.EvmBlockNumber()
 	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative

@@ -11,7 +11,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -132,7 +133,7 @@ func drawReceiptInputs(rand *crand.CannedRandom, kind transactionKind) receiptDr
 
 // receiptBuffer holds one block's receipts. Each record's body is the encoding of its own receipt.
 type receiptBuffer struct {
-	records []receipt.ReceiptRecord
+	records []receipttypes.ReceiptRecord
 
 	// The total size of the bodies recorded so far.
 	encodedBytes int64
@@ -155,7 +156,7 @@ type receiptBuffer struct {
 func newReceiptBuffer(count int, gasPerTransaction uint64) *receiptBuffer {
 	stride := maxReceiptSize(gasPerTransaction, count)
 	return &receiptBuffer{
-		records:           make([]receipt.ReceiptRecord, count),
+		records:           make([]receipttypes.ReceiptRecord, count),
 		storage:           make([]evmtypes.Receipt, count),
 		bodies:            make([]byte, count*stride),
 		stride:            stride,
@@ -204,7 +205,7 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	}
 	body := window[len(window)-n:]
 	b.encodedBytes += int64(len(body))
-	b.records[index] = receipt.ReceiptRecord{
+	b.records[index] = receipttypes.ReceiptRecord{
 		TxHash:       common.BytesToHash(txHash[:]),
 		Receipt:      built,
 		ReceiptBytes: body,

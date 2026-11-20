@@ -12,7 +12,8 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -253,7 +254,7 @@ func prunedLogsError(crit filters.FilterCriteria, cursor, earliest uint64) error
 
 // exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
 func exceedsLogCaps(err error) bool {
-	return errors.Is(err, receiptpkg.ErrTooManyLogs) || errors.Is(err, receiptpkg.ErrTooManyLogBytes)
+	return errors.Is(err, logfilter.ErrTooManyLogs) || errors.Is(err, logfilter.ErrTooManyLogBytes)
 }
 
 // oversizedBlockError reports a block whose logs matching a filter alone exceed the log caps.

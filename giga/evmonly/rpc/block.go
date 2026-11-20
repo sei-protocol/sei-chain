@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/big"
 
+	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -13,8 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -23,7 +24,7 @@ import (
 
 type blockAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 }
 
 // GetBlockByNumber returns the block for number, nil for a future height, or an
@@ -331,9 +332,9 @@ func headerFields(block *coretypes.ResultBlock, blockUnix, gasLimit uint64, base
 
 // receiptFor returns hash's stored receipt, or nil with a nil error when no
 // receipt is stored for it.
-func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.Hash) (*evmtypes.Receipt, error) {
+func receiptFor(ctx context.Context, store receiptdb.ReceiptStore, hash common.Hash) (*evmtypes.Receipt, error) {
 	stored, err := store.GetReceipt(receiptContext(ctx), hash)
-	if errors.Is(err, receiptpkg.ErrNotFound) {
+	if errors.Is(err, receiptdb.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
@@ -345,7 +346,7 @@ func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.
 // blockGasUsed returns the gas used by block: its stored BlockStats when the store
 // has them, otherwise the total recomputed from the receipts that belong to the
 // block at their original index. It is zero when the store does not cover block.
-func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
+func blockGasUsed(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
 	height := block.Block.Height
@@ -356,16 +357,16 @@ func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *cor
 	if err == nil {
 		return stats.TotalGasUsed, nil
 	}
-	if errors.Is(err, receiptpkg.ErrNotFound) {
+	if errors.Is(err, receiptdb.ErrNotFound) {
 		// Pruned between the version check and the read.
 		return 0, nil
 	}
-	if !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) {
+	if !errors.Is(err, receiptdb.ErrBlockStatsNotSupported) {
 		return 0, fmt.Errorf("read block stats for block %d: %w", height, err)
 	}
 	records, err := blockReceiptRecords(ctx, store, block)
 	if err != nil {
 		return 0, err
 	}
-	return gigareceipt.ComputeBlockStats(records, nil).TotalGasUsed, nil
+	return receiptmetrics.ComputeBlockStats(records, nil).TotalGasUsed, nil
 }

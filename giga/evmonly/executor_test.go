@@ -23,7 +23,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 )
 
 const (
@@ -43,7 +43,7 @@ type failingReceiptStore struct {
 	err error
 }
 
-func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipttypes.ReceiptRecord) error {
 	if s.err != nil {
 		return s.err
 	}
