@@ -511,9 +511,9 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	require.Equal(t, goodEvidence, next.Value())
 }
 
-// TestAddEvidenceRejectsWrongABCIFields checks that AddEvidence rejects a
+// TestAddEvidenceRejectsWrongABCIField checks that AddEvidence rejects a
 // DuplicateVoteEvidence with a wrong ABCI field and writes nothing to the pool.
-func TestAddEvidenceRejectsWrongABCIFields(t *testing.T) {
+func TestAddEvidenceRejectsWrongABCIField(t *testing.T) {
 	const height int64 = 10
 	ctx := t.Context()
 
@@ -589,7 +589,10 @@ func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
 			utilsrequire.NoError(t, err)
 			utilsrequire.NoError(t, pool.AddEvidence(ctx, pendingEv))
 
-			utilsrequire.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{tc.wrong(t, pendingEv, val)}))
+			wrongEv := tc.wrong(t, pendingEv, val)
+			wrongHash := wrongEv.Hash()
+			utilsrequire.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{wrongEv}))
+			utilsrequire.Equal(t, wrongHash, wrongEv.Hash())
 
 			pendingEvs, _ := pool.PendingEvidence(defaultEvidenceMaxBytes)
 			utilsrequire.Equal(t, []types.Evidence{pendingEv}, pendingEvs)
@@ -598,8 +601,8 @@ func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
 	}
 }
 
-// copyDuplicateVoteEvidence returns a shallow copy of ev. The copy shares the votes of
-// ev, so a test can change the ABCI fields of the copy and keep ev as it was.
+// copyDuplicateVoteEvidence returns a shallow copy of ev. The copy has its own ABCI fields
+// and shares the votes of ev.
 func copyDuplicateVoteEvidence(ev *types.DuplicateVoteEvidence) *types.DuplicateVoteEvidence {
 	copied := *ev
 	return &copied
