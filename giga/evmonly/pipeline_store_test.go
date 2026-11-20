@@ -377,3 +377,19 @@ func TestReadLatestFailsOnceACommitHasFailed(t *testing.T) {
 	require.ErrorIs(t, executor.AwaitCommits(), errTestCommitFailed)
 	require.ErrorIs(t, executor.ReadLatest(read), errTestCommitFailed, "and still once it has been waited on")
 }
+
+// ReadLatest refuses a commit that has recorded its failure but not yet released its waiters.
+func TestReadLatestFailsOnACommitThatFailedBeforeReleasingItsWaiters(t *testing.T) {
+	store := &recordingGigaStore{snapshot: newMemoryGigaSnapshot(40)}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
+	defer executor.Close()
+	// What a failed commit leaves between recording its error and closing its channel.
+	done := make(chan struct{})
+	executor.pipelineMu.Lock()
+	executor.pipelineDone = done
+	executor.pipelineErr = errTestCommitFailed
+	executor.pipelineMu.Unlock()
+	defer close(done)
+
+	require.ErrorIs(t, executor.ReadLatest(func(precompiles.State) error { return nil }), errTestCommitFailed)
+}

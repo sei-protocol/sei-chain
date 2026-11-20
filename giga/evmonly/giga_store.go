@@ -202,15 +202,8 @@ func (e *Executor) commitFailure() error {
 	if e.pipelineFailure != nil {
 		return e.pipelineFailure
 	}
-	if e.pipelineDone == nil {
-		return nil
-	}
-	select {
-	case <-e.pipelineDone:
-		if e.pipelineErr != nil {
-			return fmt.Errorf("commit state changes: %w", e.pipelineErr)
-		}
-	default:
+	if e.pipelineErr != nil {
+		return fmt.Errorf("commit state changes: %w", e.pipelineErr)
 	}
 	return nil
 }
