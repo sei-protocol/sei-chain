@@ -83,6 +83,8 @@ type GigaRouter interface {
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
+	// CheckTx checks a transaction for admission without inserting it into the mempool.
+	CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error)
 	// RememberEvmSender records a verified sender for local admission.
 	RememberEvmSender(hash common.Hash, sender common.Address)
 	// ForgetEvmSender removes the cached sender for hash.

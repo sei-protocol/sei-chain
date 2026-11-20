@@ -64,6 +64,11 @@ func newAutobahnFullnodeEnv(t *testing.T) *Environment {
 
 func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	t.Helper()
+	return newAutobahnEnvWithApp(t, validator, abevm.NewProxy(broadcastEVMApp{}))
+}
+
+func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Environment {
+	t.Helper()
 	rng := utils.TestRng()
 	_, keys := atypes.GenCommittee(rng, 1)
 	valKey := keys[0]
@@ -84,7 +89,6 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 	}
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	app := abevm.NewProxy(broadcastEVMApp{})
 	signer := newTestSigner(app.EvmChainID(), 0)
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
@@ -147,7 +151,6 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 		Router:     router,
 		EventSinks: []indexer.EventSink{kvsink.NewEventSink(dbm.NewMemDB(), nil)},
 		Config:     *config.DefaultRPCConfig(),
-		EVMSigner:  utils.Some(signer),
 	}
 }
 

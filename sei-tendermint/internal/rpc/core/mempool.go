@@ -354,8 +354,8 @@ func (env *Environment) EvmBlockNumber() uint64 {
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
 func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheckTx) (*coretypes.ResultCheckTx, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		tx, res, err := abevm.CheckTx(evm, env.evmSigner(), req.Tx)
+	if router, ok := env.gigaRouter().Get(); ok {
+		tx, res, err := router.CheckTx(req.Tx)
 		response, err := evmAdmissionResponse(tx, res, err)
 		if err != nil {
 			return nil, err

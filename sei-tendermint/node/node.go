@@ -306,9 +306,8 @@ func makeNode(
 		blockStore:   blockStore,
 
 		rpcEnv: &rpccore.Environment{
-			App:       proxyApp,
-			EVM:       evmApp,
-			EVMSigner: evmSigner,
+			App: proxyApp,
+			EVM: evmApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,

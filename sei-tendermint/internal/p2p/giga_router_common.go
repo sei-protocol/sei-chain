@@ -60,6 +60,11 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
+// CheckTx checks a transaction for admission without inserting it into the mempool.
+func (r *gigaRouterCommon) CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error) {
+	return abevm.CheckTx(r.app, r.signer, raw)
+}
+
 // RememberEvmSender records a verified sender for local admission.
 func (r *gigaRouterCommon) RememberEvmSender(hash common.Hash, sender common.Address) {
 	r.signer.Remember(hash, sender)

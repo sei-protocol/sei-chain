@@ -45,8 +45,7 @@ func signedEVMStateTestTx(t *testing.T, gas uint64) *ethtypes.Transaction {
 
 func TestEVMEnvironmentReadsStateWithoutABCI(t *testing.T) {
 	app := abevm.NewProxy(evmStateApp{})
-	env := &Environment{EVM: utils.Some(app),
-		EVMSigner: utils.Some(newTestSigner(app.EvmChainID(), 0))}
+	env := newAutobahnEnvWithApp(t, false, app)
 	require.False(t, env.App.IsPresent())
 	require.Equal(t, uint64(17), env.EvmBlockNumber())
 	require.Equal(t, uint64(3), env.EvmTransactionCount(common.Address{1}))
@@ -79,11 +78,11 @@ func (a *senderCacheApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 func TestEVMEnvironmentCachesSendersThroughGigaRouter(t *testing.T) {
 	for _, validator := range []bool{false, true} {
 		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
-			autobahn := newAutobahnEnv(t, validator)
 			app := &senderCacheApp{}
 			proxy := abevm.NewProxy(app)
+			autobahn := newAutobahnEnvWithApp(t, validator, proxy)
 			env := &EVMEnvironment{
-				Environment: &Environment{Router: autobahn.Router, EVM: utils.Some(proxy), EVMSigner: autobahn.EVMSigner},
+				Environment: autobahn,
 				Proxy:       proxy,
 			}
 			tx := signedEVMStateTestTx(t, 0)
@@ -103,8 +102,7 @@ func TestEVMEnvironmentCachesSendersThroughGigaRouter(t *testing.T) {
 
 func TestEVMEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {
 	app := &senderCacheApp{}
-	env := &Environment{EVM: utils.Some(abevm.NewProxy(app)),
-		EVMSigner: utils.Some(newTestSigner(app.EvmChainID(), 0))}
+	env := newAutobahnEnvWithApp(t, false, abevm.NewProxy(app))
 	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(1)}).MarshalBinary())
 	response, err := env.CheckTx(t.Context(), &coretypes.RequestCheckTx{Tx: raw})
 	require.NoError(t, err)
