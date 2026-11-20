@@ -202,27 +202,27 @@ func (c RPCConfig) DeadlineConfig() (ratelimiter.DeadlineConfig, error) {
 }
 
 // StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync, where
-// the giga checkpoint archives of its chain are, and whether it uploads them.
+// the giga state sync snapshots of its chain are, and whether it uploads them.
 type StateSyncConfig struct {
 	// Enabled runs a background task that writes a state sync proof file for each retained FlatKV
-	// checkpoint, and the archive upload when ArchiveUpload is set. It does not create checkpoints.
+	// checkpoint, and the snapshot upload when SnapshotUpload is set. It does not create checkpoints.
 	Enabled bool `mapstructure:"enabled"`
 
-	// ArchiveBucket is the S3 bucket of the giga checkpoint archives, which seid statesync import
-	// reads and the archive upload writes.
-	ArchiveBucket string `mapstructure:"archive_bucket"`
+	// SnapshotBucket is the S3 bucket of the giga state sync snapshots, which seid statesync import
+	// reads and the snapshot upload writes.
+	SnapshotBucket string `mapstructure:"snapshot_bucket"`
 
-	// ArchiveRegion is the AWS region of ArchiveBucket. Empty selects the region of the AWS SDK
+	// SnapshotRegion is the AWS region of SnapshotBucket. Empty selects the region of the AWS SDK
 	// default configuration.
-	ArchiveRegion string `mapstructure:"archive_region"`
+	SnapshotRegion string `mapstructure:"snapshot_region"`
 
-	// ArchiveUpload uploads archives of the FlatKV checkpoints to ArchiveBucket. It needs Enabled and
-	// ArchiveBucket, and a node that is not a validator.
-	ArchiveUpload bool `mapstructure:"archive_upload"`
+	// SnapshotUpload uploads snapshots of the FlatKV checkpoints to SnapshotBucket. It needs Enabled
+	// and SnapshotBucket, and a node that is not a validator.
+	SnapshotUpload bool `mapstructure:"snapshot_upload"`
 
-	// ArchiveUploadInterval is the least time between two archive uploads of the chain to
-	// ArchiveBucket, by any node. 0 uploads each checkpoint.
-	ArchiveUploadInterval time.Duration `mapstructure:"archive_upload_interval"`
+	// SnapshotUploadInterval is the least time between two snapshot uploads of the chain to
+	// SnapshotBucket, by any node. 0 uploads each checkpoint.
+	SnapshotUploadInterval time.Duration `mapstructure:"snapshot_upload_interval"`
 }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
@@ -263,8 +263,8 @@ var DefaultConfig = Config{
 		MethodTimeouts:                slices.Clone(defaultMethodTimeouts),
 	},
 	StateSync: StateSyncConfig{
-		Enabled:               false,
-		ArchiveUploadInterval: time.Hour,
+		Enabled:                false,
+		SnapshotUploadInterval: time.Hour,
 	},
 }
 
@@ -321,10 +321,10 @@ const (
 	FlagRPCDefaultTimeout                = "giga.rpc.default_timeout"
 	FlagRPCMethodTimeouts                = "giga.rpc.method_timeouts"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
-	FlagStateSyncArchiveBucket           = "giga.state_sync.archive_bucket"
-	FlagStateSyncArchiveRegion           = "giga.state_sync.archive_region"
-	FlagStateSyncArchiveUpload           = "giga.state_sync.archive_upload"
-	FlagStateSyncArchiveUploadInterval   = "giga.state_sync.archive_upload_interval"
+	FlagStateSyncSnapshotBucket          = "giga.state_sync.snapshot_bucket"
+	FlagStateSyncSnapshotRegion          = "giga.state_sync.snapshot_region"
+	FlagStateSyncSnapshotUpload          = "giga.state_sync.snapshot_upload"
+	FlagStateSyncSnapshotUploadInterval  = "giga.state_sync.snapshot_upload_interval"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -516,24 +516,24 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
 		}
 	}
-	if v := opts.Get(FlagStateSyncArchiveBucket); v != nil {
-		if cfg.StateSync.ArchiveBucket, err = cast.ToStringE(v); err != nil {
-			return cfg, fmt.Errorf("%s: %w", FlagStateSyncArchiveBucket, err)
+	if v := opts.Get(FlagStateSyncSnapshotBucket); v != nil {
+		if cfg.StateSync.SnapshotBucket, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotBucket, err)
 		}
 	}
-	if v := opts.Get(FlagStateSyncArchiveRegion); v != nil {
-		if cfg.StateSync.ArchiveRegion, err = cast.ToStringE(v); err != nil {
-			return cfg, fmt.Errorf("%s: %w", FlagStateSyncArchiveRegion, err)
+	if v := opts.Get(FlagStateSyncSnapshotRegion); v != nil {
+		if cfg.StateSync.SnapshotRegion, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotRegion, err)
 		}
 	}
-	if v := opts.Get(FlagStateSyncArchiveUpload); v != nil {
-		if cfg.StateSync.ArchiveUpload, err = cast.ToBoolE(v); err != nil {
-			return cfg, fmt.Errorf("%s: %w", FlagStateSyncArchiveUpload, err)
+	if v := opts.Get(FlagStateSyncSnapshotUpload); v != nil {
+		if cfg.StateSync.SnapshotUpload, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUpload, err)
 		}
 	}
-	if v := opts.Get(FlagStateSyncArchiveUploadInterval); v != nil {
-		if cfg.StateSync.ArchiveUploadInterval, err = cast.ToDurationE(v); err != nil {
-			return cfg, fmt.Errorf("%s: %w", FlagStateSyncArchiveUploadInterval, err)
+	if v := opts.Get(FlagStateSyncSnapshotUploadInterval); v != nil {
+		if cfg.StateSync.SnapshotUploadInterval, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUploadInterval, err)
 		}
 	}
 	return cfg, cfg.Validate()
@@ -630,14 +630,14 @@ func (c Config) Validate() error {
 	if c.RPC.MaxStateOverrideSlots < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
 	}
-	if c.StateSync.ArchiveUpload && !c.StateSync.Enabled {
-		return fmt.Errorf("%s: needs %s = true", FlagStateSyncArchiveUpload, FlagStateSyncEnabled)
+	if c.StateSync.SnapshotUpload && !c.StateSync.Enabled {
+		return fmt.Errorf("%s: needs %s = true", FlagStateSyncSnapshotUpload, FlagStateSyncEnabled)
 	}
-	if c.StateSync.ArchiveUpload && c.StateSync.ArchiveBucket == "" {
-		return fmt.Errorf("%s: needs %s", FlagStateSyncArchiveUpload, FlagStateSyncArchiveBucket)
+	if c.StateSync.SnapshotUpload && c.StateSync.SnapshotBucket == "" {
+		return fmt.Errorf("%s: needs %s", FlagStateSyncSnapshotUpload, FlagStateSyncSnapshotBucket)
 	}
-	if c.StateSync.ArchiveUploadInterval < 0 {
-		return fmt.Errorf("%s: must be >= 0, got %s", FlagStateSyncArchiveUploadInterval, c.StateSync.ArchiveUploadInterval)
+	if c.StateSync.SnapshotUploadInterval < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagStateSyncSnapshotUploadInterval, c.StateSync.SnapshotUploadInterval)
 	}
 	deadlines, err := c.RPC.DeadlineConfig()
 	if err != nil {
@@ -799,29 +799,29 @@ default_timeout = "{{ .Giga.RPC.DefaultTimeout }}"
 method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{ end }}"{{ $e }}"{{ end }}]
 
 [giga.state_sync]
-# These keys are for giga state sync from FlatKV checkpoint archives. They are not the Tendermint
-# state sync snapshots of the [state-sync] section.
+# These keys are for giga state sync from snapshots of FlatKV checkpoints. They are not the
+# Tendermint state sync snapshots of the [state-sync] section.
 # enabled runs a background task that writes a state sync proof file for each retained FlatKV
-# checkpoint, and the archive upload below when archive_upload = true. It does not create
+# checkpoint, and the snapshot upload below when snapshot_upload = true. It does not create
 # checkpoints.
 enabled = {{ .Giga.StateSync.Enabled }}
-# archive_bucket is the S3 bucket of the giga checkpoint archives of this chain:
+# snapshot_bucket is the S3 bucket of the giga state sync snapshots of this chain:
 # giga-state-sync/<chain-id>/<height>.tar, with the height in 20 digits, and
 # giga-state-sync/<chain-id>/latest.txt, which holds the newest height. seid statesync import and
 # seid statesync check read it. The AWS credentials come from the AWS SDK default chain.
-archive_bucket = "{{ .Giga.StateSync.ArchiveBucket }}"
-# archive_region is the AWS region of archive_bucket. Empty uses the region of the AWS SDK default
-# configuration.
-archive_region = "{{ .Giga.StateSync.ArchiveRegion }}"
-# archive_upload uploads an archive of the newest checkpoint that has a state sync proof file to
-# archive_bucket, and then writes its height to latest.txt. It needs enabled = true and
-# archive_bucket, and a validator refuses to start with it. Many nodes of one chain can set it: a
+snapshot_bucket = "{{ .Giga.StateSync.SnapshotBucket }}"
+# snapshot_region is the AWS region of snapshot_bucket. Empty uses the region of the AWS SDK
+# default configuration.
+snapshot_region = "{{ .Giga.StateSync.SnapshotRegion }}"
+# snapshot_upload uploads a snapshot of the newest checkpoint that has a state sync proof file to
+# snapshot_bucket, and then writes its height to latest.txt. It needs enabled = true and
+# snapshot_bucket, and a validator refuses to start with it. Many nodes of one chain can set it: a
 # node uploads only while it holds the upload claim of the chain in the bucket, and no node
-# replaces an archive or moves latest.txt back.
-archive_upload = {{ .Giga.StateSync.ArchiveUpload }}
-# archive_upload_interval is the least time between two archive uploads of this chain, measured
+# replaces a snapshot or moves latest.txt back.
+snapshot_upload = {{ .Giga.StateSync.SnapshotUpload }}
+# snapshot_upload_interval is the least time between two snapshot uploads of this chain, measured
 # from the last write of latest.txt by any node. 0 uploads each checkpoint.
-archive_upload_interval = "{{ .Giga.StateSync.ArchiveUploadInterval }}"
+snapshot_upload_interval = "{{ .Giga.StateSync.SnapshotUploadInterval }}"
 `
 
 // requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one
