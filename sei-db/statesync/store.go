@@ -29,6 +29,10 @@ var ErrObjectNotFound = errors.New("object not found")
 // Put does not meet the Precondition of the Put.
 var ErrPreconditionFailed = errors.New("precondition failed")
 
+// ErrWriteConflict is the error that an ObjectStore returns when a Put with a Precondition meets
+// another write to the same key. The other write can succeed or fail.
+var ErrWriteConflict = errors.New("conflicting write in progress")
+
 // Precondition is what a Put requires of the object at its key. The zero value requires nothing.
 type Precondition struct {
 	// Absent requires that no object has the key.
@@ -48,7 +52,8 @@ type ObjectInfo struct {
 // ObjectStore stores objects by key.
 type ObjectStore interface {
 	// Put stores the size bytes that body yields as the object at key. It returns an error wrapping
-	// ErrPreconditionFailed when the object at key does not meet pre, and stores nothing then.
+	// ErrPreconditionFailed when the object at key does not meet pre, or ErrWriteConflict when the
+	// Put meets another write to key, and stores nothing then.
 	Put(ctx context.Context, key string, body io.Reader, size int64, pre Precondition) error
 	// Get returns the content of the object at key and its metadata. It returns an error wrapping
 	// ErrObjectNotFound when there is no object at key.
@@ -133,7 +138,7 @@ func AdvanceLatest(ctx context.Context, store ObjectStore, chainID string, heigh
 			return latest, nil
 		}
 		err = store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), pre)
-		if errors.Is(err, ErrPreconditionFailed) {
+		if errors.Is(err, ErrPreconditionFailed) || errors.Is(err, ErrWriteConflict) {
 			continue
 		}
 		if err != nil {
@@ -145,8 +150,9 @@ func AdvanceLatest(ctx context.Context, store ObjectStore, chainID string, heigh
 }
 
 // ClaimUpload makes owner the node that uploads the next archive of chain chainID, the first above
-// height above, the newest height in latest.txt or 0. It returns false when the claim belongs to
-// another node: for the same round, and written less than timeout before now, or for a later round.
+// height above, the newest height in latest.txt or 0. It returns false when another node holds the
+// claim, for the same round and written less than timeout before now or for a later round, or when
+// another node writes the claim during the call.
 func ClaimUpload(ctx context.Context, store ObjectStore, chainID string, above int64, owner string, now time.Time, timeout time.Duration) (bool, error) {
 	key := ClaimKey(chainID)
 	data, info, err := readSmall(ctx, store, key, maxClaimSize)
@@ -170,7 +176,7 @@ func ClaimUpload(ctx context.Context, store ObjectStore, chainID string, above i
 	}
 	claim := []byte(fmt.Sprintf("%d %s\n", above, owner))
 	err = store.Put(ctx, key, bytes.NewReader(claim), int64(len(claim)), pre)
-	if errors.Is(err, ErrPreconditionFailed) {
+	if errors.Is(err, ErrPreconditionFailed) || errors.Is(err, ErrWriteConflict) {
 		return false, nil
 	}
 	if err != nil {

@@ -18,11 +18,13 @@ import (
 
 const testBucket = "snapshots"
 
-// fakeS3 is an S3 endpoint that keeps objects in memory and honors If-Match and If-None-Match.
+// fakeS3 is an S3 endpoint that keeps objects in memory and honors If-Match and If-None-Match. It
+// answers ConditionalRequestConflict to the next conflicts conditional PUTs.
 type fakeS3 struct {
-	mu      sync.Mutex
-	objects map[string]memObject
-	etags   int
+	mu        sync.Mutex
+	objects   map[string]memObject
+	etags     int
+	conflicts int
 }
 
 func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +42,11 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", obj.modified.Format(http.TimeFormat))
 		_, _ = w.Write(obj.data)
 	case http.MethodPut:
+		if f.conflicts > 0 && (r.Header.Get("If-Match") != "" || r.Header.Get("If-None-Match") != "") {
+			f.conflicts--
+			writeS3Error(w, http.StatusConflict, "ConditionalRequestConflict")
+			return
+		}
 		if ifMatch := r.Header.Get("If-Match"); ifMatch != "" && !ok {
 			writeS3Error(w, http.StatusNotFound, "NoSuchKey")
 			return
@@ -82,8 +89,16 @@ func isolateAWSConfig(t *testing.T) {
 
 func newFakeS3Store(t *testing.T) *S3Store {
 	t.Helper()
+	store, _ := newFakeS3StoreWith(t)
+	return store
+}
+
+// newFakeS3StoreWith returns an S3Store on a new fakeS3, and the fakeS3.
+func newFakeS3StoreWith(t *testing.T) (*S3Store, *fakeS3) {
+	t.Helper()
 	isolateAWSConfig(t)
-	srv := httptest.NewServer(&fakeS3{objects: map[string]memObject{}})
+	fake := &fakeS3{objects: map[string]memObject{}}
+	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
 	store, err := newS3Store(t.Context(), testBucket, "eu-central-1", func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
@@ -91,7 +106,7 @@ func newFakeS3Store(t *testing.T) *S3Store {
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	})
 	require.NoError(t, err)
-	return store
+	return store, fake
 }
 
 func putString(t *testing.T, store *S3Store, key, content string, pre Precondition) error {
@@ -150,6 +165,37 @@ func TestS3StoreAdvanceLatest(t *testing.T) {
 	newest, err = AdvanceLatest(t.Context(), store, testChainID, 12)
 	require.NoError(t, err)
 	require.Equal(t, int64(12), newest)
+}
+
+func TestS3StorePutWriteConflict(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+	fake.conflicts = 1
+
+	err := putString(t, store, "k", "first", Precondition{Absent: true})
+
+	require.ErrorIs(t, err, ErrWriteConflict)
+	require.NotErrorIs(t, err, ErrPreconditionFailed)
+	require.Empty(t, fake.objects)
+}
+
+func TestS3StoreAdvanceLatestRetriesAWriteConflict(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+	fake.conflicts = 1
+
+	newest, err := AdvanceLatest(t.Context(), store, testChainID, 8)
+
+	require.NoError(t, err)
+	require.Equal(t, int64(8), newest)
+}
+
+func TestS3StoreClaimUploadLosesAWriteConflict(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+	fake.conflicts = 1
+
+	got, err := ClaimUpload(t.Context(), store, testChainID, 40, "node-a", time.Now(), claimTimeout)
+
+	require.NoError(t, err)
+	require.False(t, got)
 }
 
 func TestNewS3StoreNeedsARegion(t *testing.T) {

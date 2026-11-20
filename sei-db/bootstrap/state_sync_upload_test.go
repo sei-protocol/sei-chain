@@ -379,6 +379,25 @@ func TestStateSyncUploadKeepsAnArchiveTheStoreHas(t *testing.T) {
 	require.Equal(t, height, latest)
 }
 
+func TestStateSyncUploadDoesNotRecordAnArchiveInAWriteConflict(t *testing.T) {
+	h := newUploadHome(t)
+	height := h.commit(t)
+	h.writeProof(t, height)
+	store := newFakeStore()
+	archiveKey := statesync.ArchiveKey(uploadChainID, height)
+	store.put = func(_ context.Context, key string, _ io.Reader) error {
+		if key == archiveKey {
+			return fmt.Errorf("put %s: %w", key, statesync.ErrWriteConflict)
+		}
+		return nil
+	}
+
+	require.ErrorIs(t, h.uploader(store).sweep(t.Context()), statesync.ErrWriteConflict)
+
+	_, err := statesync.ReadLatest(t.Context(), store, uploadChainID)
+	require.ErrorIs(t, err, statesync.ErrObjectNotFound)
+}
+
 func TestOpenRemovesAStateSyncUploadStaging(t *testing.T) {
 	cfg := newHome(t, nil)
 	staging := stateSyncUploadStagingDir(cfg.FlatKVConfig.DataDir)

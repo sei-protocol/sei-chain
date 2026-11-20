@@ -78,6 +78,9 @@ func (s *S3Store) Put(ctx context.Context, key string, body io.Reader, size int6
 		if preconditionFailed(err, pre) {
 			return fmt.Errorf("upload %s: %w: %w", s.url(key), ErrPreconditionFailed, err)
 		}
+		if writeConflict(err) {
+			return fmt.Errorf("upload %s: %w: %w", s.url(key), ErrWriteConflict, err)
+		}
 		return fmt.Errorf("upload %s: %w", s.url(key), err)
 	}
 	return nil
@@ -97,6 +100,13 @@ func preconditionFailed(err error, pre Precondition) bool {
 		return pre.Version != ""
 	}
 	return false
+}
+
+// writeConflict reports whether err is the S3 answer to a conditional request that met another
+// write to its key.
+func writeConflict(err error) bool {
+	var apiErr smithy.APIError
+	return errors.As(err, &apiErr) && apiErr.ErrorCode() == "ConditionalRequestConflict"
 }
 
 // Get returns the content of the object at key, with its ETag as the version and its
