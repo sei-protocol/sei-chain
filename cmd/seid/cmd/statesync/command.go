@@ -80,6 +80,8 @@ type target struct {
 	chainID   string
 	mode      string
 	stateSync gigaconfig.StateSyncConfig
+	storage   gigaconfig.StorageConfig
+	genDoc    *tmtypes.GenesisDoc
 }
 
 func resolveTarget(cmd *cobra.Command) (target, error) {
@@ -108,7 +110,14 @@ func resolveTargetFromConfig(cfg *tmcfg.Config, opts gigaconfig.AppOptions) (tar
 	if err != nil {
 		return target{}, fmt.Errorf("resolve the Autobahn layout: %w", err)
 	}
-	return target{layout: layout, chainID: genDoc.ChainID, mode: cfg.Mode, stateSync: gigaCfg.StateSync}, nil
+	return target{
+		layout:    layout,
+		chainID:   genDoc.ChainID,
+		mode:      cfg.Mode,
+		stateSync: gigaCfg.StateSync,
+		storage:   gigaCfg.Storage,
+		genDoc:    genDoc,
+	}, nil
 }
 
 // source is an archive that import reads.

@@ -14,7 +14,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -26,9 +29,13 @@ import (
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-const testChainID = "chain-a"
+const (
+	testChainID    = "chain-a"
+	testEVMChainID = 713700
+)
 
 var errStopped = errors.New("stopped by the test")
 
@@ -39,13 +46,20 @@ func testLayout(psd string) node.AutobahnLayout {
 		RestoreMarkerFile:  filepath.Join(psd, "state-sync-restored"),
 		RestoreProofFile:   filepath.Join(psd, "state-sync-proof"),
 		StateSyncProofDir:  filepath.Join(psd, "data", "state_commit", "state_sync_proofs"),
+		AppHashVaultDir:    filepath.Join(psd, "data", "ledger", "app_hash"),
 	}
 }
 
 // freshHome returns a fullnode home with an empty persistent state dir.
 func freshHome(t *testing.T) target {
 	t.Helper()
-	return target{layout: testLayout(t.TempDir()), chainID: testChainID, mode: tmcfg.ModeFull}
+	return target{
+		layout:  testLayout(t.TempDir()),
+		chainID: testChainID,
+		mode:    tmcfg.ModeFull,
+		storage: gigaconfig.DefaultConfig.Storage,
+		genDoc:  &tmtypes.GenesisDoc{ChainID: testChainID, InitialHeight: 1},
+	}
 }
 
 // producer is a FlatKV store that writes a checkpoint every block.
@@ -104,9 +118,15 @@ func (p *producer) commit(t *testing.T, n byte) int64 {
 		{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)), Value: value},
 	}
 	bankPairs := []*proto.KVPair{{Key: []byte{'b', n}, Value: []byte{n}}}
+	cursorModule, cursorKey, cursorValue := node.EVMOnlyCursorRowForTesting(p.store.Version() + 1)
+	_, chainIDKey, chainIDValue := node.EVMOnlyChainIDRowForTesting(testEVMChainID)
 	require.NoError(t, p.store.ApplyChangeSets(p.store.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: evmPairs}},
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
+		{Name: cursorModule, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: cursorKey, Value: cursorValue},
+			{Key: chainIDKey, Value: chainIDValue},
+		}}},
 	}))
 	v, err := p.store.Commit(p.store.Version() + 1)
 	require.NoError(t, err)
@@ -144,10 +164,17 @@ func (p *producer) archive(t *testing.T, chainID string, height int64) []byte {
 // sync proof file of height.
 func archiveOf(t *testing.T, dir string, chainID string, height int64) []byte {
 	t.Helper()
+	return archiveWithProof(t, dir, chainID, height, proofAt(t, height))
+}
+
+// archiveWithProof returns the archive of the checkpoint in dir at height of chain chainID, with
+// the state sync proof file proof.
+func archiveWithProof(t *testing.T, dir string, chainID string, height int64, proof []byte) []byte {
+	t.Helper()
 	m, err := ssarchive.BuildManifest(chainID, height, dir)
 	require.NoError(t, err)
 	var out bytes.Buffer
-	require.NoError(t, ssarchive.WriteArchive(t.Context(), &out, m, proofAt(t, height), dir))
+	require.NoError(t, ssarchive.WriteArchive(t.Context(), &out, m, proof, dir))
 	return out.Bytes()
 }
 
@@ -167,7 +194,8 @@ func bytesSource(data []byte) source {
 }
 
 // requireRestored asserts that the home of tg holds the rows of p at height in FlatKV, the restore
-// marker of height and the state sync proof file of height, and no staging dir.
+// marker of height, the state sync proof file of height, an app-hash vault that ends at height,
+// and no staging dir.
 func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 	t.Helper()
 	marker, err := os.ReadFile(tg.layout.RestoreMarkerFile)
@@ -177,6 +205,14 @@ func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 	require.NoError(t, err)
 	require.Equal(t, proofAt(t, height), proof)
 	require.NoDirExists(t, filepath.Join(tg.layout.PersistentStateDir, importStagingDirName))
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(tg.layout.PersistentStateDir)
+	require.NoError(t, err)
+	vaultConfig := *storageConfig.AppHashBuilderConfig
+	vaultConfig.HashVaultConfig.Path = tg.layout.AppHashVaultDir
+	vaultConfig.GigaActivationHeight = 1
+	vaultHead, err := builder.GetLatestBlock(vaultConfig)
+	require.NoError(t, err)
+	require.Equal(t, uint64(height), vaultHead) //nolint:gosec // test heights are positive.
 
 	s := openStore(t, tg.layout.FlatKVDir)
 	defer func() { require.NoError(t, s.Close()) }()
@@ -190,10 +226,11 @@ func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 }
 
 // requireUntouched asserts that a failed import left the home of tg without FlatKV data, restore
-// marker or staging dir.
+// marker, app-hash vault or staging dir.
 func requireUntouched(t *testing.T, tg target) {
 	t.Helper()
 	require.NoFileExists(t, tg.layout.RestoreMarkerFile)
+	require.NoDirExists(t, tg.layout.AppHashVaultDir)
 	require.NoDirExists(t, filepath.Join(tg.layout.PersistentStateDir, importStagingDirName))
 	lock, err := flatkv.LockRoot(tg.layout.FlatKVDir)
 	require.NoError(t, err)

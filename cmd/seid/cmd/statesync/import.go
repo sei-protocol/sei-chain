@@ -34,6 +34,7 @@ const (
 	importStepRewritten      = "import: checkpoint rewritten"
 	importStepMarked         = "import: marker written"
 	importStepProofInstalled = "import: state sync proof installed"
+	importStepAnchorStored   = "import: restore anchor stored"
 	importStepInstalled      = "import: checkpoint installed"
 )
 
@@ -102,7 +103,7 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 	if err := os.RemoveAll(download); err != nil {
 		return fmt.Errorf("remove the downloaded checkpoint: %w", err)
 	}
-	if err := installRestore(lock, t.layout, m.Height, proof, checkpoint, stop); err != nil {
+	if err := installRestore(lock, t, m.Height, proof, checkpoint, stop); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(staging); err != nil {
@@ -198,10 +199,11 @@ func rewriteCheckpoint(ctx context.Context, download string, m *ssarchive.Manife
 	return checkpoint, nil
 }
 
-// installRestore installs the rewritten checkpoint at height into the home of layout. It writes
-// the restore marker, the state sync proof file and last the FlatKV checkpoint, so a home whose
-// FlatKV is at height also holds the other two.
-func installRestore(lock *flatkv.RootLock, layout node.AutobahnLayout, height int64, proof []byte, checkpoint string, stop stepHook) error {
+// installRestore installs the rewritten checkpoint at height into the home of t. It writes the
+// restore marker, the state sync proof file, the restore anchor and last the FlatKV checkpoint, so
+// a home whose FlatKV is at height also holds the other three.
+func installRestore(lock *flatkv.RootLock, t target, height int64, proof []byte, checkpoint string, stop stepHook) error {
+	layout := t.layout
 	if err := writeFileAtomic(layout.RestoreMarkerFile, []byte(strconv.FormatInt(height, 10)+"\n")); err != nil {
 		return fmt.Errorf("write the restore marker: %w", err)
 	}
@@ -212,6 +214,12 @@ func installRestore(lock *flatkv.RootLock, layout node.AutobahnLayout, height in
 		return fmt.Errorf("install the state sync proof file: %w", err)
 	}
 	if err := stop(importStepProofInstalled); err != nil {
+		return err
+	}
+	if err := node.StoreRestoreAnchor(layout, t.mode, t.storage, t.genDoc, height, proof); err != nil {
+		return err
+	}
+	if err := stop(importStepAnchorStored); err != nil {
 		return err
 	}
 	if err := lock.InstallSnapshot(checkpoint, height); err != nil {
@@ -245,8 +253,8 @@ func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock, staging string
 	if len(foreign) > 0 {
 		return false, fmt.Errorf("import needs a persistent state dir without other data; remove %s", strings.Join(foreign, ", "))
 	}
-	// Only import writes the marker, and it writes it before the FlatKV checkpoint. A node does not
-	// start on a home with the marker, so the FlatKV data is import's own.
+	// Only import writes the marker, and it writes it before the FlatKV checkpoint. A node start
+	// removes the marker before it commits a block, so the FlatKV data is import's own.
 	if _, err := os.Stat(layout.RestoreMarkerFile); err == nil {
 		return true, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -258,6 +266,11 @@ func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock, staging string
 	}
 	if !empty {
 		return false, fmt.Errorf("the FlatKV root holds data that import did not write; remove %s and run import again", layout.FlatKVDir)
+	}
+	if _, err := os.Stat(layout.AppHashVaultDir); err == nil {
+		return false, fmt.Errorf("the app-hash vault holds data that import did not write; remove %s and run import again", layout.AppHashVaultDir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("stat the app-hash vault: %w", err)
 	}
 	return false, nil
 }
@@ -274,7 +287,7 @@ func foreignFiles(layout node.AutobahnLayout, staging string) ([]string, error) 
 			return err
 		}
 		switch {
-		case path == layout.FlatKVDir || path == staging:
+		case path == layout.FlatKVDir || path == layout.AppHashVaultDir || path == staging:
 			return filepath.SkipDir
 		case d.IsDir() || path == layout.RestoreMarkerFile || path == layout.RestoreProofFile:
 			return nil

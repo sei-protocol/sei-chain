@@ -186,6 +186,13 @@ func TestImportRejectsAHomeWithOtherData(t *testing.T) {
 		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.FlatKVDir)
 		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
 	})
+	t.Run("an app-hash vault without the marker", func(t *testing.T) {
+		tg := freshHome(t)
+		require.NoError(t, os.MkdirAll(tg.layout.AppHashVaultDir, 0o750))
+
+		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.AppHashVaultDir)
+		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
+	})
 }
 
 func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
@@ -197,6 +204,7 @@ func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
 		importStepRewritten,
 		importStepMarked,
 		importStepProofInstalled,
+		importStepAnchorStored,
 		importStepInstalled,
 	} {
 		t.Run(step, func(t *testing.T) {

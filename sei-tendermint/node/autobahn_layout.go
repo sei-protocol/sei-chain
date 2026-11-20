@@ -15,6 +15,7 @@ type AutobahnLayout struct {
 	RestoreMarkerFile  string
 	RestoreProofFile   string
 	StateSyncProofDir  string
+	AppHashVaultDir    string
 }
 
 // ResolveAutobahnLayout returns the Autobahn layout of the node that conf configures, with
@@ -34,5 +35,6 @@ func ResolveAutobahnLayout(conf *config.Config) (AutobahnLayout, error) {
 		RestoreMarkerFile:  p2p.RestoreMarkerFile(psd),
 		RestoreProofFile:   p2p.RestoreProofFile(psd),
 		StateSyncProofDir:  dbutils.GetStateSyncProofPath(psd),
+		AppHashVaultDir:    dbutils.GetAppHashVaultPath(psd),
 	}, nil
 }

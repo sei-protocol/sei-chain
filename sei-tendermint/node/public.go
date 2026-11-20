@@ -169,7 +169,7 @@ func makeEVMApplication(
 	if err != nil {
 		return nil, nil, fmt.Errorf("load Autobahn committee: %w", err)
 	}
-	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, genDoc)
+	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, giga.StateSync.Enabled, genDoc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open Autobahn storage: %w", err)
 	}

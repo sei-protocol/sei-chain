@@ -17,6 +17,7 @@ import (
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -359,6 +360,9 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
+	if err := seedRestoredBlockStore(stateDir, app, appHashBuilder, blockStore); err != nil {
+		return nil, err
+	}
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore, app, genDoc.GenesisTime)
 	if err != nil {
 		return nil, err
@@ -368,6 +372,20 @@ func buildGigaRouter(
 		return nil, err
 	}
 	return giga, nil
+}
+
+// seedRestoredBlockStore seeds blockStore with the restored road of the persistent state dir psd,
+// verified against the epoch registry of the state that app restored. It does nothing when psd
+// holds no restore marker.
+func seedRestoredBlockStore(psd string, app *proxy.EVMProxy, appHashBuilder builder.AppHashBuilder, blockStore *ablockstore.Store) error {
+	if _, err := os.Stat(p2p.RestoreMarkerFile(psd)); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	registry, err := app.EpochRegistry()
+	if err != nil {
+		return fmt.Errorf("read the epoch registry of the restored state: %w", err)
+	}
+	return p2p.SeedRestoredBlockStore(context.Background(), psd, registry, appHashBuilder, blockStore)
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
@@ -409,18 +427,19 @@ func openAutobahnStorageManager(
 	nodeMode string,
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
+	stateSyncEnabled bool,
 	genDoc *types.GenesisDoc,
 ) (*bootstrap.GigaStorageManager, error) {
 	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseRestoredHome(directory); err != nil {
-		return nil, err
-	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
+	}
+	if err := requireStartableRestore(directory, nodeMode, stateSyncEnabled, storageConfig); err != nil {
+		return nil, err
 	}
 	blockConfig, err := fc.BlockDB.LittBlockConfig(filepath.Join(directory, "blockdb"))
 	if err != nil {
@@ -431,21 +450,62 @@ func openAutobahnStorageManager(
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
-// errRestoredHome is the error of a persistent state dir that holds a state sync restore marker.
-var errRestoredHome = errors.New("this build cannot start a node from a state sync import")
+var (
+	// errRestoreSwitchOff is the error of a restored home that starts with giga state sync off.
+	errRestoreSwitchOff = errors.New("set [giga.state_sync] enabled = true, or remove the restore marker and the restored data")
+	// errRestoreOnValidator is the error of a restored home that starts as a validator.
+	errRestoreOnValidator = errors.New("the restored home must start once as a fullnode")
+	// errRestoreIncomplete is the error of a restored home whose stores do not all stand at the
+	// restored road.
+	errRestoreIncomplete = errors.New("the state sync restore is incomplete; run seid statesync import again")
+)
 
-// refuseRestoredHome returns an error wrapping errRestoredHome when the persistent state dir psd
-// holds a state sync restore marker.
-func refuseRestoredHome(psd string) error {
-	marker := p2p.RestoreMarkerFile(psd)
-	data, err := os.ReadFile(marker) //nolint:gosec // marker is under the configured persistent state dir.
-	if errors.Is(err, os.ErrNotExist) {
+// requireStartableRestore returns an error when the persistent state dir psd holds a state sync
+// restore marker that this start cannot finish: giga state sync is off, nodeMode is validator, or
+// FlatKV and the app-hash vault of storageConfig are not both at the restored road. It opens no
+// store.
+func requireStartableRestore(psd, nodeMode string, stateSyncEnabled bool, storageConfig *seidbconfig.GigaStorageConfig) error {
+	marked, err := p2p.ReadRestoreMarker(psd)
+	if err != nil {
+		return err
+	}
+	road, ok := marked.Get()
+	if !ok {
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("read the state sync restore marker: %w", err)
+	marker := p2p.RestoreMarkerFile(psd)
+	if !stateSyncEnabled {
+		return fmt.Errorf("%s records a state sync restore of %d: %w", marker, road, errRestoreSwitchOff)
 	}
-	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errRestoredHome)
+	if nodeMode == config.ModeValidator {
+		return fmt.Errorf("%s records a state sync restore of %d: %w", marker, road, errRestoreOnValidator)
+	}
+	if err := requireRestoreInstalled(storageConfig, road); err != nil {
+		return fmt.Errorf("%s records a state sync restore of %d: %w: %w", marker, road, errRestoreIncomplete, err)
+	}
+	return nil
+}
+
+// requireRestoreInstalled returns an error unless FlatKV and the app-hash vault of storageConfig
+// are both at road.
+func requireRestoreInstalled(storageConfig *seidbconfig.GigaStorageConfig, road atypes.RoadHeight) error {
+	flatKVVersion, err := flatkv.ActiveSnapshotVersion(storageConfig.FlatKVConfig.DataDir)
+	if errors.Is(err, os.ErrNotExist) {
+		flatKVVersion = 0
+	} else if err != nil {
+		return fmt.Errorf("read the FlatKV version: %w", err)
+	}
+	if flatKVVersion != int64(road) { //nolint:gosec // a marked road fits in int64.
+		return fmt.Errorf("FlatKV is at %d", flatKVVersion)
+	}
+	vaultHead, err := builder.GetLatestBlock(*storageConfig.AppHashBuilderConfig)
+	if err != nil {
+		return fmt.Errorf("read the app-hash vault head: %w", err)
+	}
+	if vaultHead != uint64(road) {
+		return fmt.Errorf("the app-hash vault ends at %d", vaultHead)
+	}
+	return nil
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]

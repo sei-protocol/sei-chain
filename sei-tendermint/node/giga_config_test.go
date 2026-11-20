@@ -155,15 +155,31 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	require.Equal(t, uint64(713701), app.EvmChainID())
 }
 
-func TestMakeEVMApplicationRefusesARestoredHome(t *testing.T) {
-	psd := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restored"), []byte("7\n"), 0o600))
+func TestMakeEVMApplicationRefusesARestoredHomeItCannotFinish(t *testing.T) {
+	enabled := gigaconfig.DefaultConfig
+	enabled.StateSync.Enabled = true
+	for name, tc := range map[string]struct {
+		mode string
+		giga gigaconfig.Config
+		want error
+	}{
+		"state sync off":    {mode: config.ModeFull, giga: gigaconfig.DefaultConfig, want: errRestoreSwitchOff},
+		"validator mode":    {mode: config.ModeValidator, giga: enabled, want: errRestoreOnValidator},
+		"nothing installed": {mode: config.ModeFull, giga: enabled, want: errRestoreIncomplete},
+	} {
+		t.Run(name, func(t *testing.T) {
+			psd := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restored"), []byte("7\n"), 0o600))
+			conf := layoutConfig(t, psd)
+			conf.Mode = tc.mode
 
-	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+			_, _, err := makeEVMApplication(storageContext(t), conf, tc.giga, genesisAt(1))
 
-	require.ErrorIs(t, err, errRestoredHome)
-	_, err = os.Stat(filepath.Join(psd, "data"))
-	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a restored home")
+			require.ErrorIs(t, err, tc.want)
+			_, err = os.Stat(filepath.Join(psd, "data"))
+			require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a restored home that cannot start")
+		})
+	}
 }
 
 // The builder's first block is the genesis height. A chain that starts above 1

@@ -13,6 +13,6 @@ func EncodeForTesting(rng utils.Rng, height types.RoadHeight) ([]byte, error) {
 	committee, keys := types.GenCommittee(rng, 4)
 	epoch := types.NewEpoch(types.GenEpochIndex(rng), types.RoadRange{First: height, Next: height + 10}, committee)
 	qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
-	proposal := types.NewAppProposal(qc.QC().View(), []byte{1, 2, 3})
+	proposal := types.NewAppProposal(qc.QC().View(), utils.GenBytes(rng, 32))
 	return Encode(types.NewRoadBlock(qc, blocks), data.TestAppQC(keys, proposal))
 }
