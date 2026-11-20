@@ -17,6 +17,7 @@ import (
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -657,8 +658,8 @@ func createRouter(
 	}
 	// Wire up Autobahn if enabled. Role dispatch (validator vs fullnode)
 	// happens inside buildGigaRouter based on cfg.Mode.
-	// startStateSyncProofExport is nil unless this is an Autobahn node with [giga.state_sync] enabled.
-	var startStateSyncProofExport func() error
+	// startStateSyncExport is nil unless this is an Autobahn node with [giga.state_sync] enabled.
+	var startStateSyncExport func() error
 	if cfg.AutobahnConfigFile != "" {
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		proxyApp, ok := app.Get()
@@ -679,7 +680,13 @@ func createRouter(
 		}
 		options.Giga = utils.Some(giga)
 		if stateSync.Enabled {
-			startStateSyncProofExport = manager.StartStateSyncProofExport
+			upload, err := stateSyncUpload(cfg.Mode, stateSync, genDoc.ChainID, string(nodeKey.ID()))
+			if err != nil {
+				return nil, closer, noneDB, err
+			}
+			startStateSyncExport = func() error {
+				return startStateSyncExportOf(manager, upload)
+			}
 		}
 	}
 
@@ -698,12 +705,56 @@ func createRouter(
 		return nil, closer, noneDB, fmt.Errorf("p2p.NewRouter(): %w", err)
 	}
 	// After the last step that can fail, so a failed createRouter leaves no export running.
-	if startStateSyncProofExport != nil {
-		if err := startStateSyncProofExport(); err != nil {
-			return nil, closer, noneDB, fmt.Errorf("start state sync proof export: %w", err)
+	if startStateSyncExport != nil {
+		if err := startStateSyncExport(); err != nil {
+			return nil, closer, noneDB, err
 		}
 	}
 	return router, closer, noneDB, nil
+}
+
+// stateSyncUpload returns the state sync snapshot upload of node nodeID of chain chainID, or None
+// when stateSync does not enable it. It returns an error when mode is the validator mode.
+func stateSyncUpload(
+	mode string,
+	stateSync gigaconfig.StateSyncConfig,
+	chainID string,
+	nodeID string,
+) (utils.Option[bootstrap.StateSyncUploadConfig], error) {
+	none := utils.None[bootstrap.StateSyncUploadConfig]()
+	if !stateSync.SnapshotUpload {
+		return none, nil
+	}
+	if mode == config.ModeValidator {
+		return none, fmt.Errorf("%s: a validator does not upload state sync snapshots", gigaconfig.FlagStateSyncSnapshotUpload)
+	}
+	store, err := ssarchive.NewS3Store(context.Background(), stateSync.SnapshotBucket, stateSync.SnapshotRegion)
+	if err != nil {
+		return none, fmt.Errorf("state sync snapshot store: %w", err)
+	}
+	return utils.Some(bootstrap.StateSyncUploadConfig{
+		Store:    store,
+		ChainID:  chainID,
+		NodeID:   nodeID,
+		Interval: stateSync.SnapshotUploadInterval,
+	}), nil
+}
+
+// startStateSyncExportOf starts the state sync proof export of manager, and the snapshot upload
+// when upload is present.
+func startStateSyncExportOf(
+	manager *bootstrap.GigaStorageManager,
+	upload utils.Option[bootstrap.StateSyncUploadConfig],
+) error {
+	if err := manager.StartStateSyncProofExport(); err != nil {
+		return fmt.Errorf("start state sync proof export: %w", err)
+	}
+	if cfg, ok := upload.Get(); ok {
+		if err := manager.StartStateSyncUpload(cfg); err != nil {
+			return fmt.Errorf("start state sync snapshot upload: %w", err)
+		}
+	}
+	return nil
 }
 
 func makeNodeInfo(
