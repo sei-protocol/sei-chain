@@ -511,17 +511,22 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	require.Equal(t, goodEvidence, next.Value())
 }
 
+// TestAddEvidenceRejectsWrongABCIFields checks that AddEvidence rejects a
+// DuplicateVoteEvidence with a wrong ABCI field and writes nothing to the pool.
 func TestAddEvidenceRejectsWrongABCIFields(t *testing.T) {
 	const height int64 = 10
 	ctx := t.Context()
 
 	pool, val, _ := defaultTestPool(ctx, t, height)
 
+	// defaultTestPool stores the block at height with time defaultEvidenceTime + height
+	// minutes, so this evidence carries the correct ABCI fields for its height.
 	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
 	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
 	utilsrequire.NoError(t, err)
 	utilsrequire.NoError(t, pool.AddEvidence(ctx, ev))
 
+	// commit the evidence
 	state := pool.State()
 	state.LastBlockHeight++
 	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
@@ -530,6 +535,7 @@ func TestAddEvidenceRejectsWrongABCIFields(t *testing.T) {
 	utilsrequire.Empty(t, pendingEvs)
 	utilsrequire.Zero(t, pool.Size())
 
+	// the copy differs from the committed evidence in one ABCI field
 	copied := copyDuplicateVoteEvidence(ev)
 	copied.Timestamp = copied.Timestamp.Add(time.Nanosecond)
 	utilsrequire.NotEqual(t, ev.Hash(), copied.Hash())
@@ -539,21 +545,27 @@ func TestAddEvidenceRejectsWrongABCIFields(t *testing.T) {
 	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
 	utilsrequire.False(t, isInvalidEvidence)
 
+	// nothing reached the pending bucket
 	pendingEvs, _ = pool.PendingEvidence(defaultEvidenceMaxBytes)
 	utilsrequire.Empty(t, pendingEvs)
 	utilsrequire.Zero(t, pool.Size())
 
+	// CheckEvidence still rejects the committed evidence
 	err = pool.CheckEvidence(ctx, types.EvidenceList{ev})
 	_, isInvalidEvidence = errors.AsType[*types.ErrInvalidEvidence](err)
 	utilsrequire.True(t, isInvalidEvidence)
 }
 
+// TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged checks that CheckEvidence rejects
+// a DuplicateVoteEvidence with one wrong ABCI field and leaves the pending bucket and
+// the size of the pool as they were.
 func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
 	const height int64 = 10
 	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
 
 	testCases := []struct {
-		name  string
+		name string
+		// wrong returns the evidence under test, which has one wrong ABCI field.
 		wrong func(t *testing.T, pendingEv *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence
 	}{
 		{"new evidence with wrong total voting power", func(t *testing.T, _ *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence {
@@ -585,6 +597,8 @@ func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
 	}
 }
 
+// copyDuplicateVoteEvidence returns a shallow copy of ev. The copy shares the votes of
+// ev, so a test can change the ABCI fields of the copy and keep ev as it was.
 func copyDuplicateVoteEvidence(ev *types.DuplicateVoteEvidence) *types.DuplicateVoteEvidence {
 	copied := *ev
 	return &copied
