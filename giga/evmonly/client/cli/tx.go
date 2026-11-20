@@ -49,7 +49,7 @@ func submitTextProposal(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to parse proposal: %w", err)
 	}
 	if normalizeProposalType(p.Type) != govtypes.ProposalTypeText {
-		return fmt.Errorf("proposal type %q is not supported with --%s; use %s, or a submit-proposal subcommand", p.Type, FlagEVMRPC, govtypes.ProposalTypeText)
+		return errNotOnEVMOnly(fmt.Sprintf("proposal type %q", p.Type), fmt.Sprintf("%s or a submit-proposal subcommand", govtypes.ProposalTypeText))
 	}
 	value, err := depositWei(p.Deposit)
 	if err != nil {
@@ -327,12 +327,12 @@ func confirmTx(cmd *cobra.Command, clientCtx client.Context, tx unsignedTx) erro
 func refuseOfflineModes(cmd *cobra.Command) error {
 	for _, name := range []string{flags.FlagGenerateOnly, flags.FlagDryRun, flags.FlagOffline} {
 		if v, _ := cmd.Flags().GetBool(name); v {
-			return fmt.Errorf("--%s is not supported with --%s", name, FlagEVMRPC)
+			return errNotOnEVMOnly("--"+name, "")
 		}
 	}
 	for _, name := range []string{flags.FlagFees, flags.FlagGasPrices} {
 		if flagChanged(cmd, name) {
-			return fmt.Errorf("--%s is not supported with --%s; use --%s to set the gas price in wei", name, FlagEVMRPC, FlagGasFeeCap)
+			return errNotOnEVMOnly("--"+name, fmt.Sprintf("--%s to set the gas price in wei", FlagGasFeeCap))
 		}
 	}
 	return nil
@@ -376,7 +376,7 @@ func privateKey(clientCtx client.Context) (*ecdsa.PrivateKey, error) {
 	}
 	local, ok := info.(keyring.LocalInfo)
 	if !ok {
-		return nil, fmt.Errorf("key %q is not a local key; --%s signs only with local keys", info.GetName(), FlagEVMRPC)
+		return nil, fmt.Errorf("key %q is not a local key; EVM transactions are signed only with local keys", info.GetName())
 	}
 	if local.GetAlgo() != hd.Secp256k1Type {
 		return nil, fmt.Errorf("key %q is not secp256k1", info.GetName())

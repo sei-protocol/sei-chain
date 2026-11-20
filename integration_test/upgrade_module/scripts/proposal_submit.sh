@@ -37,7 +37,7 @@ MAX_BEFORE=$(_get_max_proposal_id)
 RESPONSE=$(printf "12345678\n" | seid tx gov submit-proposal software-upgrade $VERSION \
     --title $VERSION --from node_admin --chain-id sei --fees 2000usei -b sync -y \
     --upgrade-height=$TARGET_HEIGHT --description "test $TYPE release" \
-    $UPGRADE_INFO_FLAG --is-expedited --deposit 20000000usei --output json)
+    $UPGRADE_INFO_FLAG --is-expedited --deposit 20000000usei --output json --node "$v2_node")
 CODE=$(echo "$RESPONSE" | jq -r '.code // 0')
 if [ "$CODE" != "0" ]; then
     echo "proposal_submit CheckTx rejected: $(echo "$RESPONSE" | jq -r '.raw_log')" >&2

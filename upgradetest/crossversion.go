@@ -163,9 +163,28 @@ func (c *CrossVersion) Seid(input string, args ...string) CommandResult {
 	return c.SeidOn(c.node, input, args...)
 }
 
-// SeidOn executes the running seid binary in a named validator.
+// SeidOn executes the running seid binary in a named validator, sending its
+// queries and transactions to the validator's Tendermint RPC.
 func (c *CrossVersion) SeidOn(node, input string, args ...string) CommandResult {
-	return c.BinaryOn(node, input, "/root/go/bin/seid", args...)
+	return c.BinaryOn(node, input, "/root/go/bin/seid", withTendermintNode(args)...)
+}
+
+// validatorNode is the Tendermint RPC of the validator a command runs in.
+const validatorNode = "tcp://localhost:26657"
+
+// withTendermintNode returns seid args with --node set to the validator's
+// Tendermint RPC when they are a query or a transaction.
+func withTendermintNode(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	switch args[0] {
+	case "q", "query", "tx":
+		// seid sends gov, upgrade, params and block commands over the EVM
+		// JSON-RPC unless --node is given; every seid version accepts it.
+		return append(append([]string{}, args...), "--node", validatorNode)
+	}
+	return args
 }
 
 // Binary executes a seid-compatible binary in the primary validator.
