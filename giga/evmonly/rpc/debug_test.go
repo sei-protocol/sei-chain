@@ -27,7 +27,8 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -55,7 +56,7 @@ type traceChain struct {
 	executed []*ethtypes.Transaction // block 2's transactions that executed, in order
 	rejected *ethtypes.Transaction   // block 2's rejected transaction that stored a receipt
 	backend  *testBackend
-	store    receipt.ReceiptStore
+	store    receiptdb.ReceiptStore
 	// failReads makes reads of traceRecipient from a replayed state's view fail after its replay.
 	failReads bool
 }
@@ -78,8 +79,8 @@ func newTraceChain(t *testing.T) *traceChain {
 		rejected: stale,
 		store:    evmonly.NewMemoryReceiptStore(),
 	}
-	stored := func(tx *ethtypes.Transaction, index uint32, gasUsed uint64) receipt.ReceiptRecord {
-		return receipt.ReceiptRecord{TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
+	stored := func(tx *ethtypes.Transaction, index uint32, gasUsed uint64) receipttypes.ReceiptRecord {
+		return receipttypes.ReceiptRecord{TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
 			BlockNumber:      2,
 			TransactionIndex: index,
@@ -89,7 +90,7 @@ func newTraceChain(t *testing.T) *traceChain {
 	}
 	ctx := sdk.Context{}.WithContext(t.Context())
 	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(1), nil))
-	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{
+	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(2), []receipttypes.ReceiptRecord{
 		stored(first, 0, traceTransfer), stored(stale, 2, 0), stored(second, 3, traceTransfer),
 	}))
 
@@ -650,7 +651,7 @@ func TestDebugTraceTransactionSurfacesBlockReadError(t *testing.T) {
 	errBlockDown := errors.New("block store down")
 	hash := common.HexToHash("0x01")
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), []receipttypes.ReceiptRecord{
 		{TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: 9, GasUsed: 21_000, CumulativeGasUsed: 21_000}},
 	}))
 	backend := &testBackend{block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {

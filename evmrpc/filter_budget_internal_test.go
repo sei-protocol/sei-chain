@@ -5,7 +5,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,10 +25,10 @@ func TestLogBudgetByteCapFewLogs(t *testing.T) {
 		Address: common.HexToAddress("0xabc"),
 		Data:    huge,
 	}
-	maxBytes := receipt.EstimateLogHeapBytes(log) - 1
-	budget := receipt.NewLogBudget(1000, maxBytes)
+	maxBytes := logfilter.EstimateLogHeapBytes(log) - 1
+	budget := logfilter.NewLogBudget(1000, maxBytes)
 
 	err := budget.Reserve(log)
-	require.ErrorIs(t, err, receipt.ErrTooManyLogBytes)
+	require.ErrorIs(t, err, logfilter.ErrTooManyLogBytes)
 	require.True(t, budget.Tripped())
 }

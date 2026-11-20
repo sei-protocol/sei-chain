@@ -18,7 +18,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 )
 
 const (
@@ -55,7 +55,7 @@ type debugAPI struct {
 	txs *traceBackend
 	// calls traces calls, which read a block's header and state but not its transactions.
 	calls *tracers.API
-	store receiptpkg.ReceiptStore
+	store receiptdb.ReceiptStore
 	// slots holds one entry per running trace; nil when the number is unbounded.
 	slots             chan struct{}
 	timeout           time.Duration
@@ -63,7 +63,7 @@ type debugAPI struct {
 	overrides         overrideLimits
 }
 
-func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconfig.RPCConfig) *debugAPI {
+func newDebugAPI(backend Backend, store receiptdb.ReceiptStore, limits gigaconfig.RPCConfig) *debugAPI {
 	traces := newTraceBackend(backend, &blockAPI{backend: backend, store: store}, &txAPI{backend: backend, store: store})
 	api := &debugAPI{
 		tracers:           tracers.NewAPI(traces),
