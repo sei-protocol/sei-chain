@@ -102,6 +102,10 @@ type Environment struct {
 	// ReadOnly rejects RPC writes while preserving query and mempool reads.
 	ReadOnly bool
 
+	// FreezeHeight is the first block height this node does not execute, or 0 when
+	// freeze mode is off.
+	FreezeHeight uint64
+
 	// cache of chunked genesis data.
 	genChunks []string
 }
