@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/littidx"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -174,7 +174,7 @@ func TestAStateWALTheLiveStateDBCannotReplayIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), walFirst, "a refused start must not have moved the state WAL")
 	require.Equal(t, uint64(7), walHead, "a refused start must not have moved the state WAL")
-	receiptHead, err := gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
+	receiptHead, err := littidx.GetLatestBlock(cfg.ReceiptDBConfig)
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), receiptHead, "a refused start must not have cut receipts")
 }
@@ -236,7 +236,7 @@ func TestAStoreAheadOfTheBlockStoreIsRefused(t *testing.T) {
 	_, walHead, err := stateWALRange(cfg)
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), walHead, "a refused start must not have moved the state WAL")
-	receiptHead, err := gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
+	receiptHead, err := littidx.GetLatestBlock(cfg.ReceiptDBConfig)
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), receiptHead, "a refused start must not have cut receipts")
 }

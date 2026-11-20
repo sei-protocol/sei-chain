@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -36,7 +36,7 @@ type GigaStorageManager struct {
 	blockStore *blockstore.Store
 
 	// receiptDB is nil when ReceiptDBConfig.Enable is false.
-	receiptDB receipt.ReceiptStore
+	receiptDB receiptdb.ReceiptStore
 
 	// stateDB owns the live state DB, the historical state DB and the state WAL they share, along
 	// with the checkpoint schedule those stores run on.
@@ -297,7 +297,7 @@ func closeOnFailure(
 func prunableStores(
 	stateDB *giga.StateDB,
 	// Nil when receipts are disabled.
-	receiptDB receipt.ReceiptStore,
+	receiptDB receiptdb.ReceiptStore,
 	blockStore *blockstore.Store,
 	hashVault vault.HashVault,
 ) []controllertypes.PrunableStore {
@@ -313,7 +313,7 @@ func prunableStores(
 func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStore }
 
 // ReceiptDB returns the receipt store, or nil when receipts are disabled.
-func (m *GigaStorageManager) ReceiptDB() receipt.ReceiptStore { return m.receiptDB }
+func (m *GigaStorageManager) ReceiptDB() receiptdb.ReceiptStore { return m.receiptDB }
 
 // StateDB returns the Giga state DB over the state WAL, the live state DB and the historical state DB.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }

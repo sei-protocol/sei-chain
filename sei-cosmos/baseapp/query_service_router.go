@@ -8,14 +8,12 @@ import (
 	gogogrpc "github.com/gogo/protobuf/grpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/encoding"
-	"google.golang.org/grpc/encoding/proto"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/protoadapt"
 
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
-
-var protoCodec = encoding.GetCodec(proto.Name)
 
 // QueryServiceRouter routes ABCI Query requests to protobuf Query service handlers
 type QueryServiceRouter struct {
@@ -83,7 +81,7 @@ func (qrt *QueryServiceRouter) RegisterService(sd *grpc.ServiceDesc, handler int
 			// call the method handler from the service description with the handler object,
 			// a wrapped sdk.Context with proto-unmarshaled data from the ABCI request data
 			res, err := methodHandler(handler, sdk.WrapSDKContext(ctx), func(i interface{}) error {
-				err := protoCodec.Unmarshal(req.Data, i)
+				err := unmarshalProto(req.Data, i)
 				if err != nil {
 					return err
 				}
@@ -97,7 +95,7 @@ func (qrt *QueryServiceRouter) RegisterService(sd *grpc.ServiceDesc, handler int
 			}
 
 			// proto marshal the result bytes
-			resBytes, err := protoCodec.Marshal(res)
+			resBytes, err := marshalProto(res)
 			if err != nil {
 				return abci.ResponseQuery{}, err
 			}
@@ -127,3 +125,28 @@ func (qrt *QueryServiceRouter) SetInterfaceRegistry(interfaceRegistry codectypes
 
 // QueryServiceRouter returns the QueryServiceRouter of a BaseApp.
 func (app *BaseApp) QueryServiceRouter() *QueryServiceRouter { return app.queryServiceRouter }
+
+// marshalProto encodes a protobuf message. It returns an error if v is not a protobuf message.
+func marshalProto(v any) ([]byte, error) {
+	message, ok := v.(protoadapt.MessageV1)
+	if !ok {
+		return nil, fmt.Errorf("failed to marshal, message is %T, want proto.Message", v)
+	}
+	data, err := proto.Marshal(protoadapt.MessageV2Of(message))
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal %T: %w", v, err)
+	}
+	return data, nil
+}
+
+// unmarshalProto decodes data into a protobuf message. It returns an error if v is not a protobuf message.
+func unmarshalProto(data []byte, v any) error {
+	message, ok := v.(protoadapt.MessageV1)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal, message is %T, want proto.Message", v)
+	}
+	if err := proto.Unmarshal(data, protoadapt.MessageV2Of(message)); err != nil {
+		return fmt.Errorf("failed to unmarshal %T: %w", v, err)
+	}
+	return nil
+}

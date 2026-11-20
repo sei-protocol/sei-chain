@@ -10,7 +10,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -31,15 +31,15 @@ var ErrReceiptsPruned = errors.New("receipts have been pruned")
 type WatermarkManager struct {
 	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
-	stateStore   types.StateStore     // nil if SS is disabled.
-	receiptStore receipt.ReceiptStore // nil if the receipt store is disabled.
+	stateStore   types.StateStore       // nil if SS is disabled.
+	receiptStore receiptdb.ReceiptStore // nil if the receipt store is disabled.
 }
 
 func NewWatermarkManager(
 	tmClient client.LocalClient,
 	ctxProvider func(int64) sdk.Context,
 	stateStore types.StateStore,
-	receiptStore receipt.ReceiptStore,
+	receiptStore receiptdb.ReceiptStore,
 ) *WatermarkManager {
 	return &WatermarkManager{
 		tmClient:     tmClient,
@@ -200,11 +200,11 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 }
 
 // EnsureReceiptHeightAvailable returns an error wrapping ErrReceiptsPruned when height is below the
-// earliest version the receipt store retains, and receipt.ErrNotConfigured when the node keeps no
+// earliest version the receipt store retains, and receiptdb.ErrNotConfigured when the node keeps no
 // receipt store.
 func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	if m.receiptStore == nil {
-		return receipt.ErrNotConfigured
+		return receiptdb.ErrNotConfigured
 	}
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {

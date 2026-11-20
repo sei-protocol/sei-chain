@@ -1,0 +1,15 @@
+{
+  "Comment": "Local smoke test: a file bucket under /tmp, small values, short retention, modest block rate.",
+  "BucketURL": "file:///tmp/lakesim?create_dir=true",
+  "Lanes": [
+    {"ValueSize": 65536},
+    {"ValueSize": 4096},
+    {"ValueSize": 1024}
+  ],
+  "BlocksPerSecond": 50,
+  "RetainedBlocks": 1000,
+  "MaxDeletionBacklog": 500,
+  "ParallelWrites": 8,
+  "QueuedWrites": 16,
+  "CannedRandomSize": 16777216
+}

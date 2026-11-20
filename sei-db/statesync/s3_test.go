@@ -19,13 +19,15 @@ import (
 const testBucket = "snapshots"
 
 // fakeS3 is an S3 endpoint that keeps objects in memory and honors If-Match and If-None-Match
-// unless ignoreConditions is set. It answers AccessDenied to each request whose method is in deny.
+// unless ignoreConditions is set. It answers AccessDenied to each request whose method is in deny,
+// and ConditionalRequestConflict to the next conflicts conditional PUTs.
 type fakeS3 struct {
 	mu               sync.Mutex
 	objects          map[string]memObject
 	etags            int
 	deny             map[string]bool
 	ignoreConditions bool
+	conflicts        int
 	// uploads holds the multipart uploads that are started and not aborted.
 	uploads map[string]bool
 }
@@ -66,6 +68,11 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", obj.modified.Format(http.TimeFormat))
 		_, _ = w.Write(obj.data)
 	case http.MethodPut:
+		if f.conflicts > 0 && (r.Header.Get("If-Match") != "" || r.Header.Get("If-None-Match") != "") {
+			f.conflicts--
+			writeS3Error(w, http.StatusConflict, "ConditionalRequestConflict")
+			return
+		}
 		if ifMatch := r.Header.Get("If-Match"); ifMatch != "" && !ok && !f.ignoreConditions {
 			writeS3Error(w, http.StatusNotFound, "NoSuchKey")
 			return
@@ -229,6 +236,37 @@ func TestS3StoreCheckWriteReportsADeniedStep(t *testing.T) {
 			require.ErrorContains(t, err, "AccessDenied")
 		})
 	}
+}
+
+func TestS3StorePutWriteConflict(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+	fake.conflicts = 1
+
+	err := putString(t, store, "k", "first", Precondition{Absent: true})
+
+	require.ErrorIs(t, err, ErrWriteConflict)
+	require.NotErrorIs(t, err, ErrPreconditionFailed)
+	require.Empty(t, fake.objects)
+}
+
+func TestS3StoreAdvanceLatestRetriesAWriteConflict(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+	fake.conflicts = 1
+
+	newest, err := AdvanceLatest(t.Context(), store, testChainID, 8)
+
+	require.NoError(t, err)
+	require.Equal(t, int64(8), newest)
+}
+
+func TestS3StoreClaimUploadLosesAWriteConflict(t *testing.T) {
+	store, fake := newFakeS3StoreWith(t)
+	fake.conflicts = 1
+
+	got, err := ClaimUpload(t.Context(), store, testChainID, 40, "node-a", time.Now(), claimTimeout)
+
+	require.NoError(t, err)
+	require.False(t, got)
 }
 
 func TestNewS3StoreNeedsARegion(t *testing.T) {
