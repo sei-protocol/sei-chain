@@ -411,7 +411,10 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 	logger.Info("starting state sync")
 
 	if r.cfg.UseLocalSnapshot {
-		snapshotList, _ := r.recentSnapshots(context.Background(), recentSnapshots)
+		snapshotList, err := r.recentSnapshots(context.Background(), recentSnapshots)
+		if err != nil {
+			return sm.State{}, fmt.Errorf("failed to list local snapshots: %w", err)
+		}
 		for _, snap := range snapshotList {
 			if _, err := r.syncer.AddSnapshot("self", snap); err != nil {
 				return sm.State{}, fmt.Errorf("failed to add snapshot at height %d: %w", snap.Height, err)
