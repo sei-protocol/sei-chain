@@ -614,13 +614,20 @@ func TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending(t *testing.T) {
 
 	val := types.NewMockPV()
 	evidenceDB := dbm.NewMemDB()
-	stateStore := initializeValidatorState(ctx, t, val, height)
-	state, err := stateStore.Load()
-	utilsrequire.NoError(t, err)
-	blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, val.PrivKey.Public().Address())
-	utilsrequire.NoError(t, err)
-	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, nil)
-	startPool(t, pool, stateStore)
+	// newPool starts a pool over evidenceDB with val as its only validator
+	newPool := func() *evidence.Pool {
+		stateStore := initializeValidatorState(ctx, t, val, height)
+		state, err := stateStore.Load()
+		utilsrequire.NoError(t, err)
+		blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, val.PrivKey.Public().Address())
+		utilsrequire.NoError(t, err)
+		eventBus := eventbus.NewDefault()
+		utilsrequire.NoError(t, eventBus.Start(ctx))
+		pool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
+		startPool(t, pool, stateStore)
+		return pool
+	}
+	pool := newPool()
 
 	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
 	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
@@ -629,12 +636,13 @@ func TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending(t *testing.T) {
 	pendingEntries := dbEntries(t, evidenceDB)
 
 	// commit the evidence
-	state = pool.State()
+	state := pool.State()
 	state.LastBlockHeight++
 	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
 	pool.Update(ctx, state, types.EvidenceList{ev})
 
-	// write the pending entry again, as a pending write that lands after the commit does
+	// restore the entries that Update deleted, so the database holds the evidence as
+	// pending and as committed
 	for key, value := range pendingEntries {
 		has, err := evidenceDB.Has([]byte(key))
 		utilsrequire.NoError(t, err)
@@ -643,9 +651,14 @@ func TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending(t *testing.T) {
 		}
 	}
 
-	err = pool.CheckEvidence(ctx, types.EvidenceList{ev})
+	// a pool started over the same database holds the evidence as pending
+	restarted := newPool()
+	pendingEvs, _ := restarted.PendingEvidence(defaultEvidenceMaxBytes)
+	utilsrequire.Equal(t, []types.Evidence{ev}, pendingEvs)
+
+	err = restarted.CheckEvidence(ctx, types.EvidenceList{ev})
 	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
-	utilsrequire.True(t, isInvalidEvidence)
+	utilsrequire.True(t, isInvalidEvidence, "CheckEvidence returned %v", err)
 }
 
 // dbEntries returns a copy of every key and value in db.

@@ -191,7 +191,7 @@ func (evpool *Pool) ReportConflictingVotes(voteA, voteB *types.Vote) {
 }
 
 // CheckEvidence takes an array of evidence from a block and verifies all the evidence there.
-// If it has already verified the evidence then it jumps to the next one. It ensures that no
+// It skips verification of duplicate vote evidence that it already holds as pending. It ensures that no
 // evidence has already been committed or is being proposed twice. It also adds any
 // evidence that it doesn't currently have so that it can quickly form ABCI Evidence later.
 func (evpool *Pool) CheckEvidence(ctx context.Context, evList types.EvidenceList) error {
