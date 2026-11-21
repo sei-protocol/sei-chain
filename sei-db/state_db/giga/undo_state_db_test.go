@@ -312,7 +312,8 @@ func TestUndoStateDBRollbackTakesAnEmptyLog(t *testing.T) {
 	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
 }
 
-// A block's change set carries each balance and code it replaced, which a read below the block serves.
+// A block that replaces an account's balance and code leaves the account row and code row it replaced,
+// which a read below the block serves.
 func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -322,16 +323,27 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
 		Accounts: []gigatypes.AccountChange{{
 			Address: addr,
+			Account: gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
+		}},
+	}))
+	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
+		Accounts: []gigatypes.AccountChange{{
+			Address: addr,
 			Account: gigatypes.AccountState{Balance: big.NewInt(9), Code: newCode},
 			Prior:   gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
 		}},
 	}))
 	db.UndoSS().WaitForPendingWrites()
 
+	before, ok := db.OpenViewAt(0)
+	require.True(t, ok)
+	require.False(t, before.AccountExists(addr))
+	require.Nil(t, before.GetCode(addr))
+	before.Close()
 	for height, want := range map[int64]struct {
 		balance int64
 		code    []byte
-	}{0: {4, oldCode}, 1: {9, newCode}} {
+	}{1: {4, oldCode}, 2: {9, newCode}} {
 		view, ok := db.OpenViewAt(height)
 		require.True(t, ok)
 		require.Equal(t, common.BigToHash(big.NewInt(want.balance)), view.GetBalance(addr), "height %d", height)
@@ -341,24 +353,34 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	}
 }
 
-// A block that writes only outside the EVM module hands over an empty change set, and the undo log
-// takes it as a block that changed nothing.
-func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
+// Writes outside the EVM module keep their history like EVM writes do, so a read below a block does not
+// see what the block wrote there.
+func TestUndoStateDBServesHistoryOutsideTheEVMModule(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{3}
 	require.NoError(t, db.CommitStateChanges(1, nonceChanges(addr, 0, 1)))
-
-	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
-		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{2}}},
+	for block, value := range map[int64]byte{2: 2, 3: 3} {
+		require.NoError(t, db.CommitStateChanges(block, &gigatypes.StateChangeSet{
+			Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{value}}},
+		}))
+	}
+	require.NoError(t, db.CommitStateChanges(4, &gigatypes.StateChangeSet{
+		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Delete: true}},
 	}))
 	db.UndoSS().WaitForPendingWrites()
 
-	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
-	for height, want := range []uint64{0, 1, 1} {
+	require.Equal(t, int64(4), db.UndoSS().GetLatestVersion())
+	for height, want := range []struct {
+		nonce  uint64
+		cursor []byte
+	}{{0, nil}, {1, nil}, {1, []byte{2}}, {1, []byte{3}}, {1, nil}} {
 		view, ok := db.OpenViewAt(int64(height))
 		require.True(t, ok, "height %d", height)
-		require.Equal(t, want, view.GetNonce(addr), "height %d", height)
+		require.Equal(t, want.nonce, view.GetNonce(addr), "height %d", height)
+		cursor, found := view.Get("cursor", []byte("head"))
+		require.Equal(t, want.cursor != nil, found, "height %d", height)
+		require.Equal(t, want.cursor, cursor, "height %d", height)
 		view.Close()
 	}
 }
