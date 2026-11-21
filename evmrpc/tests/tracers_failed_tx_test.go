@@ -30,6 +30,12 @@ var failedTxTracers = map[string]map[string]interface{}{
 	}},
 }
 
+// jsTracer is a JS tracer configuration that reports the top-level call of a
+// transaction, with the nonce and balance of its sender after it.
+var jsTracer = map[string]interface{}{
+	"tracer": `{result: function(ctx, db) { return {type: ctx.type, error: ctx.error, gasUsed: ctx.gasUsed, nonce: db.getNonce(ctx.from), balance: db.getBalance(ctx.from).toString()}; }, fault: function() {}}`,
+}
+
 // TestTraceTxFailingBeforeExecution traces a block whose first transaction fails before
 // execution, followed by a transaction of the same sender. The chain keeps the failed
 // transaction with its sender's nonce bumped, so every tracer has to report it as a
@@ -110,6 +116,11 @@ func TestTraceTxFailingBeforeExecution(t *testing.T) {
 			parallelized := func(cfg *evmrpcconfig.Config) { cfg.EnableParallelizedBlockTrace = true }
 			SetupTestServerWithConfig(t, parallelized, blocks, mnemonicInitializer(mnemonic1)).Run(func(port int) {
 				requireBlockTraceMatchesTxTraces(t, port, "parallelized structLogger", failedTxTracers["structLogger"], failedTx, nextTx)
+			})
+
+			allowJS := func(cfg *evmrpcconfig.Config) { cfg.TraceAllowJSTracers = true }
+			SetupTestServerWithConfig(t, allowJS, blocks, mnemonicInitializer(mnemonic1)).Run(func(port int) {
+				requireBlockTraceMatchesTxTraces(t, port, "js", jsTracer, failedTx, nextTx)
 			})
 		})
 	}
