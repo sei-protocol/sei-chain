@@ -606,6 +606,62 @@ func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
 	}
 }
 
+// TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending checks that CheckEvidence
+// rejects committed evidence when the pool also holds it as pending.
+func TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending(t *testing.T) {
+	const height int64 = 10
+	ctx := t.Context()
+
+	val := types.NewMockPV()
+	evidenceDB := dbm.NewMemDB()
+	stateStore := initializeValidatorState(ctx, t, val, height)
+	state, err := stateStore.Load()
+	utilsrequire.NoError(t, err)
+	blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, val.PrivKey.Public().Address())
+	utilsrequire.NoError(t, err)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, nil)
+	startPool(t, pool, stateStore)
+
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+	utilsrequire.NoError(t, err)
+	utilsrequire.NoError(t, pool.AddEvidence(ctx, ev))
+	pendingEntries := dbEntries(t, evidenceDB)
+
+	// commit the evidence
+	state = pool.State()
+	state.LastBlockHeight++
+	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
+	pool.Update(ctx, state, types.EvidenceList{ev})
+
+	// write the pending entry again, as a pending write that lands after the commit does
+	for key, value := range pendingEntries {
+		has, err := evidenceDB.Has([]byte(key))
+		utilsrequire.NoError(t, err)
+		if !has {
+			utilsrequire.NoError(t, evidenceDB.Set([]byte(key), value))
+		}
+	}
+
+	err = pool.CheckEvidence(ctx, types.EvidenceList{ev})
+	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
+	utilsrequire.True(t, isInvalidEvidence)
+}
+
+// dbEntries returns a copy of every key and value in db.
+func dbEntries(t *testing.T, db dbm.DB) map[string][]byte {
+	t.Helper()
+	it, err := db.Iterator(nil, nil)
+	utilsrequire.NoError(t, err)
+	defer func() { _ = it.Close() }()
+	entries := map[string][]byte{}
+	for ; it.Valid(); it.Next() {
+		entries[string(it.Key())] = append([]byte(nil), it.Value()...)
+	}
+	utilsrequire.NoError(t, it.Error())
+	return entries
+}
+
 // copyDuplicateVoteEvidence returns a shallow copy of ev. The copy has its own ABCI fields
 // and shares the votes of ev.
 func copyDuplicateVoteEvidence(ev *types.DuplicateVoteEvidence) *types.DuplicateVoteEvidence {

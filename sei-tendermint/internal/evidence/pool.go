@@ -197,17 +197,16 @@ func (evpool *Pool) ReportConflictingVotes(voteA, voteB *types.Vote) {
 func (evpool *Pool) CheckEvidence(ctx context.Context, evList types.EvidenceList) error {
 	hashes := make([][]byte, len(evList))
 	for idx, ev := range evList {
+		// check that the evidence isn't already committed
+		if evpool.isCommitted(ev) {
+			return &types.ErrInvalidEvidence{Evidence: ev, Reason: errors.New("evidence was already committed")}
+		}
 
 		_, isLightEv := ev.(*types.LightClientAttackEvidence)
 
 		// We must verify light client attack evidence regardless because there could be a
 		// different conflicting block with the same hash.
 		if isLightEv || !evpool.isPending(ev) {
-			// check that the evidence isn't already committed
-			if evpool.isCommitted(ev) {
-				return &types.ErrInvalidEvidence{Evidence: ev, Reason: errors.New("evidence was already committed")}
-			}
-
 			err := evpool.verify(ctx, ev)
 			if err != nil {
 				return err
