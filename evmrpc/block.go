@@ -454,9 +454,9 @@ func EncodeTmBlock(
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
 		"parentHash":       lastHash,
-		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-		"mixHash":          common.Hash{},           // inapplicable to Sei
-		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
+		"nonce":            ethtypes.BlockNonce{},       // inapplicable to Sei
+		"mixHash":          types.PrevRandao(blockTime), // PREVRANDAO: a hash of the proposer-chosen block time, not randomness
+		"sha3Uncles":       ethtypes.EmptyUncleHash,     // inapplicable to Sei
 		"logsBloom":        ethtypes.BytesToBloom(blockBloom),
 		"stateRoot":        appHash,
 		"miner":            miner,
