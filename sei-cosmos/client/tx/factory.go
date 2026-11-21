@@ -79,16 +79,11 @@ func NewFactoryCLI(clientCtx client.Context, flagSet *pflag.FlagSet) (Factory, e
 	return f, nil
 }
 
-func (f Factory) AccountNumber() uint64                     { return f.accountNumber }
-func (f Factory) Sequence() uint64                          { return f.sequence }
-func (f Factory) Gas() uint64                               { return f.gas }
-func (f Factory) Keybase() keyring.Keyring                  { return f.keybase }
-func (f Factory) ChainID() string                           { return f.chainID }
-func (f Factory) Memo() string                              { return f.memo }
-func (f Factory) Fees() sdk.Coins                           { return f.fees }
-func (f Factory) GasPrices() sdk.DecCoins                   { return f.gasPrices }
-func (f Factory) AccountRetriever() client.AccountRetriever { return f.accountRetriever }
-func (f Factory) TimeoutHeight() uint64                     { return f.timeoutHeight }
+func (f Factory) AccountNumber() uint64    { return f.accountNumber }
+func (f Factory) Sequence() uint64         { return f.sequence }
+func (f Factory) Keybase() keyring.Keyring { return f.keybase }
+func (f Factory) ChainID() string          { return f.chainID }
+func (f Factory) TimeoutHeight() uint64    { return f.timeoutHeight }
 
 // WithTxConfig returns a copy of the Factory with an updated TxConfig.
 func (f Factory) WithTxConfig(g client.TxConfig) Factory {
