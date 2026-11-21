@@ -17,6 +17,7 @@ import (
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -418,6 +419,9 @@ func openAutobahnStorageManager(
 	if err := refusePendingRestore(directory); err != nil {
 		return nil, err
 	}
+	if err := removeStoppedImport(autobahnLayout(directory)); err != nil {
+		return nil, err
+	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
@@ -446,6 +450,18 @@ func refusePendingRestore(psd string) error {
 		return fmt.Errorf("read the state sync restore marker: %w", err)
 	}
 	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errPendingRestore)
+}
+
+// removeStoppedImport removes the staging dir of a state sync import that stopped before it wrote
+// the restore marker of layout.
+func removeStoppedImport(layout AutobahnLayout) (err error) {
+	// A running import holds this lock, so its staging dir stays.
+	lock, err := flatkv.LockRoot(layout.FlatKVDir)
+	if err != nil {
+		return fmt.Errorf("lock the FlatKV root (is a node or a state sync import running on this home?): %w", err)
+	}
+	defer func() { err = errors.Join(err, lock.Unlock()) }()
+	return RemoveImportStaging(layout)
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]

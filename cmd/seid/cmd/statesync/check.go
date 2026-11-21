@@ -11,6 +11,9 @@ import (
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 )
 
+// errNoBucket is returned when check has no bucket to check.
+var errNoBucket = errors.New("set --bucket, or [giga.state_sync] snapshot_bucket in app.toml")
+
 func checkCmd() *cobra.Command {
 	var bucket, region string
 	var write bool
@@ -33,7 +36,7 @@ s3:AbortMultipartUpload and leaves no object. A node that uploads archives needs
 				bucket = t.stateSync.SnapshotBucket
 			}
 			if bucket == "" {
-				return errors.New("set --bucket, or [giga.state_sync] snapshot_bucket in app.toml")
+				return errNoBucket
 			}
 			if region == "" {
 				region = t.stateSync.SnapshotRegion

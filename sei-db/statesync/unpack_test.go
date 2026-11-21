@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 )
 
 // archiveEntry is one entry of a test archive.
@@ -160,6 +162,18 @@ func TestReadArchiveRejects(t *testing.T) {
 			_, _, err := ReadArchive(t.Context(), bytes.NewReader(archive), out, acceptAll)
 			require.ErrorIs(t, err, tc.want)
 		})
+	}
+}
+
+func TestVerifyCheckpointLeavesNoLockFile(t *testing.T) {
+	dir, height := stagedCheckpoint(t)
+	m, err := BuildManifest(testChainID, height, dir)
+	require.NoError(t, err)
+
+	require.NoError(t, VerifyCheckpoint(dir, m))
+
+	for _, database := range flatkv.DataDBDirs() {
+		require.NoFileExists(t, filepath.Join(dir, database, lockFileName))
 	}
 }
 

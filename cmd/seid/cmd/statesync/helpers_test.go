@@ -40,6 +40,7 @@ func testLayout(psd string) node.AutobahnLayout {
 		RestoreMarkerFile:  filepath.Join(psd, "state-sync-restore-pending"),
 		RestoreProofFile:   filepath.Join(psd, "state-sync-proof"),
 		StateSyncProofDir:  filepath.Join(psd, "data", "state_commit", "state_sync_proofs"),
+		ImportStagingDir:   filepath.Join(psd, ".state-sync-import"),
 	}
 }
 
@@ -182,10 +183,16 @@ func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 	proof, err := os.ReadFile(tg.layout.RestoreProofFile)
 	require.NoError(t, err)
 	require.Equal(t, proofAt(t, height), proof)
-	require.NoDirExists(t, filepath.Join(tg.layout.PersistentStateDir, importStagingDirName))
+	require.NoDirExists(t, tg.layout.ImportStagingDir)
 
 	s := openStore(t, tg.layout.FlatKVDir)
 	defer func() { require.NoError(t, s.Close()) }()
+	requireRows(t, s, p, height)
+}
+
+// requireRows asserts that s is at height and holds the rows of p at height.
+func requireRows(t *testing.T, s *flatkv.CommitStore, p *producer, height int64) {
+	t.Helper()
 	require.Equal(t, height, s.Version())
 	for k, want := range p.rowsAt[height] {
 		module, key, _ := bytes.Cut([]byte(k), []byte("/"))
@@ -200,7 +207,7 @@ func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 func requireUntouched(t *testing.T, tg target) {
 	t.Helper()
 	require.NoFileExists(t, tg.layout.RestoreMarkerFile)
-	require.NoDirExists(t, filepath.Join(tg.layout.PersistentStateDir, importStagingDirName))
+	require.NoDirExists(t, tg.layout.ImportStagingDir)
 	lock, err := flatkv.LockRoot(tg.layout.FlatKVDir)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, lock.Unlock()) }()

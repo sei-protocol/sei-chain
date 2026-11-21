@@ -26,8 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 )
 
-const importStagingDirName = ".state-sync-import"
-
 // Errors that import returns for an archive of another chain or height than the home and the
 // source need.
 var (
@@ -68,11 +66,11 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 		return err
 	}
 
-	staging := filepath.Join(t.layout.PersistentStateDir, importStagingDirName)
-	if err := removeImportLeftovers(staging, t.layout); err != nil {
+	staging := t.layout.ImportStagingDir
+	if err := node.RemoveImportStaging(t.layout); err != nil {
 		return err
 	}
-	resume, err := checkHome(t.layout, lock, staging)
+	resume, err := checkHome(t.layout, lock)
 	if err != nil {
 		return err
 	}
@@ -223,13 +221,13 @@ func rewriteCheckpoint(
 // the restore marker, the state sync proof file and last the FlatKV checkpoint, so a home whose
 // FlatKV is at height also holds the other two.
 func installRestore(lock *flatkv.RootLock, layout node.AutobahnLayout, height int64, proof []byte, checkpoint string, stop stepHook) error {
-	if err := writeFileAtomic(layout.RestoreMarkerFile, []byte(strconv.FormatInt(height, 10)+"\n")); err != nil {
+	if err := writeFileAtomic(layout.ImportStagingDir, layout.RestoreMarkerFile, []byte(strconv.FormatInt(height, 10)+"\n")); err != nil {
 		return fmt.Errorf("write the restore marker: %w", err)
 	}
 	if err := stop(importStepMarked); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(layout.RestoreProofFile, proof); err != nil {
+	if err := writeFileAtomic(layout.ImportStagingDir, layout.RestoreProofFile, proof); err != nil {
 		return fmt.Errorf("install the state sync proof file: %w", err)
 	}
 	if err := stop(importStepProofInstalled); err != nil {
@@ -241,25 +239,11 @@ func installRestore(lock *flatkv.RootLock, layout node.AutobahnLayout, height in
 	return stop(importStepInstalled)
 }
 
-// removeImportLeftovers removes the staging dir and the temporary files that an import which
-// stopped before its cleanup left.
-func removeImportLeftovers(staging string, layout node.AutobahnLayout) error {
-	if err := os.RemoveAll(staging); err != nil {
-		return fmt.Errorf("remove the staging dir of an earlier import: %w", err)
-	}
-	for _, path := range []string{layout.RestoreMarkerFile, layout.RestoreProofFile} {
-		if err := os.Remove(path + ".tmp"); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove a temporary file of an earlier import: %w", err)
-		}
-	}
-	return nil
-}
-
 // checkHome returns an error when the persistent state dir holds a file that import did not
 // write, or FlatKV data without the restore marker. It reports whether the marker is present, in
 // which case the FlatKV data is from an earlier import, which import replaces.
-func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock, staging string) (resume bool, err error) {
-	foreign, err := foreignFiles(layout, staging)
+func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock) (resume bool, err error) {
+	foreign, err := foreignFiles(layout)
 	if err != nil {
 		return false, err
 	}
@@ -287,30 +271,47 @@ func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock, staging string
 const maxForeignFiles = 5
 
 // foreignFiles returns the first files under the persistent state dir that are not in the FlatKV
-// root, the staging dir, the restore marker or the restore proof file.
-func foreignFiles(layout node.AutobahnLayout, staging string) ([]string, error) {
+// root, the staging dir, the restore marker or the restore proof file. It follows a symlink at the
+// persistent state dir and at each dir that holds the FlatKV root, and names files by their paths
+// under the persistent state dir.
+func foreignFiles(layout node.AutobahnLayout) ([]string, error) {
 	var foreign []string
-	err := filepath.WalkDir(layout.PersistentStateDir, func(path string, d fs.DirEntry, err error) error {
+	var walk func(dir string) error
+	walk = func(dir string) error {
+		// WalkDir does not follow a symlink, not even at its root.
+		resolved, err := filepath.EvalSymlinks(dir)
 		if err != nil {
 			return err
 		}
-		switch {
-		case path == layout.FlatKVDir || path == staging:
-			// SkipDir on an entry that is not a directory, such as a symlink, skips its parent.
-			if d.IsDir() {
-				return filepath.SkipDir
+		return filepath.WalkDir(resolved, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
 			}
+			if len(foreign) == maxForeignFiles {
+				return filepath.SkipAll
+			}
+			rel, err := filepath.Rel(resolved, p)
+			if err != nil {
+				return err
+			}
+			path := filepath.Join(dir, rel)
+			switch {
+			case path == layout.FlatKVDir || path == layout.ImportStagingDir:
+				// SkipDir on an entry that is not a directory, such as a symlink, skips its parent.
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			case d.IsDir() || path == layout.RestoreMarkerFile || path == layout.RestoreProofFile:
+				return nil
+			case d.Type()&fs.ModeSymlink != 0 && strings.HasPrefix(layout.FlatKVDir, path+string(filepath.Separator)):
+				return walk(path)
+			}
+			foreign = append(foreign, path)
 			return nil
-		case d.IsDir() || path == layout.RestoreMarkerFile || path == layout.RestoreProofFile:
-			return nil
-		}
-		foreign = append(foreign, path)
-		if len(foreign) == maxForeignFiles {
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	if err != nil {
+		})
+	}
+	if err := walk(layout.PersistentStateDir); err != nil {
 		return nil, fmt.Errorf("read the persistent state dir: %w", err)
 	}
 	return foreign, nil
@@ -346,9 +347,10 @@ func requireFreeSpace(dir string, size int64) error {
 	return nil
 }
 
-// writeFileAtomic writes data to path through a fsynced temporary file.
-func writeFileAtomic(path string, data []byte) error {
-	tmp := path + ".tmp"
+// writeFileAtomic writes data to path through a fsynced temporary file in tmpDir, which must be on
+// the filesystem of path.
+func writeFileAtomic(tmpDir, path string, data []byte) error {
+	tmp := filepath.Join(tmpDir, filepath.Base(path)+".tmp")
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // path is from the node layout.
 	if err != nil {
 		return err

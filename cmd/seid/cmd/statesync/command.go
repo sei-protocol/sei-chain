@@ -26,8 +26,9 @@ import (
 // errDisabled is returned when [giga.state_sync] enabled is false.
 var errDisabled = errors.New("giga state sync is disabled; set [giga.state_sync] enabled = true in app.toml")
 
-// Errors that resolveSource returns for flags that do not select one archive.
+// Errors that import returns for flags that do not select one archive.
 var (
+	errNegativeHeight      = errors.New("--height is negative")
 	errHeightWithFrom      = errors.New("--height selects an archive in snapshot_bucket and cannot be used with --from")
 	errRegionWithLocalFrom = errors.New("--region selects the region of a bucket and cannot be used with a local --from")
 	errNoSource            = errors.New("set --from, or [giga.state_sync] snapshot_bucket in app.toml")
@@ -61,7 +62,7 @@ filesystem, and import refuses when that filesystem has less free space than twi
 checkpoint.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if height < 0 {
-				return fmt.Errorf("--height %d is negative", height)
+				return fmt.Errorf("%w: %d", errNegativeHeight, height)
 			}
 			t, err := resolveTarget(cmd)
 			if err != nil {

@@ -39,6 +39,65 @@ func TestImportRoundTrip(t *testing.T) {
 	requireRewritten(t, staged, filepath.Join(tg.layout.FlatKVDir, flatkv.SnapshotDirName(height)))
 }
 
+func TestImportInstallsTheLayoutOfAStoreAtThatHeight(t *testing.T) {
+	p := newProducer(t)
+	p.commit(t, 1)
+	height := p.commit(t, 2)
+	tg := freshHome(t)
+	snapshot := flatkv.SnapshotDirName(height)
+
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard))
+
+	require.Equal(t, []string{snapshot}, subdirs(t, tg.layout.FlatKVDir))
+	require.Equal(t, subdirs(t, filepath.Join(p.root, snapshot)), subdirs(t, filepath.Join(tg.layout.FlatKVDir, snapshot)))
+	requireCurrent(t, p.root, snapshot)
+	requireCurrent(t, tg.layout.FlatKVDir, snapshot)
+	requireNoLockFile(t, filepath.Join(tg.layout.FlatKVDir, snapshot))
+
+	cfg, err := node.FlatKVConfig(tg.layout, tg.mode, tg.storage, tg.genDoc)
+	require.NoError(t, err)
+	s, err := flatkv.OpenLiveStateDB(t.Context(), cfg)
+	require.NoError(t, err)
+	requireRows(t, s, p, height)
+	require.NoError(t, s.Close())
+
+	working := filepath.Join(tg.layout.FlatKVDir, "working")
+	require.Equal(t, subdirs(t, filepath.Join(p.root, "working")), subdirs(t, working))
+	base, err := os.ReadFile(filepath.Join(working, "SNAPSHOT_BASE"))
+	require.NoError(t, err)
+	require.Equal(t, snapshot+"\n", string(base))
+}
+
+// subdirs returns the names of the directories in dir, in order.
+func subdirs(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
+// requireCurrent asserts that the current link of the FlatKV root names snapshot.
+func requireCurrent(t *testing.T, root, snapshot string) {
+	t.Helper()
+	target, err := os.Readlink(filepath.Join(root, "current"))
+	require.NoError(t, err)
+	require.Equal(t, snapshot, target)
+}
+
+// requireNoLockFile asserts that no database of the checkpoint in dir holds a Pebble LOCK file.
+func requireNoLockFile(t *testing.T, dir string) {
+	t.Helper()
+	for _, database := range flatkv.DataDBDirs() {
+		require.NoFileExists(t, filepath.Join(dir, database, "LOCK"))
+	}
+}
+
 // requireRewritten asserts that no table file of the installed checkpoint is a copy of a table
 // file of the archived checkpoint.
 func requireRewritten(t *testing.T, archived, installed string) {
@@ -227,10 +286,37 @@ func TestForeignFilesLooksPastASymlinkedFlatKVRoot(t *testing.T) {
 	other := filepath.Join(filepath.Dir(tg.layout.FlatKVDir), "zz-other")
 	require.NoError(t, os.WriteFile(other, []byte("x"), 0o600))
 
-	foreign, err := foreignFiles(tg.layout, filepath.Join(tg.layout.PersistentStateDir, importStagingDirName))
+	foreign, err := foreignFiles(tg.layout)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{other}, foreign)
+}
+
+func TestForeignFilesFollowsASymlinkThatHoldsTheFlatKVRoot(t *testing.T) {
+	tg := freshHome(t)
+	data := filepath.Join(tg.layout.PersistentStateDir, "data")
+	require.NoError(t, os.Symlink(t.TempDir(), data))
+	require.NoError(t, os.MkdirAll(tg.layout.FlatKVDir, 0o750))
+	other := filepath.Join(data, "other")
+	require.NoError(t, os.WriteFile(other, []byte("x"), 0o600))
+
+	foreign, err := foreignFiles(tg.layout)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{other}, foreign)
+}
+
+func TestImportIntoASymlinkedPersistentStateDir(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	psd := filepath.Join(t.TempDir(), "psd")
+	require.NoError(t, os.Symlink(t.TempDir(), psd))
+	tg := freshHome(t)
+	tg.layout = testLayout(psd)
+
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard))
+
+	requireRestored(t, tg, p, height)
 }
 
 func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
@@ -265,19 +351,16 @@ func TestImportRemovesTheLeftoversOfAKilledImport(t *testing.T) {
 	p := newProducer(t)
 	height := p.commit(t, 1)
 	tg := freshHome(t)
-	staging := filepath.Join(tg.layout.PersistentStateDir, importStagingDirName)
+	staging := tg.layout.ImportStagingDir
 	require.NoError(t, os.MkdirAll(filepath.Join(staging, "download"), 0o750))
 	for _, path := range []string{tg.layout.RestoreMarkerFile, tg.layout.RestoreProofFile} {
-		require.NoError(t, os.WriteFile(path+".tmp", []byte("partial"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(staging, filepath.Base(path)+".tmp"), []byte("partial"), 0o600))
 	}
 
 	require.NoError(t, runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard))
 
 	requireRestored(t, tg, p, height)
 	require.NoDirExists(t, staging)
-	for _, path := range []string{tg.layout.RestoreMarkerFile, tg.layout.RestoreProofFile} {
-		require.NoFileExists(t, path+".tmp")
-	}
 }
 
 func TestImportReplacesAnEarlierImport(t *testing.T) {

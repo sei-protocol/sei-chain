@@ -66,8 +66,7 @@ func ReadArchive(ctx context.Context, r io.Reader, dir string, accept func(*Mani
 }
 
 // VerifyCheckpoint returns an error unless the checkpoint in dir is a FlatKV checkpoint at the
-// height of m, in the Pebble format of m, whose metadata records the stats of m. It opens each
-// database read-only, which leaves a Pebble LOCK file in the database directory.
+// height of m, in the Pebble format of m, whose metadata records the stats of m.
 func VerifyCheckpoint(dir string, m *Manifest) error {
 	if err := flatkv.VerifySnapshotDir(dir, m.Height); err != nil {
 		return err
