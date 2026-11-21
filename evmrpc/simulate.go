@@ -253,7 +253,10 @@ type SimulateConfig struct {
 	MaxStateOverrideSlots        int
 }
 
-var _ tracers.Backend = (*Backend)(nil)
+var (
+	_ tracers.Backend         = (*Backend)(nil)
+	_ tracers.FailedTxBackend = (*Backend)(nil)
+)
 
 type Backend struct {
 	*eth.EthAPIBackend
@@ -988,6 +991,10 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {
 	return b.keeper.CustomPrecompiles()
 }
+
+// KeepsFailedTxs reports that a block transaction that fails before execution stays in
+// its block as a failed transaction that bumps the sender's nonce.
+func (b *Backend) KeepsFailedTxs() bool { return true }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
 	typedStateDB := state.GetDBImpl(statedb)
