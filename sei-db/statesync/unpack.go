@@ -13,6 +13,18 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 )
 
+// Errors that ReadArchive returns for an archive that does not match its manifest.
+var (
+	errUnexpectedEntry = errors.New("unexpected archive entry")
+	errEntryType       = errors.New("archive entry is not a regular file")
+	errEntryTooLarge   = errors.New("archive entry is too large")
+	errEntrySize       = errors.New("archive entry size differs from the manifest")
+	errArchiveEnded    = errors.New("archive ends early")
+	errUnlistedEntry   = errors.New("archive entry is not in the manifest")
+	errTrailingData    = errors.New("archive has data after the end of the tar stream")
+	errArchiveSize     = errors.New("archive size differs from the manifest")
+)
+
 // ReadArchive reads an archive from r. It decodes the manifest, calls accept with it, and when
 // accept returns nil, writes the checkpoint files to dir, which must not exist. It returns the
 // manifest and the proof. It returns an error when the archive holds an entry that the manifest
@@ -88,7 +100,7 @@ func readEntry(tr *tar.Reader, name string, maxSize int64) ([]byte, error) {
 		return nil, err
 	}
 	if hdr.Size > maxSize {
-		return nil, fmt.Errorf("archive entry %s is %d bytes, more than %d", name, hdr.Size, maxSize)
+		return nil, fmt.Errorf("%w: %s is %d bytes, more than %d", errEntryTooLarge, name, hdr.Size, maxSize)
 	}
 	data, err := io.ReadAll(tr)
 	if err != nil {
@@ -101,16 +113,16 @@ func readEntry(tr *tar.Reader, name string, maxSize int64) ([]byte, error) {
 func nextArchiveEntry(tr *tar.Reader, name string) (*tar.Header, error) {
 	hdr, err := tr.Next()
 	if errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("archive ends before entry %s", name)
+		return nil, fmt.Errorf("%w: before entry %s", errArchiveEnded, name)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("archive entry %s: %w", name, err)
 	}
 	if hdr.Name != name {
-		return nil, fmt.Errorf("archive entry %q, want %q", hdr.Name, name)
+		return nil, fmt.Errorf("%w: %q, want %q", errUnexpectedEntry, hdr.Name, name)
 	}
 	if hdr.Typeflag != tar.TypeReg {
-		return nil, fmt.Errorf("archive entry %s has type %q, want a regular file", name, hdr.Typeflag)
+		return nil, fmt.Errorf("%w: %s has type %q", errEntryType, name, hdr.Typeflag)
 	}
 	return hdr, nil
 }
@@ -133,7 +145,7 @@ func readFileEntry(tr *tar.Reader, f File, dir string) error {
 		return err
 	}
 	if hdr.Size != f.Size {
-		return fmt.Errorf("archive entry %s is %d bytes, the manifest records %d", f.Path, hdr.Size, f.Size)
+		return fmt.Errorf("%w: %s is %d bytes, the manifest records %d", errEntrySize, f.Path, hdr.Size, f.Size)
 	}
 	database, err := parseFilePath(f.Path)
 	if err != nil {
@@ -159,7 +171,7 @@ func readFileEntry(tr *tar.Reader, f File, dir string) error {
 func requireArchiveEnd(tr *tar.Reader, r *countingReader, m *Manifest, proofSize int64) error {
 	hdr, err := tr.Next()
 	if err == nil {
-		return fmt.Errorf("archive entry %q is not in the manifest", hdr.Name)
+		return fmt.Errorf("%w: %q", errUnlistedEntry, hdr.Name)
 	}
 	if !errors.Is(err, io.EOF) {
 		return fmt.Errorf("archive end: %w", err)
@@ -167,14 +179,14 @@ func requireArchiveEnd(tr *tar.Reader, r *countingReader, m *Manifest, proofSize
 	if n, err := io.Copy(io.Discard, r); err != nil {
 		return fmt.Errorf("archive end: %w", err)
 	} else if n != 0 {
-		return fmt.Errorf("archive has %d bytes after the end of the tar stream", n)
+		return fmt.Errorf("%w: %d bytes", errTrailingData, n)
 	}
 	want, err := ArchiveSize(m, proofSize)
 	if err != nil {
 		return err
 	}
 	if r.n != want {
-		return fmt.Errorf("archive is %d bytes, want %d", r.n, want)
+		return fmt.Errorf("%w: %d bytes, want %d", errArchiveSize, r.n, want)
 	}
 	return nil
 }

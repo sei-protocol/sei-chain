@@ -1,6 +1,7 @@
 package statesync
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go/middleware"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,8 +129,9 @@ func newFakeS3Store(t *testing.T) *S3Store {
 	return store
 }
 
-// newFakeS3StoreWith returns an S3Store on a new fakeS3, and the fakeS3.
-func newFakeS3StoreWith(t *testing.T) (*S3Store, *fakeS3) {
+// newFakeS3StoreWith returns an S3Store on a new fakeS3, and the fakeS3. It applies opts to the
+// client after the options that point it at the fakeS3.
+func newFakeS3StoreWith(t *testing.T, opts ...func(*s3.Options)) (*S3Store, *fakeS3) {
 	t.Helper()
 	isolateAWSConfig(t)
 	fake := &fakeS3{objects: map[string]memObject{}, deny: map[string]bool{}, uploads: map[string]bool{}}
@@ -138,6 +141,9 @@ func newFakeS3StoreWith(t *testing.T) (*S3Store, *fakeS3) {
 		o.BaseEndpoint = aws.String(srv.URL)
 		o.UsePathStyle = true
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		for _, opt := range opts {
+			opt(o)
+		}
 	})
 	require.NoError(t, err)
 	return store, fake
@@ -231,6 +237,27 @@ func TestS3StoreCheckWriteLeavesNothing(t *testing.T) {
 	require.NoError(t, store.CheckWrite(t.Context(), WriteCheckKey(testChainID)))
 
 	require.Empty(t, fake.objects)
+	require.Empty(t, fake.uploads)
+}
+
+func TestS3StoreCheckWriteAbortsAfterTheContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cancelAfterCreate := middleware.InitializeMiddlewareFunc("cancelAfterCreate", func(ctx context.Context, in middleware.InitializeInput, next middleware.InitializeHandler) (middleware.InitializeOutput, middleware.Metadata, error) {
+		out, md, err := next.HandleInitialize(ctx, in)
+		if _, ok := in.Parameters.(*s3.CreateMultipartUploadInput); ok {
+			cancel()
+		}
+		return out, md, err
+	})
+	store, fake := newFakeS3StoreWith(t, func(o *s3.Options) {
+		o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+			return stack.Initialize.Add(cancelAfterCreate, middleware.Before)
+		})
+	})
+
+	require.NoError(t, store.checkMultipartUpload(ctx, WriteCheckKey(testChainID)))
+
 	require.Empty(t, fake.uploads)
 }
 

@@ -26,6 +26,14 @@ import (
 // errDisabled is returned when [giga.state_sync] enabled is false.
 var errDisabled = errors.New("giga state sync is disabled; set [giga.state_sync] enabled = true in app.toml")
 
+// Errors that resolveSource returns for flags that do not select one archive.
+var (
+	errHeightWithFrom      = errors.New("--height selects an archive in snapshot_bucket and cannot be used with --from")
+	errRegionWithLocalFrom = errors.New("--region selects the region of a bucket and cannot be used with a local --from")
+	errNoSource            = errors.New("set --from, or [giga.state_sync] snapshot_bucket in app.toml")
+	errNotS3URL            = errors.New("--from is not s3://<bucket>/<key>")
+)
+
 // Cmd returns the `statesync` command group.
 func Cmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -132,15 +140,18 @@ type source struct {
 // archive bucket of t, or at the height in its latest.txt when height is 0. A bucket is in region,
 // or in the archive region of t when region is empty.
 func resolveSource(ctx context.Context, t target, from string, height int64, region string) (source, error) {
+	if from != "" && height != 0 {
+		return source{}, errHeightWithFrom
+	}
+	if from != "" && !strings.HasPrefix(from, "s3://") && region != "" {
+		return source{}, errRegionWithLocalFrom
+	}
 	if region == "" {
 		region = t.stateSync.SnapshotRegion
 	}
-	if from != "" && height != 0 {
-		return source{}, errors.New("--height selects an archive in snapshot_bucket and cannot be used with --from")
-	}
 	if from == "" {
 		if t.stateSync.SnapshotBucket == "" {
-			return source{}, errors.New("set --from, or [giga.state_sync] snapshot_bucket in app.toml")
+			return source{}, errNoSource
 		}
 		store, err := ssarchive.NewS3Store(ctx, t.stateSync.SnapshotBucket, region)
 		if err != nil {
@@ -151,7 +162,7 @@ func resolveSource(ctx context.Context, t target, from string, height int64, reg
 	if rest, ok := strings.CutPrefix(from, "s3://"); ok {
 		bucket, key, ok := strings.Cut(rest, "/")
 		if !ok || bucket == "" || key == "" {
-			return source{}, fmt.Errorf("--from %q is not s3://<bucket>/<key>", from)
+			return source{}, fmt.Errorf("%w: %q", errNotS3URL, from)
 		}
 		store, err := ssarchive.NewS3Store(ctx, bucket, region)
 		if err != nil {

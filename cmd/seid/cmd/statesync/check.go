@@ -66,11 +66,11 @@ type accessChecker interface {
 // first step that fails.
 func runCheck(ctx context.Context, out io.Writer, bucket string, store accessChecker, chainID string, write bool) error {
 	_, _ = fmt.Fprintf(out, "bucket: %s\nregion: %s\n", bucket, store.Region())
-	source, err := store.CredentialSource(ctx)
+	credentials, err := store.CredentialSource(ctx)
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, "credentials: %s\n", source)
+	_, _ = fmt.Fprintf(out, "credentials: %s\n", credentials)
 
 	latest, err := ssarchive.ReadLatest(ctx, store, chainID)
 	switch {

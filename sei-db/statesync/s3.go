@@ -16,9 +16,9 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-// abortTimeout bounds the abort of a failed multipart upload, which runs after the upload context
-// is canceled. Close of the storage waits for it; the bucket lifecycle rule removes the parts of
-// an abort that does not complete.
+// abortTimeout bounds the abort of a multipart upload, which can run after the context of the
+// caller is canceled. Close of the storage waits for it; the bucket lifecycle rule removes the
+// parts of an abort that does not complete.
 const abortTimeout = 5 * time.Second
 
 // unmatchedVersion is an ETag that no object has.
@@ -196,7 +196,9 @@ func (s *S3Store) checkMultipartUpload(ctx context.Context, key string) error {
 	if err != nil {
 		return fmt.Errorf("start a multipart upload at %s: %w", s.url(key), err)
 	}
-	_, err = s.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+	abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+	defer cancel()
+	_, err = s.client.AbortMultipartUpload(abortCtx, &s3.AbortMultipartUploadInput{
 		Bucket:   aws.String(s.bucket),
 		Key:      aws.String(key),
 		UploadId: out.UploadId,

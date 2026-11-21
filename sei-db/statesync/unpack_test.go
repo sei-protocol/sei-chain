@@ -105,41 +105,44 @@ func TestReadArchiveStopsWhenAcceptRefuses(t *testing.T) {
 
 func TestReadArchiveRejects(t *testing.T) {
 	dir, height := stagedCheckpoint(t)
-	for name, change := range map[string]func(t *testing.T, entries []archiveEntry) []byte{
-		"extra file": func(t *testing.T, entries []archiveEntry) []byte {
+	for name, tc := range map[string]struct {
+		change func(t *testing.T, entries []archiveEntry) []byte
+		want   error
+	}{
+		"extra file": {func(t *testing.T, entries []archiveEntry) []byte {
 			return buildArchive(t, append(entries, archiveEntry{name: "flatkv/account/extra", data: []byte("x")}))
-		},
-		"missing file": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errUnlistedEntry},
+		"missing file": {func(t *testing.T, entries []archiveEntry) []byte {
 			return buildArchive(t, entries[:len(entries)-1])
-		},
-		"file of another size": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errArchiveEnded},
+		"file of another size": {func(t *testing.T, entries []archiveEntry) []byte {
 			entries[2].data = append(entries[2].data, 0)
 			return buildArchive(t, entries)
-		},
-		"files out of order": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errEntrySize},
+		"files out of order": {func(t *testing.T, entries []archiveEntry) []byte {
 			entries[2], entries[3] = entries[3], entries[2]
 			return buildArchive(t, entries)
-		},
-		"symlink entry": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errUnexpectedEntry},
+		"symlink entry": {func(t *testing.T, entries []archiveEntry) []byte {
 			entries[2].typeflag = tar.TypeSymlink
 			return buildArchive(t, entries)
-		},
-		"proof first": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errEntryType},
+		"proof first": {func(t *testing.T, entries []archiveEntry) []byte {
 			entries[0], entries[1] = entries[1], entries[0]
 			return buildArchive(t, entries)
-		},
-		"truncated": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errUnexpectedEntry},
+		"truncated": {func(t *testing.T, entries []archiveEntry) []byte {
 			archive := buildArchive(t, entries)
 			return archive[:len(archive)-2048]
-		},
-		"truncated end": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errArchiveEnded},
+		"truncated end": {func(t *testing.T, entries []archiveEntry) []byte {
 			archive := buildArchive(t, entries)
 			return archive[:len(archive)-1024]
-		},
-		"trailing data": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errArchiveSize},
+		"trailing data": {func(t *testing.T, entries []archiveEntry) []byte {
 			return append(buildArchive(t, entries), 1)
-		},
-		"unsupported pebble format": func(t *testing.T, entries []archiveEntry) []byte {
+		}, errTrailingData},
+		"unsupported pebble format": {func(t *testing.T, entries []archiveEntry) []byte {
 			m, err := DecodeManifest(entries[0].data)
 			require.NoError(t, err)
 			m.PebbleFormatMajorVersion++
@@ -147,15 +150,15 @@ func TestReadArchiveRejects(t *testing.T) {
 			require.NoError(t, err)
 			entries[0].data = data
 			return buildArchive(t, entries)
-		},
+		}, errUnsupportedPebbleFormat},
 	} {
 		t.Run(name, func(t *testing.T) {
 			entries, _ := validEntries(t, dir, height)
-			archive := change(t, entries)
+			archive := tc.change(t, entries)
 			out := filepath.Join(t.TempDir(), "download")
 
 			_, _, err := ReadArchive(t.Context(), bytes.NewReader(archive), out, acceptAll)
-			require.Error(t, err)
+			require.ErrorIs(t, err, tc.want)
 		})
 	}
 }

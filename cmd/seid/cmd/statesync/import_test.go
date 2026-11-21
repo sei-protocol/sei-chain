@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
@@ -97,7 +98,7 @@ func TestImportFromABucket(t *testing.T) {
 		src, err := bucketSource(t.Context(), store, testChainID, first)
 		require.NoError(t, err)
 		src.height = second
-		require.ErrorContains(t, runImport(t.Context(), tg, src, io.Discard), "want")
+		require.ErrorIs(t, runImport(t.Context(), tg, src, io.Discard), errOtherHeight)
 		requireUntouched(t, tg)
 	})
 	t.Run("no latest", func(t *testing.T) {
@@ -113,7 +114,7 @@ func TestImportRejectsAnotherChain(t *testing.T) {
 
 	err := runImport(t.Context(), tg, bytesSource(p.archive(t, "chain-b", height)), io.Discard)
 
-	require.ErrorContains(t, err, "chain id")
+	require.ErrorIs(t, err, errOtherChain)
 	requireUntouched(t, tg)
 }
 
@@ -128,6 +129,28 @@ func TestImportRejectsAChangedRow(t *testing.T) {
 
 	require.ErrorContains(t, err, "verify the rewritten checkpoint")
 	requireUntouched(t, tg)
+}
+
+func TestRewriteAcceptsAnArchiveOfAnOlderPebbleFormat(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	staged := p.stage(t, height)
+	m, err := ssarchive.BuildManifest(testChainID, height, staged)
+	require.NoError(t, err)
+	m.PebbleFormatMajorVersion = pebbledb.FormatMajorVersion - 1
+	require.GreaterOrEqual(t, m.PebbleFormatMajorVersion, pebble.FormatMinSupported)
+	tg := freshHome(t)
+	flatKV, err := node.FlatKVConfig(tg.layout, tg.mode, tg.storage, tg.genDoc)
+	require.NoError(t, err)
+
+	checkpoint, err := rewriteCheckpoint(t.Context(), staged, m, flatKV, filepath.Join(t.TempDir(), "flatkv"))
+
+	require.NoError(t, err)
+	want, err := flatkv.SnapshotDirStats(staged, height)
+	require.NoError(t, err)
+	got, err := flatkv.SnapshotDirStats(checkpoint, height)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
 }
 
 // changeOneRow changes the value of one data row of the checkpoint in dir, and leaves its
@@ -197,6 +220,19 @@ func TestImportRejectsAHomeWithOtherData(t *testing.T) {
 	})
 }
 
+func TestForeignFilesLooksPastASymlinkedFlatKVRoot(t *testing.T) {
+	tg := freshHome(t)
+	require.NoError(t, os.MkdirAll(filepath.Dir(tg.layout.FlatKVDir), 0o750))
+	require.NoError(t, os.Symlink(t.TempDir(), tg.layout.FlatKVDir))
+	other := filepath.Join(filepath.Dir(tg.layout.FlatKVDir), "zz-other")
+	require.NoError(t, os.WriteFile(other, []byte("x"), 0o600))
+
+	foreign, err := foreignFiles(tg.layout, filepath.Join(tg.layout.PersistentStateDir, importStagingDirName))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{other}, foreign)
+}
+
 func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
 	p := newProducer(t)
 	height := p.commit(t, 1)
@@ -222,6 +258,25 @@ func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
 
 			requireRestored(t, tg, p, height)
 		})
+	}
+}
+
+func TestImportRemovesTheLeftoversOfAKilledImport(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	tg := freshHome(t)
+	staging := filepath.Join(tg.layout.PersistentStateDir, importStagingDirName)
+	require.NoError(t, os.MkdirAll(filepath.Join(staging, "download"), 0o750))
+	for _, path := range []string{tg.layout.RestoreMarkerFile, tg.layout.RestoreProofFile} {
+		require.NoError(t, os.WriteFile(path+".tmp", []byte("partial"), 0o600))
+	}
+
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard))
+
+	requireRestored(t, tg, p, height)
+	require.NoDirExists(t, staging)
+	for _, path := range []string{tg.layout.RestoreMarkerFile, tg.layout.RestoreProofFile} {
+		require.NoFileExists(t, path+".tmp")
 	}
 }
 
@@ -278,16 +333,19 @@ func TestResolveSourceRejects(t *testing.T) {
 	for name, tc := range map[string]struct {
 		from   string
 		height int64
+		region string
+		want   error
 	}{
-		"height with from":  {from: "archive.tar", height: 3},
-		"no bucket":         {},
-		"s3 without key":    {from: "s3://bucket"},
-		"s3 without bucket": {from: "s3:///key"},
-		"s3 with empty key": {from: "s3://bucket/"},
+		"height with from":         {from: "archive.tar", height: 3, want: errHeightWithFrom},
+		"region with a local from": {from: "archive.tar", region: "eu-central-1", want: errRegionWithLocalFrom},
+		"no bucket":                {want: errNoSource},
+		"s3 without key":           {from: "s3://bucket", want: errNotS3URL},
+		"s3 without bucket":        {from: "s3:///key", want: errNotS3URL},
+		"s3 with empty key":        {from: "s3://bucket/", want: errNotS3URL},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := resolveSource(t.Context(), tg, tc.from, tc.height, "")
-			require.Error(t, err)
+			_, err := resolveSource(t.Context(), tg, tc.from, tc.height, tc.region)
+			require.ErrorIs(t, err, tc.want)
 		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -26,6 +27,13 @@ import (
 )
 
 const importStagingDirName = ".state-sync-import"
+
+// Errors that import returns for an archive of another chain or height than the home and the
+// source need.
+var (
+	errOtherChain  = errors.New("archive is of another chain")
+	errOtherHeight = errors.New("archive is at another height")
+)
 
 // Steps of import at which a stepHook is called, in the order import reaches them.
 const (
@@ -120,10 +128,10 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 // data of an earlier import when resume is set, and checks that the home has room for the import.
 func prepareHome(t target, lock *flatkv.RootLock, src source, m *ssarchive.Manifest, resume bool, stop stepHook) error {
 	if m.ChainID != t.chainID {
-		return fmt.Errorf("archive chain id %q does not match genesis chain id %q", m.ChainID, t.chainID)
+		return fmt.Errorf("%w: archive chain id %q, genesis chain id %q", errOtherChain, m.ChainID, t.chainID)
 	}
 	if src.height != 0 && m.Height != src.height {
-		return fmt.Errorf("archive is at height %d, want %d", m.Height, src.height)
+		return fmt.Errorf("%w: archive height %d, want %d", errOtherHeight, m.Height, src.height)
 	}
 	if resume {
 		if err := lock.Clear(); err != nil {
@@ -202,7 +210,10 @@ func rewriteCheckpoint(
 		return "", fmt.Errorf("close FlatKV store after import: %w", err)
 	}
 	checkpoint := filepath.Join(root, flatkv.SnapshotDirName(m.Height))
-	if err := ssarchive.VerifyCheckpoint(checkpoint, m); err != nil {
+	// The rewrite writes the Pebble format of this build, which can be newer than the archived one.
+	rewritten := *m
+	rewritten.PebbleFormatMajorVersion = pebbledb.FormatMajorVersion
+	if err := ssarchive.VerifyCheckpoint(checkpoint, &rewritten); err != nil {
 		return "", fmt.Errorf("verify the rewritten checkpoint: %w", err)
 	}
 	return checkpoint, nil
@@ -285,7 +296,11 @@ func foreignFiles(layout node.AutobahnLayout, staging string) ([]string, error) 
 		}
 		switch {
 		case path == layout.FlatKVDir || path == staging:
-			return filepath.SkipDir
+			// SkipDir on an entry that is not a directory, such as a symlink, skips its parent.
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		case d.IsDir() || path == layout.RestoreMarkerFile || path == layout.RestoreProofFile:
 			return nil
 		}
