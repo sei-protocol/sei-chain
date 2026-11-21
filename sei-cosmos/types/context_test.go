@@ -104,13 +104,6 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	s.Require().True(ctx.IsCheckTx())
 	s.Require().True(ctx.IsReCheckTx())
 
-	// test IsSimulation
-	s.Require().False(ctx.IsSimulation())
-	ctx = ctx.WithIsSimulation(true)
-	s.Require().True(ctx.IsSimulation())
-	ctx = ctx.WithIsSimulation(false)
-	s.Require().False(ctx.IsSimulation())
-
 	// test consensus param
 	s.Require().Nil(ctx.ConsensusParams())
 	cp := &tmproto.ConsensusParams{}

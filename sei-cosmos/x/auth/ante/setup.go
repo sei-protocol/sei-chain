@@ -24,7 +24,7 @@ type GasTx interface {
 // CONTRACT: Must be first decorator in the chain
 // CONTRACT: Tx must implement GasTx interface
 type SetUpContextDecorator struct {
-	gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context
+	gasMeterSetter func(sdk.Context, uint64, sdk.Tx) sdk.Context
 }
 
 func NewDefaultSetUpContextDecorator() SetUpContextDecorator {
@@ -33,23 +33,23 @@ func NewDefaultSetUpContextDecorator() SetUpContextDecorator {
 	}
 }
 
-func NewSetUpContextDecorator(gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context) SetUpContextDecorator {
+func NewSetUpContextDecorator(gasMeterSetter func(sdk.Context, uint64, sdk.Tx) sdk.Context) SetUpContextDecorator {
 	return SetUpContextDecorator{
 		gasMeterSetter: gasMeterSetter,
 	}
 }
 
-func (sud SetUpContextDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (sud SetUpContextDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	// all transactions must implement GasTx
 	gasTx, ok := tx.(GasTx)
 	if !ok {
 		// Set a gas meter with limit 0 as to prevent an infinite gas meter attack
 		// during runTx.
-		newCtx = sud.gasMeterSetter(simulate, ctx, 0, tx)
+		newCtx = sud.gasMeterSetter(ctx, 0, tx)
 		return newCtx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be GasTx")
 	}
 
-	newCtx = sud.gasMeterSetter(simulate, ctx, gasTx.GetGas(), tx)
+	newCtx = sud.gasMeterSetter(ctx, gasTx.GetGas(), tx)
 
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 		// If there exists a maximum block gas limit, we must ensure that the tx
@@ -78,15 +78,13 @@ func (sud SetUpContextDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		}
 	}()
 
-	return next(newCtx, tx, simulate)
+	return next(newCtx, tx)
 }
 
 // SetGasMeter returns a new context with a gas meter set from a given context.
-func SetGasMeter(simulate bool, ctx sdk.Context, gasLimit uint64, _ sdk.Tx) sdk.Context {
-	// In various cases such as simulation and genesis delivery, we do not
-	// meter any gas utilization.
-
-	if simulate || ctx.IsGenesis() {
+func SetGasMeter(ctx sdk.Context, gasLimit uint64, _ sdk.Tx) sdk.Context {
+	// Genesis delivery does not meter any gas utilization.
+	if ctx.IsGenesis() {
 		return ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	}
 

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 )
 
 type (
@@ -47,12 +46,6 @@ func KVStorePrefixIteratorPaginated(kvs KVStore, prefix []byte, page, limit uint
 // Items iterated and skipped in descending order.
 func KVStoreReversePrefixIteratorPaginated(kvs KVStore, prefix []byte, page, limit uint) Iterator {
 	return types.KVStoreReversePrefixIteratorPaginated(kvs, prefix, page, limit)
-}
-
-// DiffKVStores compares two KVstores and returns all the key/value pairs
-// that differ from one another. It also skips value comparison for a set of provided prefixes
-func DiffKVStores(a KVStore, b KVStore, prefixesToSkip [][]byte) (kvAs, kvBs []kv.Pair) {
-	return types.DiffKVStores(a, b, prefixesToSkip)
 }
 
 type (

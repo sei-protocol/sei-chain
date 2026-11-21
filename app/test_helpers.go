@@ -961,7 +961,7 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 
 func SignCheckDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
-	accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
+	accNums, accSeqs []uint64, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 	require.NotEmpty(t, header.ChainID)
 
@@ -979,16 +979,6 @@ func SignCheckDeliver(
 	txBytes, err := txCfg.TxEncoder()(tx)
 	require.Nil(t, err)
 
-	// Must simulate now as CheckTx doesn't run Msgs anymore
-	_, res, err := app.Simulate(t.Context(), txBytes)
-
-	if expSimPass {
-		require.NoError(t, err)
-		require.NotNil(t, res)
-	} else {
-		require.Error(t, err)
-		require.Nil(t, res)
-	}
 	blockRes, err := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Txs:    [][]byte{txBytes},
 		Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height},

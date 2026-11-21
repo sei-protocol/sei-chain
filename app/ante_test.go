@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
-	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -65,7 +64,6 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	suite.clientCtx = client.Context{}.
 		WithTxConfig(encodingConfig.TxConfig)
 
-	wasmConfig := wasmtypes.DefaultWasmConfig()
 	defaultTracer, _ := tracing.DefaultTracerProvider()
 	otel.SetTracerProvider(defaultTracer)
 	tr := defaultTracer.Tracer("component-main")
@@ -81,7 +79,6 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			WasmConfig:      &wasmConfig,
 			WasmKeeper:      &suite.App.WasmKeeper,
 			TracingInfo:     tracingInfo,
 			EVMKeeper:       &suite.App.EvmKeeper,

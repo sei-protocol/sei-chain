@@ -26,16 +26,14 @@ import (
 func TestBaseReq_Sanitize(t *testing.T) {
 	t.Parallel()
 	sanitized := rest.BaseReq{ChainID: "   test",
-		Memo:          "memo     ",
-		From:          " cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0 ",
-		Gas:           " ",
-		GasAdjustment: "  0.3",
+		Memo: "memo     ",
+		From: " cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0 ",
+		Gas:  " ",
 	}.Sanitize()
 	require.Equal(t, rest.BaseReq{ChainID: "test",
-		Memo:          "memo",
-		From:          "cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0",
-		Gas:           "",
-		GasAdjustment: "0.3",
+		Memo: "memo",
+		From: "cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0",
+		Gas:  "",
 	}, sanitized)
 }
 
@@ -47,19 +45,19 @@ func TestBaseReq_ValidateBasic(t *testing.T) {
 	require.NoError(t, err)
 
 	req1 := rest.NewBaseReq(
-		fromAddr, "", "nonempty", "", "", 0, 0, tenstakes, nil, false,
+		fromAddr, "", "nonempty", "", 0, 0, tenstakes, nil,
 	)
 	req2 := rest.NewBaseReq(
-		"", "", "nonempty", "", "", 0, 0, tenstakes, nil, false,
+		"", "", "nonempty", "", 0, 0, tenstakes, nil,
 	)
 	req3 := rest.NewBaseReq(
-		fromAddr, "", "", "", "", 0, 0, tenstakes, nil, false,
+		fromAddr, "", "", "", 0, 0, tenstakes, nil,
 	)
 	req4 := rest.NewBaseReq(
-		fromAddr, "", "nonempty", "", "", 0, 0, tenstakes, onestake, false,
+		fromAddr, "", "nonempty", "", 0, 0, tenstakes, onestake,
 	)
 	req5 := rest.NewBaseReq(
-		fromAddr, "", "nonempty", "", "", 0, 0, types.Coins{}, types.DecCoins{}, false,
+		fromAddr, "", "nonempty", "", 0, 0, types.Coins{}, types.DecCoins{},
 	)
 
 	tests := []struct {
@@ -249,19 +247,6 @@ func TestReadRESTReq(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, res.StatusCode)
 }
 
-func TestWriteSimulationResponse(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	rest.WriteSimulationResponse(w, codec.NewLegacyAmino(), 10)
-	res := w.Result() //nolint:bodyclose
-	t.Cleanup(func() { res.Body.Close() })
-	require.Equal(t, http.StatusOK, res.StatusCode)
-	bs, err := io.ReadAll(res.Body)
-	require.NoError(t, err)
-	t.Cleanup(func() { res.Body.Close() })
-	require.Equal(t, `{"gas_estimate":"10"}`, string(bs))
-}
-
 func TestParseUint64OrReturnBadRequest(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
@@ -273,25 +258,6 @@ func TestParseUint64OrReturnBadRequest(t *testing.T) {
 	_, ok = rest.ParseUint64OrReturnBadRequest(w, "-100")
 	require.False(t, ok)
 	require.Equal(t, http.StatusBadRequest, w.Result().StatusCode) //nolint:bodyclose
-}
-
-func TestParseFloat64OrReturnBadRequest(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	_, ok := rest.ParseFloat64OrReturnBadRequest(w, "100", 0)
-	require.True(t, ok)
-	require.Equal(t, http.StatusOK, w.Result().StatusCode) //nolint:bodyclose
-
-	w = httptest.NewRecorder()
-	_, ok = rest.ParseFloat64OrReturnBadRequest(w, "bad request", 0)
-	require.False(t, ok)
-	require.Equal(t, http.StatusBadRequest, w.Result().StatusCode) //nolint:bodyclose
-
-	w = httptest.NewRecorder()
-	ret, ok := rest.ParseFloat64OrReturnBadRequest(w, "", 9.0)
-	require.Equal(t, float64(9), ret)
-	require.True(t, ok)
-	require.Equal(t, http.StatusOK, w.Result().StatusCode) //nolint:bodyclose
 }
 
 func TestParseQueryParamBool(t *testing.T) {

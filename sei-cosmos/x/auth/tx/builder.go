@@ -172,7 +172,7 @@ func (w *wrapper) GetSignaturesV2() ([]signing.SignatureV2, error) {
 	res := make([]signing.SignatureV2, n)
 
 	for i, si := range signerInfos {
-		// handle nil signatures (in case of simulation)
+		// handle nil signatures
 		if si.ModeInfo == nil {
 			res[i] = signing.SignatureV2{
 				PubKey: pubKeys[i],
