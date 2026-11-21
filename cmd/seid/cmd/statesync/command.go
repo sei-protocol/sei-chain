@@ -79,6 +79,8 @@ type target struct {
 	layout    node.AutobahnLayout
 	chainID   string
 	mode      string
+	genDoc    *tmtypes.GenesisDoc
+	storage   gigaconfig.StorageConfig
 	stateSync gigaconfig.StateSyncConfig
 }
 
@@ -108,7 +110,14 @@ func resolveTargetFromConfig(cfg *tmcfg.Config, opts gigaconfig.AppOptions) (tar
 	if err != nil {
 		return target{}, fmt.Errorf("resolve the Autobahn layout: %w", err)
 	}
-	return target{layout: layout, chainID: genDoc.ChainID, mode: cfg.Mode, stateSync: gigaCfg.StateSync}, nil
+	return target{
+		layout:    layout,
+		chainID:   genDoc.ChainID,
+		mode:      cfg.Mode,
+		genDoc:    genDoc,
+		storage:   gigaCfg.Storage,
+		stateSync: gigaCfg.StateSync,
+	}, nil
 }
 
 // source is an archive that import reads.

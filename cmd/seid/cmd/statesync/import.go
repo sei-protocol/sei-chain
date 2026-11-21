@@ -47,6 +47,10 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 	if t.mode == tmcfg.ModeValidator {
 		return errors.New("import is for fullnodes; this home is configured as a validator")
 	}
+	flatKV, err := node.FlatKVConfig(t.layout, t.mode, t.storage, t.genDoc)
+	if err != nil {
+		return fmt.Errorf("build the FlatKV config of the node: %w", err)
+	}
 	lock, err := flatkv.LockRoot(t.layout.FlatKVDir)
 	if err != nil {
 		return fmt.Errorf("lock the FlatKV root (is a node running on this home?): %w", err)
@@ -91,7 +95,7 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 		return err
 	}
 	start = time.Now()
-	checkpoint, err := rewriteCheckpoint(ctx, download, m, filepath.Join(staging, "flatkv"))
+	checkpoint, err := rewriteCheckpoint(ctx, download, m, flatKV, filepath.Join(staging, "flatkv"))
 	if err != nil {
 		return err
 	}
@@ -154,12 +158,18 @@ func checkDownload(download string, m *ssarchive.Manifest, proof []byte) error {
 }
 
 // rewriteCheckpoint writes every row of the checkpoint in download into a new FlatKV store in root,
-// and returns the checkpoint that the store writes at the height of m. It returns an error unless
-// that checkpoint holds the stats of m.
-func rewriteCheckpoint(ctx context.Context, download string, m *ssarchive.Manifest, root string) (string, error) {
-	cfg := flatkvconfig.DefaultConfig()
+// opened with the options of flatKV, and returns the checkpoint that the store writes at the height
+// of m. It returns an error unless that checkpoint holds the stats of m.
+func rewriteCheckpoint(
+	ctx context.Context,
+	download string,
+	m *ssarchive.Manifest,
+	flatKV *flatkvconfig.Config,
+	root string,
+) (string, error) {
+	cfg := *flatKV
 	cfg.DataDir = root
-	store, err := flatkv.NewCommitStore(ctx, cfg, nil)
+	store, err := flatkv.NewCommitStore(ctx, &cfg, nil)
 	if err != nil {
 		return "", fmt.Errorf("create FlatKV store for import: %w", err)
 	}

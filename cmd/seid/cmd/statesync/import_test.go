@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
@@ -163,6 +164,14 @@ func TestImportRejectsAValidatorHome(t *testing.T) {
 	tg.mode = tmcfg.ModeValidator
 
 	require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(nil), io.Discard), "validator")
+}
+
+func TestImportRejectsAHomeWithNoFlatKVConfig(t *testing.T) {
+	tg := freshHome(t)
+	tg.genDoc = &tmtypes.GenesisDoc{ChainID: testChainID}
+
+	require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(nil), io.Discard), "FlatKV config")
+	require.NoDirExists(t, tg.layout.FlatKVDir)
 }
 
 func TestImportRejectsAHomeWithOtherData(t *testing.T) {

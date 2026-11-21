@@ -26,6 +26,7 @@ import (
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const testChainID = "chain-a"
@@ -45,7 +46,12 @@ func testLayout(psd string) node.AutobahnLayout {
 // freshHome returns a fullnode home with an empty persistent state dir.
 func freshHome(t *testing.T) target {
 	t.Helper()
-	return target{layout: testLayout(t.TempDir()), chainID: testChainID, mode: tmcfg.ModeFull}
+	return target{
+		layout:  testLayout(t.TempDir()),
+		chainID: testChainID,
+		mode:    tmcfg.ModeFull,
+		genDoc:  &tmtypes.GenesisDoc{ChainID: testChainID, InitialHeight: 1},
+	}
 }
 
 // producer is a FlatKV store that writes a checkpoint every block.
