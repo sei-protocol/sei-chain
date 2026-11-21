@@ -38,6 +38,45 @@ func TestEncodeForTestingDecodesAtItsHeight(t *testing.T) {
 	require.Equal(t, types.RoadHeight(7), decoded.Height())
 }
 
+func TestVerifyAcceptsAProofOfTheEpochCommittee(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+	epoch := types.GenEpochWithCommittee(rng, committee)
+	encoded, err := EncodeForEpochForTesting(rng, epoch, keys, []byte{1, 2, 3})
+	require.NoError(t, err)
+	proof, err := Decode(encoded, epoch.RoadRange().First)
+	require.NoError(t, err)
+
+	require.NoError(t, proof.Verify(epoch))
+}
+
+func TestVerifyRejectsAProofOfAnotherCommittee(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+	epoch := types.GenEpochWithCommittee(rng, committee)
+	encoded, err := EncodeForEpochForTesting(rng, epoch, keys, []byte{1, 2, 3})
+	require.NoError(t, err)
+	proof, err := Decode(encoded, epoch.RoadRange().First)
+	require.NoError(t, err)
+	other, _ := types.GenCommittee(rng, 4)
+
+	require.Error(t, proof.Verify(types.NewEpoch(epoch.EpochIndex(), epoch.RoadRange(), other)))
+}
+
+func TestVerifyRejectsAnAppQCBelowQuorum(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+	epoch := types.GenEpochWithCommittee(rng, committee)
+	qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
+	appQC := data.TestAppQC(keys[:1], types.NewAppProposal(qc.QC().View(), []byte{1, 2, 3}))
+	encoded, err := Encode(types.NewRoadBlock(qc, blocks), appQC)
+	require.NoError(t, err)
+	proof, err := Decode(encoded, epoch.RoadRange().First)
+	require.NoError(t, err)
+
+	require.Error(t, proof.Verify(epoch))
+}
+
 func TestDecodeRejectsMalformedFiles(t *testing.T) {
 	cases := map[string][]byte{
 		"empty":            {},
