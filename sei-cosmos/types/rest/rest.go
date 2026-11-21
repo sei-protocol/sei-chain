@@ -199,21 +199,6 @@ func ParseUint64OrReturnBadRequest(w http.ResponseWriter, s string) (n uint64, o
 	return n, true
 }
 
-// ParseFloat64OrReturnBadRequest converts s to a float64 value. It returns a
-// default value, defaultIfEmpty, if the string is empty.
-func ParseFloat64OrReturnBadRequest(w http.ResponseWriter, s string, defaultIfEmpty float64) (n float64, ok bool) {
-	if len(s) == 0 {
-		return defaultIfEmpty, true
-	}
-
-	n, err := strconv.ParseFloat(s, 64)
-	if CheckBadRequestError(w, err) {
-		return n, false
-	}
-
-	return n, true
-}
-
 // ParseQueryHeightOrReturnBadRequest sets the height to execute a query if set by the http request.
 // It returns false if there was an error parsing the height.
 func ParseQueryHeightOrReturnBadRequest(w http.ResponseWriter, clientCtx client.Context, r *http.Request) (client.Context, bool) {

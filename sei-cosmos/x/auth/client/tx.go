@@ -18,15 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
 )
 
-// GasEstimateResponse defines a response definition for tx gas estimation.
-type GasEstimateResponse struct {
-	GasEstimate uint64 `json:"gas_estimate" yaml:"gas_estimate"`
-}
-
-func (gr GasEstimateResponse) String() string {
-	return fmt.Sprintf("gas estimate: %d", gr.GasEstimate)
-}
-
 // PrintUnsignedStdTx builds an unsigned StdTx and prints it to os.Stdout.
 func PrintUnsignedStdTx(txBldr tx.Factory, clientCtx client.Context, msgs []sdk.Msg) error {
 	err := tx.GenerateTx(clientCtx, txBldr, msgs...)

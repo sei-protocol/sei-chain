@@ -260,25 +260,6 @@ func TestParseUint64OrReturnBadRequest(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Result().StatusCode) //nolint:bodyclose
 }
 
-func TestParseFloat64OrReturnBadRequest(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	_, ok := rest.ParseFloat64OrReturnBadRequest(w, "100", 0)
-	require.True(t, ok)
-	require.Equal(t, http.StatusOK, w.Result().StatusCode) //nolint:bodyclose
-
-	w = httptest.NewRecorder()
-	_, ok = rest.ParseFloat64OrReturnBadRequest(w, "bad request", 0)
-	require.False(t, ok)
-	require.Equal(t, http.StatusBadRequest, w.Result().StatusCode) //nolint:bodyclose
-
-	w = httptest.NewRecorder()
-	ret, ok := rest.ParseFloat64OrReturnBadRequest(w, "", 9.0)
-	require.Equal(t, float64(9), ret)
-	require.True(t, ok)
-	require.Equal(t, http.StatusOK, w.Result().StatusCode) //nolint:bodyclose
-}
-
 func TestParseQueryParamBool(t *testing.T) {
 	req := httptest.NewRequest("GET", "/target?boolean=true", nil)
 	require.True(t, rest.ParseQueryParamBool(req, "boolean"))

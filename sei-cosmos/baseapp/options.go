@@ -296,7 +296,6 @@ func (app *BaseApp) SetSnapshotDirectory(dir string) {
 
 // SetInterfaceRegistry sets the InterfaceRegistry.
 func (app *BaseApp) SetInterfaceRegistry(registry types.InterfaceRegistry) {
-	app.interfaceRegistry = registry
 	app.queryServiceRouter.SetInterfaceRegistry(registry)
 	app.msgServiceRouter.SetInterfaceRegistry(registry)
 }

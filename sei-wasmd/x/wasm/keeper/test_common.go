@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/std"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -71,10 +70,6 @@ var ModuleBasics = module.NewBasicManager(
 	upgrade.AppModuleBasic{},
 	evidence.AppModuleBasic{},
 )
-
-func MakeTestCodec(t testing.TB) codec.Codec {
-	return MakeEncodingConfig(t).Marshaler
-}
 
 func MakeEncodingConfig(_ testing.TB) wasmappparams.EncodingConfig {
 	encodingConfig := wasmappparams.MakeEncodingConfig()

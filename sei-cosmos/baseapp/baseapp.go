@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	"github.com/holiman/uint256"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
@@ -89,9 +88,8 @@ func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) uint256.Int {
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {
 	// initialized on creation
-	name              string // application name from abci.Info
-	interfaceRegistry types.InterfaceRegistry
-	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
+	name      string        // application name from abci.Info
+	txDecoder sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
 	processProposalHandler    sdk.ProcessProposalHandler
 	finalizeBlocker           sdk.FinalizeBlocker
