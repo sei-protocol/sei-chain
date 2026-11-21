@@ -111,6 +111,7 @@ func New(
 		)
 	case config.ModeSeed:
 		return makeSeedNode(
+			ctx,
 			conf,
 			config.DefaultDBProvider,
 			nodeKey,

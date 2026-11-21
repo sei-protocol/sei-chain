@@ -290,7 +290,9 @@ func buildValidatorGigaConfig(
 // operator misconfiguration is visible at startup.
 //
 // blockStore backs the returned router for its lifetime. The caller closes it.
+// A fullnode first seeds blockStore when stateSync names a pending restore.
 func buildGigaRouter(
+	ctx context.Context,
 	cfg *config.Config,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -299,6 +301,7 @@ func buildGigaRouter(
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
 	persistentPeers []p2p.NodeAddress,
+	stateSync p2p.StateSyncStart,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -360,7 +363,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore, app, genDoc.GenesisTime)
+	dataState, err := p2p.BuildFullnodeDataState(ctx, fnCfg, blockStore, app, genDoc.GenesisTime, stateSync)
 	if err != nil {
 		return nil, err
 	}
@@ -416,9 +419,6 @@ func openAutobahnStorageManager(
 	if err != nil {
 		return nil, err
 	}
-	if err := refusePendingRestore(directory); err != nil {
-		return nil, err
-	}
 	if err := removeStoppedImport(autobahnLayout(directory)); err != nil {
 		return nil, err
 	}
@@ -433,23 +433,6 @@ func openAutobahnStorageManager(
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
-}
-
-// errPendingRestore is the error of a persistent state dir that holds a state sync restore marker.
-var errPendingRestore = errors.New("this build cannot start a node from a state sync import")
-
-// refusePendingRestore returns an error wrapping errPendingRestore when the persistent state dir
-// psd holds a state sync restore marker.
-func refusePendingRestore(psd string) error {
-	marker := p2p.RestoreMarkerFile(psd)
-	data, err := os.ReadFile(marker) //nolint:gosec // marker is under the configured persistent state dir.
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read the state sync restore marker: %w", err)
-	}
-	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errPendingRestore)
 }
 
 // removeStoppedImport removes the staging dir of a state sync import that stopped before it wrote
@@ -631,6 +614,7 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 }
 
 func createRouter(
+	ctx context.Context,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -640,6 +624,7 @@ func createRouter(
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
 	stateSync gigaconfig.StateSyncConfig,
+	pendingRestore utils.Option[atypes.RoadHeight],
 ) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[*ablockstore.Store]()
@@ -707,9 +692,10 @@ func createRouter(
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
 		giga, err := buildGigaRouter(
-			cfg, nodeKey, validatorKey, proxyApp, genDoc,
+			ctx, cfg, nodeKey, validatorKey, proxyApp, genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
 			options.PersistentPeers,
+			p2p.StateSyncStart{Enabled: stateSync.Enabled, PendingRestore: pendingRestore},
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

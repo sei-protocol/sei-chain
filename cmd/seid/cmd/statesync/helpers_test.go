@@ -27,7 +27,10 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-const testChainID = "chain-a"
+const (
+	testChainID    = "chain-a"
+	testEVMChainID = 713700
+)
 
 var errStopped = errors.New("stopped by the test")
 
@@ -113,10 +116,14 @@ func (p *producer) commit(t *testing.T, n byte) int64 {
 	}
 	bankPairs := []*proto.KVPair{{Key: []byte{'b', n}, Value: []byte{n}}}
 	registryPairs := []*proto.KVPair{{Key: fixture.Key, Value: fixture.Value}}
+	cursorModule, cursorKey, cursorValue := node.EVMOnlyCursorRowForTesting(p.store.Version() + 1)
+	_, chainIDKey, chainIDValue := node.EVMOnlyChainIDRowForTesting(testEVMChainID)
+	evmOnlyPairs := []*proto.KVPair{{Key: cursorKey, Value: cursorValue}, {Key: chainIDKey, Value: chainIDValue}}
 	require.NoError(t, p.store.ApplyChangeSets(p.store.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: evmPairs}},
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
 		{Name: fixture.Module, Changeset: proto.ChangeSet{Pairs: registryPairs}},
+		{Name: cursorModule, Changeset: proto.ChangeSet{Pairs: evmOnlyPairs}},
 	}))
 	v, err := p.store.Commit(p.store.Version() + 1)
 	require.NoError(t, err)
@@ -128,6 +135,9 @@ func (p *producer) commit(t *testing.T, n byte) int64 {
 	}
 	p.rows["bank/"+string(bankPairs[0].Key)] = bankPairs[0].Value
 	p.rows[fixture.Module+"/"+string(fixture.Key)] = fixture.Value
+	for _, kv := range evmOnlyPairs {
+		p.rows[cursorModule+"/"+string(kv.Key)] = kv.Value
+	}
 	rows := make(map[string][]byte, len(p.rows))
 	for k, v := range p.rows {
 		rows[k] = v

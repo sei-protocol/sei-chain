@@ -157,17 +157,6 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	require.Equal(t, uint64(713701), app.EvmChainID())
 }
 
-func TestMakeEVMApplicationRefusesAPendingRestore(t *testing.T) {
-	psd := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restore-pending"), []byte("7\n"), 0o600))
-
-	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
-
-	require.ErrorIs(t, err, errPendingRestore)
-	_, err = os.Stat(filepath.Join(psd, "data"))
-	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a home with a pending restore")
-}
-
 func TestMakeEVMApplicationRemovesTheStagingDirOfAStoppedImport(t *testing.T) {
 	psd := t.TempDir()
 	layout := autobahnLayout(psd)
