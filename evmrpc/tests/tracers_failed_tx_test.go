@@ -43,6 +43,13 @@ var failingJSTracer = map[string]interface{}{
 	"tracer": `{result: function(ctx, db) { if (ctx.error) { throw new Error('no result'); } return {nonce: db.getNonce(ctx.from), balance: db.getBalance(ctx.from).toString()}; }, fault: function() {}}`,
 }
 
+// firstTxFailingJSTracer is a JS tracer configuration that fails to return the result
+// of the first transaction of a block, and reports the nonce and balance of the sender
+// after any other transaction.
+var firstTxFailingJSTracer = map[string]interface{}{
+	"tracer": `{result: function(ctx, db) { if (ctx.txIndex == 0) { throw new Error('no result'); } return {nonce: db.getNonce(ctx.from), balance: db.getBalance(ctx.from).toString()}; }, fault: function() {}}`,
+}
+
 // TestTraceTxFailingBeforeExecution traces a block whose first transaction fails before
 // execution, followed by a transaction of the same sender. The chain keeps the failed
 // transaction with its sender's nonce bumped, so every tracer has to report it as a
@@ -142,6 +149,36 @@ func TestTraceTxFailingBeforeExecution(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestTraceBlockTxResultFails traces a block of two transactions of one sender with a
+// tracer that fails to return the result of the first. The chain executed the first
+// transaction, so the second has to be traced on top of it.
+func TestTraceBlockTxResultFails(t *testing.T) {
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000a0001")
+	first := &ethtypes.DynamicFeeTx{Nonce: 0, GasFeeCap: big.NewInt(1000000000), Gas: 21000, To: &recipient, Value: big.NewInt(2000), ChainID: chainId}
+	next := &ethtypes.DynamicFeeTx{Nonce: 1, GasFeeCap: big.NewInt(1000000000), Gas: 21000, To: &recipient, Value: big.NewInt(2000), ChainID: chainId}
+	firstTx := signTxWithMnemonic(first, mnemonic1)
+	nextTx := signTxWithMnemonic(next, mnemonic1)
+	blocks := [][][]byte{{encodeEvmTx(first, firstTx), encodeEvmTx(next, nextTx)}}
+	allowJS := func(cfg *evmrpcconfig.Config) { cfg.TraceAllowJSTracers = true }
+	SetupTestServerWithConfig(t, allowJS, blocks, mnemonicInitializer(mnemonic1)).Run(func(port int) {
+		for _, tx := range []*ethtypes.Transaction{firstTx, nextTx} {
+			receipt := sendRequestWithNamespace("eth", port, "getTransactionReceipt", tx.Hash().Hex())["result"].(map[string]interface{})
+			require.Equal(t, "0x1", receipt["status"])
+		}
+
+		res := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", firstTxFailingJSTracer)
+		require.Nil(t, res["error"])
+		results := res["result"].([]interface{})
+		require.Len(t, results, 2)
+		require.Contains(t, results[0].(map[string]interface{})["error"], "no result")
+		nextResult := results[1].(map[string]interface{})
+		require.Nil(t, nextResult["error"])
+		single := sendRequestWithNamespace("debug", port, "traceTransaction", nextTx.Hash().Hex(), firstTxFailingJSTracer)
+		require.Nil(t, single["error"])
+		require.Equal(t, single["result"], nextResult["result"])
+	})
 }
 
 // requireBlockTraceMatchesTxTraces requires the trace of block 2, which holds txs, to
