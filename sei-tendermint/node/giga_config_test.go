@@ -155,15 +155,15 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	require.Equal(t, uint64(713701), app.EvmChainID())
 }
 
-func TestMakeEVMApplicationRefusesARestoredHome(t *testing.T) {
+func TestMakeEVMApplicationRefusesAPendingRestore(t *testing.T) {
 	psd := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restored"), []byte("7\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restore-pending"), []byte("7\n"), 0o600))
 
 	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
 
-	require.ErrorIs(t, err, errRestoredHome)
+	require.ErrorIs(t, err, errPendingRestore)
 	_, err = os.Stat(filepath.Join(psd, "data"))
-	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a restored home")
+	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a home with a pending restore")
 }
 
 // The builder's first block is the genesis height. A chain that starts above 1

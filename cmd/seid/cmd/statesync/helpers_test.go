@@ -37,7 +37,7 @@ func testLayout(psd string) node.AutobahnLayout {
 	return node.AutobahnLayout{
 		PersistentStateDir: psd,
 		FlatKVDir:          filepath.Join(psd, "data", "state_commit", "flatkv"),
-		RestoreMarkerFile:  filepath.Join(psd, "state-sync-restored"),
+		RestoreMarkerFile:  filepath.Join(psd, "state-sync-restore-pending"),
 		RestoreProofFile:   filepath.Join(psd, "state-sync-proof"),
 		StateSyncProofDir:  filepath.Join(psd, "data", "state_commit", "state_sync_proofs"),
 	}

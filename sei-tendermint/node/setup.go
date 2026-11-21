@@ -415,7 +415,7 @@ func openAutobahnStorageManager(
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseRestoredHome(directory); err != nil {
+	if err := refusePendingRestore(directory); err != nil {
 		return nil, err
 	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
@@ -431,12 +431,12 @@ func openAutobahnStorageManager(
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
-// errRestoredHome is the error of a persistent state dir that holds a state sync restore marker.
-var errRestoredHome = errors.New("this build cannot start a node from a state sync import")
+// errPendingRestore is the error of a persistent state dir that holds a state sync restore marker.
+var errPendingRestore = errors.New("this build cannot start a node from a state sync import")
 
-// refuseRestoredHome returns an error wrapping errRestoredHome when the persistent state dir psd
-// holds a state sync restore marker.
-func refuseRestoredHome(psd string) error {
+// refusePendingRestore returns an error wrapping errPendingRestore when the persistent state dir
+// psd holds a state sync restore marker.
+func refusePendingRestore(psd string) error {
 	marker := p2p.RestoreMarkerFile(psd)
 	data, err := os.ReadFile(marker) //nolint:gosec // marker is under the configured persistent state dir.
 	if errors.Is(err, os.ErrNotExist) {
@@ -445,7 +445,7 @@ func refuseRestoredHome(psd string) error {
 	if err != nil {
 		return fmt.Errorf("read the state sync restore marker: %w", err)
 	}
-	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errRestoredHome)
+	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errPendingRestore)
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]

@@ -234,7 +234,7 @@ func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.Pub
 // RestoreMarkerFile returns the path of the marker file that a state sync restore
 // writes in the persistent state dir psd.
 func RestoreMarkerFile(psd string) string {
-	return filepath.Join(psd, "state-sync-restored")
+	return filepath.Join(psd, "state-sync-restore-pending")
 }
 
 // RestoreProofFile returns the path of the state sync proof file of the checkpoint that a
