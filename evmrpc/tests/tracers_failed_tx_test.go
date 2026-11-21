@@ -36,6 +36,13 @@ var jsTracer = map[string]interface{}{
 	"tracer": `{result: function(ctx, db) { return {type: ctx.type, error: ctx.error, gasUsed: ctx.gasUsed, nonce: db.getNonce(ctx.from), balance: db.getBalance(ctx.from).toString()}; }, fault: function() {}}`,
 }
 
+// failingJSTracer is a JS tracer configuration that fails to return the result of a
+// transaction that failed, and reports the nonce and balance of the sender after any
+// other transaction.
+var failingJSTracer = map[string]interface{}{
+	"tracer": `{result: function(ctx, db) { if (ctx.error) { throw new Error('no result'); } return {nonce: db.getNonce(ctx.from), balance: db.getBalance(ctx.from).toString()}; }, fault: function() {}}`,
+}
+
 // TestTraceTxFailingBeforeExecution traces a block whose first transaction fails before
 // execution, followed by a transaction of the same sender. The chain keeps the failed
 // transaction with its sender's nonce bumped, so every tracer has to report it as a
@@ -121,6 +128,17 @@ func TestTraceTxFailingBeforeExecution(t *testing.T) {
 			allowJS := func(cfg *evmrpcconfig.Config) { cfg.TraceAllowJSTracers = true }
 			SetupTestServerWithConfig(t, allowJS, blocks, mnemonicInitializer(mnemonic1)).Run(func(port int) {
 				requireBlockTraceMatchesTxTraces(t, port, "js", jsTracer, failedTx, nextTx)
+
+				// The failed transaction keeps its nonce bump when its result fails.
+				res := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", failingJSTracer)
+				require.Nil(t, res["error"])
+				results := res["result"].([]interface{})
+				require.Len(t, results, 2)
+				require.Contains(t, results[0].(map[string]interface{})["error"], "no result")
+				nextResult := results[1].(map[string]interface{})
+				require.Nil(t, nextResult["error"])
+				single := sendRequestWithNamespace("debug", port, "traceTransaction", nextTx.Hash().Hex(), failingJSTracer)
+				require.Equal(t, single["result"], nextResult["result"])
 			})
 		})
 	}
