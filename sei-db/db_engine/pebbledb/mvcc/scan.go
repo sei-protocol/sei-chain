@@ -59,11 +59,11 @@ func (m *offlineDB) scanStore(report *ScanReport, opts ScanOptions) error {
 	defer func() { _ = itr.Close() }()
 
 	for valid := itr.First(); valid; valid = itr.Next() {
-		userKey, version, value, live, err := m.decodeEntry(itr)
+		entry, err := m.decodeEntry(itr)
 		if err != nil {
 			return err
 		}
-		if !live {
+		if !entry.live {
 			report.Deletions++
 			continue
 		}
@@ -74,39 +74,54 @@ func (m *offlineDB) scanStore(report *ScanReport, opts ScanOptions) error {
 		if opts.Visit == nil {
 			continue
 		}
-		if err := opts.Visit(bytes.TrimPrefix(userKey, prefix), version, value); err != nil {
+		if err := opts.Visit(bytes.TrimPrefix(entry.userKey, prefix), entry.version, entry.value); err != nil {
 			return err
 		}
 	}
 	return itr.Error()
 }
 
-// decodeEntry splits the entry under itr into its user key, version and value.
-// live is false for an entry recording that its key was deleted at its version.
-func (m *offlineDB) decodeEntry(itr *pebble.Iterator) (userKey []byte, version int64, value []byte, live bool, err error) {
+// storeEntry is one versioned entry of a DB, copied out of the iterator that
+// read it.
+type storeEntry struct {
+	userKey []byte
+	version int64
+	value   []byte
+	// live is false for an entry recording that its key was deleted at its
+	// version.
+	live bool
+}
+
+// decodeEntry decodes the entry under itr.
+func (m *offlineDB) decodeEntry(itr *pebble.Iterator) (storeEntry, error) {
 	userKey, vBz, ok := SplitMVCCKey(itr.Key())
 	if !ok {
-		return nil, 0, nil, false, fmt.Errorf("invalid MVCC key %x", itr.Key())
+		return storeEntry{}, fmt.Errorf("invalid MVCC key %x", itr.Key())
 	}
+	entry := storeEntry{userKey: userKey}
 	if len(vBz) > 0 {
-		if version, err = decodeMVCCVersion(vBz, m.info.Descending); err != nil {
-			return nil, 0, nil, false, fmt.Errorf("decode version of %x: %w", userKey, err)
+		version, err := decodeMVCCVersion(vBz, m.info.Descending)
+		if err != nil {
+			return storeEntry{}, fmt.Errorf("decode version of %x: %w", userKey, err)
 		}
+		entry.version = version
 	}
 	raw, err := itr.ValueAndErr()
 	if err != nil {
-		return nil, 0, nil, false, fmt.Errorf("read value of %x: %w", userKey, err)
+		return storeEntry{}, fmt.Errorf("read value of %x: %w", userKey, err)
 	}
 	value, tombstoneBz, ok := SplitMVCCKey(raw)
 	if !ok {
-		return nil, 0, nil, false, fmt.Errorf("invalid MVCC value of %x", userKey)
+		return storeEntry{}, fmt.Errorf("invalid MVCC value of %x", userKey)
 	}
+	entry.value, entry.live = value, true
 	if len(tombstoneBz) == 0 {
-		return userKey, version, value, true, nil
+		return entry, nil
 	}
 	tombstone, err := decodeMVCCVersion(tombstoneBz, m.info.Descending)
 	if err != nil {
-		return nil, 0, nil, false, fmt.Errorf("decode tombstone of %x: %w", userKey, err)
+		return storeEntry{}, fmt.Errorf("decode tombstone of %x: %w", userKey, err)
 	}
-	return userKey, version, value, tombstone > version, nil
+	entry.live = tombstone > entry.version
+	return entry, nil
 }

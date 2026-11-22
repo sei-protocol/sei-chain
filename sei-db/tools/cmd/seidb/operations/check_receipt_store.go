@@ -22,9 +22,10 @@ const (
 	// receiptKeyLen is the length of a receipt key: the prefix and a 32-byte
 	// transaction hash.
 	receiptKeyLen = 33
-	// receiptBlockNumberField is the field number of block_number in x/evm's
-	// Receipt message.
+	// receiptBlockNumberField and receiptTxIndexField are the field numbers of
+	// block_number and transaction_index in x/evm's Receipt message.
 	receiptBlockNumberField = 7
+	receiptTxIndexField     = 8
 	// blockChunkBits is the number of blocks one chunk of a blockSet covers.
 	blockChunkBits = 1 << 22
 )
@@ -111,7 +112,7 @@ type receiptTally struct {
 
 // add records one entry of a receipt store.
 func (t *receiptTally) add(key []byte, version int64, value []byte) error {
-	if len(key) != receiptKeyLen || key[0] != receiptKeyPrefix {
+	if !isReceiptKey(key) {
 		t.otherKeys++
 		return nil
 	}
@@ -132,23 +133,35 @@ func (t *receiptTally) add(key []byte, version int64, value []byte) error {
 	return nil
 }
 
+// isReceiptKey reports whether key, relative to the receipt store, is a
+// receipt's key.
+func isReceiptKey(key []byte) bool {
+	return len(key) == receiptKeyLen && key[0] == receiptKeyPrefix
+}
+
 // receiptBlockNumber returns the block_number field of a marshaled x/evm
 // Receipt, 0 when the field is absent.
 func receiptBlockNumber(receipt []byte) (uint64, error) {
+	return receiptVarint(receipt, receiptBlockNumberField)
+}
+
+// receiptVarint returns the varint field num of a marshaled x/evm Receipt, 0
+// when the field is absent.
+func receiptVarint(receipt []byte, num protowire.Number) (uint64, error) {
 	for len(receipt) > 0 {
-		num, typ, n := protowire.ConsumeTag(receipt)
+		field, typ, n := protowire.ConsumeTag(receipt)
 		if n < 0 {
 			return 0, protowire.ParseError(n)
 		}
 		receipt = receipt[n:]
-		if num == receiptBlockNumberField && typ == protowire.VarintType {
-			block, n := protowire.ConsumeVarint(receipt)
+		if field == num && typ == protowire.VarintType {
+			value, n := protowire.ConsumeVarint(receipt)
 			if n < 0 {
 				return 0, protowire.ParseError(n)
 			}
-			return block, nil
+			return value, nil
 		}
-		n = protowire.ConsumeFieldValue(num, typ, receipt)
+		n = protowire.ConsumeFieldValue(field, typ, receipt)
 		if n < 0 {
 			return 0, protowire.ParseError(n)
 		}
@@ -267,7 +280,7 @@ func printEmptyRuns(w io.Writer, runs emptyRunReport, holeThreshold uint64) {
 		if holeThreshold > 0 && run.len() >= holeThreshold {
 			hole = ", a possible hole"
 		}
-		_, _ = fmt.Fprintf(w, "  %d-%d: %d blocks%s\n", run.from, run.to, run.len(), hole)
+		_, _ = fmt.Fprintf(w, "  %d-%d: %s%s\n", run.from, run.to, countBlocks(run.len()), hole)
 	}
 	if holeThreshold > 0 {
 		_, _ = fmt.Fprintf(w, "runs of at least %d blocks without receipts: %d\n", holeThreshold, runs.holes)
@@ -277,6 +290,14 @@ func printEmptyRuns(w io.Writer, runs emptyRunReport, holeThreshold uint64) {
 // blockRun is an inclusive run of blocks.
 type blockRun struct {
 	from, to uint64
+}
+
+// countBlocks renders a number of blocks.
+func countBlocks(n uint64) string {
+	if n == 1 {
+		return "1 block"
+	}
+	return fmt.Sprintf("%d blocks", n)
 }
 
 func (r blockRun) len() uint64 {
