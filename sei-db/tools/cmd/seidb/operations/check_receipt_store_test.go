@@ -90,6 +90,9 @@ func TestReceiptBlockNumberReadsTheEVMField(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(199_551_506), block)
 
+	_, err = receiptBlockNumber(value[:len(value)-1])
+	require.Error(t, err, "a receipt cut short after its block number does not decode")
+
 	value, err = (&evmtypes.Receipt{GasUsed: 21000}).Marshal()
 	require.NoError(t, err)
 	block, err = receiptBlockNumber(value)
@@ -151,19 +154,30 @@ func TestCheckReceiptStoreCountsMovedLegacyReceipts(t *testing.T) {
 	require.Contains(t, out, "receipts stored above their own block, as moved legacy receipts are: 11\n")
 }
 
+// Entries that do not decode, or that name a block above the version they are
+// stored at, are reported and counted for no block, however far off the block
+// they name.
 func TestCheckReceiptStoreFlagsBrokenEntries(t *testing.T) {
 	dir := t.TempDir()
 	store, err := mvcc.OpenDB(dir, config.DefaultStateStoreConfig())
 	require.NoError(t, err)
-	value, err := (&evmtypes.Receipt{BlockNumber: 12}).Marshal()
+	early, err := (&evmtypes.Receipt{BlockNumber: 12}).Marshal()
 	require.NoError(t, err)
-	putReceiptStoreEntry(t, store, 10, evmtypes.ReceiptKey(common.HexToHash("0x1")), value)
+	farOff, err := (&evmtypes.Receipt{BlockNumber: 1 << 60}).Marshal()
+	require.NoError(t, err)
+	cutShort, err := (&evmtypes.Receipt{BlockNumber: 13, Logs: []*evmtypes.Log{{Address: "0xa"}}}).Marshal()
+	require.NoError(t, err)
+	putReceiptStoreEntry(t, store, 10, evmtypes.ReceiptKey(common.HexToHash("0x1")), early)
 	putReceiptStoreEntry(t, store, 11, evmtypes.ReceiptKey(common.HexToHash("0x2")), []byte{0xff})
+	putReceiptStoreEntry(t, store, 12, evmtypes.ReceiptKey(common.HexToHash("0x3")), farOff)
+	putReceiptStoreEntry(t, store, 13, evmtypes.ReceiptKey(common.HexToHash("0x4")), cutShort[:len(cutShort)-1])
 	require.NoError(t, store.Close())
 
-	_, err = runCheckReceiptStore(t, "--dir", dir)
-	require.ErrorContains(t, err, "1 entries do not decode as receipts with a block number")
-	require.ErrorContains(t, err, "1 receipts are stored below their own block")
+	out, err := runCheckReceiptStore(t, "--dir", dir)
+	require.ErrorContains(t, err, "2 entries do not decode as receipts with a block number")
+	require.ErrorContains(t, err, "2 receipts are stored below their own block")
+	require.ErrorContains(t, err, "holds no receipts")
+	require.Contains(t, out, "receipts: 0\n")
 }
 
 func TestCheckReceiptStoreFlagsOtherStores(t *testing.T) {

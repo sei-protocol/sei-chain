@@ -43,7 +43,8 @@ func CheckReceiptStoreCmd() *cobra.Command {
 			"own block. The store is opened read-only; stop the node that owns it first.\n\n" +
 			"Exits non-zero when the store holds a store other than receipts or no receipts at all, has a " +
 			"changelog it has not applied, holds an entry that does not decode as a receipt or a receipt stored " +
-			"below its own block, or has a run of at least --hole-threshold blocks without receipts. Blocks " +
+			"below the block it names, which is then counted for no block, or has a run of at least " +
+			"--hole-threshold blocks without receipts. Blocks " +
 			"without EVM transactions leave runs too, so raise the threshold for a quiet chain.",
 		Args:         cobra.NoArgs,
 		RunE:         executeCheckReceiptStore,
@@ -98,14 +99,15 @@ func executeCheckReceiptStore(cmd *cobra.Command, _ []string) error {
 type receiptTally struct {
 	// blocks holds every block a decoded receipt belongs to.
 	blocks blockSet
-	// receipts counts entries that decode as receipts, and undecodable the
-	// receipt keys whose value does not.
+	// receipts counts the receipts counted for their block, and undecodable the
+	// receipt keys whose value does not decode as a receipt with a block.
 	receipts    int64
 	undecodable int64
 	// otherKeys counts entries whose key is not a receipt key.
 	otherKeys int64
-	// storedAboveBlock and storedBelowBlock count receipts stored at a version
-	// above or below their own block.
+	// storedAboveBlock counts receipts stored at a version above their own
+	// block, and storedBelowBlock receipts stored below it, which are counted
+	// for no block.
 	storedAboveBlock int64
 	storedBelowBlock int64
 }
@@ -121,14 +123,15 @@ func (t *receiptTally) add(key []byte, version int64, value []byte) error {
 		t.undecodable++
 		return nil
 	}
+	stored := uint64(version) //nolint:gosec // MVCC versions are non-negative
+	if stored < block {
+		t.storedBelowBlock++
+		return nil
+	}
 	t.receipts++
 	t.blocks.add(block)
-	stored := uint64(version) //nolint:gosec // MVCC versions are non-negative
-	switch {
-	case stored > block:
+	if stored > block {
 		t.storedAboveBlock++
-	case stored < block:
-		t.storedBelowBlock++
 	}
 	return nil
 }
@@ -146,8 +149,9 @@ func receiptBlockNumber(receipt []byte) (uint64, error) {
 }
 
 // receiptVarint returns the varint field num of a marshaled x/evm Receipt, 0
-// when the field is absent.
+// when the field is absent. It fails unless every field of the receipt parses.
 func receiptVarint(receipt []byte, num protowire.Number) (uint64, error) {
+	var value uint64
 	for len(receipt) > 0 {
 		field, typ, n := protowire.ConsumeTag(receipt)
 		if n < 0 {
@@ -155,11 +159,12 @@ func receiptVarint(receipt []byte, num protowire.Number) (uint64, error) {
 		}
 		receipt = receipt[n:]
 		if field == num && typ == protowire.VarintType {
-			value, n := protowire.ConsumeVarint(receipt)
+			v, n := protowire.ConsumeVarint(receipt)
 			if n < 0 {
 				return 0, protowire.ParseError(n)
 			}
-			return value, nil
+			value, receipt = v, receipt[n:]
+			continue
 		}
 		n = protowire.ConsumeFieldValue(field, typ, receipt)
 		if n < 0 {
@@ -167,7 +172,7 @@ func receiptVarint(receipt []byte, num protowire.Number) (uint64, error) {
 		}
 		receipt = receipt[n:]
 	}
-	return 0, nil
+	return value, nil
 }
 
 // receiptSpan returns the blocks a store's version markers claim, from its

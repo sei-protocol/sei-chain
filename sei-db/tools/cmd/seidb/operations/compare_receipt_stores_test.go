@@ -165,16 +165,23 @@ func TestCompareReceiptStoresAcceptsAReceiptAtAnotherVersion(t *testing.T) {
 	require.Contains(t, out, "receipts both stores hold alike at different versions: 1\n")
 }
 
+// An entry that does not decode, or that names a block above the version it
+// is stored at, is reported and compared for no block, however far off the
+// block it names.
 func TestCompareReceiptStoresFlagsUndecodableEntries(t *testing.T) {
 	dirA := t.TempDir()
 	store, err := mvcc.OpenDB(dirA, config.DefaultStateStoreConfig())
 	require.NoError(t, err)
 	putReceiptStoreEntry(t, store, 10, evmtypes.ReceiptKey(txHash(1)), []byte{0xff})
 	require.NoError(t, store.Close())
-	dirB := writeReceiptStore(t, false, receiptOf(1, 10, 0))
+	farOff := receiptOf(2, 11, 0)
+	farOff.receipt.BlockNumber = 1 << 60
+	dirB := writeReceiptStore(t, false, receiptOf(1, 10, 0), farOff)
 
-	_, err = runCompareReceiptStores(t, "--dir-a", dirA, "--dir-b", dirB)
-	require.ErrorContains(t, err, "1 entries in A do not decode as receipts with a block number")
+	out, err := runCompareReceiptStores(t, "--dir-a", dirA, "--dir-b", dirB)
+	require.ErrorContains(t, err, "1 entries in A do not decode as receipts of a block at or below their version")
+	require.ErrorContains(t, err, "1 entries in B do not decode as receipts of a block at or below their version")
+	require.Contains(t, out, "neither store holds receipts for the blocks compared\n")
 }
 
 func TestCompareReceiptStoresRefusesOneStoreAsBoth(t *testing.T) {

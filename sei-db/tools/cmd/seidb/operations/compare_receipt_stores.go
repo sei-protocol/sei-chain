@@ -33,7 +33,7 @@ func CompareReceiptStoresCmd() *cobra.Command {
 			"both stores with the fields that differ. The stores are keyed by transaction hash, so every comparison " +
 			"reads both in full. Both are opened read-only; stop the nodes that own them first.\n\n" +
 			"Exits non-zero when the stores differ for any block compared, or when either holds an entry that does " +
-			"not decode as a receipt.",
+			"not decode as a receipt of a block at or below the version it is stored at.",
 		Args:         cobra.NoArgs,
 		RunE:         executeCompareReceiptStores,
 		SilenceUsage: true,
@@ -209,11 +209,11 @@ func (c *receiptComparison) walk(a, b *mvcc.StoreReader, progress func(keys int6
 		order := compareCursors(hasA, hasB, a.Key(), b.Key())
 		switch {
 		case order < 0:
-			c.recordOne(storeA, a.Key(), a.Value())
+			c.recordOne(storeA, a.Key(), a.Value(), a.Version())
 		case order > 0:
-			c.recordOne(storeB, b.Key(), b.Value())
+			c.recordOne(storeB, b.Key(), b.Value(), b.Version())
 		default:
-			c.recordBoth(a.Key(), a.Value(), b.Value(), a.Version() != b.Version())
+			c.recordBoth(a.Key(), a.Value(), b.Value(), a.Version(), b.Version())
 		}
 		if order <= 0 {
 			if hasA, err = a.Next(); err != nil {
@@ -246,12 +246,12 @@ func compareCursors(hasA, hasB bool, keyA, keyB []byte) int {
 }
 
 // recordOne records a key only one store holds.
-func (c *receiptComparison) recordOne(side storeSide, key, value []byte) {
+func (c *receiptComparison) recordOne(side storeSide, key, value []byte, version int64) {
 	if !isReceiptKey(key) {
 		c.otherKeys[side]++
 		return
 	}
-	block, ok := c.decodeBlock(side, value)
+	block, ok := c.decodeBlock(side, value, version)
 	if !ok {
 		return
 	}
@@ -269,14 +269,14 @@ func (c *receiptComparison) recordOne(side storeSide, key, value []byte) {
 }
 
 // recordBoth records a key both stores hold.
-func (c *receiptComparison) recordBoth(key, valueA, valueB []byte, versionsDiffer bool) {
+func (c *receiptComparison) recordBoth(key, valueA, valueB []byte, versionA, versionB int64) {
 	if !isReceiptKey(key) {
 		c.otherKeys[storeA]++
 		c.otherKeys[storeB]++
 		return
 	}
-	blockA, okA := c.decodeBlock(storeA, valueA)
-	blockB, okB := c.decodeBlock(storeB, valueB)
+	blockA, okA := c.decodeBlock(storeA, valueA, versionA)
+	blockB, okB := c.decodeBlock(storeB, valueB, versionB)
 	if !okA || !okB {
 		return
 	}
@@ -301,7 +301,7 @@ func (c *receiptComparison) recordBoth(key, valueA, valueB []byte, versionsDiffe
 	}
 	if !differs {
 		c.same++
-		if versionsDiffer {
+		if versionA != versionB {
 			c.sameAtOtherVersion++
 		}
 		return
@@ -316,10 +316,11 @@ func (c *receiptComparison) recordBoth(key, valueA, valueB []byte, versionsDiffe
 }
 
 // decodeBlock returns the block a receipt from side names, counting the
-// receipt as undecodable when it names none.
-func (c *receiptComparison) decodeBlock(side storeSide, value []byte) (uint64, bool) {
+// receipt as undecodable when it names none, or names a block above the
+// version it is stored at.
+func (c *receiptComparison) decodeBlock(side storeSide, value []byte, version int64) (uint64, bool) {
 	block, err := receiptBlockNumber(value)
-	if err != nil || block == 0 {
+	if err != nil || block == 0 || block > uint64(version) { //nolint:gosec // MVCC versions are non-negative
 		c.undecodable[side]++
 		return 0, false
 	}
@@ -482,7 +483,8 @@ func (c *receiptComparison) problems(states blockStateReport) []string {
 	}
 	for _, side := range []storeSide{storeA, storeB} {
 		if c.undecodable[side] > 0 {
-			problems = append(problems, fmt.Sprintf("%d entries in %s do not decode as receipts with a block number",
+			problems = append(problems, fmt.Sprintf(
+				"%d entries in %s do not decode as receipts of a block at or below their version",
 				c.undecodable[side], side))
 		}
 	}
