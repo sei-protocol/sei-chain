@@ -92,11 +92,8 @@ func TestReceiptsDisabledRefusesAStoreWithHistory(t *testing.T) {
 
 	// The refusal releases everything it opened: the same home opens once receipts are enabled again.
 	cfg.ReceiptDBConfig.Enable = true
-	second, err := NewGigaStorageManager(t.Context(), cfg)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), second.ReceiptDB().LatestVersion())
-	require.ErrorContains(t, second.Close(), "the receipt store stands at block 2",
-		"receipts were written with no state, so the shutdown is not clean")
+	second := startManager(t, cfg)
+	require.Zero(t, second.ReceiptDB().LatestVersion(), "receipts written with no state roll back to block 0")
 }
 
 // TestHistoricalStateDBDisabledRefusesAStoreWithHistory pins that a node cannot run with the historical

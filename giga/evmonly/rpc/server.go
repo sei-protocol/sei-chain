@@ -24,7 +24,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/ratelimiter"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/seilog"
@@ -57,6 +57,8 @@ type Backend interface {
 	// EvmBlockContext returns the block context header's block executed at.
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
+	// GenesisInitialHeight returns the height of the chain's first block, or 0 when unknown.
+	GenesisInitialHeight() int64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
@@ -123,7 +125,7 @@ type Server struct {
 
 // Start binds the EVM-only JSON-RPC HTTP listener on port and WebSocket listener on wsPort, on
 // all interfaces, and returns their server enforcing limits.
-func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int, limits gigaconfig.RPCConfig) (*Server, error) {
+func Start(backend Backend, receiptStore receiptdb.ReceiptStore, port int, wsPort int, limits gigaconfig.RPCConfig) (*Server, error) {
 	rpcServer, err := newHandler(backend, receiptStore, limits)
 	if err != nil {
 		return nil, err
@@ -167,7 +169,7 @@ func websocketHandler(rpcServer *ethrpc.Server) http.Handler {
 	return rpcServer.WebsocketHandler(wsAllowedOrigins)
 }
 
-func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigaconfig.RPCConfig) (*ethrpc.Server, error) {
+func newHandler(backend Backend, receiptStore receiptdb.ReceiptStore, limits gigaconfig.RPCConfig) (*ethrpc.Server, error) {
 	if receiptStore == nil {
 		return nil, errors.New("EVM-only RPC requires a receipt store")
 	}
@@ -188,7 +190,7 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	if err := rpcServer.RegisterName("eth", &txAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only transaction RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &stateAPI{backend: backend}); err != nil {
+	if err := rpcServer.RegisterName("eth", &stateAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only state RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &infoAPI{backend: backend, store: receiptStore}); err != nil {
@@ -196,10 +198,10 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	}
 	blocks := &blockAPI{backend: backend, store: receiptStore}
 	overrides := newOverrideLimits(limits)
-	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, blocks: blocks, limits: overrides}); err != nil {
+	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend, store: receiptStore, blocks: blocks, limits: overrides}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, blocks: blocks, limits: overrides, maxCalls: limits.MaxEstimateGasCalls}); err != nil {
+	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend, store: receiptStore, blocks: blocks, limits: overrides, maxCalls: limits.MaxEstimateGasCalls}); err != nil {
 		return nil, fmt.Errorf("register EVM-only estimate RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", blocks); err != nil {

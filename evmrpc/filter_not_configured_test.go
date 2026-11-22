@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +18,8 @@ import (
 func TestRequireReceiptStoreWithNilKeeper(t *testing.T) {
 	t.Parallel()
 
-	require.ErrorIs(t, requireReceiptStore(nil), receipt.ErrNotConfigured)
-	require.ErrorIs(t, requireReceiptStoreForServing(nil), receipt.ErrNotConfigured)
+	require.ErrorIs(t, requireReceiptStore(nil), receiptdb.ErrNotConfigured)
+	require.ErrorIs(t, requireReceiptStoreForServing(nil), receiptdb.ErrNotConfigured)
 }
 
 // TestGetLogsByFiltersWithoutReceiptStore pins that a node with rs-enable = false
@@ -29,14 +29,14 @@ func TestGetLogsByFiltersWithoutReceiptStore(t *testing.T) {
 	f := &LogFetcher{k: &keeper.Keeper{}}
 
 	logs, _, err := f.GetLogsByFilters(context.Background(), filters.FilterCriteria{})
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 	require.Nil(t, logs)
 
 	// BlockHash queries skip the range path and would otherwise fall through to
 	// collectLogs, which used to log-and-continue into an empty result.
 	blockHash := common.HexToHash("0xabc")
 	logs, _, err = f.GetLogsByFilters(context.Background(), filters.FilterCriteria{BlockHash: &blockHash})
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 	require.Nil(t, logs)
 }
 
@@ -45,28 +45,28 @@ func TestTryFilterLogsRangeWithoutReceiptStore(t *testing.T) {
 	f := &LogFetcher{k: &keeper.Keeper{}}
 
 	logs, err := f.tryFilterLogsRange(context.Background(), 1, 2, filters.FilterCriteria{}, 10)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 	require.Nil(t, logs)
 }
 
 func TestFilterTransactionsWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 	_, err := filterTransactions(&keeper.Keeper{}, nil, nil, nil, false, nil, nil)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 }
 
 func TestFeeHistoryWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 	api := &InfoAPI{keeper: &keeper.Keeper{}}
 	_, err := api.FeeHistory(context.Background(), 1, rpc.LatestBlockNumber, nil)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 }
 
 func TestGetRewardsWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 	api := &InfoAPI{keeper: &keeper.Keeper{}}
 	_, err := api.getRewards(context.Background(), nil, nil, nil)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 }
 
 // Both listeners refuse to start without a receipt store. The remaining arguments can be zero
@@ -75,8 +75,8 @@ func TestEVMServersRefuseWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 
 	_, err := NewEVMHTTPServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, nil, "", nil, false, nil)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 
 	_, err = NewEVMWebSocketServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, nil, "", nil, false, nil)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 }

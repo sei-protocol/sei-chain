@@ -3,6 +3,8 @@ package avail
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -16,7 +18,7 @@ func TestLaneTipsTrackHeldWithLaneQCAndCommittedBlocks(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	state := utils.OrPanic1(NewState(
 		keys[0],
-		newTestDataState(t, &data.Config{Registry: registry}),
+		newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}),
 		utils.None[string](),
 	))
 	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
@@ -30,7 +32,7 @@ func TestLaneTipsTrackHeldWithLaneQCAndCommittedBlocks(t *testing.T) {
 	require.Equal(t, LaneTip{WithCommitQC: 0, WithLaneQC: 0, Held: 3}, state.LaneTips()[lane])
 
 	for _, h := range headers[:2] {
-		for _, vote := range makeLaneVotes(keys, h) {
+		for _, vote := range makeLaneVotes(0, keys, h) {
 			require.NoError(t, state.PushVote(ctx, vote))
 		}
 	}

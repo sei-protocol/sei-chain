@@ -21,3 +21,9 @@ func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 	m.keeper.SetCosmosGasParams(ctx, defaultGenesis.CosmosGasParams)
 	return nil
 }
+
+// Migrate2to3 stores an empty list of disabled message type URLs.
+func (m Migrator) Migrate2to3(ctx sdk.Context) error {
+	m.keeper.SetDisabledMsgTypeURLs(ctx, []string{})
+	return nil
+}

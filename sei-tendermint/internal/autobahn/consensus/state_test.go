@@ -22,7 +22,7 @@ import (
 
 func hourTimeout(types.View) time.Duration { return time.Hour }
 
-func secretKeyForView(reg *epoch.Registry, keys []types.SecretKey, view types.View) types.SecretKey {
+func secretKeyForView(reg *epoch.TestRegistry, keys []types.SecretKey, view types.View) types.SecretKey {
 	want := reg.MustEpoch(0).Committee().Leader(view)
 	for _, k := range keys {
 		if k.Public() == want {
@@ -32,11 +32,11 @@ func secretKeyForView(reg *epoch.Registry, keys []types.SecretKey, view types.Vi
 	panic("leader key not in committee")
 }
 
-type testKeyPick = func(*epoch.Registry, []types.SecretKey) types.SecretKey
+type testKeyPick = func(*epoch.TestRegistry, []types.SecretKey) types.SecretKey
 
 // newTestState returns a State with no persistence and an hour view timeout.
 // keys[0] is the node's signing key.
-func newTestState(t testing.TB, rng utils.Rng) (*State, []types.SecretKey, *epoch.Registry) {
+func newTestState(t testing.TB, rng utils.Rng) (*State, []types.SecretKey, *epoch.TestRegistry) {
 	return newTestStateWith(t, rng, utils.None[testKeyPick](), utils.None[ViewTimeoutFunc]())
 }
 
@@ -45,7 +45,7 @@ func newTestStateWith(
 	rng utils.Rng,
 	pick utils.Option[testKeyPick],
 	timeout utils.Option[ViewTimeoutFunc],
-) (*State, []types.SecretKey, *epoch.Registry) {
+) (*State, []types.SecretKey, *epoch.TestRegistry) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	key := keys[0]
 	if pick, ok := pick.Get(); ok {
@@ -84,7 +84,7 @@ func makeFullProposalAt(rng utils.Rng, keys []types.SecretKey, vs types.ViewSpec
 	lane := c.Lanes().At(0)
 	prev := types.LaneRangeOpt(vs.CommitQC, lane)
 	header := types.NewLaneBlock(lane, prev.Next(), prev.LastHash(), &types.Payload{}).Header()
-	laneVote := types.NewLaneVote(header)
+	laneVote := types.NewLaneVote(vs.Epoch.EpochIndex(), header)
 	laneVotes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, key := range types.TestKeysWithWeight(c, keys, c.LaneQuorum()) {
 		laneVotes = append(laneVotes, types.Sign(key, laneVote))
@@ -108,7 +108,7 @@ type liveEnv struct {
 	rng  utils.Rng
 	s    *State
 	keys []types.SecretKey
-	reg  *epoch.Registry
+	reg  *epoch.TestRegistry
 	vs   types.ViewSpec
 }
 
@@ -187,7 +187,7 @@ func (e liveEnv) seedLaneQC(ctx context.Context) error {
 	h := b.Msg().Block().Header()
 	c := e.committee()
 	for _, k := range types.TestKeysWithWeight(c, e.keys, c.LaneQuorum()) {
-		if err := av.PushVote(ctx, types.Sign(k, types.NewLaneVote(h))); err != nil {
+		if err := av.PushVote(ctx, types.Sign(k, types.NewLaneVote(e.vs.Epoch.EpochIndex(), h))); err != nil {
 			return fmt.Errorf("PushVote: %w", err)
 		}
 	}
@@ -208,7 +208,7 @@ func requireNoPerView(t *testing.T, i inner) {
 	require.False(t, i.TimeoutQC.IsPresent())
 }
 
-func advancingSpec(keys []types.SecretKey, registry *epoch.Registry) types.ConsensusSpec {
+func advancingSpec(keys []types.SecretKey, registry *epoch.TestRegistry) types.ConsensusSpec {
 	ep0 := registry.MustEpoch(0)
 	qc := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
 	return types.ConsensusSpec{
@@ -830,7 +830,7 @@ func TestPushVoteEpoch(t *testing.T) {
 
 func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
 	c := utils.OrPanic1(types.NewCommittee(weights))
-	registry := utils.OrPanic1(epoch.NewRegistry(c, 0, time.Time{}, utils.None[string]()))
+	registry := utils.OrPanic1(epoch.TestGenesisRegistry(c, 0, epoch.DefaultEpochLength))
 	roads := registry.MustEpoch(0).RoadRange()
 	length := roads.Next - roads.First
 	first := roads.First + types.RoadHeight(idx)*length
@@ -842,7 +842,7 @@ func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *ty
 func TestRunPropose(t *testing.T) {
 	t.Run("fresh proposal", func(t *testing.T) {
 		rng := utils.TestRng()
-		e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.Registry, keys []types.SecretKey) types.SecretKey {
+		e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.TestRegistry, keys []types.SecretKey) types.SecretKey {
 			return secretKeyForView(reg, keys, types.View{Height: reg.MustEpoch(0).RoadRange().First})
 		})), utils.None[ViewTimeoutFunc]())
 		require.Equal(t, e.s.cfg.Key.Public(), e.committee().Leader(e.vs.View()))
@@ -875,7 +875,7 @@ func TestRunPropose(t *testing.T) {
 
 	t.Run("reproposal", func(t *testing.T) {
 		rng := utils.TestRng()
-		e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.Registry, keys []types.SecretKey) types.SecretKey {
+		e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.TestRegistry, keys []types.SecretKey) types.SecretKey {
 			return secretKeyForView(reg, keys, types.View{Height: reg.MustEpoch(0).RoadRange().First}.Next())
 		})), utils.None[ViewTimeoutFunc]())
 		e.occupyBusy()

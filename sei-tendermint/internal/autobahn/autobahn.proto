@@ -108,11 +108,18 @@ message LaneBlock {
   optional Payload payload = 2; // required
 }
 
-message LaneQC {
-  reserved "vote";
-  reserved 1;
+message LaneVote {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  LaneBlockHeader vote_v2 = 3;
+  optional uint64 epoch_index = 1; // epoch this vote belongs to; required
+  optional LaneBlockHeader header = 2; // required
+}
+
+message LaneQC {
+  reserved 1, 3;
+  reserved "vote", "vote_v2";
+  option (wireguard.sized) = true;
+  LaneVote vote_v3 = 4;
   repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
@@ -272,14 +279,14 @@ message AppProposal {
 // This is the signable message.
 // To sign ConsensusMsg/BlockMsg, you need to embed it in Msg first.
 message Msg {
-  reserved "lane_proposal", "lane_vote", "prepare_vote", "commit_vote";
-  reserved 1, 2, 4, 5;
+  reserved "lane_proposal", "lane_vote", "lane_vote_v2", "prepare_vote", "commit_vote";
+  reserved 1, 2, 4, 5, 11;
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   oneof t { // required
     // Lane
     LaneBlock lane_proposal_v2 = 10;
-    LaneBlockHeader lane_vote_v2 = 11;
+    LaneVote lane_vote_v3 = 12;
 
     // Consensus
     Proposal proposal = 3;
@@ -328,9 +335,9 @@ message SignedLaneBlock {
   Signature sig = 2;
 }
 
-message SignedLaneBlockHeader {
+message SignedLaneVote {
   option (wireguard.sized) = true;
-  LaneBlockHeader msg = 1;
+  LaneVote msg = 1;
   Signature sig = 2;
 }
 
@@ -354,12 +361,14 @@ message ConsensusMsg {
 }
 
 message Committee {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   repeated EpochMember members = 1 [(wireguard.max_count) = 100];
 }
 
 // Epoch index, road range, and committee.
 message Epoch {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   optional uint64 index = 1; // required
   optional Committee committee = 2; // required
@@ -379,14 +388,14 @@ message StateSyncProof {
   optional AppQC app_qc = 3; // required
 }
 
-// Persisted epoch registry state.
-message PersistedEpochRegistry {
-  reserved 1, 2, 4;
-  reserved "live", "pending", "pending_v2";
-  repeated Epoch live_v2 = 3;
+// Retained epoch registry state.
+message EpochRegistry {
+  option (hashable.hashable) = true;
+  repeated Epoch epochs = 1;
 }
 
 message EpochMember {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   optional LaneID lane_id = 1; // required
   optional uint64 weight = 2; // required, can't be zero

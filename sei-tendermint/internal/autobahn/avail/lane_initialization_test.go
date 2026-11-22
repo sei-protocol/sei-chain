@@ -23,7 +23,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	join := next.Committee().Lane(joiner.Public()).OrPanic("joining lane")
 	committed := types.NewLaneBlock(stay, 5, types.LaneBlockHeaderHash{}, &types.Payload{})
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		stay: data.TestLaneQC(keys, committed.Header()),
+		stay: data.TestLaneQC(0, keys, committed.Header()),
 	})
 	anchor := data.Anchor{
 		First:  utils.Some(data.AnchorFirst{CommitQC: qc, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc.View(), nil))}),
@@ -33,7 +33,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	stayProposal := types.Sign(keys[0], types.NewLaneProposal(types.NewLaneBlock(stay, 6, committed.Header().Hash(), &types.Payload{})))
 	leaveProposal := types.Sign(keys[1], types.NewLaneProposal(types.NewLaneBlock(leave, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
 	joinProposal := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
 		stay:  {{Height: 5, Proposal: committedProposal}, {Height: 6, Proposal: stayProposal}},
 		leave: {{Height: 0, Proposal: leaveProposal}},
 		join:  {{Height: 0, Proposal: joinProposal}},
@@ -42,13 +42,13 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	require.Equal(t, next, i.applied())
 	require.Equal(t, types.LaneHeight(6), i.lanes[stay].blocks.first)
 	require.Equal(t, types.LaneHeight(7), i.lanes[stay].blocks.next)
-	require.Equal(t, types.LaneHeight(6), i.lanes[stay].votes.first)
+	require.Equal(t, types.LaneHeight(6), i.lanes[stay].votes[next.EpochIndex()].first)
 	require.Equal(t, types.LaneHeight(7), i.lanes[stay].nextBlockToPersist)
 	require.Equal(t, stayProposal, i.lanes[stay].blocks.q[6])
 	require.Equal(t, leaveProposal, i.lanes[leave].blocks.q[0])
 	require.Equal(t, joinProposal, i.lanes[join].blocks.q[0])
 
-	restored, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
+	restored, err := newInner(anchor, testGenesisTimestamp, &loadedState{})
 	require.NoError(t, err)
 	require.Equal(t, types.LaneHeight(6), restored.lanes[stay].blocks.first)
 	require.Equal(t, types.LaneHeight(6), restored.lanes[stay].blocks.next)
@@ -68,7 +68,7 @@ func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
 	rejoin := ep3.Committee().Lane(keys[1].Public()).OrPanic("rejoining lane")
 	proposal := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{ep1, ep2}}
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
 		join: {{Height: 0, Proposal: proposal}},
 	}})
 	require.NoError(t, err)

@@ -117,7 +117,7 @@ func DialRemoteSigner(
 	dialOptions = append(dialOptions, transportSecurity)
 
 	_, address := tmnet.ProtocolAndAddress(cfg.ListenAddr)
-	conn, err := grpc.DialContext(ctx, address, dialOptions...)
+	conn, err := grpc.NewClient("passthrough:///"+address, dialOptions...)
 	if err != nil {
 		logger.Error("unable to connect to server", "target", address, "err", err)
 	}

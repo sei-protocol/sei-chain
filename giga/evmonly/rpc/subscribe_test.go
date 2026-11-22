@@ -14,6 +14,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
@@ -157,6 +158,27 @@ func TestSubscriptionContext(t *testing.T) {
 			}
 			require.Eventually(t, func() bool { return runtime.NumGoroutine() < before+streams/2 },
 				5*time.Second, 10*time.Millisecond, "watchers outlived their streams")
+		})
+	}
+}
+
+func TestSubscriptionLogCriteria(t *testing.T) {
+	zero := big.NewInt(0)
+	latest := big.NewInt(ethrpc.LatestBlockNumber.Int64())
+	earliest := big.NewInt(ethrpc.EarliestBlockNumber.Int64())
+	for _, tc := range []struct {
+		name string
+		crit filters.FilterCriteria
+		want filters.FilterCriteria
+	}{
+		{name: "open-ended", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: latest}, want: filters.FilterCriteria{}},
+		{name: "open-ended from earliest", crit: filters.FilterCriteria{FromBlock: earliest, ToBlock: latest}, want: filters.FilterCriteria{}},
+		{name: "unknown tag toBlock", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(-6)}, want: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(-6)}},
+		{name: "earliest toBlock", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: earliest}, want: filters.FilterCriteria{FromBlock: zero, ToBlock: earliest}},
+		{name: "numeric toBlock", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(5)}, want: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(5)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, subscriptionLogCriteria(&tc.crit))
 		})
 	}
 }

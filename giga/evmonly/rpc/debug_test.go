@@ -27,7 +27,8 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -55,7 +56,7 @@ type traceChain struct {
 	executed []*ethtypes.Transaction // block 2's transactions that executed, in order
 	rejected *ethtypes.Transaction   // block 2's rejected transaction that stored a receipt
 	backend  *testBackend
-	store    receipt.ReceiptStore
+	store    receiptdb.ReceiptStore
 	// failReads makes reads of traceRecipient from a replayed state's view fail after its replay.
 	failReads bool
 }
@@ -78,8 +79,8 @@ func newTraceChain(t *testing.T) *traceChain {
 		rejected: stale,
 		store:    evmonly.NewMemoryReceiptStore(),
 	}
-	stored := func(tx *ethtypes.Transaction, index uint32, gasUsed uint64) receipt.ReceiptRecord {
-		return receipt.ReceiptRecord{TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
+	stored := func(tx *ethtypes.Transaction, index uint32, gasUsed uint64) receipttypes.ReceiptRecord {
+		return receipttypes.ReceiptRecord{TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
 			BlockNumber:      2,
 			TransactionIndex: index,
@@ -89,7 +90,7 @@ func newTraceChain(t *testing.T) *traceChain {
 	}
 	ctx := sdk.Context{}.WithContext(t.Context())
 	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(1), nil))
-	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{
+	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(2), []receipttypes.ReceiptRecord{
 		stored(first, 0, traceTransfer), stored(stale, 2, 0), stored(second, 3, traceTransfer),
 	}))
 
@@ -338,10 +339,38 @@ func TestDebugTraceBlock(t *testing.T) {
 		})
 	}
 
-	t.Run("block 1, whose parent block 0 is not stored", func(t *testing.T) {
-		var got []json.RawMessage
-		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.BlockNumber(1), tracer("callTracer")))
-		require.Empty(t, got)
+	// earliest and 0x0 name block 1, the earliest block an unpruned store retains.
+	for _, number := range []ethrpc.BlockNumber{1, ethrpc.EarliestBlockNumber, 0} {
+		t.Run(fmt.Sprintf("block 1, whose parent block 0 is not stored, as %s", number), func(t *testing.T) {
+			var got []json.RawMessage
+			require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", number, tracer("callTracer")))
+			require.Empty(t, got)
+		})
+	}
+
+	t.Run("earliest on a chain starting at block 2, whose parent is not stored", func(t *testing.T) {
+		chain.backend.initialHeight = 2
+		first := chain.blocks[1]
+		delete(chain.blocks, 1)
+		defer func() {
+			chain.backend.initialHeight = 0
+			chain.blocks[1] = first
+		}()
+		var got []struct {
+			TxHash common.Hash `json:"txHash"`
+			Error  string      `json:"error"`
+		}
+		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.EarliestBlockNumber, tracer("callTracer")))
+		hashes := make([]common.Hash, len(got))
+		for i, result := range got {
+			hashes[i] = result.TxHash
+			require.Empty(t, result.Error)
+		}
+		require.Equal(t, want, hashes)
+
+		var none json.RawMessage
+		err := client.CallContext(t.Context(), &none, "debug_traceBlockByNumber", ethrpc.BlockNumber(1), tracer("callTracer"))
+		require.ErrorContains(t, err, errBlockNotFound.Error(), "a block before the chain's first")
 	})
 
 	t.Run("block whose receipts are not indexed", func(t *testing.T) {
@@ -650,7 +679,7 @@ func TestDebugTraceTransactionSurfacesBlockReadError(t *testing.T) {
 	errBlockDown := errors.New("block store down")
 	hash := common.HexToHash("0x01")
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), []receipttypes.ReceiptRecord{
 		{TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: 9, GasUsed: 21_000, CumulativeGasUsed: 21_000}},
 	}))
 	backend := &testBackend{block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {

@@ -1,0 +1,16 @@
+{
+  "Comment": "S3 template: set BucketURL to a bucket the VM's role can write, and size the lanes for the experiment.",
+  "BucketURL": "s3://REPLACE-ME?region=us-east-2",
+  "Lanes": [
+    {"ValueSize": 4194304},
+    {"ValueSize": 1048576},
+    {"ValueSize": 262144},
+    {"ValueSize": 16384}
+  ],
+  "BlocksPerSecond": 0,
+  "RetainedBlocks": 10000,
+  "MaxDeletionBacklog": 2000,
+  "ParallelWrites": 32,
+  "QueuedWrites": 64,
+  "CannedRandomSize": 268435456
+}

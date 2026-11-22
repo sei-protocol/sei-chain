@@ -14,21 +14,15 @@ import (
 // replayLogInterval bounds how often a running replay reports how far it has got.
 const replayLogInterval = 30 * time.Second
 
-// RollBackLiveStateDB discards the live state DB's state and snapshots above target, working on its files. It
-// leaves the live state DB at or below target, for CatchUpToStateWAL() to replay up to it.
-//
-// It errors when target is 0, or when the state WAL or the live state DB's snapshots cannot reach it. Rolling back
-// to the same target again is a no-op. One that failed or was interrupted completes when run again.
+// RollBackLiveStateDB discards the live state DB's state and snapshots above target, working on its files, and
+// leaves it at or below target for CatchUpToStateWAL() to replay up to it. Rolling back to the same target again
+// is a no-op, and one that failed or was interrupted completes when run again.
 func RollBackLiveStateDB(cfg *config.Config, target uint64) error {
-	if target == 0 {
-		return errors.New("rollback target 0 is invalid: version 0 means no state, so there is nothing to " +
-			"roll back to")
-	}
-	_, first, last, err := statewal.GetRange(StateWALConfig(cfg.DataDir))
+	stored, first, last, err := statewal.GetRange(StateWALConfig(cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("read state WAL range: %w", err)
 	}
-	if last < target {
+	if stored && last < target {
 		return fmt.Errorf("cannot roll back to %d: the state WAL ends at %d, so no replay reaches the target",
 			target, last)
 	}

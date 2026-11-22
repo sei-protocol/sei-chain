@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -14,7 +15,6 @@ import (
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -67,12 +67,32 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 	return spec, r.offer
 }
 
-// BuildDataState validates the common config, constructs the committee, and
-// returns an initialised data.State backed by blockStore.
+// genesisCommittee returns the committee epochs 0 and 1 start from: every
+// address-book validator with weight 1.
+func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes.Committee, error) {
+	weights := make(map[atypes.PublicKey]uint64, len(validatorAddrs))
+	for k := range validatorAddrs {
+		weights[k] = 1
+	}
+	committee, err := atypes.NewCommittee(weights)
+	if err != nil {
+		return nil, fmt.Errorf("genesis committee: %w", err)
+	}
+	return committee, nil
+}
+
+// BuildDataState validates the common config and returns an initialised data.State backed by
+// blockStore. app supplies the epoch window, and genesisTimestamp is the
+// timestamp of the first proposal.
 //
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
 // if construction of the GigaRouter fails. data.State never closes it.
-func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) (*data.State, error) {
+func BuildDataState(
+	cfg *GigaRouterCommonConfig,
+	blockStore *ablockstore.Store,
+	app *proxy.EVMProxy,
+	genesisTimestamp time.Time,
+) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -88,20 +108,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) 
 	if cfg.AppHashBuilder == nil {
 		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
-	firstHeight := atypes.RoadHeight(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
-	genesisWeights := map[atypes.PublicKey]uint64{}
-	for k := range cfg.ValidatorAddrs {
-		genesisWeights[k] = 1
-	}
-	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
-	if err != nil {
-		return nil, fmt.Errorf("genesis committee: %w", err)
-	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstHeight, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
-	if err != nil {
-		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
-	}
-	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
+	ds, err := data.NewState(&data.Config{App: app, GenesisTimestamp: genesisTimestamp}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
@@ -192,40 +199,11 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
-		// TODO: PushAppHash needs the validator set from right after block n.
-		// GetValidators() is the app tip, which can be past n. This is exact only
-		// while the app's validator set never changes, as for the EVM-only and mock
-		// apps Autobahn runs. Read the next epoch's validator set from app state
-		// once it keeps one.
-		weights, err := committeeWeights(r.app.GetValidators())
-		if err != nil {
-			return err
-		}
 		appHash := entry.AppHash()
-		if err := r.data.PushAppHash(ctx, n, appHash[:], weights); err != nil {
+		if err := r.data.PushAppHash(ctx, n, appHash[:]); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 	}
-}
-
-// committeeWeights maps a bonded validator set to Autobahn voting power.
-func committeeWeights(vals []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(vals))
-	for _, v := range vals {
-		if v.Power <= 0 {
-			continue
-		}
-		apk := v.PubKey
-		if _, dup := weights[apk]; dup {
-			return nil, fmt.Errorf("duplicate public key %s", apk)
-		}
-		power, ok := utils.SafeCast[uint64](v.Power)
-		if !ok {
-			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
-		}
-		weights[apk] = power
-	}
-	return weights, nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.

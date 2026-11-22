@@ -21,7 +21,7 @@ func (*PingResp) MaxSize() int {
 }
 
 func (*LaneVote) MaxSize() int {
-	return 238
+	return 252
 }
 
 func (*LaneProposal) MaxSize() int {
@@ -76,7 +76,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneVote.
 	runtime.MustRegister[*LaneVote](runtime.Schema{
-		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedLaneBlockHeader]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedLaneVote]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneProposal.

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -15,10 +17,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
@@ -30,10 +36,10 @@ type testNode struct {
 
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
-func newTestNode(t testing.TB, registry *epoch.Registry, cfg *consensus.Config) *testNode {
+func newTestNode(t testing.TB, registry *epoch.TestRegistry, cfg *consensus.Config) *testNode {
 	cfg.PersistentStateDir = utils.None[string]()
 	store := blockstore.NewTestStore(t)
-	dataState, err := data.NewState(&data.Config{Registry: registry}, store)
+	dataState, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store)
 	if err != nil {
 		panic(fmt.Sprintf("data.NewState: %v", err))
 	}
@@ -58,12 +64,12 @@ func (n *testNode) Run(ctx context.Context) error {
 }
 
 type testEnv struct {
-	registry  *epoch.Registry
+	registry  *epoch.TestRegistry
 	committee *types.Committee
 	nodes     map[types.PublicKey]*testNode
 }
 
-func newTestEnv(registry *epoch.Registry) *testEnv {
+func newTestEnv(registry *epoch.TestRegistry) *testEnv {
 	return &testEnv{registry, registry.MustEpoch(0).Committee(), map[types.PublicKey]*testNode{}}
 }
 
@@ -169,6 +175,123 @@ func TestDataClientServer(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// serveFullCommitQCs serves one FullCommitQC stream on server. It reads the request, sends qcs exactly as given,
+// and closes the stream. Unlike a real server, it ignores the requested index and may send QCs out of order.
+func serveFullCommitQCs(ctx context.Context, server rpc.Server[API], qcs []*types.FullCommitQC) error {
+	return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
+		if _, err := stream.Recv(ctx); err != nil {
+			return fmt.Errorf("stream.Recv(): %w", err)
+		}
+		for _, qc := range qcs {
+			if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
+				return fmt.Errorf("stream.Send(): %w", err)
+			}
+		}
+		// Returning closes the stream, so the client ends with ErrRemoteClosed instead of waiting for more QCs.
+		return nil
+	}))
+}
+
+// testQCChain returns n consecutive FullCommitQCs of ep, starting at its first road index,
+// and the lane blocks that each QC finalizes.
+func testQCChain(rng utils.Rng, ep *types.Epoch, keys []types.SecretKey, n int) ([]*types.FullCommitQC, [][]*types.LaneBlock) {
+	qcs := make([]*types.FullCommitQC, 0, n)
+	blocks := make([][]*types.LaneBlock, 0, n)
+	prev := utils.None[*types.CommitQC]()
+	for range n {
+		qc, bs := data.TestCommitQC(rng, ep, keys, prev)
+		qcs = append(qcs, qc)
+		blocks = append(blocks, bs)
+		prev = utils.Some(qc.QC())
+	}
+	return qcs, blocks
+}
+
+func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	// One real node. The test uses only its data state and its QC stream client.
+	node := newTestEnv(registry).AddNode(t, keys[0])
+	// qcs[0] to qcs[4] are consecutive, validly signed QCs.
+	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 5)
+	// The node holds qcs[0], so the client requests qcs[1].
+	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		serverConn, clientConn := conn.NewTestConn()
+		server := rpc.NewServer[API]()
+		client := rpc.NewClient[API]()
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+		// The server sends qcs[1], the requested index, then qcs[2], the next index,
+		// then qcs[4], which skips qcs[3].
+		s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, []*types.FullCommitQC{qcs[1], qcs[2], qcs[4]}) })
+		// Another peer fills the index that the stream skips. The push waits until qcs[2] is stored.
+		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[3], nil) })
+		// The client under test.
+		return node.service.clientStreamFullCommitQCs(ctx, client)
+	})
+	// The stream ended because the server closed it, not because the client rejected a QC.
+	require.ErrorIs(t, err, mux.ErrRemoteClosed)
+	// The node holds qcs[0] to qcs[4]. NextQC does not block, so a missing QC fails here instead of hanging below.
+	require.Equal(t, qcs[4].Height()+1, node.data.NextQC())
+	// Each stored QC is the one that was sent or pushed.
+	for _, want := range qcs {
+		got, err := node.data.QC(ctx, want.Height())
+		require.NoError(t, err)
+		require.NoError(t, utils.TestDiff(want, got))
+	}
+}
+
+func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// pushed are the chain positions the client holds before it opens the stream.
+		pushed []int
+		// sent are the chain positions the server sends, in order.
+		sent []int
+		// wantStored is the number of chain positions, counted from qcs[0], that the node holds at the end.
+		wantStored int
+	}{
+		// The client holds qcs[0] and qcs[1], so it asks for qcs[2]. qcs[1] is below that.
+		{name: "first below requested", pushed: []int{0, 1}, sent: []int{1}, wantStored: 2},
+		// qcs[0] is accepted. The second qcs[0] is not above it.
+		{name: "repeated", sent: []int{0, 0}, wantStored: 1},
+		// qcs[0] and qcs[1] are accepted. Then qcs[0] is below qcs[1].
+		{name: "decreasing", sent: []int{0, 1, 0}, wantStored: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 1)
+			node := newTestEnv(registry).AddNode(t, keys[0])
+			qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 3)
+			// These QCs move the node's NextQC(), so they set the index that the client requests.
+			for _, i := range tc.pushed {
+				require.NoError(t, node.data.PushPartialBlock(ctx, qcs[i], nil))
+			}
+			var sent []*types.FullCommitQC
+			for _, i := range tc.sent {
+				sent = append(sent, qcs[i])
+			}
+			err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				serverConn, clientConn := conn.NewTestConn()
+				server := rpc.NewServer[API]()
+				client := rpc.NewClient[API]()
+				s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+				s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+				s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, sent) })
+				// The client under test.
+				return node.service.clientStreamFullCommitQCs(ctx, client)
+			})
+			// The client rejects one QC and ends the stream.
+			require.ErrorIs(t, err, types.ErrUnexpectedHeight)
+			// The node stored the pushed QCs and the QCs accepted before the reject, and nothing after them.
+			require.Equal(t, qcs[0].Height()+types.RoadHeight(tc.wantStored), node.data.NextQC())
+		})
 	}
 }
 
