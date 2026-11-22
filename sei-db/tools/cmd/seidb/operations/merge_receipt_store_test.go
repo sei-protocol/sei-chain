@@ -48,7 +48,7 @@ func TestReceiptStoreKeyIsTheEVMModules(t *testing.T) {
 // where a node looks receipts up.
 func TestMergeReceiptStoreServesBothStores(t *testing.T) {
 	sourceDir := newTestReceiptStore(t, receiptStoreKey, 10, 0, "tx-a", "receipt-a")
-	targetDir := newTestReceiptStore(t, receiptStoreKey, 100, 90, "tx-b", "receipt-b")
+	targetDir := newTestReceiptStore(t, receiptStoreKey, 100, 11, "tx-b", "receipt-b")
 
 	out, err := runMergeReceiptStore(t, "--source", sourceDir, "--target", targetDir, "--verify-every", "1")
 	require.NoError(t, err)
@@ -64,6 +64,29 @@ func TestMergeReceiptStoreServesBothStores(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte(want), got, key)
 	}
+}
+
+// Heights between the two stores that neither covers refuse the merge unless
+// --allow-gap is set, and an allowed merge reports them.
+func TestMergeReceiptStoreGap(t *testing.T) {
+	newPair := func(t *testing.T) (sourceDir, targetDir string) {
+		return newTestReceiptStore(t, receiptStoreKey, 10, 0, "tx-a", "receipt-a"),
+			newTestReceiptStore(t, receiptStoreKey, 100, 90, "tx-b", "receipt-b")
+	}
+
+	t.Run("refused by default", func(t *testing.T) {
+		sourceDir, targetDir := newPair(t)
+		_, err := runMergeReceiptStore(t, "--source", sourceDir, "--target", targetDir)
+		require.ErrorContains(t, err, "neither DB covers versions 11-89")
+	})
+
+	t.Run("allowed", func(t *testing.T) {
+		sourceDir, targetDir := newPair(t)
+		out, err := runMergeReceiptStore(t, "--source", sourceDir, "--target", targetDir, "--allow-gap")
+		require.NoError(t, err)
+		require.Contains(t, out, "target versions now: 0-100")
+		require.Contains(t, out, "versions neither store held, now in the target's range: 11-89")
+	})
 }
 
 func TestMergeReceiptStoreRefusesOtherStores(t *testing.T) {

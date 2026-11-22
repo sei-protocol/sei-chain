@@ -34,6 +34,7 @@ func main() {
 		operations.TraceProfileReportCmd(),
 		operations.MigrateEvmStatusCmd(),
 		operations.MergeReceiptStoreCmd(),
+		operations.CheckReceiptStoreCmd(),
 		evmlogical.EvmLogicalDigestCmd(),
 		evmlogical.KVRepairExportCmd(),
 		operations.HashLogCmd())

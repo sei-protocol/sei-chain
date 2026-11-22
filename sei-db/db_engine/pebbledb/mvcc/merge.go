@@ -20,9 +20,9 @@ const (
 	// mergeBatchBytes is the encoded size at which Merge commits a batch, well
 	// below the memtable size.
 	mergeBatchBytes = 16 << 20
-	// mergeProgressEvery is the number of source entries Merge reads between
+	// progressEvery is the number of entries Merge and Scan read between
 	// Progress calls.
-	mergeProgressEvery = 1_000_000
+	progressEvery = 1_000_000
 )
 
 // MergeOptions configures Merge.
@@ -33,6 +33,10 @@ type MergeOptions struct {
 	// AllowOverlap accepts DBs whose version ranges overlap. A source entry the
 	// target already holds is then left as the target holds it.
 	AllowOverlap bool
+	// AllowGap accepts DBs whose version ranges leave a run of versions between
+	// them that neither covers. The merged markers then span that run, so a
+	// read inside it finds no entry instead of being refused as pruned.
+	AllowGap bool
 	// DryRun makes every check and reads the whole source without writing.
 	DryRun bool
 	// VerifyEvery is the interval, in written entries, at which entries are read
@@ -42,8 +46,8 @@ type MergeOptions struct {
 	Progress func(MergeReport)
 }
 
-// MergeSide is one of the two DBs in a merge, as Merge found it.
-type MergeSide struct {
+// DBInfo is a DB's MVCC encoding, version markers and store keys.
+type DBInfo struct {
 	Dir        string
 	Descending bool
 	Earliest   int64
@@ -52,10 +56,17 @@ type MergeSide struct {
 	StoreKeys []string
 }
 
+// VersionRange is an inclusive run of versions. The zero value holds none.
+type VersionRange struct {
+	From, To int64
+}
+
 // MergeReport is what Merge found and did.
 type MergeReport struct {
-	Source MergeSide
-	Target MergeSide
+	Source DBInfo
+	Target DBInfo
+	// Gap is the run of versions between the two DBs that neither covers.
+	Gap VersionRange
 	// Entries is the number of source entries read.
 	Entries int64
 	// Written is the number of entries written to the target, and Bytes their
@@ -77,8 +88,9 @@ type MergeReport struct {
 // targetDir, in the target's MVCC encoding, and sets the target's earliest and
 // latest version markers to span both. The source is opened read-only. Neither
 // DB may be open elsewhere, the source must hold versions, and the two version
-// ranges must not overlap unless opts.AllowOverlap is set. Metadata other than
-// the version markers stays as each DB has it.
+// ranges must neither overlap unless opts.AllowOverlap is set nor leave a gap
+// between them unless opts.AllowGap is set. Metadata other than the version
+// markers stays as each DB has it.
 func Merge(targetDir, sourceDir string, opts MergeOptions) (MergeReport, error) {
 	if err := requireDistinctDirs(targetDir, sourceDir); err != nil {
 		return MergeReport{}, err
@@ -94,11 +106,11 @@ func Merge(targetDir, sourceDir string, opts MergeOptions) (MergeReport, error) 
 	}
 	defer func() { _ = target.close() }()
 
-	report := MergeReport{Source: source.side, Target: target.side}
-	if err := checkMergeable(source.side, target.side, opts); err != nil {
+	report := MergeReport{Source: source.info, Target: target.info}
+	if report.Gap, err = checkMergeable(source.info, target.info, opts); err != nil {
 		return report, err
 	}
-	report.Earliest, report.Latest = mergedRange(source.side, target.side)
+	report.Earliest, report.Latest = mergedRange(source.info, target.info)
 
 	samples, err := copyEntries(&report, source, target, opts)
 	if err != nil {
@@ -117,15 +129,30 @@ func Merge(targetDir, sourceDir string, opts MergeOptions) (MergeReport, error) 
 	return report, err
 }
 
-// mergeDB is one of the two DBs in a merge, opened.
-type mergeDB struct {
+// offlineDB is a DB opened straight through pebble by a tool, while no node has
+// it open.
+type offlineDB struct {
 	db   *pebble.DB
-	side MergeSide
+	info DBInfo
 }
 
-// openMergeDB opens the pebble DB at dir with the options OpenDB uses, read-only
-// when asked, and reads what MergeSide reports about it.
-func openMergeDB(dir string, readOnly bool) (*mergeDB, error) {
+// openMergeDB opens the DB at dir as openOfflineDB does, and fails if the DB's
+// changelog holds a version it has not applied.
+func openMergeDB(dir string, readOnly bool) (*offlineDB, error) {
+	m, err := openOfflineDB(dir, readOnly)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireChangelogReplayed(dir, m.info.Latest); err != nil {
+		_ = m.close()
+		return nil, err
+	}
+	return m, nil
+}
+
+// openOfflineDB opens the pebble DB at dir with the options OpenDB uses,
+// read-only when asked, and reads what DBInfo reports about it.
+func openOfflineDB(dir string, readOnly bool) (*offlineDB, error) {
 	cache := pebble.NewCache(32 << 20)
 	defer cache.Unref()
 	opts := newPebbleOptions(config.DefaultStateStoreConfig(), cache)
@@ -135,17 +162,16 @@ func openMergeDB(dir string, readOnly bool) (*mergeDB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
-	m := &mergeDB{db: db, side: MergeSide{Dir: dir}}
-	if err := m.readSide(); err != nil {
+	m := &offlineDB{db: db, info: DBInfo{Dir: dir}}
+	if err := m.readInfo(); err != nil {
 		_ = m.close()
 		return nil, err
 	}
 	return m, nil
 }
 
-// readSide fills in m.side from the DB's markers and keys, and fails if the
-// DB's changelog holds a version it has not applied.
-func (m *mergeDB) readSide() error {
+// readInfo fills in m.info from the DB's markers and keys.
+func (m *offlineDB) readInfo() error {
 	descending, fresh, err := readMVCCMode(m.db)
 	if err != nil {
 		return err
@@ -153,21 +179,19 @@ func (m *mergeDB) readSide() error {
 	if fresh {
 		return errors.New("holds no MVCC data")
 	}
-	m.side.Descending = descending
-	if m.side.Earliest, err = retrieveEarliestVersion(m.db); err != nil {
+	m.info.Descending = descending
+	if m.info.Earliest, err = retrieveEarliestVersion(m.db); err != nil {
 		return fmt.Errorf("failed to retrieve earliest version: %w", err)
 	}
-	if m.side.Latest, err = retrieveLatestVersion(m.db); err != nil {
+	if m.info.Latest, err = retrieveLatestVersion(m.db); err != nil {
 		return fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
-	if m.side.StoreKeys, err = storeKeys(m.db, descending); err != nil {
-		return err
-	}
-	return requireChangelogReplayed(m.side.Dir, m.side.Latest)
+	m.info.StoreKeys, err = storeKeys(m.db, descending)
+	return err
 }
 
 // close closes the DB. Later calls do nothing.
-func (m *mergeDB) close() error {
+func (m *offlineDB) close() error {
 	if m.db == nil {
 		return nil
 	}
@@ -224,63 +248,98 @@ func storeKeys(db *pebble.DB, descending bool) ([]string, error) {
 // requireChangelogReplayed fails if the changelog kept beside the DB at dir
 // holds a version above latest, which only opening the DB would apply.
 func requireChangelogReplayed(dir string, latest int64) error {
+	ahead, err := changelogAhead(dir, latest)
+	if err != nil {
+		return err
+	}
+	if ahead > 0 {
+		return fmt.Errorf("changelog holds version %d above latest version %d; open the DB once to replay it",
+			ahead, latest)
+	}
+	return nil
+}
+
+// changelogAhead returns the version of the last entry in the changelog kept
+// beside the DB at dir when it is above latest, and 0 otherwise.
+func changelogAhead(dir string, latest int64) (int64, error) {
 	path := utils.GetChangelogPath(dir)
 	segments, err := os.ReadDir(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return 0, nil
 	}
 	if err != nil {
-		return fmt.Errorf("read changelog directory: %w", err)
+		return 0, fmt.Errorf("read changelog directory: %w", err)
 	}
 	if len(segments) == 0 {
-		return nil
+		return 0, nil
 	}
 	changelog, err := wal.NewChangelogWAL(path, wal.Config{NoRepairOnOpen: true})
 	if err != nil {
-		return fmt.Errorf("open changelog: %w", err)
+		return 0, fmt.Errorf("open changelog: %w", err)
 	}
 	defer func() { _ = changelog.Close() }()
 	last, err := changelog.LastOffset()
 	if err != nil {
-		return fmt.Errorf("read changelog last offset: %w", err)
+		return 0, fmt.Errorf("read changelog last offset: %w", err)
 	}
 	if last == 0 {
-		return nil
+		return 0, nil
 	}
 	entry, err := changelog.ReadAt(last)
 	if err != nil {
-		return fmt.Errorf("read changelog entry %d: %w", last, err)
+		return 0, fmt.Errorf("read changelog entry %d: %w", last, err)
 	}
 	if entry.Version > latest {
-		return fmt.Errorf("changelog holds version %d above latest version %d; open the DB once to replay it",
-			entry.Version, latest)
+		return entry.Version, nil
 	}
-	return nil
+	return 0, nil
 }
 
-// checkMergeable fails if opts do not allow merging source into target.
-func checkMergeable(source, target MergeSide, opts MergeOptions) error {
+// checkMergeable fails if opts do not allow merging source into target, and
+// returns the run of versions between the two DBs that neither covers.
+func checkMergeable(source, target DBInfo, opts MergeOptions) (VersionRange, error) {
 	if source.Latest == 0 {
-		return errors.New("source holds no versions")
+		return VersionRange{}, errors.New("source holds no versions")
 	}
-	for _, side := range []MergeSide{source, target} {
+	for _, side := range []DBInfo{source, target} {
 		for _, storeKey := range side.StoreKeys {
 			if len(opts.StoreKeys) > 0 && !slices.Contains(opts.StoreKeys, storeKey) {
-				return fmt.Errorf("%s holds store %q, outside the accepted stores %q", side.Dir, storeKey, opts.StoreKeys)
+				return VersionRange{}, fmt.Errorf("%s holds store %q, outside the accepted stores %q",
+					side.Dir, storeKey, opts.StoreKeys)
 			}
 		}
 	}
-	overlap := target.Latest > 0 && source.Earliest <= target.Latest && target.Earliest <= source.Latest
-	if overlap && !opts.AllowOverlap {
-		return fmt.Errorf("source versions %d-%d overlap target versions %d-%d",
-			source.Earliest, source.Latest, target.Earliest, target.Latest)
+	if target.Latest == 0 {
+		return VersionRange{}, nil
 	}
-	return nil
+	lower, upper := source, target
+	if lower.Latest > upper.Latest {
+		lower, upper = upper, lower
+	}
+	// An unset earliest marker reads as 0, so a DB that never recorded one
+	// claims every version below its latest and overlaps rather than leaving a
+	// gap.
+	if upper.Earliest <= lower.Latest {
+		if !opts.AllowOverlap {
+			return VersionRange{}, fmt.Errorf("source versions %d-%d overlap target versions %d-%d",
+				source.Earliest, source.Latest, target.Earliest, target.Latest)
+		}
+		return VersionRange{}, nil
+	}
+	if upper.Earliest == lower.Latest+1 {
+		return VersionRange{}, nil
+	}
+	gap := VersionRange{From: lower.Latest + 1, To: upper.Earliest - 1}
+	if !opts.AllowGap {
+		return gap, fmt.Errorf("neither DB covers versions %d-%d, between source versions %d-%d and target versions %d-%d",
+			gap.From, gap.To, source.Earliest, source.Latest, target.Earliest, target.Latest)
+	}
+	return gap, nil
 }
 
 // mergedRange returns the earliest and latest version markers of the merged
 // target. A target holding no versions takes the source's.
-func mergedRange(source, target MergeSide) (earliest, latest int64) {
+func mergedRange(source, target DBInfo) (earliest, latest int64) {
 	if target.Latest == 0 {
 		return source.Earliest, source.Latest
 	}
@@ -289,7 +348,7 @@ func mergedRange(source, target MergeSide) (earliest, latest int64) {
 
 // copyEntries writes every source entry into the target in the target's
 // encoding, counting into report, and returns the written entries to read back.
-func copyEntries(report *MergeReport, source, target *mergeDB, opts MergeOptions) ([]mergeSample, error) {
+func copyEntries(report *MergeReport, source, target *offlineDB, opts MergeOptions) ([]mergeSample, error) {
 	itr, err := source.db.NewIter(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
@@ -304,14 +363,14 @@ func copyEntries(report *MergeReport, source, target *mergeDB, opts MergeOptions
 			continue
 		}
 		report.Entries++
-		if opts.Progress != nil && report.Entries%mergeProgressEvery == 0 {
+		if opts.Progress != nil && report.Entries%progressEvery == 0 {
 			opts.Progress(*report)
 		}
 		value, err := itr.ValueAndErr()
 		if err != nil {
 			return nil, fmt.Errorf("read source value: %w", err)
 		}
-		key, value, err := encodeForTarget(itr.Key(), value, source.side.Descending, target.side.Descending)
+		key, value, err := encodeForTarget(itr.Key(), value, source.info.Descending, target.info.Descending)
 		if err != nil {
 			return nil, err
 		}
@@ -337,7 +396,7 @@ func copyEntries(report *MergeReport, source, target *mergeDB, opts MergeOptions
 			return nil, fmt.Errorf("write target: %w", err)
 		}
 		if opts.VerifyEvery > 0 && report.Written%opts.VerifyEvery == 0 {
-			sample, err := newMergeSample(key, value, target.side.Descending)
+			sample, err := newMergeSample(key, value, target.info.Descending)
 			if err != nil {
 				return nil, err
 			}

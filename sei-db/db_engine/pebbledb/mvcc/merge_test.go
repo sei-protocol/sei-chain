@@ -90,7 +90,7 @@ func TestMergeCopiesEveryVersion(t *testing.T) {
 			target, targetDir := newMergeTestDB(t, tc.targetDescending)
 			applyVersion(t, target, mergeTestStore, 100, []byte("c"), []byte("c@100"))
 			applyVersion(t, target, mergeTestStore, 101, []byte("a"), []byte("a@101"))
-			require.NoError(t, target.SetEarliestVersion(90, true))
+			require.NoError(t, target.SetEarliestVersion(14, true))
 			require.NoError(t, target.Close())
 
 			report, err := Merge(targetDir, sourceDir, MergeOptions{StoreKeys: []string{mergeTestStore}, VerifyEvery: 1})
@@ -134,7 +134,7 @@ func TestMergeCommitsEveryBatch(t *testing.T) {
 	require.NoError(t, source.Close())
 	target, targetDir := newMergeTestDB(t, true)
 	applyVersion(t, target, mergeTestStore, 100, []byte("b"), []byte("b"))
-	require.NoError(t, target.SetEarliestVersion(90, true))
+	require.NoError(t, target.SetEarliestVersion(versions+1, true))
 	require.NoError(t, target.Close())
 
 	report, err := Merge(targetDir, sourceDir, MergeOptions{VerifyEvery: 1})
@@ -169,7 +169,7 @@ func TestMergeLeavesOtherMetadata(t *testing.T) {
 	require.NoError(t, source.Close())
 	target, targetDir := newMergeTestDB(t, false)
 	applyVersion(t, target, mergeTestStore, 100, []byte("c"), []byte("c@100"))
-	require.NoError(t, target.SetEarliestVersion(90, true))
+	require.NoError(t, target.SetEarliestVersion(11, true))
 	require.NoError(t, target.storage.Set([]byte("s/_latestMigratedKey"), []byte("target"), pebble.Sync))
 	require.NoError(t, target.Close())
 
@@ -227,6 +227,70 @@ func TestMergeOverlap(t *testing.T) {
 	})
 }
 
+// newRangeDB returns the directory of a closed DB holding one entry at latest,
+// with its earliest version marker set to earliest unless that is 0.
+func newRangeDB(t *testing.T, earliest, latest int64) string {
+	t.Helper()
+	db, dir := newMergeTestDB(t, true)
+	applyVersion(t, db, mergeTestStore, latest, []byte(fmt.Sprintf("key@%d", latest)), []byte("value"))
+	if earliest > 0 {
+		require.NoError(t, db.SetEarliestVersion(earliest, true))
+	}
+	require.NoError(t, db.Close())
+	return dir
+}
+
+// Version ranges that leave versions between them which neither DB covers are
+// refused unless allowed, whichever DB is the lower one, and an allowed merge
+// spans those versions with the target's markers.
+func TestMergeGap(t *testing.T) {
+	t.Run("source below target", func(t *testing.T) {
+		targetDir, sourceDir := newRangeDB(t, 20, 30), newRangeDB(t, 0, 10)
+		report, err := Merge(targetDir, sourceDir, MergeOptions{})
+		require.ErrorContains(t, err, "neither DB covers versions 11-19, between source versions 0-10 and target versions 20-30")
+		require.Equal(t, VersionRange{From: 11, To: 19}, report.Gap)
+		unchanged := openMergeTestDB(t, targetDir)
+		require.Equal(t, int64(20), unchanged.GetEarliestVersion())
+		requireGet(t, unchanged, 30, "key@10", nil)
+	})
+
+	t.Run("source above target", func(t *testing.T) {
+		targetDir, sourceDir := newRangeDB(t, 0, 10), newRangeDB(t, 20, 30)
+		_, err := Merge(targetDir, sourceDir, MergeOptions{})
+		require.ErrorContains(t, err, "neither DB covers versions 11-19, between source versions 20-30 and target versions 0-10")
+		require.Equal(t, int64(10), openMergeTestDB(t, targetDir).GetLatestVersion())
+	})
+
+	t.Run("refused by a dry run", func(t *testing.T) {
+		targetDir, sourceDir := newRangeDB(t, 20, 30), newRangeDB(t, 0, 10)
+		_, err := Merge(targetDir, sourceDir, MergeOptions{DryRun: true})
+		require.ErrorContains(t, err, "neither DB covers versions 11-19")
+	})
+
+	t.Run("adjacent ranges", func(t *testing.T) {
+		targetDir, sourceDir := newRangeDB(t, 11, 30), newRangeDB(t, 0, 10)
+		report, err := Merge(targetDir, sourceDir, MergeOptions{})
+		require.NoError(t, err)
+		require.Zero(t, report.Gap)
+		merged := openMergeTestDB(t, targetDir)
+		require.Equal(t, int64(0), merged.GetEarliestVersion())
+		require.Equal(t, int64(30), merged.GetLatestVersion())
+	})
+
+	t.Run("allowed", func(t *testing.T) {
+		targetDir, sourceDir := newRangeDB(t, 20, 30), newRangeDB(t, 5, 10)
+		report, err := Merge(targetDir, sourceDir, MergeOptions{AllowGap: true, VerifyEvery: 1})
+		require.NoError(t, err)
+		require.Equal(t, VersionRange{From: 11, To: 19}, report.Gap)
+		require.Equal(t, int64(1), report.Verified)
+		merged := openMergeTestDB(t, targetDir)
+		require.Equal(t, int64(5), merged.GetEarliestVersion())
+		require.Equal(t, int64(30), merged.GetLatestVersion())
+		requireGet(t, merged, 15, "key@10", []byte("value"))
+		requireGet(t, merged, 30, "key@30", []byte("value"))
+	})
+}
+
 // A dry run makes every check and counts what it would write, writing nothing.
 func TestMergeDryRunWritesNothing(t *testing.T) {
 	source, sourceDir := newMergeTestDB(t, false)
@@ -234,7 +298,7 @@ func TestMergeDryRunWritesNothing(t *testing.T) {
 	require.NoError(t, source.Close())
 	target, targetDir := newMergeTestDB(t, true)
 	applyVersion(t, target, mergeTestStore, 100, []byte("c"), []byte("c@100"))
-	require.NoError(t, target.SetEarliestVersion(90, true))
+	require.NoError(t, target.SetEarliestVersion(11, true))
 	require.NoError(t, target.Close())
 
 	report, err := Merge(targetDir, sourceDir, MergeOptions{DryRun: true, VerifyEvery: 1})
@@ -245,7 +309,7 @@ func TestMergeDryRunWritesNothing(t *testing.T) {
 	require.Equal(t, int64(100), report.Latest)
 
 	merged := openMergeTestDB(t, targetDir)
-	require.Equal(t, int64(90), merged.GetEarliestVersion())
+	require.Equal(t, int64(11), merged.GetEarliestVersion())
 	require.Equal(t, int64(100), merged.GetLatestVersion())
 	requireGet(t, merged, 100, "a", nil)
 }
@@ -268,7 +332,7 @@ func TestMergeChecksTheChangelog(t *testing.T) {
 			writeChangelogEntry(t, sourceDir, tc.changelogVersion)
 			target, targetDir := newMergeTestDB(t, true)
 			applyVersion(t, target, mergeTestStore, 100, []byte("c"), []byte("c@100"))
-			require.NoError(t, target.SetEarliestVersion(90, true))
+			require.NoError(t, target.SetEarliestVersion(11, true))
 			require.NoError(t, target.Close())
 
 			_, err := Merge(targetDir, sourceDir, MergeOptions{})
