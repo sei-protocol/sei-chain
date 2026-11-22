@@ -38,9 +38,9 @@ func CheckReceiptStoreCmd() *cobra.Command {
 		Short: "Report which blocks a pebble receipt store holds receipts for, and where it holds none",
 		Long: "Reads every receipt in --dir and reports the store's encoding and version markers, the blocks its " +
 			"receipts belong to, and the longest runs of blocks inside its version range that hold no receipt. " +
-			"Blocks are taken from each receipt, not from the version it is stored at, so legacy receipts that " +
-			"v6.3 moved into the store count for their own blocks. The store is opened read-only; stop the node " +
-			"that owns it first.\n\n" +
+			"Blocks are taken from each receipt, not from the version it is stored at, so a legacy receipt moved " +
+			"into the store from x/evm state, which sits at the height of the block that moved it, counts for its " +
+			"own block. The store is opened read-only; stop the node that owns it first.\n\n" +
 			"Exits non-zero when the store holds a store other than receipts or no receipts at all, has a " +
 			"changelog it has not applied, holds an entry that does not decode as a receipt or a receipt stored " +
 			"below its own block, or has a run of at least --hole-threshold blocks without receipts. Blocks " +
@@ -252,7 +252,7 @@ func printReceiptTally(w io.Writer, scan mvcc.ScanReport, tally *receiptTally) {
 	} else {
 		_, _ = fmt.Fprintln(w, "receipts: 0")
 	}
-	_, _ = fmt.Fprintf(w, "receipts stored above their own block, as v6.3 stored the legacy receipts it moved: %d\n",
+	_, _ = fmt.Fprintf(w, "receipts stored above their own block, as moved legacy receipts are: %d\n",
 		tally.storedAboveBlock)
 	if scan.Earliest > 0 {
 		_, _ = fmt.Fprintf(w, "blocks below the earliest version holding receipts, served by transaction hash only: %d\n",

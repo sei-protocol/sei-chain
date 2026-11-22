@@ -152,7 +152,7 @@ func TestCompareReceiptStoresDescribesDifferingBlocks(t *testing.T) {
 }
 
 // A receipt both stores hold alike counts as the same wherever each keeps it,
-// as v6.3 kept the legacy receipts it moved at a later version.
+// as a legacy receipt moved out of x/evm state sits at a later version.
 func TestCompareReceiptStoresAcceptsAReceiptAtAnotherVersion(t *testing.T) {
 	moved := receiptOf(1, 10, 0)
 	moved.version = 12

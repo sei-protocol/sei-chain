@@ -136,8 +136,8 @@ func TestCheckReceiptStoreSearchesFromTheEarliestMarker(t *testing.T) {
 	require.Contains(t, out, "runs of blocks without receipts in 5-40: 1\n  5-29: 25 blocks, a possible hole\n")
 }
 
-// Receipts stored above their own block, as v6.3 stored the legacy receipts it
-// moved, count for their own blocks.
+// Receipts stored above their own block, as legacy receipts moved out of x/evm
+// state are, count for their own blocks.
 func TestCheckReceiptStoreCountsMovedLegacyReceipts(t *testing.T) {
 	receipts := atTheirBlocks(21, 30)
 	for block := int64(10); block <= 20; block++ {
@@ -148,7 +148,7 @@ func TestCheckReceiptStoreCountsMovedLegacyReceipts(t *testing.T) {
 	out, err := runCheckReceiptStore(t, "--dir", dir)
 	require.NoError(t, err)
 	require.Contains(t, out, "receipts: 21 for 21 blocks, blocks 10-30")
-	require.Contains(t, out, "as v6.3 stored the legacy receipts it moved: 11")
+	require.Contains(t, out, "receipts stored above their own block, as moved legacy receipts are: 11\n")
 }
 
 func TestCheckReceiptStoreFlagsBrokenEntries(t *testing.T) {
