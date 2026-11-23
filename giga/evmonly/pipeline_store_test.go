@@ -210,7 +210,7 @@ func TestCloseWaitsForTheCommitOfABlockInFlight(t *testing.T) {
 
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = 41
-	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{
+	prepared, err := executor.PrepareBlock(BlockRequest{
 		Context: blockCtx,
 		Txs:     [][]byte{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)},
 	})
@@ -301,7 +301,7 @@ func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, n
 	t.Helper()
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = number
-	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockCtx, Txs: txs})
+	prepared, err := executor.PrepareBlock(BlockRequest{Context: blockCtx, Txs: txs})
 	require.NoError(t, err)
 	result, err := executor.ExecutePreparedBlock(t.Context(), prepared)
 	require.NoError(t, err)

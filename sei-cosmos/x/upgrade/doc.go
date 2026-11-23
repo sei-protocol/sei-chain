@@ -111,7 +111,7 @@ to lose connectivity with the exiting nodes, thus this module prefers to just ha
 # Automation and Plan.Info
 
 We have deprecated calling out to scripts, instead with propose https://github.com/cosmos/cosmos-sdk/tree/v0.40.0-rc5/cosmovisor
-as a model for a watcher daemon that can launch simd as a subprocess and then read the upgrade log message
+as a model for a watcher daemon that can launch seid as a subprocess and then read the upgrade log message
 to swap binaries as needed. You can pass in information into Plan.Info according to the format
 specified here https://github.com/cosmos/cosmos-sdk/tree/v0.40.0-rc5/cosmovisor/README.md#auto-download .
 This will allow a properly configured cosmsod daemon to auto-download new binaries and auto-upgrade.
@@ -139,8 +139,6 @@ the upgrade with a manual override. (This must be well-documented for anyone syn
 
 Example:
 
-	simd start --unsafe-skip-upgrades <height1> <optional_height_2> ... <optional_height_N>
-
-NOTE: Here simd is used as an example binary, replace it with original binary
+	seid start --unsafe-skip-upgrades <height1> <optional_height_2> ... <optional_height_N>
 */
 package upgrade

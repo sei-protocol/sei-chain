@@ -18,6 +18,10 @@ var autobahnTag = utils.OrPanic1(ed25519.NewTag("sei_giga_autobahn"))
 // Msg is the interface for all messages signable by a stream node.
 type Msg interface{ asMsg() *pb.Msg }
 
+func (m Challenge) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_Challenge{Challenge: ChallengeConv.Encode(m)}}
+}
+
 func (m *LaneProposal) asMsg() *pb.Msg {
 	return &pb.Msg{T: &pb.Msg_LaneProposalV2{LaneProposalV2: LaneProposalConv.Encode(m)}}
 }
@@ -83,11 +87,6 @@ func (k SecretKey) Public() PublicKey {
 	return PublicKey{key: k.key.Public()}
 }
 
-// SignWithTag signs msg with a domain-separation tag.
-func (k SecretKey) SignWithTag(tag ed25519.Tag, msg []byte) ed25519.Signature {
-	return k.key.SignWithTag(tag, msg)
-}
-
 // PublicKey is the public key of the validator.
 // nolint:recvcheck
 type PublicKey struct {
@@ -103,11 +102,6 @@ func (k PublicKey) Bytes() []byte { return k.key.Bytes() }
 
 // ED25519 returns the underlying Ed25519 public key.
 func (k PublicKey) ED25519() ed25519.PublicKey { return k.key }
-
-// VerifyWithTag verifies a tagged signature.
-func (k PublicKey) VerifyWithTag(tag ed25519.Tag, msg []byte, sig ed25519.Signature) error {
-	return k.key.VerifyWithTag(tag, msg, sig)
-}
 
 // PublicKeyFromBytes constructs a public key from bytes.
 func PublicKeyFromBytes(b []byte) (PublicKey, error) {
@@ -164,18 +158,18 @@ func (k SecretKey) String() string {
 func (k SecretKey) GoString() string { return k.String() }
 
 // Sign signs a message.
-func Sign[T Msg](key SecretKey, msg T) *Signed[T] {
+func (k SecretKey) Sign[T Msg](msg T) *Signed[T] {
 	hMsg := NewHashed(msg)
 	return &Signed[T]{
 		hashed: hMsg,
 		sig: &Signature{
-			key: key.Public(),
-			sig: key.key.SignWithTag(autobahnTag, hMsg.hash[:]),
+			key: k.Public(),
+			sig: k.key.SignWithTag(autobahnTag, hMsg.hash[:]),
 		},
 	}
 }
 
-// Signature represents a signature on the consensus message.
+// Signature represents a signature on a validator's message.
 type Signature struct {
 	utils.ReadOnly
 	key PublicKey
@@ -291,6 +285,8 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return TimeoutVoteConv.DecodeReq(t.TimeoutVote)
 		case *pb.Msg_AppVote:
 			return AppVoteConv.DecodeReq(t.AppVote)
+		case *pb.Msg_Challenge:
+			return ChallengeConv.DecodeReq(t.Challenge)
 		default:
 			return nil, fmt.Errorf("unknown Msg type: %T", t)
 		}

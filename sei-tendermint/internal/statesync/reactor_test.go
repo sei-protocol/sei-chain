@@ -128,10 +128,10 @@ func (rts *reactorTestSuite) AddPeerWithoutWaiting(ctx context.Context, t *testi
 	})
 	n := &Node{
 		TestNode:   testNode,
-		snapshotCh: orPanic(p2p.OpenChannel(testNode.Router, GetSnapshotChannelDescriptor())),
-		chunkCh:    orPanic(p2p.OpenChannel(testNode.Router, GetChunkChannelDescriptor())),
-		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
-		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
+		snapshotCh: orPanic(testNode.Router.OpenChannel(GetSnapshotChannelDescriptor())),
+		chunkCh:    orPanic(testNode.Router.OpenChannel(GetChunkChannelDescriptor())),
+		blockCh:    orPanic(testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())),
+		paramsCh:   orPanic(testNode.Router.OpenChannel(GetParamsChannelDescriptor())),
 	}
 	if err := testNode.Connect(ctx, rts.node); err != nil {
 		return nil, err

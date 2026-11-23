@@ -11,8 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
+
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // defaultCallGasCap bounds the gas an eth_call may consume, filling in an
@@ -63,7 +64,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 
 // execute runs msg with overrides against the latest committed state, or else
 // against the state after the block at height.
-func (api *callAPI) execute(ctx context.Context, msg *core.Message, height int64, latest bool, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+func (api *callAPI) execute(ctx context.Context, msg *core.Message, height int64, latest bool, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
 	if latest {
 		return api.backend.EvmCall(ctx, msg, overrides)
 	}

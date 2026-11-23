@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"golang.org/x/time/rate"
 
@@ -39,7 +39,7 @@ func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 func newTestNode(t testing.TB, registry *epoch.TestRegistry, cfg *consensus.Config) *testNode {
 	cfg.PersistentStateDir = utils.None[string]()
 	store := blockstore.NewTestStore(t)
-	dataState, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store)
+	dataState, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
 	if err != nil {
 		panic(fmt.Sprintf("data.NewState: %v", err))
 	}

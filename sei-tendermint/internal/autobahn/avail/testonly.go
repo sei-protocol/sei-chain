@@ -109,7 +109,7 @@ func testAnchorAt(ep, next *types.Epoch, keys []types.SecretKey, height types.Ro
 	prepare := types.BuildPrepareQC(cks, proposal.Proposal().Msg())
 	votes := make([]*types.Signed[*types.CommitVote], len(cks))
 	for n, key := range cks {
-		votes[n] = types.Sign(key, types.NewCommitVote(prepare))
+		votes[n] = key.Sign(types.NewCommitVote(prepare))
 	}
 	qc := types.NewCommitQC(votes)
 	return data.Anchor{Epochs: [2]*types.Epoch{ep, next}, First: utils.Some(data.AnchorFirst{
@@ -120,7 +120,7 @@ func testAnchorAt(ep, next *types.Epoch, keys []types.SecretKey, height types.Ro
 func tipLink(ep *types.Epoch, key types.SecretKey, height types.RoadHeight) *types.CommitQC {
 	voteProposal := types.ProposalAt(ep, types.View{Height: height, Number: 0})
 	return types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(key, types.NewCommitVote(types.BuildPrepareQC([]types.SecretKey{key}, voteProposal))),
+		key.Sign(types.NewCommitVote(types.BuildPrepareQC([]types.SecretKey{key}, voteProposal))),
 	})
 }
 
