@@ -106,7 +106,7 @@ func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, numbe
 		// resolves a request's 0x0 before it gets here.
 		return preChainBlock(number.Int64()), nil, nil
 	}
-	height, err := b.traceHeight(number)
+	height, err := b.traceHeight(ctx, number)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -119,16 +119,16 @@ func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, numbe
 }
 
 // traceHeight returns the height number names for a trace.
-func (b *traceBackend) traceHeight(number ethrpc.BlockNumber) (int64, error) {
+func (b *traceBackend) traceHeight(ctx context.Context, number ethrpc.BlockNumber) (int64, error) {
 	kind, err := classifyBlockNumber(number)
 	if err != nil {
 		return 0, err
 	}
 	switch kind {
 	case headBlock:
-		latest := b.backend.EvmBlockNumber()
+		latest := committedHead(ctx, b.backend)
 		if !b.headersOnly {
-			_, latest = indexedRange(b.backend, b.blocks.store)
+			_, latest = indexedRange(ctx, b.backend, b.blocks.store)
 		}
 		return int64(latest), nil //nolint:gosec // G115: a committed height fits in int64.
 	case earliestBlock:
@@ -169,7 +169,7 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 // indexed receipts.
 func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultBlock) ([]*ethtypes.Transaction, error) {
 	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
-	if _, latest := indexedRange(b.backend, b.blocks.store); height > latest {
+	if _, latest := indexedRange(ctx, b.backend, b.blocks.store); height > latest {
 		return nil, fmt.Errorf("%w: block %d", errTraceBlockNotIndexed, height)
 	}
 	records, err := blockReceiptRecords(ctx, b.blocks.store, block)
@@ -177,7 +177,7 @@ func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultB
 		return nil, err
 	}
 	// Checked after the read, so a retention floor that rose during it is caught too.
-	if earliest, _ := indexedRange(b.backend, b.blocks.store); height < earliest {
+	if earliest, _ := indexedRange(ctx, b.backend, b.blocks.store); height < earliest {
 		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errTraceBlockPruned, height, earliest)
 	}
 	txs := make([]*ethtypes.Transaction, 0, len(records))
