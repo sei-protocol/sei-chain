@@ -17,8 +17,8 @@ var (
 )
 
 // GetBlockReceipts returns the receipts stored for a finalized block, in
-// transaction index order. It returns nil for an unknown hash, a
-// zero/negative or future height, or a block whose receipts are not yet
+// transaction index order. It returns nil for an unknown hash, a future
+// height, or a block whose receipts are not yet
 // indexed, and an error for a pruned height or pruned receipts. Current-state
 // tags resolve to the latest block whose receipts are indexed.
 func (api *blockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash ethrpc.BlockNumberOrHash) ([]map[string]any, error) {
@@ -57,10 +57,13 @@ func (api *blockAPI) resolveReceiptsBlock(ctx context.Context, blockNrOrHash eth
 	if !ok {
 		return nil, &invalidParamsError{error: errBlockReceiptsNoBlock}
 	}
-	switch number {
-	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
+	kind, err := classifyBlockNumber(number)
+	if err != nil {
+		return nil, err
+	}
+	if kind == headBlock {
 		_, latest := indexedRange(api.backend, api.store)
-		number = ethrpc.BlockNumber(latest) //nolint:gosec // G115: an indexed height fits in int64.
+		return api.blockAt(ctx, int64(latest)) //nolint:gosec // G115: an indexed height fits in int64.
 	}
 	return api.resolveBlockByNumber(ctx, number)
 }

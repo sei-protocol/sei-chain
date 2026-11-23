@@ -38,9 +38,16 @@ func logEvent(events *eventLog, format string, args ...any) {
 
 // recordingApp is an application that records each call execution makes.
 type recordingApp struct {
+<<<<<<< HEAD
 	abevm.Application
 	events *eventLog
 	state  utils.Mutex[*recordingAppState]
+=======
+	proxy.EVMApplication
+	events     *eventLog
+	state      utils.Mutex[*recordingAppState]
+	validators []proxy.ValidatorUpdate
+>>>>>>> origin/main
 }
 
 type recordingAppState struct {
@@ -61,12 +68,18 @@ func newRecordingApp(events *eventLog, last int64) *recordingApp {
 	return &recordingApp{events: events, state: utils.NewMutex(&recordingAppState{last: last})}
 }
 
+<<<<<<< HEAD
 func (a *recordingApp) EvmChainID() uint64 { return 1 }
 
 func (a *recordingApp) GetValidators() abevm.CommitteeWeights { return nil }
 
 func (a *recordingApp) Info() *abevm.ResponseInfo {
 	return &abevm.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
+=======
+func (a *recordingApp) GetValidators() []proxy.ValidatorUpdate { return a.validators }
+func (a *recordingApp) Info() *proxy.ResponseInfo {
+	return &proxy.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
+>>>>>>> origin/main
 }
 
 func (a *recordingApp) LastBlockHeight() int64 {
@@ -93,12 +106,30 @@ func (a *recordingApp) FinalizeBlock(_ context.Context, req abevm.FinalizeBlockR
 	logEvent(a.events, "finalize %d", req.Height)
 	for state := range a.state.Lock() {
 		state.finalized = append(state.finalized, req)
+<<<<<<< HEAD
 		if fail, ok := state.failFinalizeAt.Get(); ok && fail == int64(req.Height) {
 			return abevm.FinalizeBlockResp{}, errFinalizeFailed
 		}
 		state.last = int64(req.Height)
 	}
 	return abevm.FinalizeBlockResp{GasUsed: testGasPerBlock}, nil
+=======
+	}
+	return &proxy.ResponseFinalizeBlock{TxResults: []*proxy.ExecTxResult{{GasUsed: testGasPerBlock}}}, nil
+}
+
+func (a *recordingApp) Commit(context.Context) (*proxy.ResponseCommit, error) {
+	var height int64
+	for state := range a.state.Lock() {
+		if fail, ok := state.failCommitAt.Get(); ok && fail == state.pending {
+			return nil, errCommitFailed
+		}
+		state.last = state.pending
+		height = state.last
+	}
+	logEvent(a.events, "commit %d", height)
+	return &proxy.ResponseCommit{}, nil
+>>>>>>> origin/main
 }
 
 func (a *recordingApp) finalized() []abevm.FinalizeBlockReq {
@@ -126,6 +157,7 @@ type testEnv struct {
 	events *eventLog
 	store  *blockstore.Store
 	blocks []*atypes.RoadBlock
+	keys   []atypes.SecretKey
 	genDoc *types.GenesisDoc
 }
 
@@ -145,10 +177,12 @@ func newTestEnv(t *testing.T, rng utils.Rng, count int) *testEnv {
 	params := types.DefaultConsensusParams()
 	params.Block.MaxGas = 30_000_000
 	store := blockstore.NewTestStore(t)
+	events := new(utils.NewMutex(&[]string{}))
 	return &testEnv{
-		events: new(utils.NewMutex(&[]string{})),
+		events: events,
 		store:  store,
 		blocks: blocks,
+		keys:   keys,
 		genDoc: &types.GenesisDoc{
 			ChainID:         testChainID,
 			InitialHeight:   int64(ep.RoadRange().First),
@@ -212,6 +246,8 @@ func TestInitAppRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 	require.NoError(t, env.write(0, 3, true))
 	tip := env.road(1)
 	app := newRecordingApp(env.events, int64(tip))
+	vals := []proxy.ValidatorUpdate{{PubKey: env.keys[0].Public(), Power: 3}}
+	app.validators = vals
 
 	next, err := env.executor(app).initApp(t.Context())
 	require.NoError(t, err)
@@ -280,11 +316,16 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 		return waitExecuted(ctx, executor, env.road(1))
 	}))
 
+	var wantLog []string
+	for _, road := range []atypes.RoadHeight{env.road(0), env.road(1)} {
+		wantLog = append(wantLog,
+			fmt.Sprintf("report %d", road),
+			fmt.Sprintf("finalize %d", road),
+			fmt.Sprintf("commit %d", road),
+		)
+	}
 	for log := range env.events.Lock() {
-		require.Equal(t, []string{
-			fmt.Sprintf("report %d", env.road(0)), fmt.Sprintf("finalize %d", env.road(0)),
-			fmt.Sprintf("report %d", env.road(1)), fmt.Sprintf("finalize %d", env.road(1)),
-		}, *log)
+		require.Equal(t, wantLog, *log)
 	}
 	for i, req := range app.finalized() {
 		want := env.blocks[i].SuperBlock()

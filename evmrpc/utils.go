@@ -29,7 +29,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -254,7 +254,7 @@ type indexedMsg struct {
 // as "skip this tx" must fail here, or they answer with empty data.
 func requireReceiptStore(k *keeper.Keeper) error {
 	if k == nil || k.ReceiptStore() == nil {
-		return receipt.ErrNotConfigured
+		return receiptdb.ErrNotConfigured
 	}
 	return nil
 }

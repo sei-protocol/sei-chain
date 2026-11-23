@@ -227,6 +227,10 @@ func (b *replayBackend) EvmBlockNumber() uint64 {
 	return b.tip.Number
 }
 
+func (*replayBackend) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (*replayBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 	return utils.AtomicRecv[atypes.ExecutedBlocks]{}, errNotReplayed
 }

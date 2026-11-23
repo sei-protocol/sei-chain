@@ -16,6 +16,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -71,7 +72,7 @@ func newAutobahnEnv(t *testing.T, validator bool) *Environment {
 func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Environment {
 	t.Helper()
 	rng := utils.TestRng()
-	_, keys := atypes.GenCommittee(rng, 1)
+	committee, keys := atypes.GenCommittee(rng, 1)
 	valKey := keys[0]
 	nodeKey := p2p.NodeSecretKey(ed25519.TestSecretKey(utils.GenBytes(rng, 32)))
 	genDoc := &types.GenesisDoc{
@@ -99,7 +100,9 @@ func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Envi
 		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
 	}
-	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
+	registry, err := epoch.TestGenesisRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), epoch.DefaultEpochLength)
+	require.NoError(t, err)
+	dataState, err := p2p.BuildDataState(&commonCfg, blockStore, proxy.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	var giga p2p.GigaRouter
 	if validator {

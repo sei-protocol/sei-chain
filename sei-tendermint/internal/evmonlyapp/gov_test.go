@@ -32,6 +32,7 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 		evmOnlyTestChainID,
 		nil,
 		storage,
+		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
 		utils.None[GenesisAlloc](),
@@ -57,7 +58,11 @@ func precompileCall(t *testing.T, app abevm.Application, to common.Address, cont
 	msg := callMessage(common.Address{}, &to)
 	msg.Data = input
 	msg.GasLimit = 1_000_000
+<<<<<<< HEAD
 	result, err := app.(*evmOnlyApplication).EvmCall(t.Context(), msg, abevm.CallOverrides{})
+=======
+	result, err := app.(*evmOnlyApplication).EvmCall(t.Context(), msg, proxy.CallOverrides{})
+>>>>>>> origin/main
 	require.NoError(t, err)
 	if result.Err != nil {
 		return nil, result.Err

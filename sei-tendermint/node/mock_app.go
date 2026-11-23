@@ -22,7 +22,13 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+<<<<<<< HEAD
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+=======
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+>>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -69,8 +75,14 @@ type MockApp struct {
 	app         abevm.Application
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
+<<<<<<< HEAD
 	// storage receives an empty block for each finalized block. None disables storage writes.
+=======
+	// storage takes each committed block. None means Commit writes nothing.
+>>>>>>> origin/main
 	storage utils.Option[*bootstrap.GigaStorageManager]
+	// epochRegistry is the registry Commit advances. None means Commit leaves it alone.
+	epochRegistry *evmonlyapp.EpochRegistry
 }
 
 func NewMockApp(app abevm.Application) *MockApp {
@@ -186,32 +198,56 @@ func (app *MockApp) EvmChainID() uint64 { return app.app.EvmChainID() }
 func (app *MockApp) EvmChainConfig() *params.ChainConfig { return app.chainConfig }
 
 // EvmCall always errors: the mock app keeps no EVM state to execute against.
+<<<<<<< HEAD
 func (app *MockApp) EvmCall(context.Context, *ethcore.Message, abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
+=======
+func (app *MockApp) EvmCall(context.Context, *ethcore.Message, proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
+>>>>>>> origin/main
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGas always errors: the mock app keeps no EVM state to execute against.
+<<<<<<< HEAD
 func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, abevm.CallOverrides) (uint64, []byte, error) {
+=======
+func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64, proxy.CallOverrides) (uint64, []byte, error) {
+>>>>>>> origin/main
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmCallAt always errors: the mock app keeps no EVM state to execute against.
+<<<<<<< HEAD
 func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, abevm.BlockRef, abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
+=======
+func (app *MockApp) EvmCallAt(context.Context, *ethcore.Message, *ethtypes.Header, proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
+>>>>>>> origin/main
 	return nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAt always errors: the mock app keeps no EVM state to execute against.
+<<<<<<< HEAD
 func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, abevm.BlockRef, abevm.CallOverrides) (uint64, []byte, error) {
+=======
+func (app *MockApp) EvmEstimateGasAt(context.Context, *ethcore.Message, uint64, *ethtypes.Header, proxy.CallOverrides) (uint64, []byte, error) {
+>>>>>>> origin/main
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCalls always errors: the mock app keeps no EVM state to execute against.
+<<<<<<< HEAD
 func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, abevm.CallOverrides) (uint64, []byte, error) {
+=======
+func (app *MockApp) EvmEstimateGasAfterCalls(context.Context, []*ethcore.Message, *ethcore.Message, uint64, proxy.CallOverrides) (uint64, []byte, error) {
+>>>>>>> origin/main
 	return 0, nil, errMockAppNoExecution
 }
 
 // EvmEstimateGasAfterCallsAt always errors: the mock app keeps no EVM state to execute against.
+<<<<<<< HEAD
 func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, abevm.BlockRef, abevm.CallOverrides) (uint64, []byte, error) {
+=======
+func (app *MockApp) EvmEstimateGasAfterCallsAt(context.Context, []*ethcore.Message, *ethcore.Message, uint64, *ethtypes.Header, proxy.CallOverrides) (uint64, []byte, error) {
+>>>>>>> origin/main
 	return 0, nil, errMockAppNoExecution
 }
 
@@ -270,16 +306,36 @@ func (app *MockApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockRe
 	return response, nil
 }
 
-// commitEmptyBlock feeds a committed mock block to every store as a block with no state changes and no receipts.
+// commitEmptyBlock feeds a committed mock block to every store as a block with no account changes
+// and no receipts. It writes the epoch registry row of that road.
 func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
+	if height < 1 {
+		return fmt.Errorf("mock app commit height = %d, want >= 1", height)
+	}
+	var misc []gigatypes.MiscChange
+	if app.epochRegistry != nil {
+		road, ok := utils.SafeCast[atypes.RoadHeight](height)
+		if !ok {
+			return fmt.Errorf("mock app commit height = %d does not fit a road height", height)
+		}
+		var err error
+		misc, err = app.epochRegistry.Changes(road)
+		if err != nil {
+			return err
+		}
+	}
 	storage, ok := app.storage.Get()
 	if !ok {
 		return nil
 	}
+<<<<<<< HEAD
 	if height < 1 {
 		return fmt.Errorf("mock app finalized height = %d, want >= 1", height)
 	}
 	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{}); err != nil {
+=======
+	if err := storage.StateDB().CommitStateChanges(height, &gigatypes.StateChangeSet{Misc: misc}); err != nil {
+>>>>>>> origin/main
 		return fmt.Errorf("commit the state of block %d: %w", height, err)
 	}
 	if receiptDB := storage.ReceiptDB(); receiptDB != nil {
@@ -376,4 +432,12 @@ func checkMockTx(ethTx abevm.EvmTx) (abevm.AdmittedTx, error) {
 		return abevm.AdmittedTx{}, fmt.Errorf("EVM gas wanted exceeds int64 max")
 	}
 	return abevm.AdmittedTx{GasEstimated: gas}, nil
+}
+
+// EpochRegistry returns the mock application's retained epoch window.
+func (app *MockApp) EpochRegistry() (*atypes.EpochRegistry, error) {
+	if app.epochRegistry != nil {
+		return app.epochRegistry.Registry(), nil
+	}
+	return app.app.EpochRegistry()
 }

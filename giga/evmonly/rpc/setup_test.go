@@ -14,9 +14,14 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+<<<<<<< HEAD
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+=======
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+>>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -54,6 +59,8 @@ type testBackend struct {
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
 	pendingNonce     func(common.Address) utils.Option[uint64]
+	// initialHeight is the genesis InitialHeight GenesisInitialHeight reports.
+	initialHeight int64
 
 	balanceAt          func(common.Address, int64) (uint256.Int, error)
 	codeAt             func(common.Address, int64) ([]byte, error)
@@ -131,7 +138,15 @@ func (b *testBackend) EvmBlockNumber() uint64 {
 	return b.blockNumber()
 }
 
+<<<<<<< HEAD
 func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
+=======
+func (b *testBackend) GenesisInitialHeight() int64 {
+	return b.initialHeight
+}
+
+func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+>>>>>>> origin/main
 	b.gotOverrides = overrides
 	return b.call(ctx, msg)
 }
@@ -233,7 +248,7 @@ func (b *testBackend) EvmPendingNonce(address common.Address) utils.Option[uint6
 // stubReceiptStore overrides GetReceipt on an otherwise real store so tests can
 // inject a store error or a nil receipt without ErrNotFound.
 type stubReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	get func(sdk.Context, common.Hash) (*evmtypes.Receipt, error)
 }
 
@@ -244,13 +259,13 @@ func (s stubReceiptStore) GetReceipt(ctx sdk.Context, hash common.Hash) (*evmtyp
 // stubBlockStatsStore overrides GetBlockStats to answer ErrNotFound for each height in
 // holeHeights, regardless of the wrapped store's real data.
 type stubBlockStatsStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	holeHeights map[uint64]bool
 }
 
-func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
+func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) (receipttypes.BlockStats, error) {
 	if s.holeHeights[blockNumber] {
-		return receipt.BlockStats{}, receipt.ErrNotFound
+		return receipttypes.BlockStats{}, receiptdb.ErrNotFound
 	}
 	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
 }
@@ -258,25 +273,25 @@ func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) 
 // hashOnlyReceiptStore answers ErrBlockStatsNotSupported and ErrRangeQueryNotSupported on an
 // otherwise real store, so tests can exercise the by-hash recompute path pebble takes.
 type hashOnlyReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 }
 
-func (hashOnlyReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
-	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+func (hashOnlyReceiptStore) GetBlockStats(sdk.Context, uint64) (receipttypes.BlockStats, error) {
+	return receipttypes.BlockStats{}, receiptdb.ErrBlockStatsNotSupported
 }
 
-func (hashOnlyReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+func (hashOnlyReceiptStore) IterateReceipts(uint64) (receiptdb.ReceiptIterator, error) {
+	return nil, receiptdb.ErrRangeQueryNotSupported
 }
 
 // stubIteratingReceiptStore overrides IterateReceipts on an otherwise real store, so tests can
 // exercise the iterator path without a real block-ordered backend.
 type stubIteratingReceiptStore struct {
-	receipt.ReceiptStore
-	iterate func(startBlock uint64) (receipt.ReceiptIterator, error)
+	receiptdb.ReceiptStore
+	iterate func(startBlock uint64) (receiptdb.ReceiptIterator, error)
 }
 
-func (s stubIteratingReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
+func (s stubIteratingReceiptStore) IterateReceipts(startBlock uint64) (receiptdb.ReceiptIterator, error) {
 	return s.iterate(startBlock)
 }
 
@@ -287,7 +302,7 @@ type fakeReceiptEntry struct {
 	receipt     *evmtypes.Receipt
 }
 
-// fakeReceiptIterator replays a fixed list of entries as a receipt.ReceiptIterator.
+// fakeReceiptIterator replays a fixed list of entries as a receiptdb.ReceiptIterator.
 type fakeReceiptIterator struct {
 	entries []fakeReceiptEntry
 	i       int

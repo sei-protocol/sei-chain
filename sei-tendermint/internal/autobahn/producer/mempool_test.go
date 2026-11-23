@@ -274,8 +274,12 @@ func (env *testEnv) Run(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}
+<<<<<<< HEAD
 			appHash := env.app.Info().LastBlockAppHash
 			if err := env.data.PushAppHash(ctx, i, appHash, nil); err != nil {
+=======
+			if err := env.data.PushAppHash(ctx, i, resp.AppHash); err != nil {
+>>>>>>> origin/main
 				return err
 			}
 		}
@@ -287,10 +291,14 @@ func newTestEnv(t testing.TB, rng utils.Rng, cfg *Config, app accountApp) *testE
 	return env
 }
 
+<<<<<<< HEAD
 func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app accountApp) (*testEnv, *epoch.Registry, []types.SecretKey) {
+=======
+func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.EVMProxy) (*testEnv, *epoch.TestRegistry, []types.SecretKey) {
+>>>>>>> origin/main
 	registry, keys := epoch.GenRegistry(rng, n)
 	store := blockstore.NewTestStore(t)
-	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
+	dataState := utils.OrPanic1(data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },

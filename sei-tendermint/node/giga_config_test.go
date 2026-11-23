@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/binary"
 	"math/big"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,12 +11,29 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+<<<<<<< HEAD
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+=======
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+>>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+func TestGenesisEpochUsesAutobahnEpochLength(t *testing.T) {
+	params := types.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genDoc := &types.GenesisDoc{InitialHeight: 7, GenesisTime: time.Unix(1, 0), Autobahn: utils.Some(params)}
+	firstRoad, err := genesisFirstRoad(genDoc)
+	require.NoError(t, err)
+	require.Equal(t, atypes.RoadHeight(7), firstRoad)
+	require.Equal(t, atypes.RoadHeight(3), genesisEpochLength(genDoc))
+}
 
 func genesisAt(initialHeight int64) *types.GenesisDoc {
 	return &types.GenesisDoc{InitialHeight: initialHeight}
@@ -174,4 +192,34 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
 	require.Equal(t, uint64(initialHeight), got.BlockHeight())
+}
+
+func TestStateSyncUpload(t *testing.T) {
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AWS_PROFILE", "")
+	uploading := gigaconfig.StateSyncConfig{
+		Enabled:                true,
+		SnapshotBucket:         "sei-snapshots",
+		SnapshotRegion:         "eu-central-1",
+		SnapshotUpload:         true,
+		SnapshotUploadInterval: time.Hour,
+	}
+
+	reading := uploading
+	reading.SnapshotUpload = false
+	upload, err := stateSyncUpload(config.ModeFull, reading, "chain-a", "node-a")
+	require.NoError(t, err)
+	require.False(t, upload.IsPresent(), "a bucket without snapshot_upload uploads no snapshot")
+
+	upload, err = stateSyncUpload(config.ModeFull, uploading, "chain-a", "node-a")
+	require.NoError(t, err)
+	got, ok := upload.Get()
+	require.True(t, ok)
+	require.Equal(t, "chain-a", got.ChainID)
+	require.Equal(t, "node-a", got.NodeID)
+	require.Equal(t, time.Hour, got.Interval)
+
+	_, err = stateSyncUpload(config.ModeValidator, uploading, "chain-a", "node-a")
+	require.Error(t, err)
 }

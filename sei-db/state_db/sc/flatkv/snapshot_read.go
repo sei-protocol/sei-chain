@@ -10,6 +10,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -261,6 +262,6 @@ func ReadSnapshotMiscValue(dir, moduleName string, key []byte) ([]byte, bool, er
 func openPebbleReadOnly(dbDir string) (*pebble.DB, error) {
 	return pebble.Open(dbDir, &pebble.Options{
 		ReadOnly:           true,
-		FormatMajorVersion: pebble.FormatVirtualSSTables,
+		FormatMajorVersion: pebbledb.FormatMajorVersion,
 	})
 }

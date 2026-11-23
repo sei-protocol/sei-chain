@@ -62,6 +62,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
+	registry := testGenesisEpochs(t, genDoc, addrs)
 
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var apps []*testApp
@@ -100,12 +101,17 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
+<<<<<<< HEAD
 			signer := newTestSigner(proxyApp.EvmChainID(), 0)
 			executor := newTestExecutor(&commonCfg, blockStore, signer)
 			dataState, err := BuildDataState(&commonCfg, blockStore)
+=======
+			dataState, err := BuildDataState(&commonCfg, blockStore, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+>>>>>>> origin/main
 			if err != nil {
 				return fmt.Errorf("BuildDataState[%v]: %w", i, err)
 			}
+			executor := newTestExecutor(&commonCfg, blockStore)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
@@ -344,7 +350,8 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
-	dataState, err := BuildDataState(&commonCfg, blockStore)
+	registry := testGenesisEpochs(t, genDoc, addrs)
+	dataState, err := BuildDataState(&commonCfg, blockStore, proxy.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
