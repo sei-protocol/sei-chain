@@ -159,6 +159,7 @@ contract StakingStorage {
     QueueBounds internal stagedQueueBounds;
     mapping(uint64 => StagedOperation) internal stagedQueue; // index =>
     mapping(address => mapping(address => StagedDelegation)) internal stagedDelegations; // delegator => validator =>
+    mapping(address => uint64) internal stagedInbound; // validator => staged delegates and redelegates to it
 
     /// @dev V2 to giga migration. The phase runs from the cutover height until
     /// migrationCursor passes the last V2 key.

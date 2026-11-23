@@ -74,9 +74,10 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"stagedQueueBounds":           slotStagedQueueBounds,
 		"stagedQueue":                 slotStagedQueue,
 		"stagedDelegations":           slotStagedDelegations,
-		"migrating":                   25,
-		"migrationCursor":             26,
-		"migrationFailures":           27,
+		"stagedInbound":               slotStagedInbound,
+		"migrating":                   26,
+		"migrationCursor":             27,
+		"migrationFailures":           28,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and
@@ -307,6 +308,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		s.stagedOperationAt(e))
 	require.Equal(t, stagedDelegation{sharesOut: big.NewInt(92), undelegations: 93, redelegationsOut: 94, redelegationsIn: 95},
 		s.stagedDelegation(delegator, op))
+	require.Equal(t, uint64(96), s.stagedInbound(other))
 }
 
 var seedABI = func() abi.ABI {

@@ -330,10 +330,12 @@ func (h *harness) inEffect(err error) error {
 }
 
 // stagedTotals returns each delegation's staged totals, keyed by delegator and
-// validator, and the staged delegations' tokens, counted from the staged queue.
-func (h *harness) stagedTotals() (map[[2]common.Address]stagedDelegation, *big.Int) {
+// validator, how many staged operations move stake to each validator, and the
+// staged delegations' tokens, counted from the staged queue.
+func (h *harness) stagedTotals() (map[[2]common.Address]stagedDelegation, map[common.Address]uint64, *big.Int) {
 	s, q := h.store(), h.store().stagedQueue()
 	totals := map[[2]common.Address]stagedDelegation{}
+	inbound := map[common.Address]uint64{}
 	add := func(delegator, op common.Address, shares *big.Int, undelegations, out, in uint64) {
 		t, ok := totals[[2]common.Address{delegator, op}]
 		if !ok {
@@ -350,14 +352,16 @@ func (h *harness) stagedTotals() (map[[2]common.Address]stagedDelegation, *big.I
 		switch op := s.stagedOperationAt(q.entry(i)); op.kind {
 		case stagedDelegate:
 			tokens.Add(tokens, op.amount)
+			inbound[op.validator]++
 		case stagedUndelegate:
 			add(op.delegator, op.validator, op.amount, 1, 0, 0)
 		case stagedRedelegate:
 			add(op.delegator, op.validator, op.amount, 0, 1, 0)
 			add(op.delegator, op.dstValidator, new(big.Int), 0, 0, 1)
+			inbound[op.dstValidator]++
 		}
 	}
-	return totals, tokens
+	return totals, inbound, tokens
 }
 
 // formatStaged formats staged's totals for comparison.
@@ -408,9 +412,10 @@ func requireReverts(t *testing.T, err error, want error, msgAndArgs ...interface
 }
 
 // requireInvariants checks that each validator's shares are its delegations'
-// shares, each delegation's staged totals are its staged operations' and leave
-// it no fewer than zero shares, each escrow holds the tokens and balances it
-// should, and the power index holds every unjailed validator in order.
+// shares, each delegation's and validator's staged totals are its staged
+// operations' and leave it no fewer than zero shares, each escrow holds the
+// tokens and balances it should, and the power index holds every unjailed
+// validator in order.
 // delegators are every account that may delegate.
 func (h *harness) requireInvariants(delegators ...common.Address) {
 	t, s := h.t, h.store()
@@ -451,7 +456,7 @@ func (h *harness) requireInvariants(delegators ...common.Address) {
 	require.Equal(t, bonded.String(), h.state.GetBalance(BondedEscrow).String(), "the bonded escrow holds the bonded validators' tokens")
 	require.Equal(t, notBonded.String(), h.state.GetBalance(NotBondedEscrow).String(), "the not-bonded escrow holds the other validators' tokens and every unbonding balance")
 
-	totals, stagedTokens := h.stagedTotals()
+	totals, inbound, stagedTokens := h.stagedTotals()
 	require.Equal(t, stagedTokens.String(), h.state.GetBalance(StagedEscrow).String(), "the staged escrow holds the staged delegations' tokens")
 	for _, d := range delegators {
 		for _, op := range []common.Address{val1, val2, val3} {
@@ -459,6 +464,9 @@ func (h *harness) requireInvariants(delegators ...common.Address) {
 			require.Equal(t, formatStaged(want), formatStaged(staged), "%s's staged totals for %s", d, op)
 			require.LessOrEqual(t, staged.sharesOut.Cmp(h.shares(d, op)), 0, "%s stages no more shares out of %s than it holds", d, op)
 		}
+	}
+	for _, op := range []common.Address{val1, val2, val3} {
+		require.Equal(t, inbound[op], s.stagedInbound(op), "the staged operations moving stake to %s", op)
 	}
 
 	index := h.powerIndex()

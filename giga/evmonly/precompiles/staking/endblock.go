@@ -268,8 +268,8 @@ func take(budget *uint64, n uint64) bool {
 
 // completeValidatorUnbonding makes the validator of validator queue entry e
 // unbonded, as x/staking's UnbondAllMatureValidators does, and removes it when
-// it has no shares left. An entry left by a validator that bonded again since
-// is skipped.
+// that leaves it vacant. An entry left by a validator that bonded again since is
+// skipped.
 func (p Precompile) completeValidatorUnbonding(block precompiles.BlockContext, s store, e common.Hash) error {
 	op := s.AddressAt(at(e, validatorQueueOperator), validatorQueueOperator.offset)
 	v, ok := s.validator(op)
@@ -280,10 +280,7 @@ func (p Precompile) completeValidatorUnbonding(block precompiles.BlockContext, s
 	}
 	v.status = statusUnbonded
 	s.setValidator(op, v)
-	if v.delegatorShares.Sign() == 0 {
-		return p.removeValidator(block, s, op, v)
-	}
-	return nil
+	return p.removeIfVacant(block, s, op, v)
 }
 
 // completeUnbonding pays the delegator of unbonding queue entry e every

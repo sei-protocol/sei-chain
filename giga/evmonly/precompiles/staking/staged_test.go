@@ -138,7 +138,9 @@ func TestProjectingAnEpochSnapshotLeavesTheStateAndHooksAsTheyWere(t *testing.T)
 	h.requireInvariants(bob)
 }
 
-func TestStagedOperationsOnARemovedValidatorAreDropped(t *testing.T) {
+// TestAValidatorStakeIsStagedToIsKept has val3, unbonded, undelegate its last
+// shares ahead of a redelegation and a delegation staged to it.
+func TestAValidatorStakeIsStagedToIsKept(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	require.NoError(t, h.stageUndelegate(val3, val3, sei(10)))
@@ -148,14 +150,94 @@ func TestStagedOperationsOnARemovedValidatorAreDropped(t *testing.T) {
 
 	h.endEpoch(0)
 	h.endEpoch(1)
-	_, ok := h.store().validator(val3)
-	require.False(t, ok, "val3 undelegated its last shares while unbonded, which removed it")
-	require.Len(t, h.failures, 2)
-	require.ErrorIs(t, h.failures[0], errBadRedelegationValidator)
-	require.ErrorIs(t, h.failures[1], errNoValidatorFound)
-	require.Equal(t, dec.FromInt(sei(5)), h.shares(alice, val1), "the stake alice redelegated stays where it was")
-	require.Equal(t, sei(1), h.state.GetBalance(bob), "bob's tokens come back")
+	require.Empty(t, h.failures)
+	require.Equal(t, statusUnbonded, h.validator(val3).status, "val3 is kept for the stake staged to it")
+	require.Equal(t, dec.FromInt(sei(2)), h.shares(alice, val3))
+	require.Equal(t, dec.FromInt(sei(1)), h.shares(bob, val3))
 	h.requireInvariants(alice, bob)
+}
+
+// TestAStagedDelegationKeepsItsValidatorPastItsUnbonding stages a delegation to
+// val2 while it is unbonding with no shares, and lets its unbonding complete
+// before the delegation takes effect.
+func TestAStagedDelegationKeepsItsValidatorPastItsUnbonding(t *testing.T) {
+	h := newHarness(t, testParams)
+	require.NoError(t, h.stageUndelegate(val2, val2, sei(20)))
+	h.endEpoch(0)
+	h.endEpoch(1)
+	require.Empty(t, h.failures)
+	require.Equal(t, statusUnbonding, h.validator(val2).status)
+	require.Zero(t, h.validator(val2).delegatorShares.Sign())
+
+	require.NoError(t, h.stageDelegate(bob, val2, sei(15)))
+	h.endEpoch(2)
+	require.Empty(t, h.failures)
+	projected := must(EpochValidators(h.state))
+	require.Equal(t, []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 15},
+	}, projected, "epoch 2's snapshot counts bob's delegation")
+
+	h.advance(testParams.UnbondingTime)
+	require.Empty(t, h.failures)
+	require.Equal(t, statusUnbonded, h.validator(val2).status, "val2 finishes unbonding with no shares and is kept")
+
+	h.endEpoch(3)
+	require.Empty(t, h.failures)
+	require.Equal(t, dec.FromInt(sei(15)), h.shares(bob, val2))
+	require.Equal(t, projected, must(bondedValidators(h.store())), "the bonded set is the one epoch 2's snapshot projected")
+	h.requireInvariants(bob)
+}
+
+// TestAStagedDelegationKeepsItsValidatorPastItsLastUndelegation stages, while
+// val2 is unbonding, the undelegation of its last shares and then a delegation
+// to it, and lets its unbonding complete before they take effect.
+func TestAStagedDelegationKeepsItsValidatorPastItsLastUndelegation(t *testing.T) {
+	h := newHarness(t, testParams)
+	require.NoError(t, h.stageDelegate(bob, val3, sei(15)))
+	h.endEpoch(0)
+	h.endEpoch(1)
+	require.Empty(t, h.failures)
+	require.Equal(t, statusUnbonding, h.validator(val2).status, "val3's 25 outrank val2's 20")
+
+	require.NoError(t, h.stageUndelegate(val2, val2, sei(20)))
+	require.NoError(t, h.stageDelegate(alice, val2, sei(26)))
+	h.endEpoch(2)
+	require.Empty(t, h.failures)
+	projected := must(EpochValidators(h.state))
+	require.Equal(t, []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 26},
+	}, projected, "epoch 2's snapshot counts alice's delegation")
+
+	h.advance(testParams.UnbondingTime)
+	require.Empty(t, h.failures)
+	require.Equal(t, statusUnbonded, h.validator(val2).status)
+
+	h.endEpoch(3)
+	require.Empty(t, h.failures)
+	require.Equal(t, dec.FromInt(sei(26)), h.shares(alice, val2))
+	require.Equal(t, projected, must(bondedValidators(h.store())), "the bonded set is the one epoch 2's snapshot projected")
+	h.requireInvariants(alice, bob)
+}
+
+// TestAValidatorKeptForAStagedDelegationIsRemovedWhenItIsDropped has val3,
+// unbonded, undelegate its last shares ahead of a delegation to it that the
+// voting power ratio refuses once val1's 20 have left the bonded set.
+func TestAValidatorKeptForAStagedDelegationIsRemovedWhenItIsDropped(t *testing.T) {
+	params := testParams
+	params.MaxVotingPowerRatio = dec.Quo(dec.FromInt(big.NewInt(56)), dec.FromInt(big.NewInt(100)))
+	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1)
+	h := newHarness(t, params)
+	require.NoError(t, h.stageUndelegate(val1, val1, sei(20)))
+	require.NoError(t, h.stageUndelegate(val3, val3, sei(10)))
+	require.NoError(t, h.stageDelegate(bob, val3, sei(40)), "50 of 90 is allowed when staged")
+
+	require.ErrorIs(t, h.inEffect(nil), errExceedMaxVotingPower, "40 of 70 once val1's 20 and val3's own 10 have left")
+	_, ok := h.store().validator(val3)
+	require.False(t, ok, "val3 is removed once no staged stake is bound for it")
+	require.Equal(t, sei(40), h.state.GetBalance(bob), "bob's tokens come back")
+	h.requireInvariants(bob)
 }
 
 func TestStagedOperationsPastTheBudgetWaitForTheNextBlock(t *testing.T) {

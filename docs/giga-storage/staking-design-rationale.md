@@ -212,7 +212,7 @@ Staking:
 | `0x32`, `0x33` | unbonding delegations and their index | `unbondingDelegations`; the index is not carried over |
 | `0x34`–`0x36` | redelegations and their indexes | `redelegationEntryCounts` and `redelegationsByValDst`; entries live in the redelegation queue, and `0x35` is not carried over |
 | `0x41`–`0x43` | unbonding, redelegation, validator queues | three queues |
-| none | delegates, undelegates and redelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue` and `stagedDelegations` (see *Staged operations*) |
+| none | delegates, undelegates and redelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue`, `stagedDelegations` and `stagedInbound` (see *Staged operations*) |
 | `0x50` | historical info | not carried over (see below) |
 
 Distribution: prefixes `0x00`–`0x08` map one to one onto the nine state
@@ -336,8 +336,10 @@ changes in the same epoch as the delegations. Snapshotting the bonded set as it
 is would count each change one epoch late, and for that epoch part of a
 validator's voting power would be stake already unbonding, which staking does
 not slash. An operation that will be dropped when it is applied is left out of
-the projection too, unless what it depends on changes during T+1 first, as when
-its validator is removed.
+the projection too. `stagedInbound` counts, for each validator, the delegates and
+redelegates staged to it, and a validator is not removed while that count is
+above zero, even once it is unbonded with no shares, so an operation finds its
+validator as the projection did.
 
 The work falls under EndBlock's budget like the other queues, and the
 projection spends a second one: operations past it wait for the blocks after,
@@ -360,12 +362,12 @@ does, and redelegations staged out of a validator count toward `maxEntries` for
 every destination, since they are not counted per destination.
 
 What can still change between the call and its epoch's end is what other
-operations do: a validator can be removed once its last shares leave, and a
-delegation can reach the max voting power ratio once others ahead of it take
-effect, as it is checked against the bonded set's power as they leave it, not
-as last stored. An operation that then fails is dropped and reported: a delegation's
-tokens go back to its delegator, and the stake an undelegation or redelegation
-would have moved stays where it is.
+operations do: a delegation can reach the max voting power ratio once others
+ahead of it take effect, as it is checked against the bonded set's power as they
+leave it, not as last stored. An operation that then fails is dropped and
+reported: a delegation's tokens go back to its delegator, the stake an
+undelegation or redelegation would have moved stays where it is, and a validator
+kept only for the stake it would have moved is removed.
 
 The other queries show a delegation as it stands, so `stagedOperations` pages
 through `stagedQueue` itself, filtered by delegator. Its page key is a queue

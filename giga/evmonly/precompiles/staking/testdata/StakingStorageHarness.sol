@@ -69,6 +69,7 @@ contract StakingStorageHarness is StakingStorage {
         });
         stagedDelegations[delegator][op] =
             StagedDelegation({sharesOut: 92, undelegations: 93, redelegationsOut: 94, redelegationsIn: 95});
+        stagedInbound[other] = 96;
     }
 
     function add(AddressSet storage set, address a) internal {

@@ -197,6 +197,20 @@ func (p Precompile) removeValidator(block precompiles.BlockContext, s store, op 
 	return p.hooks().AfterValidatorRemoved(block, s.State, op)
 }
 
+// removeIfVacant removes op's validator when it is unbonded, holds no shares and
+// no staged delegate or redelegate moves stake to it.
+func (p Precompile) removeIfVacant(block precompiles.BlockContext, s store, op common.Address, v validator) error {
+	if v.status != statusUnbonded || v.delegatorShares.Sign() != 0 {
+		return nil
+	}
+	// The epoch snapshot counted the staged stake as taking effect here, so the
+	// validator stays until it does or is dropped.
+	if s.stagedInbound(op) > 0 {
+		return nil
+	}
+	return p.removeValidator(block, s, op, v)
+}
+
 // bond makes op's validator bonded, as x/staking's bondValidator does.
 func (p Precompile) bond(block precompiles.BlockContext, s store, op common.Address, v *validator) error {
 	if v.status != statusUnbonded && v.status != statusUnbonding {

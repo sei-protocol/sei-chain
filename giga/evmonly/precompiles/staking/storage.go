@@ -532,6 +532,16 @@ func (s store) setStagedDelegation(delegator, op common.Address, staged stagedDe
 	s.SetUint64(at(base, stagedRedelegationsIn), stagedRedelegationsIn.offset, staged.redelegationsIn)
 }
 
+// stagedInbound returns how many staged delegates and redelegates move stake to
+// op.
+func (s store) stagedInbound(op common.Address) uint64 {
+	return s.Uint64(solstorage.MapAddress(solstorage.Slot(slotStagedInbound), op), 0)
+}
+
+func (s store) setStagedInbound(op common.Address, n uint64) {
+	s.SetUint64(solstorage.MapAddress(solstorage.Slot(slotStagedInbound), op), 0, n)
+}
+
 func (q queue) head() uint64 {
 	return q.s.Uint64(at(q.bounds, queueHead), queueHead.offset)
 }

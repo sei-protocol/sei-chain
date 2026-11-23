@@ -37,10 +37,13 @@ func stage(s store, op stagedOperation) (uint64, error) {
 	return op.epoch, nil
 }
 
-// countStaged adds op to the staged totals of the delegations it changes: the
-// shares an undelegation or redelegation takes from its source, and how many of
-// each it stages.
+// countStaged adds op to the staged totals of the delegations it changes, the
+// shares an undelegation or redelegation takes from its source and how many of
+// each it stages, and of the validator it moves stake to.
 func countStaged(s store, op stagedOperation) {
+	if to, ok := op.inbound(); ok {
+		s.setStagedInbound(to, s.stagedInbound(to)+1)
+	}
 	switch op.kind {
 	case stagedUndelegate:
 		staged := s.stagedDelegation(op.delegator, op.validator)
@@ -61,6 +64,10 @@ func countStaged(s store, op stagedOperation) {
 // uncountStaged takes op out of the staged totals countStaged added it to,
 // failing when they do not hold it.
 func uncountStaged(s store, op stagedOperation) error {
+	to, inbound := op.inbound()
+	if inbound && s.stagedInbound(to) == 0 {
+		return errStagedNotCounted
+	}
 	switch op.kind {
 	case stagedUndelegate:
 		staged := s.stagedDelegation(op.delegator, op.validator)
@@ -81,6 +88,9 @@ func uncountStaged(s store, op stagedOperation) error {
 		s.setStagedDelegation(op.delegator, op.validator, src)
 		s.setStagedDelegation(op.delegator, op.dstValidator, dst)
 	}
+	if inbound {
+		s.setStagedInbound(to, s.stagedInbound(to)-1)
+	}
 	return nil
 }
 
@@ -98,7 +108,7 @@ func (p Precompile) applyStaged(block precompiles.BlockContext, s store, params 
 		func(e common.Hash) error {
 			return p.applyStagedOperation(block, s, params, bondedPower, s.stagedOperationAt(e))
 		},
-		func(e common.Hash) error { return dropStaged(s, s.stagedOperationAt(e)) })
+		func(e common.Hash) error { return p.dropStaged(block, s, s.stagedOperationAt(e)) })
 }
 
 // applyStagedOperation takes op out of its delegations' staged totals, carries
@@ -137,6 +147,17 @@ func (p Precompile) carryOutStaged(block precompiles.BlockContext, s store, para
 	return fmt.Errorf("%w: %d", errUnknownStagedKind, op.kind)
 }
 
+// inbound returns the validator op moves stake to, if any.
+func (op stagedOperation) inbound() (common.Address, bool) {
+	switch op.kind {
+	case stagedDelegate:
+		return op.validator, true
+	case stagedRedelegate:
+		return op.dstValidator, true
+	}
+	return common.Address{}, false
+}
+
 // validators returns the validators op moves stake to or from.
 func (op stagedOperation) validators() []common.Address {
 	if op.kind == stagedRedelegate {
@@ -157,14 +178,25 @@ func bondedPowerOf(s store, ops []common.Address) *big.Int {
 	return power
 }
 
-// dropStaged takes op out of its delegations' staged totals and, for a
-// delegation, returns its tokens to its delegator.
-func dropStaged(s store, op stagedOperation) error {
+// dropStaged takes op out of its staged totals, returns a delegation's tokens to
+// its delegator, and removes the validator op would have moved stake to when
+// that leaves it vacant.
+func (p Precompile) dropStaged(block precompiles.BlockContext, s store, op stagedOperation) error {
 	if err := uncountStaged(s, op); err != nil {
 		return err
 	}
 	if op.kind == stagedDelegate {
-		return transfer(s.State, StagedEscrow, op.delegator, op.amount)
+		if err := transfer(s.State, StagedEscrow, op.delegator, op.amount); err != nil {
+			return err
+		}
 	}
-	return nil
+	to, ok := op.inbound()
+	if !ok {
+		return nil
+	}
+	v, ok := s.validator(to)
+	if !ok {
+		return nil
+	}
+	return p.removeIfVacant(block, s, to, v)
 }

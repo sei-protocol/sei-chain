@@ -34,6 +34,7 @@ const (
 	slotStagedQueueBounds           = 22
 	slotStagedQueue                 = 23
 	slotStagedDelegations           = 24
+	slotStagedInbound               = 25
 )
 
 // member is a struct member's position relative to the struct's base slot.
