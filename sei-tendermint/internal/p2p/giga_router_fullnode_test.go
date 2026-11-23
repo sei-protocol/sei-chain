@@ -13,13 +13,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -50,7 +51,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		}
 		urlByValidator[validatorKey.Public()] = rpcURL
 	}
-	cp := types.DefaultConsensusParams()
+	cp := testGigaConsensusParams()
 	cp.Block.MaxGas = 12345
 	genDoc := &types.GenesisDoc{
 		ChainID:         "giga-router-fullnode-test",
@@ -60,8 +61,8 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	app := newTestApp()
-	proxyApp := proxy.NewEVM(app)
+	app := newTestApp(genDoc.AppState)
+	proxyApp := abevm.NewProxy(app)
 
 	dir := t.TempDir()
 	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
@@ -82,12 +83,12 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		EnableEvmProxy:     true,
 	}
 	registry := testGenesisEpochs(t, genDoc, addrs)
-	dataState, err := BuildDataState(cfg, blockStore, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+	dataState, err := BuildDataState(cfg, blockStore, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 
 	// Fullnodes have no validator key and no Producer config.
 	// App is required for execution but isn't exercised by this test.
-	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
 	for validator, rpcURL := range urlByValidator {
@@ -163,8 +164,8 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 		ValidatorAddrs:  addrs,
 		AllowLocalAddrs: true,
 		DialInterval:    time.Second,
-		App:             proxy.NewEVM(newTestApp()),
-	}, makeKey(rng), state)
+		App:             abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
+	}, makeKey(rng), state, newTestSigner(1, 0))
 	require.NoError(t, err)
 	subscribed := make(chan int, 2)
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {

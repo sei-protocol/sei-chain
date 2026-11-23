@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -42,7 +41,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 				_, err := registry.Epoch(types.EpochIndex(idx))
 				require.ErrorIs(t, err, types.ErrPruned)
 			}
-			ds, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry), GenesisTimestamp: testGenesisTimestamp}, store)
+			ds, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry), GenesisTimestamp: testGenesisTimestamp}, store)
 			require.NoError(t, err)
 			stateDir := utils.None[string]()
 			wantTip := qc

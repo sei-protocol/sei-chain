@@ -4,8 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -15,10 +13,11 @@ import (
 	"github.com/holiman/uint256"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -65,7 +64,7 @@ type testBackend struct {
 	transactionCountAt func(common.Address, int64) (uint64, error)
 
 	// gotOverrides is the overrides the last call or estimate ran with.
-	gotOverrides evmonly.CallOverrides
+	gotOverrides abevm.CallOverrides
 
 	callAt                  func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
 	estimateGasAt           func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
@@ -107,7 +106,7 @@ func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlo
 	return b.blockByHash(ctx, req)
 }
 
-func (b *testBackend) EvmBalance(address common.Address, _ []byte) uint256.Int {
+func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 	return b.balance(address)
 }
 
@@ -139,17 +138,17 @@ func (b *testBackend) GenesisInitialHeight() int64 {
 	return b.initialHeight
 }
 
-func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
 	b.gotOverrides = overrides
 	return b.call(ctx, msg)
 }
 
-func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
 	b.gotOverrides = overrides
 	return b.callAt(ctx, msg, header)
 }
 
-func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	b.gotOverrides = overrides
 	return b.estimateGasAt(ctx, msg, gasCap, header)
 }
@@ -168,17 +167,17 @@ func (b *testBackend) EvmChainID() uint64 {
 	return b.chainID()
 }
 
-func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	b.gotOverrides = overrides
 	return b.estimateGas(ctx, msg, gasCap)
 }
 
-func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	b.gotOverrides = overrides
 	return b.estimateGasAfterCalls(ctx, calls, msg, gasCap)
 }
 
-func (b *testBackend) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	b.gotOverrides = overrides
 	return b.estimateGasAfterCallsAt(ctx, calls, msg, gasCap, header)
 }

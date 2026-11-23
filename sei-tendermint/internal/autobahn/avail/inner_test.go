@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 
@@ -40,7 +40,7 @@ func newTestDataStateAtRoad(t *testing.T, rng utils.Rng, registry *epoch.TestReg
 	require.NoError(t, store.WriteAppProposal(app))
 	require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
 	require.NoError(t, store.Flush())
-	return utils.OrPanic1(data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store))
+	return utils.OrPanic1(data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store))
 }
 
 func testSignedBlock(key types.SecretKey, lane types.LaneID, n types.LaneHeight, parent types.LaneBlockHeaderHash, rng utils.Rng) *types.Signed[*types.LaneProposal] {
@@ -85,7 +85,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		registry, keys := epoch.GenRegistry(rng, 4)
 		ep0 := registry.MustEpoch(0)
 		lane0 := ep0.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
-		ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
+		ds := newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)})
 		bs := contiguousBlocks(keys[0], lane0, 3, rng)
 		i, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs}})
 		require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		ep0 := registry.MustEpoch(0)
-		ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
+		ds := newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)})
 		qcs := make([]*types.CommitQC, 3)
 		prev := utils.None[*types.CommitQC]()
 		for i := range qcs {
@@ -230,7 +230,7 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		ep0 := registry.MustEpoch(0)
-		ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
+		ds := newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)})
 		qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
 		qc1 := types.BuildCommitQC(ep0, keys, utils.Some(qc0), nil)
 		qc2 := types.BuildCommitQC(ep0, keys, utils.Some(qc1), nil)
