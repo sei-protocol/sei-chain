@@ -356,7 +356,7 @@ func TestMakeChannel[T proto.Message](
 	n *TestNode,
 	chDesc ChannelDescriptor[T],
 ) *Channel[T] {
-	ch, err := OpenChannel(n.Router, chDesc)
+	ch, err := n.Router.OpenChannel(chDesc)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		RequireEmpty(t, ch)
@@ -367,7 +367,7 @@ func TestMakeChannel[T proto.Message](
 // MakeChannelNoCleanup opens a channel, with automatic error handling. The
 // caller must ensure proper cleanup of the channel.
 func TestMakeChannelNoCleanup[T proto.Message](t *testing.T, n *TestNode, chDesc ChannelDescriptor[T]) *Channel[T] {
-	ch, err := OpenChannel(n.Router, chDesc)
+	ch, err := n.Router.OpenChannel(chDesc)
 	require.NoError(t, err)
 	return ch
 }

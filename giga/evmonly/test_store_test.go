@@ -1,7 +1,7 @@
 package evmonly
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -20,7 +20,7 @@ func withTestState(state StateReader) Option {
 	return withTestStores(store, NewMemoryReceiptStore())
 }
 
-func withTestStores(store gigatypes.StateDB, receiptStore receipt.ReceiptStore) Option {
+func withTestStores(store gigatypes.StateDB, receiptStore receiptdb.ReceiptStore) Option {
 	return func(executor *Executor) {
 		WithStore(store)(executor)
 		WithReceiptStore(receiptStore)(executor)

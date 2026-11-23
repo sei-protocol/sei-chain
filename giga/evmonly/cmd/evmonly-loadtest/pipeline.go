@@ -433,7 +433,7 @@ func prepareBlocks(
 						return nil
 					}
 					timer.SetPhase(phaseRecoverSenders)
-					prepared, err := executor.PrepareBlock(groupCtx, block.request)
+					prepared, err := executor.PrepareBlock(block.request)
 					if err != nil {
 						if groupCtx.Err() != nil {
 							return nil

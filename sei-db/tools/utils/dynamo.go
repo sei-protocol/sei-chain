@@ -1,34 +1,33 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
 // DynamoDBClient wraps the DynamoDB service with common operations
 type DynamoDBClient struct {
-	client *dynamodb.DynamoDB
+	client *dynamodb.Client
 	table  string
 }
 
-// NewDynamoDBClient creates a new DynamoDB client
-func NewDynamoDBClient(tableName, awsRegion string) (*DynamoDBClient, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(awsRegion),
-	})
-
+// NewDynamoDBClient returns a client for tableName in awsRegion. It takes the credentials from
+// the AWS SDK default chain.
+func NewDynamoDBClient(ctx context.Context, tableName, awsRegion string) (*DynamoDBClient, error) {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(awsRegion))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS session: %w", err)
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	return &DynamoDBClient{
-		client: dynamodb.New(sess),
+		client: dynamodb.NewFromConfig(cfg),
 		table:  tableName,
 	}, nil
 }
@@ -61,9 +60,9 @@ type PrefixSize struct {
 }
 
 // ExportStateSizeAnalysis exports a single module analysis to DynamoDB
-func (d *DynamoDBClient) ExportStateSizeAnalysis(analysis *StateSizeAnalysis) error {
+func (d *DynamoDBClient) ExportStateSizeAnalysis(ctx context.Context, analysis *StateSizeAnalysis) error {
 	// Convert to DynamoDB attribute values
-	item, err := dynamodbattribute.MarshalMap(analysis)
+	item, err := attributevalue.MarshalMap(analysis)
 	if err != nil {
 		return fmt.Errorf("failed to marshal analysis for module %s: %w", analysis.ModuleName, err)
 	}
@@ -74,7 +73,7 @@ func (d *DynamoDBClient) ExportStateSizeAnalysis(analysis *StateSizeAnalysis) er
 		TableName: aws.String(d.table),
 	}
 
-	_, err = d.client.PutItem(input)
+	_, err = d.client.PutItem(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to write to DynamoDB for module %s: %w", analysis.ModuleName, err)
 	}
@@ -83,9 +82,9 @@ func (d *DynamoDBClient) ExportStateSizeAnalysis(analysis *StateSizeAnalysis) er
 }
 
 // ExportMultipleAnalyses exports multiple analyses sequentially
-func (d *DynamoDBClient) ExportMultipleAnalyses(analyses []*StateSizeAnalysis) error {
+func (d *DynamoDBClient) ExportMultipleAnalyses(ctx context.Context, analyses []*StateSizeAnalysis) error {
 	for i, analysis := range analyses {
-		if err := d.ExportStateSizeAnalysis(analysis); err != nil {
+		if err := d.ExportStateSizeAnalysis(ctx, analysis); err != nil {
 			return fmt.Errorf("failed to export analysis %d (module: %s): %w", i, analysis.ModuleName, err)
 		}
 	}
@@ -95,24 +94,24 @@ func (d *DynamoDBClient) ExportMultipleAnalyses(analyses []*StateSizeAnalysis) e
 // UpdateLatestHeightIfGreater keeps exactly one item in the metadata table using the schema:
 // Partition key: keyname (S). Numeric attribute: height (N) stores the latest height.
 // Upserts the row keyname = "latest_height" and sets height = :h only if missing or lower.
-func (d *DynamoDBClient) UpdateLatestHeightIfGreater(metadataTable string, height int64) (bool, error) {
+func (d *DynamoDBClient) UpdateLatestHeightIfGreater(ctx context.Context, metadataTable string, height int64) (bool, error) {
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String(metadataTable),
-		Key: map[string]*dynamodb.AttributeValue{
-			"keyname": {S: aws.String("latest_height")},
+		Key: map[string]types.AttributeValue{
+			"keyname": &types.AttributeValueMemberS{Value: "latest_height"},
 		},
 		UpdateExpression:    aws.String("SET height = :h"),
 		ConditionExpression: aws.String("attribute_not_exists(height) OR height < :h"),
-		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-			":h": {N: aws.String(fmt.Sprintf("%d", height))},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":h": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", height)},
 		},
-		ReturnValues: aws.String("NONE"),
+		ReturnValues: types.ReturnValueNone,
 	}
 
-	_, err := d.client.UpdateItem(input)
+	_, err := d.client.UpdateItem(ctx, input)
 	if err != nil {
-		var aerr awserr.Error
-		if errors.As(err, &aerr) && aerr.Code() == dynamodb.ErrCodeConditionalCheckFailedException {
+		var conditionFailed *types.ConditionalCheckFailedException
+		if errors.As(err, &conditionFailed) {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to update latest height: %w", err)

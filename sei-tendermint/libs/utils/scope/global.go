@@ -51,7 +51,7 @@ func (h *GlobalHandle[T]) WhileRunning(ctx context.Context, f func(ctx context.C
 }
 
 // WhileRunning1 is like WhileRunning but for functions returning a value.
-func WhileRunning1[R any, T any](ctx context.Context, h *GlobalHandle[T], f func(ctx context.Context) (R, error)) (res R, err error) {
+func (h *GlobalHandle[T]) WhileRunning1[R any](ctx context.Context, f func(ctx context.Context) (R, error)) (res R, err error) {
 	// We need to set the error outside the closure, because
 	// h.WhileRunning() may return context.Canceled if the task is already finished.
 	err = h.WhileRunning(ctx, func(ctx context.Context) error {

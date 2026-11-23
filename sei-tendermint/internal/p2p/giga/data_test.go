@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -34,10 +36,10 @@ type testNode struct {
 
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
-func newTestNode(t testing.TB, registry *epoch.Registry, cfg *consensus.Config) *testNode {
+func newTestNode(t testing.TB, registry *epoch.TestRegistry, cfg *consensus.Config) *testNode {
 	cfg.PersistentStateDir = utils.None[string]()
 	store := blockstore.NewTestStore(t)
-	dataState, err := data.NewState(&data.Config{Registry: registry}, store)
+	dataState, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
 	if err != nil {
 		panic(fmt.Sprintf("data.NewState: %v", err))
 	}
@@ -62,12 +64,12 @@ func (n *testNode) Run(ctx context.Context) error {
 }
 
 type testEnv struct {
-	registry  *epoch.Registry
+	registry  *epoch.TestRegistry
 	committee *types.Committee
 	nodes     map[types.PublicKey]*testNode
 }
 
-func newTestEnv(registry *epoch.Registry) *testEnv {
+func newTestEnv(registry *epoch.TestRegistry) *testEnv {
 	return &testEnv{registry, registry.MustEpoch(0).Committee(), map[types.PublicKey]*testNode{}}
 }
 

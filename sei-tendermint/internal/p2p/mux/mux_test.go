@@ -232,7 +232,7 @@ func genStreamKindConfig(rng utils.Rng) *StreamKindConfig {
 
 func genHandshake(rng utils.Rng) *handshake {
 	return &handshake{
-		Kinds: utils.GenMap(rng, genStreamKind, genStreamKindConfig),
+		Kinds: rng.GenMap(genStreamKind, genStreamKindConfig),
 	}
 }
 

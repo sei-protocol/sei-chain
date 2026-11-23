@@ -16,7 +16,7 @@ type voteTestEnv struct {
 }
 
 func newVoteTestEnv(rng utils.Rng) voteTestEnv {
-	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	keys := rng.GenSliceN(4, types.GenSecretKey)
 	weights := make(map[types.PublicKey]uint64, len(keys))
 	for _, k := range keys {
 		weights[k.Public()] = 1

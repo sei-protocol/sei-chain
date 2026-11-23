@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
@@ -74,7 +75,7 @@ type ConsensusState interface {
 type Environment struct {
 	// external, thread safe interfaces
 	App utils.Option[*proxy.Proxy]
-	EVM utils.Option[*proxy.EVMProxy]
+	EVM utils.Option[*abevm.Proxy]
 
 	// interfaces defined in types and above
 	StateStore       sm.Store

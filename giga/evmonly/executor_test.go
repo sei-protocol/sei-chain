@@ -23,7 +23,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 )
 
 const (
@@ -43,7 +43,7 @@ type failingReceiptStore struct {
 	err error
 }
 
-func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipttypes.ReceiptRecord) error {
 	if s.err != nil {
 		return s.err
 	}
@@ -499,7 +499,7 @@ func TestPrepareBlockParallelParsePreservesOrderAndReturnsIndexedError(t *testin
 	}
 
 	executor := NewExecutor(Config{ParseWorkers: 4})
-	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{
+	prepared, err := executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     validRaw,
 	})
@@ -510,7 +510,7 @@ func TestPrepareBlockParallelParsePreservesOrderAndReturnsIndexedError(t *testin
 
 	malformed := append([][]byte(nil), validRaw...)
 	malformed[1] = []byte{0x01}
-	_, err = executor.PrepareBlock(t.Context(), BlockRequest{
+	_, err = executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     malformed,
 	})
@@ -578,7 +578,7 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 		Txs:     [][]byte{rawTx},
 	})
 
-	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 	require.Nil(t, result)
 	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 
@@ -626,7 +626,7 @@ func TestExecutorRequiresNonZeroBlockGasLimit(t *testing.T) {
 	ctx.GasLimit = 0
 	executor := NewExecutor(Config{})
 
-	_, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: ctx})
+	_, err := executor.PrepareBlock(BlockRequest{Context: ctx})
 	require.ErrorIs(t, err, errInvalidBlockGasLimit)
 
 	result, err := executor.ExecutePreparedBlock(t.Context(), PreparedBlock{Context: ctx})
@@ -664,7 +664,7 @@ func TestExecutorRejectsPreCancunBlocks(t *testing.T) {
 	preCancun.PragueTime = nil
 	executor := NewExecutor(Config{ChainConfig: &preCancun})
 
-	_, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockContext(chainID)})
+	_, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID)})
 	require.ErrorIs(t, err, errPreCancunBlock)
 
 	result, err := executor.ExecutePreparedBlock(t.Context(), PreparedBlock{Context: blockContext(chainID)})

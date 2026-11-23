@@ -123,12 +123,12 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	vote := NewLaneVote(ep.EpochIndex(), NewLaneBlock(lane, 0, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
-		Sign(keys[0], vote),
+		keys[0].Sign(vote),
 	})
 	require.NoError(t, heavyOnly.Verify(ep))
 	lightMajority := NewLaneQC([]*Signed[*LaneVote]{
-		Sign(keys[1], vote),
-		Sign(keys[2], vote),
+		keys[1].Sign(vote),
+		keys[2].Sign(vote),
 	})
 	require.Error(t, lightMajority.Verify(ep))
 }
@@ -140,12 +140,12 @@ func TestPrepareQCVerifyChecksWeight(t *testing.T) {
 	vote := NewPrepareVote(voteProposal)
 
 	heavyOnly := NewPrepareQC([]*Signed[*PrepareVote]{
-		Sign(keys[0], vote),
+		keys[0].Sign(vote),
 	})
 	require.NoError(t, heavyOnly.Verify(ep))
 	lightMajority := NewPrepareQC([]*Signed[*PrepareVote]{
-		Sign(keys[1], vote),
-		Sign(keys[2], vote),
+		keys[1].Sign(vote),
+		keys[2].Sign(vote),
 	})
 	require.Error(t, lightMajority.Verify(ep))
 }
@@ -154,7 +154,7 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	sign := func(p *Proposal) *PrepareQC {
-		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p))})
+		return NewPrepareQC([]*Signed[*PrepareVote]{keys[0].Sign(NewPrepareVote(p))})
 	}
 
 	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep))
@@ -170,7 +170,7 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
 	sign := func(p *Proposal) *CommitQC {
-		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(BuildPrepareQC(keys, p)))})
+		return NewCommitQC([]*Signed[*CommitVote]{keys[0].Sign(NewCommitVote(BuildPrepareQC(keys, p)))})
 	}
 
 	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep))
@@ -189,12 +189,12 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 
 	heavyOnly := NewCommitQC([]*Signed[*CommitVote]{
-		Sign(keys[0], vote),
+		keys[0].Sign(vote),
 	})
 	require.NoError(t, heavyOnly.Verify(ep))
 	lightMajority := NewCommitQC([]*Signed[*CommitVote]{
-		Sign(keys[1], vote),
-		Sign(keys[2], vote),
+		keys[1].Sign(vote),
+		keys[2].Sign(vote),
 	})
 	require.Error(t, lightMajority.Verify(ep))
 }
@@ -205,13 +205,13 @@ func TestAppQCVerifyChecksWeight(t *testing.T) {
 	vote := NewAppVote(NewAppProposal(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First}).View(), GenAppHash(rng)))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
-		Sign(keys[0], vote),
+		keys[0].Sign(vote),
 	})
 	require.NoError(t, heavyOnly.Verify(ep.Committee()))
 
 	lightMajority := NewAppQC([]*Signed[*AppVote]{
-		Sign(keys[1], vote),
-		Sign(keys[2], vote),
+		keys[1].Sign(vote),
+		keys[2].Sign(vote),
 	})
 	require.Error(t, lightMajority.Verify(ep.Committee()))
 }

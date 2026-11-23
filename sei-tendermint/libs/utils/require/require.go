@@ -26,6 +26,9 @@ var NotZero = require.NotZero
 // Contains .
 var Contains = require.Contains
 
+// NotContains .
+var NotContains = require.NotContains
+
 func ElementsMatch[T any](t TestingT, a []T, b []T, msgAndArgs ...any) {
 	require.ElementsMatch(t, a, b, msgAndArgs...)
 }
@@ -44,8 +47,14 @@ var Error = require.Error
 // ErrorIs .
 var ErrorIs = require.ErrorIs
 
+// ErrorContains .
+var ErrorContains = require.ErrorContains
+
 // NoError .
 var NoError = require.NoError
+
+// JSONEq asserts that two JSON strings are equivalent.
+var JSONEq = require.JSONEq
 
 // Empty .
 var Empty = require.Empty
@@ -76,6 +85,9 @@ var NoFileExists = require.NoFileExists
 
 // FileExists .
 var FileExists = require.FileExists
+
+// DirExists .
+var DirExists = require.DirExists
 
 // Positive .
 func Positive[T cmp.Ordered](t TestingT, e T, msgAndArgs ...any) {

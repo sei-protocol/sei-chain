@@ -296,6 +296,9 @@ message Msg {
 
     // App
     AppProposal app_vote = 7;
+
+    // P2P authentication
+    Challenge challenge = 13;
   }
 }
 
@@ -361,12 +364,14 @@ message ConsensusMsg {
 }
 
 message Committee {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   repeated EpochMember members = 1 [(wireguard.max_count) = 100];
 }
 
 // Epoch index, road range, and committee.
 message Epoch {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   optional uint64 index = 1; // required
   optional Committee committee = 2; // required
@@ -386,14 +391,14 @@ message StateSyncProof {
   optional AppQC app_qc = 3; // required
 }
 
-// Persisted epoch registry state.
-message PersistedEpochRegistry {
-  reserved 1, 2, 4;
-  reserved "live", "pending", "pending_v2";
-  repeated Epoch live_v2 = 3;
+// Retained epoch registry state.
+message EpochRegistry {
+  option (hashable.hashable) = true;
+  repeated Epoch epochs = 1;
 }
 
 message EpochMember {
+  option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   optional LaneID lane_id = 1; // required
   optional uint64 weight = 2; // required, can't be zero
@@ -406,4 +411,17 @@ message LaneBlockPos {
   option (wireguard.sized) = true;
   optional uint64 height = 3; // required
   optional uint64 offset = 2; // required
+}
+
+message Challenge {
+  option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
+  optional bytes session_key = 1 [(wireguard.max_size) = 32]; // required
+  optional bool is_server = 2; // required
+}
+
+message SignedChallenge {
+  option (wireguard.sized) = true;
+  optional Challenge msg = 1; // required
+  optional Signature sig = 2; // required
 }
