@@ -21,7 +21,6 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
-	EVMRPC   url.URL
 }
 
 func (a GigaNodeAddr) String() string {
@@ -57,12 +56,15 @@ type GigaRouterCommonConfig struct {
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
+	// AllowLocalAddrs permits loopback and link-local EVM RPC URLs in tests.
+	AllowLocalAddrs bool
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
 	ValidatorKey    atypes.SecretKey
+	EVMRPC          url.URL
 	ViewTimeout     func(atypes.View) time.Duration
 	ProposalTimeout time.Duration
 	Producer        *producer.Config
@@ -85,5 +87,5 @@ type GigaRouter interface {
 	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
 	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
-	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
+	fillInboundHandshake(spec handshakeSpec) handshakeSpec
 }

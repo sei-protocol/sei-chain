@@ -23,7 +23,7 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 	rng := utils.TestRng()
 
 	// epoch length = 3, 4 validators: 3 honest, 1 byzantine
-	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	keys := rng.GenSliceN(4, types.GenSecretKey)
 	weights := map[types.PublicKey]uint64{}
 	for _, key := range keys {
 		weights[key.Public()] = 1

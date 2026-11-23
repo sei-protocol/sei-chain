@@ -251,8 +251,8 @@ func (w *Watch[T]) Lock() iter.Seq2[T, *WatchCtrl] {
 	}
 }
 
-// MonitorWatchUpdates calls f and checks if it has updated the watch.
-func MonitorWatchUpdates[T any](w *Watch[T], f func()) bool {
+// MonitorUpdates calls f and checks if it has updated the watch.
+func (w *Watch[T]) MonitorUpdates(f func()) bool {
 	w.ctrl.mu.Lock()
 	updated := w.ctrl.updated
 	w.ctrl.mu.Unlock()

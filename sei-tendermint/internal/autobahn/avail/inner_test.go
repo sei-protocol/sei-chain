@@ -29,7 +29,7 @@ func newTestDataStateAtRoad(t *testing.T, rng utils.Rng, registry *epoch.TestReg
 	prepare := types.BuildPrepareQC(keys, proposal)
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
 	for n, key := range keys {
-		votes[n] = types.Sign(key, types.NewCommitVote(prepare))
+		votes[n] = key.Sign(types.NewCommitVote(prepare))
 	}
 	qc := types.NewCommitQC(votes)
 	full := types.NewFullCommitQC(qc, []*types.LaneBlockHeader{blocks[0].Header()})
@@ -45,7 +45,7 @@ func newTestDataStateAtRoad(t *testing.T, rng utils.Rng, registry *epoch.TestReg
 
 func testSignedBlock(key types.SecretKey, lane types.LaneID, n types.LaneHeight, parent types.LaneBlockHeaderHash, rng utils.Rng) *types.Signed[*types.LaneProposal] {
 	block := types.NewLaneBlock(lane, n, parent, types.GenPayload(rng))
-	return types.Sign(key, types.NewLaneProposal(block))
+	return key.Sign(types.NewLaneProposal(block))
 }
 
 func contiguousBlocks(key types.SecretKey, lane types.LaneID, n int, rng utils.Rng) []persist.LoadedBlock {
@@ -264,7 +264,7 @@ func TestPruneAdvancesAppliedEpoch(t *testing.T) {
 
 	voteProposal := types.ProposalAt(ep1, types.View{Height: registry.LastRoad(1), Number: 0})
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
+		keys[0].Sign(types.NewCommitVote(types.BuildPrepareQC(keys, voteProposal))),
 	})
 	qc := types.BuildCommitQC(ep2, keys, utils.Some(prev), nil)
 	i.setAnchor(data.Anchor{First: utils.Some(data.AnchorFirst{
