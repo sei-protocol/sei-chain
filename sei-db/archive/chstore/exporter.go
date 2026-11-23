@@ -20,15 +20,17 @@ const (
 	// A batch is written once it holds maxBatchBlocks blocks, maxBatchTxs transactions,
 	// maxBatchRows rows in one table or maxBatchBytes of variable-length data, and otherwise every
 	// flushInterval.
-	//
-	// The archive is at most two batches behind execution, so a node can always roll back to it:
-	// 2*maxBatchBlocks is within the storage's default rollback window of 1,000 blocks.
 	maxBatchBlocks = 250
 	maxBatchTxs    = 500_000
 	maxBatchRows   = 1_000_000
 	maxBatchBytes  = 256 << 20
 	flushInterval  = time.Second
 )
+
+// MaxLag is the most blocks the archive's committed head trails the blocks it has been given: a batch being
+// written and a full one waiting. A node's rollback window must cover it, since recovery rolls the node back
+// to that head.
+const MaxLag = 2 * maxBatchBlocks
 
 // Exporter writes every block the executor produces to the archive, in order and in batches. It
 // copies each block into the current batch as it arrives and writes filled batches in the
