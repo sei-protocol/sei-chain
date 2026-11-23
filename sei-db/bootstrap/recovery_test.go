@@ -113,13 +113,6 @@ func TestRecoveryTarget(t *testing.T) {
 			heads: storeHeads{stateWAL: 7, appHashVault: 3}, want: 3},
 		{name: "an empty app hash vault at giga activation 1 aligns on 0",
 			heads: storeHeads{stateWAL: 5}, want: 0},
-		// The node executes the blocks the archive is missing again, which hands them to the archive.
-		{name: "the archive can be the lowest",
-			heads: storeHeads{stateWAL: 7, receiptStore: 6, appHashVault: 9, archive: 4}, want: 4},
-		{name: "an archive ahead of the stores does not raise the target",
-			heads: storeHeads{stateWAL: 5, appHashVault: 9, archive: 8}, want: 5},
-		{name: "an empty archive does not collapse the target",
-			heads: storeHeads{stateWAL: 5, receiptStore: 6, appHashVault: 9}, want: 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, recoveryTarget(tc.heads))

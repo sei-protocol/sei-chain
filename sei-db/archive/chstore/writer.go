@@ -118,6 +118,17 @@ func (w *writer) write(ctx context.Context, b *batch) error {
 	return nil
 }
 
+// recordStart records first as the start of an empty archive: a committed row that ends at the block before
+// it.
+func (w *writer) recordStart(ctx context.Context, first uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+	if err := w.insertCommit(ctx, first, first-1, true); err != nil {
+		return fmt.Errorf("record the archive's start at block %d: %w", first, err)
+	}
+	return nil
+}
+
 // insertCommit records blocks first through last in archive_commits, as committed or as pending.
 func (w *writer) insertCommit(ctx context.Context, first, last uint64, committed bool) error {
 	var start, end proto.ColUInt64

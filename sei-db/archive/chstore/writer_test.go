@@ -190,14 +190,14 @@ func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
 	require.NoError(t, w.insertCommit(t.Context(), b.first, b.last, false))
 	require.NoError(t, w.client.Insert(t.Context(), tableBlocks, b.blockRows.input()))
 
-	_, err := StartExporter(t.Context(), cfg)
+	_, err := StartExporter(t.Context(), cfg, 1)
 	require.ErrorIs(t, err, errInterruptedBatch)
 	require.ErrorContains(t, err, "blocks 3-4")
 }
 
 func TestExporterWritesExecutedBlocks(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg)
+	exporter, err := StartExporter(t.Context(), cfg, 1)
 	require.NoError(t, err)
 	store := func(n uint64) {
 		block := testBlock(n)
@@ -210,7 +210,7 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 	require.Equal(t, uint64(3), rowCounts(t, cfg)[tableBlocks])
 
 	// A restarted exporter expects the block after the archived ones and refuses one it holds.
-	exporter, err = StartExporter(t.Context(), cfg)
+	exporter, err = StartExporter(t.Context(), cfg, 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), exporter.LatestBlock())
 	block := testBlock(3)
@@ -235,7 +235,7 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 
 func TestExporterStopsAtAFailedWrite(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg)
+	exporter, err := StartExporter(t.Context(), cfg, 1)
 	require.NoError(t, err)
 	exec(t, cfg, cfg.Database, "DETACH TABLE blocks")
 	block := testBlock(1)
@@ -244,43 +244,41 @@ func TestExporterStopsAtAFailedWrite(t *testing.T) {
 	exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
 
 	// The failed batch stays pending, so the archive does not resume until it is removed.
-	_, err = StartExporter(t.Context(), cfg)
+	_, err = StartExporter(t.Context(), cfg, 1)
 	require.ErrorIs(t, err, errInterruptedBatch)
 }
 
-func TestEmptyArchiveRecordsItsStart(t *testing.T) {
+func TestEmptyArchiveRecordsItsStartWhenOpened(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg)
+	_, err := StartExporter(t.Context(), cfg, 0)
+	require.ErrorContains(t, err, "block 0")
+
+	exporter, err := StartExporter(t.Context(), cfg, 1)
 	require.NoError(t, err)
+	// Recorded before any block, as a committed row that ends at the block before the start.
+	require.Equal(t, []uint64{0}, query(t, cfg, "SELECT end_block AS a FROM archive_commits WHERE committed"))
 	require.Zero(t, exporter.LatestBlock())
-	block := testBlock(5)
-	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
-	// Recorded before the block is accepted, so a restart that loses the batch holding block 5
-	// still expects block 5.
-	require.Equal(t, []uint64{4}, query(t, cfg, "SELECT end_block AS a FROM archive_commits WHERE committed"))
-	require.Equal(t, uint64(4), exporter.LatestBlock())
 	require.NoError(t, exporter.Close())
 
-	// An archive that holds only its start, as one whose first batch was lost.
-	exec(t, cfg, cfg.Database, "DELETE FROM archive_commits WHERE end_block >= 5")
-	exporter, err = StartExporter(t.Context(), cfg)
+	// A restart that lost the first batch keeps the start, however far the node has moved on.
+	exporter, err = StartExporter(t.Context(), cfg, 50)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = exporter.Close() })
-	require.Equal(t, uint64(4), exporter.LatestBlock())
-	skipping := testBlock(6)
-	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &skipping), "expects block 5")
+	require.Zero(t, exporter.LatestBlock())
+	for _, n := range []uint64{0, 50} {
+		block := testBlock(n)
+		require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &block), "expects block 1")
+	}
+	block := testBlock(1)
 	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
 }
 
-func TestArchiveStartingAtBlockOneExpectsIt(t *testing.T) {
+func TestEmptyArchiveStartsMidChain(t *testing.T) {
 	cfg := testConfig(t)
-	require.NoError(t, migrate(t.Context(), cfg))
-	require.NoError(t, testWriter(t, cfg).insertCommit(t.Context(), 1, 0, true))
-	exporter, err := StartExporter(t.Context(), cfg)
+	exporter, err := StartExporter(t.Context(), cfg, 234234)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = exporter.Close() })
-	// Nothing to roll back to, but the archive still refuses to start anywhere but block 1.
-	require.Zero(t, exporter.LatestBlock())
-	block := testBlock(2)
-	require.ErrorContains(t, exporter.ArchiveBlock(t.Context(), &block), "expects block 1")
+	require.Equal(t, uint64(234233), exporter.LatestBlock())
+	block := testBlock(234234)
+	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
 }

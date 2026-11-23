@@ -2,6 +2,7 @@ package chstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -45,22 +46,26 @@ type Exporter struct {
 	// writeErr is the first failed write. Once it is set, no batch is written.
 	writeErr atomic.Pointer[error]
 
-	// latest is the block before the next one the archive expects, 0 when it expects none yet.
+	// latest is the newest block the archive has committed, or the block before its first when it holds
+	// none.
 	latest atomic.Uint64
 
 	// mu guards the fields below, which ArchiveBlock shares with the periodic flush.
 	mu  sync.Mutex
 	cur *batch
-	// next is the first block not yet archived, 0 when the archive is empty.
+	// next is the block the archive expects next.
 	next   uint64
 	closed bool
 }
 
 var _ archive.ArchivalStore = (*Exporter)(nil)
 
-// StartExporter creates the archive tables when they are missing and starts writing after the
-// last block already archived.
-func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error) {
+// StartExporter creates the archive tables when they are missing and starts writing after the last block
+// already archived. An empty archive records first as its start before StartExporter returns.
+func StartExporter(ctx context.Context, cfg clickhouse.Config, first uint64) (*Exporter, error) {
+	if first == 0 {
+		return nil, errors.New("an archive cannot start at block 0")
+	}
 	if err := migrate(ctx, cfg); err != nil {
 		return nil, err
 	}
@@ -69,6 +74,12 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 		return nil, err
 	}
 	next, err := w.nextBlock(ctx)
+	if err == nil && next == 0 {
+		// Recorded before any block, so a restart that loses the first batch rolls the node back to first
+		// rather than starting the archive after it.
+		err = w.recordStart(ctx, first)
+		next = first
+	}
 	if err != nil {
 		w.close()
 		return nil, err
@@ -82,9 +93,7 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 		cur:    newBatch(),
 		next:   next,
 	}
-	if next > 0 {
-		e.latest.Store(next - 1)
-	}
+	e.latest.Store(next - 1)
 	e.free <- newBatch()
 	go e.writeBatches()
 	go e.flushPeriodically()
@@ -96,7 +105,7 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config) (*Exporter, error
 // without adding block, for a block other than the one it expects next, for one it cannot encode, once
 // a batch has failed to be written, and once the exporter is closed. When the block fills the batch,
 // it waits for the previous batch to be written.
-func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBlock) error {
+func (e *Exporter) ArchiveBlock(_ context.Context, block *archive.ExecutedBlock) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	number := block.Number
@@ -105,13 +114,6 @@ func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBloc
 	}
 	if err := e.writeFailure(); err != nil {
 		return err
-	}
-	if e.next == 0 {
-		// Recorded before the block is accepted, so a restart that lost the first batch rolls the node
-		// back to this block rather than starting the archive after it.
-		if err := e.recordStart(ctx, number); err != nil {
-			return err
-		}
 	}
 	// Any other block would leave a gap or archive a block twice.
 	if number != e.next {
@@ -127,21 +129,8 @@ func (e *Exporter) ArchiveBlock(ctx context.Context, block *archive.ExecutedBloc
 	return nil
 }
 
-// recordStart makes first the block an empty archive starts at, recorded as a committed row that ends at
-// the block before it. The caller holds mu.
-func (e *Exporter) recordStart(ctx context.Context, first uint64) error {
-	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
-	defer cancel()
-	if err := e.writer.insertCommit(ctx, first, first-1, true); err != nil {
-		return fmt.Errorf("record the archive's start at block %d: %w", first, err)
-	}
-	e.next = first
-	e.latest.Store(first - 1)
-	return nil
-}
-
-// LatestBlock returns the highest block the archive has committed, or for an archive that has committed
-// none yet, the block before its start. It returns 0 when neither is known.
+// LatestBlock returns the newest block the archive has committed, or the block before its first when it
+// holds none.
 func (e *Exporter) LatestBlock() uint64 {
 	return e.latest.Load()
 }

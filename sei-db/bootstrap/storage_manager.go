@@ -69,8 +69,8 @@ type GigaStorageManager struct {
 }
 
 // NewGigaStorageManager opens every store a Giga node runs on, first aligning the state stores and the receipt
-// store on the lowest height they and the app hash vault hold (see alignStores()). It refuses to start when any
-// store is ahead of a non-empty block store.
+// store on the lowest height they, the app hash vault and the history archive hold (see alignStores()). It
+// refuses to start when any store is ahead of a non-empty block store.
 //
 // The app hash builder's setup is completed at the aligned height. The builder halts the node before setup
 // completes if the aligned state disagrees with the app hash it already stores for that height. A failed call
@@ -107,17 +107,22 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	if err := assertInvariants(cfg, blockStoreHead, heads); err != nil {
 		return nil, fmt.Errorf("assert storage invariants: %w", err)
 	}
+	target := recoveryTarget(heads)
 	timer.SetPhase("archive")
-	archiveStore, err := openArchive(ctx, cfg)
+	// An empty archive starts at the block the node executes next: the one after target, or on a fresh chain
+	// the giga activation height.
+	archiveStore, err := openArchive(ctx, cfg, max(target+1, cfg.AppHashBuilderConfig.GigaActivationHeight))
 	if err != nil {
 		return nil, fmt.Errorf("open archive: %w", err)
 	}
 	if archiveStore != nil {
 		defer closeOnFailure(&retErr, "archive", archiveStore.Close)
-		heads.archive = archiveStore.LatestBlock()
+		// The archive is never rolled back, so the stores align at or below its head and the node executes the
+		// blocks it lacks again. Like the app hash vault's, its head counts even when it is 0.
+		target = min(target, archiveStore.LatestBlock())
 	}
 	timer.SetPhase("align_stores")
-	if err := alignStores(ctx, cfg, recoveryTarget(heads)); err != nil {
+	if err := alignStores(ctx, cfg, target); err != nil {
 		return nil, fmt.Errorf("align stores: %w", err)
 	}
 
