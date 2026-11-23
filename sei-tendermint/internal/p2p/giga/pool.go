@@ -75,6 +75,17 @@ func (p *Pool[K, V]) Get(key K) (V, bool) {
 	return utils.Zero[V](), false
 }
 
+// WaitFor waits until key is present in the pool or ctx is cancelled.
+func (p *Pool[K, V]) WaitFor(ctx context.Context, key K) error {
+	for inner, ctrl := range p.inner.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool {
+			_, ok := inner.byKey[key]
+			return ok
+		})
+	}
+	return nil
+}
+
 func (p *Pool[K, V]) RunForEach(ctx context.Context, task func(context.Context, V) error) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var next poolEntry[V]

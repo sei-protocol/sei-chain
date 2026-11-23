@@ -133,7 +133,7 @@ func commitQCAtRoad(
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
 	prepareQC := types.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(types.NewCommitVote(prepareQC)))
 	}
 	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.LaneBlockHeader{block.Header()}), []*types.LaneBlock{block}
 }
@@ -317,7 +317,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
 	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range badKeys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(types.NewCommitVote(prepareQC)))
 	}
 	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
 
@@ -694,7 +694,7 @@ func TestPushEmptyQC(t *testing.T) {
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
 	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for i, key := range keys {
-		votes[i] = types.Sign(key, types.NewCommitVote(prepareQC))
+		votes[i] = key.Sign(types.NewCommitVote(prepareQC))
 	}
 	qc := types.NewFullCommitQC(types.NewCommitQC(votes), nil)
 	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
@@ -1692,7 +1692,7 @@ func TestRoadBlockCacheEmptyRoads(t *testing.T) {
 			proposal, err := types.NewProposal(keys[0], vs, vs.NextTimestamp(), nil)
 			require.NoError(t, err)
 			vote := types.NewCommitVote(types.BuildPrepareQC(keys, proposal.Proposal().Msg()))
-			nextQC = types.NewFullCommitQC(types.NewCommitQC([]*types.Signed[*types.CommitVote]{types.Sign(keys[0], vote)}), nil)
+			nextQC = types.NewFullCommitQC(types.NewCommitQC([]*types.Signed[*types.CommitVote]{keys[0].Sign(vote)}), nil)
 			if i < maxRoadBlocks {
 				require.NoError(t, state.PushPartialBlock(t.Context(), nextQC, nil))
 			}

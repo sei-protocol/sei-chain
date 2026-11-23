@@ -27,7 +27,7 @@ func BuildPrepareQC(keys []SecretKey, proposal *Proposal) *PrepareQC {
 	vote := NewPrepareVote(proposal)
 	votes := make([]*Signed[*PrepareVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	return NewPrepareQC(votes)
 }
@@ -57,7 +57,7 @@ func BuildCommitQC(
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
 	prepareQC := BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range keys {
-		votes = append(votes, Sign(k, NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(NewCommitVote(prepareQC)))
 	}
 	return NewCommitQC(votes)
 }
@@ -71,9 +71,17 @@ func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
 	vote := NewLaneVote(vs.Epoch.EpochIndex(), header)
 	votes := make([]*Signed[*LaneVote], 0, len(keys))
 	for _, k := range TestKeysWithWeight(c, keys, c.LaneQuorum()) {
-		votes = append(votes, Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return map[LaneID]*LaneQC{lane: NewLaneQC(votes)}
+}
+
+// GetChallenge generates a random Challenge.
+func GetChallenge(rng utils.Rng) Challenge {
+	return Challenge{
+		SessionKey: SessionKey(utils.GenBytes(rng, len(SessionKey{}))),
+		IsServer:   utils.GenBool(rng),
+	}
 }
 
 // GenNodeID generates a random NodeID.
@@ -94,7 +102,7 @@ func GenSecretKey(rng utils.Rng) SecretKey {
 // GenCommittee generates a random Committee of the given size.
 // Returns the generated secret keys as well.
 func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
-	sks := utils.GenSliceN(rng, size, GenSecretKey)
+	sks := rng.GenSliceN(size, GenSecretKey)
 	pks := map[PublicKey]uint64{}
 	for _, sk := range sks {
 		pks[sk.Public()] = 1000 + uint64(rng.Intn(1000)) // nolint: gosec
@@ -250,7 +258,7 @@ func GenPayload(rng utils.Rng) *Payload {
 		CreatedAt:         utils.GenTimestamp(rng),
 		TotalGasWanted:    rng.Uint64(),
 		TotalGasEstimated: rng.Uint64(),
-		Txs:               utils.GenSlice(rng, func(rng utils.Rng) []byte { return utils.GenBytes(rng, 10) }),
+		Txs:               rng.GenSlice(func(rng utils.Rng) []byte { return utils.GenBytes(rng, 10) }),
 	}.Build())
 }
 
@@ -288,7 +296,7 @@ func GenLaneBlock(rng utils.Rng) *LaneBlock {
 
 // GenSigned generates a random Signed.
 func GenSigned[T Msg](rng utils.Rng, msg T) *Signed[T] {
-	return Sign(GenSecretKey(rng), msg)
+	return GenSecretKey(rng).Sign(msg)
 }
 
 // GenLaneProposal generates a random LaneProposal.
@@ -304,10 +312,7 @@ func GenLaneVote(rng utils.Rng) *LaneVote {
 // GenLaneQC generates a random LaneQC.
 func GenLaneQC(rng utils.Rng) *LaneQC {
 	vote := GenLaneVote(rng)
-	return NewLaneQC(utils.GenSlice(
-		rng,
-		func(rng utils.Rng) *Signed[*LaneVote] { return GenSigned(rng, vote) },
-	))
+	return NewLaneQC(rng.GenSlice(func(rng utils.Rng) *Signed[*LaneVote] { return GenSigned(rng, vote) }))
 }
 
 // GenRoadHeight generates a random RoadHeight.
@@ -351,7 +356,7 @@ func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
 	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, k := range keys {
-		votes[i] = Sign(k, vote)
+		votes[i] = k.Sign(vote)
 	}
 	return NewCommitQC(votes)
 }
@@ -363,7 +368,7 @@ func GenProposal(rng utils.Rng) *Proposal {
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), rng.GenSlice(GenLaneRange))}
 }
 
 // ProposalAt returns a Proposal at view, consistent with ep, with a single 1-block lane range.
@@ -395,7 +400,7 @@ func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*LaneBlock) {
 func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
-	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
+	laneRanges := rng.GenSlice(func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
 	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), laneRanges)}
 }
 
@@ -417,26 +422,19 @@ func GenAppVote(rng utils.Rng) *AppVote {
 // GenAppQC generates a random AppQC.
 func GenAppQC(rng utils.Rng) *AppQC {
 	vote := GenAppVote(rng)
-	return NewAppQC(utils.GenSlice(
-		rng,
-		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
-	))
+	return NewAppQC(rng.GenSlice(func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) }))
 }
 
 // GenAppQCFor generates an AppQC over appProposal.
 func GenAppQCFor(rng utils.Rng, appProposal *AppProposal) *AppQC {
 	vote := NewAppVote(appProposal)
-	return NewAppQC(utils.GenSliceN(
-		rng,
-		1,
-		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
-	))
+	return NewAppQC(rng.GenSliceN(1, func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) }))
 }
 
 // GenFullProposal generates a random FullProposal.
 func GenFullProposal(rng utils.Rng) *FullProposal {
 	laneQCs := map[LaneID]*LaneQC{}
-	for _, qc := range utils.GenSlice(rng, GenLaneQC) {
+	for _, qc := range rng.GenSlice(GenLaneQC) {
 		laneQCs[qc.Header().Lane()] = qc
 	}
 	return &FullProposal{
@@ -463,10 +461,7 @@ func GenPrepareVote(rng utils.Rng) *PrepareVote {
 // GenPrepareQC generates a random PrepareQC.
 func GenPrepareQC(rng utils.Rng) *PrepareQC {
 	vote := GenPrepareVote(rng)
-	return NewPrepareQC(utils.GenSlice(
-		rng,
-		func(rng utils.Rng) *Signed[*PrepareVote] { return GenSigned(rng, vote) },
-	))
+	return NewPrepareQC(rng.GenSlice(func(rng utils.Rng) *Signed[*PrepareVote] { return GenSigned(rng, vote) }))
 }
 
 // GenCommitVote generates a random CommitVote.
@@ -484,7 +479,7 @@ func GenCommitQC(rng utils.Rng) *CommitQC {
 func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	return &FullCommitQC{
 		qc:      GenCommitQC(rng),
-		headers: utils.GenSlice(rng, GenLaneBlockHeader),
+		headers: rng.GenSlice(GenLaneBlockHeader),
 	}
 }
 
@@ -521,7 +516,7 @@ func GenFullTimeoutVote(rng utils.Rng) *FullTimeoutVote {
 
 // GenTimeoutQC generates a random TimeoutQC.
 func GenTimeoutQC(rng utils.Rng) *TimeoutQC {
-	return NewTimeoutQC(utils.GenSlice(rng, GenFullTimeoutVote))
+	return NewTimeoutQC(rng.GenSlice(GenFullTimeoutVote))
 }
 
 // GenAppProposalAt generates an AppProposal for road height.

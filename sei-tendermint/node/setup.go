@@ -220,7 +220,6 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
 			Key:      entry.NodeKey,
 			HostPort: entry.Address,
-			EVMRPC:   *entry.EVMRPC.URL,
 		}
 	}
 	return fc, validatorAddrs, nil
@@ -252,9 +251,14 @@ func buildValidatorGigaConfig(
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
+	endpoint, ok := fc.EVMRPC.Get()
+	if !ok {
+		return nil, fmt.Errorf("local validator evmrpc URL is required")
+	}
 	params := genDoc.Autobahn.Or(types.DefaultAutobahnParams())
 	return &p2p.GigaValidatorConfig{
 		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
+			AllowLocalAddrs:         false,
 			DialInterval:            time.Duration(fc.DialInterval),
 			ValidatorAddrs:          validatorAddrs,
 			PersistentStateDir:      fc.PersistentStateDir,
@@ -264,6 +268,7 @@ func buildValidatorGigaConfig(
 			EnableEvmProxy:          fc.GetEnableEvmProxy(),
 		},
 		ValidatorKey: validatorKey,
+		EVMRPC:       *endpoint.URL,
 		ViewTimeout: func(atypes.View) time.Duration {
 			return params.ViewTimeout
 		},
@@ -522,6 +527,7 @@ func buildFullnodeGigaConfig(
 		return nil, err
 	}
 	return &p2p.GigaRouterCommonConfig{
+		AllowLocalAddrs:         false,
 		DialInterval:            time.Duration(fc.DialInterval),
 		ValidatorAddrs:          validatorAddrs,
 		PersistentStateDir:      fc.PersistentStateDir,
