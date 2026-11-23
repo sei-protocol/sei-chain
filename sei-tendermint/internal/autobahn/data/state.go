@@ -248,6 +248,13 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		if n != inner.nextPartialBlock {
 			return nil, fmt.Errorf("QC gap: got %d, want %d", n, inner.nextPartialBlock)
 		}
+		// The parent of the first stored road block may be pruned, so that road block is checked only
+		// at the first road height of the chain, where it must name no parent.
+		if n > inner.first || n == cfg.Registry.FirstRoad() {
+			if err := block.Header().VerifyParent(inner.lastHeader()); err != nil {
+				return nil, fmt.Errorf("load block %d from BlockStore: %w", n, err)
+			}
+		}
 		blocks := make(map[uint64]*types.LaneBlock, len(block.LaneBlocks()))
 		for offset, laneBlock := range block.LaneBlocks() {
 			blocks[uint64(offset)] = laneBlock //nolint:gosec // non-negative slice index

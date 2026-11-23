@@ -79,6 +79,9 @@ func (r *Registry) roadRange(idx types.EpochIndex) types.RoadRange {
 	return types.RoadRange{First: first, Next: first + r.epochLength}
 }
 
+// FirstRoad returns the road height of the first road block of the chain.
+func (r *Registry) FirstRoad() types.RoadHeight { return r.firstHeight }
+
 // LastRoad returns the last road height of epoch idx.
 func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadHeight {
 	return r.roadRange(idx).Next - 1

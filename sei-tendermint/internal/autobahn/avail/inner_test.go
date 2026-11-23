@@ -236,6 +236,19 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "non-contiguous")
 	})
+	t.Run("wrong parent", func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 4)
+		ep0 := registry.MustEpoch(0)
+		ds := newTestDataState(t, &data.Config{Registry: registry})
+		none := utils.None[*types.CommitQC]()
+		lane0, lane1 := ep0.Committee().Lanes().At(0), ep0.Committee().Lanes().At(1)
+		qc0, _ := data.TestCommitQCOnLane(ep0, keys, none, lane0)
+		qc0Fork, _ := data.TestCommitQCOnLane(ep0, keys, none, lane1)
+		qc1, _ := data.TestCommitQCOnLane(ep0, keys, utils.Some(qc0Fork.QC()), lane0)
+		_, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{qc0.QC(), qc1.QC()}})
+		require.ErrorIs(t, err, types.ErrParentMismatch)
+	})
 }
 
 func TestNewInnerAdvancesAtPersistedSeal(t *testing.T) {

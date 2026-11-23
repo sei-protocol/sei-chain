@@ -1728,3 +1728,29 @@ func TestPushPartialBlockRejectsAFirstRoadWithAParent(t *testing.T) {
 	require.ErrorIs(t, state.PushPartialBlock(t.Context(), bad, nil), types.ErrParentMismatch)
 	require.NoError(t, state.PushPartialBlock(t.Context(), first, nil))
 }
+
+func TestLoadFromBlockStoreRejectsAFirstRoadWithAParent(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	bad, badBlocks := firstRoadWithParent(registry.MustEpoch(0), keys)
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{bad}, [][]*types.LaneBlock{badBlocks})
+	_, err := NewState(&Config{Registry: registry}, store)
+	require.ErrorIs(t, err, types.ErrParentMismatch)
+}
+
+func TestLoadFromBlockStoreRejectsAStoredRoadWithTheWrongParent(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane0, lane1 := ep.Committee().Lanes().At(0), ep.Committee().Lanes().At(1)
+	a, aBlocks := TestCommitQCOnLane(ep, keys, utils.None[*types.CommitQC](), lane0)
+	b, bBlocks := TestCommitQCOnLane(ep, keys, utils.Some(a.QC()), lane0)
+	bFork, _ := TestCommitQCOnLane(ep, keys, utils.Some(a.QC()), lane1)
+	// c is at the height after b, but names bFork as its parent.
+	c, cBlocks := TestCommitQCOnLane(ep, keys, utils.Some(bFork.QC()), lane0)
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{a, b, c}, [][]*types.LaneBlock{aBlocks, bBlocks, cBlocks})
+	_, err := NewState(&Config{Registry: registry}, store)
+	require.ErrorIs(t, err, types.ErrParentMismatch)
+}
