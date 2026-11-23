@@ -5,10 +5,13 @@
 // It serves delegate, redelegate and undelegate, and queries of validators,
 // delegations, unbonding delegations, staged operations, the pool and its
 // params. A delegate, redelegate or undelegate is staged when called and takes
-// effect at the end of the epoch after the one it is called in. Its EndBlock
-// applies staged operations, updates the bonded set and completes matured
-// unbondings and redelegations. Unlike x/staking, it never jails a validator,
-// so an operator may hold less than its minimum self-delegation; its queues are
+// effect at the end of the epoch after the one it is called in. Delegations and
+// the validator set change only at an epoch's end, where EndBlock applies the
+// staged operations due, updates the bonded set, completes matured validators
+// and snapshots the bonded set; every EndBlock completes matured unbondings and
+// redelegations. Unlike x/staking, it never jails a validator, so an operator
+// may hold less than its minimum self-delegation; a validator finishes
+// unbonding at the first epoch's end after its unbonding time; its queues are
 // first-in first-out, so an entry never completes before one queued ahead of
 // it; and it does not slash unbonding or redelegation entries.
 package staking
@@ -199,7 +202,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	// x/staking bonds its genesis validators before the first block runs, and
 	// here the first EndBlock does. Until then the voting power ratio would be
 	// checked against no bonded power.
-	if !chainparams.HasStaking(ctx.State) || s.lastTotalPower().Sign() == 0 {
+	if !chainparams.HasStaking(ctx.State) || !s.started() {
 		return nil, errNotStarted
 	}
 

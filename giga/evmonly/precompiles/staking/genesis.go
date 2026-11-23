@@ -18,6 +18,7 @@ var (
 	errPubkeyExists      = errors.New("validator already exists for this consensus key")
 	errInvalidGenesis    = errors.New("invalid genesis validator")
 	errStakingNotWritten = errors.New("staking's params must be written before its validators")
+	errStakingStarted    = errors.New("staking has bonded a set")
 )
 
 // DefaultParams returns x/staking's default params as Sei sets them.
@@ -31,8 +32,12 @@ func DefaultParams() chainparams.Staking {
 	}
 }
 
-// SetParams writes p as staking's params, for genesis.
+// SetParams writes p as staking's params, for genesis. It fails once staking
+// has bonded a set.
 func SetParams(state precompiles.State, p chainparams.Staking) error {
+	if newStore(state).started() {
+		return errStakingStarted
+	}
 	return chainparams.WriteStaking(state, p)
 }
 
@@ -53,8 +58,9 @@ type GenesisValidator struct {
 // AddGenesisValidator creates g's validator unbonded and delegates its
 // self-delegation from the operator's balance, as a genesis transaction's
 // MsgCreateValidator does. The next EndBlock bonds it if it ranks among the
-// first MaxValidators. It fails when staking's params are not written, or the
-// operator or the consensus key already has a validator.
+// first MaxValidators. It fails when staking's params are not written, once
+// staking has bonded a set, or when the operator or the consensus key already
+// has a validator.
 func (p Precompile) AddGenesisValidator(block precompiles.BlockContext, state precompiles.State, g GenesisValidator) error {
 	if !chainparams.HasStaking(state) {
 		return errStakingNotWritten
@@ -63,6 +69,9 @@ func (p Precompile) AddGenesisValidator(block precompiles.BlockContext, state pr
 		return err
 	}
 	s := newStore(state)
+	if s.started() {
+		return errStakingStarted
+	}
 	if _, ok := s.validator(g.Operator); ok {
 		return fmt.Errorf("%w: %s", errValidatorExists, g.Operator)
 	}

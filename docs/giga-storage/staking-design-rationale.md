@@ -326,22 +326,40 @@ A call checks the operation as V2 would at that block and queues it in
 waits for: `currentEpoch` plus one. EndBlock sets `currentEpoch` from the epoch
 the app marks the block as closing, whether or not the snapshot is taken. At the
 end of each epoch, EndBlock applies the operations due, in the order they were
-called, through the same code V2's messages run, then updates the bonded set.
+called, through the same code V2's messages run, then updates the bonded set and
+completes the validators whose unbonding period is over. Nothing else changes a
+delegation or the validator set: EndBlock on any other block only completes
+unbonding and redelegation entries, which change neither. So a validator
+finishes unbonding at the first epoch's end after its unbonding time, where V2
+finishes it at that time. Before staking has bonded a set, any EndBlock bonds
+the genesis validators, as V2 does at genesis, and once it has, its genesis
+writes of params and validators fail. Staking that starts after the chain's
+first epoch counts no epoch until it sees one close, and the operations staged
+before then are due at the end of the epoch after that one, as if staged during
+it.
 
-It then projects the snapshot: it applies the operations still staged, those
-called during the epoch now ending, takes the bonded set they would produce,
-and reverts them, calling no hooks. So the snapshot taken at the end of T counts
-the operations called during T, and the committee of T+2, derived from it,
-changes in the same epoch as the delegations. Snapshotting the bonded set as it
-is would count each change one epoch late, and for that epoch part of a
+EndBlock then projects the snapshot: it applies the operations still staged,
+those called during the epoch now ending, takes the bonded set they would
+produce, and reverts them, calling no hooks. So the snapshot taken at the end of
+T counts the operations called during T, and the committee of T+2, derived from
+it, changes in the same epoch as the delegations. Snapshotting the bonded set as
+it is would count each change one epoch late, and for that epoch part of a
 validator's voting power would be stake already unbonding, which staking does
-not slash. An operation that will be dropped when it is applied is left out of
-the projection too, unless what it depends on changes during T+1 first, as when
-its validator is removed.
+not slash.
+
+The projection is exact. Nothing between the ends of T and T+1 changes a
+delegation or the validator set, so the operations it applies meet the same
+state when they take effect, and one that will be dropped then is left out of it
+too. Validators finish unbonding after the operations due and before the
+projection for the same reason: a validator with no shares left removed at the
+end of T+1 before they apply would drop a delegation the projection counted.
 
 The work falls under EndBlock's budget like the other queues, and the
-projection spends a second one: operations past it wait for the blocks after,
-and miss the snapshot they belong in.
+projection spends a second one. Operations past the budget wait for the next
+epoch's end rather than the next block, and the projection, which stops at the
+same budget, counts them in that epoch's snapshot instead, so a backlog delays
+operations by whole epochs but never separates the committee from the
+delegations.
 
 The tokens a delegate sends wait in `StagedEscrow`, apart from any validator's,
 and count toward no power until the delegation takes effect. Stake an
@@ -360,9 +378,9 @@ does, and redelegations staged out of a validator count toward `maxEntries` for
 every destination, since they are not counted per destination.
 
 What can still change between the call and its epoch's end is what other
-operations do: a validator can be removed once its last shares leave, and a
-delegation can reach the max voting power ratio once others ahead of it take
-effect, as it is checked against the bonded set's power as they leave it, not
+operations, and the validators finishing unbonding before them, do: a validator
+can be removed once its last shares leave, and a delegation can reach the max
+voting power ratio once others ahead of it take effect, as it is checked against the bonded set's power as they leave it, not
 as last stored. An operation that then fails is dropped and reported: a delegation's
 tokens go back to its delegator, and the stake an undelegation or redelegation
 would have moved stays where it is.

@@ -147,7 +147,7 @@ func TestSelfUndelegationBelowTheMinimumDoesNotJail(t *testing.T) {
 	require.Equal(t, []common.Address{val1, val2, val3}, h.powerIndex(), "val2 keeps its place on alice's stake")
 	h.requireInvariants(alice)
 
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Empty(t, h.failures)
 	require.Equal(t, []validatorPower{{val1, 30}, {val2, 15}}, h.lastValidators(), "val2 stays bonded with no self-delegation")
 	h.requireInvariants(alice)
@@ -334,7 +334,7 @@ func TestABIKeepsV2Methods(t *testing.T) {
 }
 
 func TestAddGenesisValidatorRejectsReuse(t *testing.T) {
-	h := newHarness(t, testParams)
+	h := newGenesisHarness(t, testParams)
 	h.fund(bob, sei(10))
 	g := GenesisValidator{Operator: val1, ConsensusPubkey: common.HexToHash("0x01"), SelfDelegation: sei(1), MinSelfDelegation: sei(1)}
 	require.ErrorIs(t, h.staking.AddGenesisValidator(h.block(), h.state, g), errValidatorExists)
@@ -346,8 +346,19 @@ func TestAddGenesisValidatorRejectsReuse(t *testing.T) {
 	require.ErrorIs(t, Precompile{}.AddGenesisValidator(h.block(), newMemState(), g), errStakingNotWritten)
 }
 
-func TestGenesisValidatorsHoldConsensusPower(t *testing.T) {
+func TestGenesisWritesFailOnceStakingHasBondedASet(t *testing.T) {
 	h := newHarness(t, testParams)
+	h.fund(bob, sei(10))
+	g := GenesisValidator{Operator: bob, ConsensusPubkey: common.BytesToHash(bob[:]), SelfDelegation: sei(10), MinSelfDelegation: sei(1)}
+	require.ErrorIs(t, h.staking.AddGenesisValidator(h.block(), h.state, g), errStakingStarted)
+	require.ErrorIs(t, SetParams(h.state, DefaultParams()), errStakingStarted)
+	_, ok := h.store().validator(bob)
+	require.False(t, ok)
+	require.Equal(t, testParams.MaxValidators, h.store().params().MaxValidators, "the params stay as they were")
+}
+
+func TestGenesisValidatorsHoldConsensusPower(t *testing.T) {
+	h := newGenesisHarness(t, testParams)
 	h.fund(bob, sei(1))
 	g := GenesisValidator{
 		Operator:          bob,

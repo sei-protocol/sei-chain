@@ -27,7 +27,7 @@ func TestFirstEndBlockBondsTheTopValidators(t *testing.T) {
 func TestAValidatorOutrankedLeavesTheSetAndUnbonds(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Empty(t, h.failures)
 	require.Equal(t, []validatorPower{{val1, 30}, {val3, 25}}, h.lastValidators())
 	require.Equal(t, big.NewInt(55), h.store().lastTotalPower())
@@ -40,7 +40,7 @@ func TestAValidatorOutrankedLeavesTheSetAndUnbonds(t *testing.T) {
 
 	h.advance(testParams.UnbondingTime - 2*second)
 	require.Equal(t, statusUnbonding, h.validator(val2).status, "not before its unbonding time")
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Empty(t, h.failures)
 	require.Equal(t, statusUnbonded, h.validator(val2).status)
 	q := h.store().validatorQueue()
@@ -51,10 +51,10 @@ func TestAValidatorOutrankedLeavesTheSetAndUnbonds(t *testing.T) {
 func TestAValidatorThatBondsAgainSkipsItsOldQueueEntry(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Equal(t, statusUnbonding, h.validator(val2).status)
 	require.NoError(t, h.delegate(bob, val2, sei(20)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Equal(t, statusBonded, h.validator(val2).status)
 
 	h.advance(testParams.UnbondingTime)
@@ -88,7 +88,7 @@ func TestAnUnbondedValidatorWithNoSharesIsRemoved(t *testing.T) {
 func TestAValidatorFinishingUnbondingWithNoSharesIsRemoved(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.undelegate(val2, val2, sei(20)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Equal(t, statusUnbonding, h.validator(val2).status)
 	h.advance(testParams.UnbondingTime)
 	require.Empty(t, h.failures)
@@ -150,7 +150,7 @@ func TestARedelegationFromAnUnbondingValidatorEndsWithIt(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val2, sei(5)))
 	require.NoError(t, h.delegate(bob, val3, sei(20)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	v2 := h.validator(val2)
 	require.Equal(t, statusUnbonding, v2.status)
 	h.advance(10 * second)
@@ -229,7 +229,7 @@ func TestABondedSetWithNoPowerIsKept(t *testing.T) {
 	require.NoError(t, h.undelegate(val1, val1, sei(30)))
 	require.NoError(t, h.undelegate(val2, val2, sei(20)))
 	require.NoError(t, h.undelegate(val3, val3, sei(10)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Len(t, h.failures, 1)
 	require.ErrorIs(t, h.failures[0], precompiles.ErrDegraded)
 	require.ErrorIs(t, h.failures[0], errNoBondedPower)

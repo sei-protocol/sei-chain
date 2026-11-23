@@ -25,25 +25,24 @@ var (
 
 // endBlockBudget bounds the work one EndBlock does on each queue: one unit per
 // entry, plus one per unbonding entry of the delegation an unbonding queue entry
-// pays. Entries past the budget wait for the next EndBlock; an entry larger than
-// the whole budget runs when nothing has spent it, and uses it up. A block that
-// closes an epoch spends a second budget on the staged queue, applying entries
-// to project its snapshot and then reverting them. Staging an operation writes
-// at least three new slots, over 60,000 gas, so 300M gas of calls stage at most
-// 5,000 a block, and applying one queues at most one unbonding or redelegation
-// entry. The redelegation queue completes as many a block as the staged queue
-// applies; the unbonding queue, whose entries cost at least two units,
-// completes at most 1,500. A backlog in any of them waits for blocks with fewer
-// calls.
+// pays. An entry larger than the whole budget runs when nothing has spent it, and
+// uses it up. Entries past the budget wait for the next EndBlock that drains
+// their queue, which for the staged and validator queues is the next to close an
+// epoch, and a block that closes an epoch spends a second budget on the staged
+// queue to project its snapshot. Staging an operation writes at least three new
+// slots, over 60,000 gas, so 300M gas of calls stage at most 5,000 a block, and a
+// backlog takes effect at the ends of later epochs. Applying one queues at most
+// one unbonding or redelegation entry, so the redelegation queue completes as
+// many a block as an epoch's end applies, and the unbonding queue, whose entries
+// cost at least two units, at most 1,500.
 const endBlockBudget = 3_000
 
-// EndBlock advances the current epoch when the block closes one, applies the
-// staged operations whose epoch has ended, updates the bonded set, snapshots the
-// bonded set as it will be once the operations still staged take effect when the
-// block closes an epoch, then completes the validators, unbonding entries and
-// redelegation entries whose unbonding period is over, in that order, as
-// x/staking's BlockValidatorUpdates does. Before staking's params are written it
-// does nothing. Its failures are staged operations that could not be applied,
+// EndBlock makes the changes to delegations and the validator set of the epoch
+// the block closes, as closeEpoch does, or, while staking has no bonded set,
+// bonds the genesis validators. It then completes the unbonding entries and
+// redelegation entries whose unbonding period is over, as x/staking's
+// BlockValidatorUpdates does. Before staking's params are written it does
+// nothing. Its failures are staged operations that could not be applied,
 // which are dropped, a bonded set that could not be updated, which is kept as it
 // was, a snapshot that could not be taken, and queue entries whose stored data
 // does not add up, which are dropped. It returns no error.
@@ -54,23 +53,13 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 	s := newStore(state)
 	params := s.params()
 	var failures []error
+	// Delegations and the validator set change only when an epoch closes, so no
+	// block between two epochs' ends moves what the first one's snapshot projected.
 	if epoch, ok := block.ClosingEpoch.Get(); ok {
-		s.setCurrentEpoch(epoch + 1)
+		p.closeEpoch(block, s, params, epoch, &failures)
+	} else if !s.started() {
+		p.updateBondedSetReporting(block, s, params, &failures)
 	}
-	if current := s.currentEpoch(); current > 0 {
-		p.applyStaged(block, s, params, current-1, &failures)
-	}
-	if err := p.updateBondedSet(block, s, params); err != nil {
-		failures = append(failures, fmt.Errorf("%w: bonded set kept as it was: %w", precompiles.ErrDegraded, err))
-	}
-	if epoch, ok := block.ClosingEpoch.Get(); ok {
-		if err := snapshotEpoch(block, s, params, epoch); err != nil {
-			failures = append(failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
-		}
-	}
-	drain(s.validatorQueue(), block.UnixNano, "validator", &failures,
-		func(common.Hash) uint64 { return 1 },
-		func(e common.Hash) error { return p.completeValidatorUnbonding(block, s, e) }, nil)
 	drain(s.unbondingQueue(), block.UnixNano, "unbonding", &failures,
 		func(e common.Hash) uint64 {
 			delegator, op := unbondingQueueEntry(s, e)
@@ -81,6 +70,38 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 		func(common.Hash) uint64 { return 1 },
 		func(e common.Hash) error { return completeRedelegation(s, e) }, nil)
 	return failures, nil
+}
+
+// closeEpoch makes epoch's changes to delegations and the validator set: it
+// advances the current epoch past epoch, applies the staged operations due,
+// updates the bonded set, completes the validators whose unbonding period is
+// over, and snapshots the bonded set as it will be once the operations still
+// staged take effect, in that order.
+func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, params chainparams.Staking, epoch uint64, failures *[]error) {
+	// Operations are staged for the epoch after the one staking counts as
+	// current, which is epoch unless staking started during it and has counted
+	// none: what was staged then is due at the end of the next epoch.
+	due := s.currentEpoch()
+	s.setCurrentEpoch(epoch + 1)
+	p.applyStaged(block, s, params, due, failures)
+	p.updateBondedSetReporting(block, s, params, failures)
+	// Validators finish unbonding after the operations due and before the
+	// projection, so the operations a projection applies meet the same validators
+	// when they take effect at the next epoch's end.
+	drain(s.validatorQueue(), block.UnixNano, "validator", failures,
+		func(common.Hash) uint64 { return 1 },
+		func(e common.Hash) error { return p.completeValidatorUnbonding(block, s, e) }, nil)
+	if err := snapshotEpoch(block, s, params, epoch); err != nil {
+		*failures = append(*failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
+	}
+}
+
+// updateBondedSetReporting updates the bonded set as updateBondedSet does,
+// adding to failures why when it keeps the set as it was.
+func (p Precompile) updateBondedSetReporting(block precompiles.BlockContext, s store, params chainparams.Staking, failures *[]error) {
+	if err := p.updateBondedSet(block, s, params); err != nil {
+		*failures = append(*failures, fmt.Errorf("%w: bonded set kept as it was: %w", precompiles.ErrDegraded, err))
+	}
 }
 
 // updateBondedSet applies the bonded set the power index ranks, as x/staking's
