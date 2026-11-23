@@ -24,10 +24,12 @@ var _ StateReader = gigaSnapshotStateReader{}
 // same CommitStateChanges call as the block's EVM state changes, so they are
 // durable, rolled back and replayed together with that state. It is called
 // after execution with the block's context and result, which it must treat as
-// immutable. A write to the EVM module fails the commit.
+// immutable, and with after, which opens read-only state as the block left it
+// and may be called only during the call. A write to the EVM module fails the
+// commit.
 //
 // What it returns must not alias the result, since the commit outlives the block.
-type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error)
+type BlockChangeSetEncoder func(block BlockContext, result *BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
@@ -101,7 +103,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	var misc []gigatypes.MiscChange
 	if e.blockChangeSetEncoder != nil {
 		e.blockPhases.SetPhase(phaseEncodeChangesets)
-		misc, err = e.blockChangeSetEncoder(req.Context, result)
+		// Built on demand: indexing the block's changes costs a pass over them, and most
+		// encodings never read state.
+		after := func() precompiles.State {
+			return &precompileState{db: newNativeStateDB(newPendingOverlay(source, &result.ChangeSet)), readOnly: true}
+		}
+		misc, err = e.blockChangeSetEncoder(req.Context, result, after)
 		if err != nil {
 			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
 		}
@@ -167,45 +174,6 @@ func (e *Executor) AwaitCommits() error {
 		return nil
 	}
 	return e.awaitPipelineCommit()
-}
-
-// ReadLatest calls read with read-only state holding every block this executor has run, without
-// waiting for the commit in flight. It fails once a commit is known to have failed.
-func (e *Executor) ReadLatest(read func(precompiles.State) error) error {
-	if e.stateStore == nil {
-		return errMissingStateStore
-	}
-	// Held so that no block starts its commit between taking the overlay and opening the view,
-	// which would pair the view with an overlay older than it.
-	e.storeMu.Lock()
-	defer e.storeMu.Unlock()
-	// Taken before the view, never after, as in executePreparedBlockWithStore.
-	pending := e.pipelinePending()
-	snapshot := e.stateStore.OpenView()
-	if snapshot == nil {
-		return errors.New("giga store returned a nil snapshot")
-	}
-	defer snapshot.Close()
-	source := pending.overlay(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
-	if err := read(&precompileState{db: newNativeStateDB(source), readOnly: true}); err != nil {
-		return err
-	}
-	// Checked after the read: a failed commit retired before the overlay was taken leaves the view
-	// short of that block and nothing to supply it.
-	return e.commitFailure()
-}
-
-// commitFailure reports a commit known to have failed, without waiting for the one in flight.
-func (e *Executor) commitFailure() error {
-	e.pipelineMu.Lock()
-	defer e.pipelineMu.Unlock()
-	if e.pipelineFailure != nil {
-		return e.pipelineFailure
-	}
-	if e.pipelineErr != nil {
-		return fmt.Errorf("commit state changes: %w", e.pipelineErr)
-	}
-	return nil
 }
 
 // pipelinePending returns the indexed changes of a block whose commit has not been waited on yet, or

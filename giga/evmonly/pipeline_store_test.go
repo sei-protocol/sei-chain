@@ -321,8 +321,8 @@ func (s *heldCommitStore) CommitStateChanges(blockNum int64, changes *gigatypes.
 	return s.recordingGigaStore.CommitStateChanges(blockNum, changes)
 }
 
-// ReadLatest serves the state a block produced while that block's commit is still running.
-func TestReadLatestServesTheBlockStillCommitting(t *testing.T) {
+// An encoder reads the state its block left, over the block whose commit is still running.
+func TestBlockEncoderReadsTheStateItsBlockLeft(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -332,64 +332,24 @@ func TestReadLatestServesTheBlockStillCommitting(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(40)
 	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := &heldCommitStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}, release: make(chan struct{})}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
-	defer executor.Close()
 	var released sync.Once
 	release := func() { released.Do(func() { close(store.release) }) }
 	defer release()
+	var seen []*big.Int
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()),
+		WithStoreIndependentBlockChangeSetEncoder(func(block BlockContext, _ *BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
+			seen = append(seen, after().GetBalance(recipient))
+			if block.Number == 42 {
+				// Block 41's commit is held until block 42 has read past it.
+				release()
+			}
+			return nil, nil
+		}))
+	defer executor.Close()
 
-	executePipelinedBlock(t, executor, chainID, 41,
-		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
-
-	var balance *big.Int
-	require.NoError(t, executor.ReadLatest(func(state precompiles.State) error {
-		balance = state.GetBalance(recipient)
-		return nil
-	}))
-	require.Equal(t, big.NewInt(7), balance, "block 41's payment is served while its commit is held")
-
-	release()
+	executePipelinedBlock(t, executor, chainID, 41, signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	executePipelinedBlock(t, executor, chainID, 42, signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(5), nil))
 	require.NoError(t, executor.AwaitCommits())
-	require.Equal(t, []int64{41}, store.commitBlock)
-}
-
-// ReadLatest refuses once a commit has failed, whether or not anything has waited on it, since the
-// store then predates that block.
-func TestReadLatestFailsOnceACommitHasFailed(t *testing.T) {
-	chainID := big.NewInt(testChainID)
-	key, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	sender := crypto.PubkeyToAddress(key.PublicKey)
-	recipient := testAddress(0xa9)
-
-	snapshot := newMemoryGigaSnapshot(40)
-	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
-	store := &recordingGigaStore{snapshot: snapshot, commitErr: errTestCommitFailed}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
-	defer executor.Close()
-
-	executePipelinedBlock(t, executor, chainID, 41,
-		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
-
-	read := func(precompiles.State) error { return nil }
-	require.Eventually(t, func() bool { return errors.Is(executor.ReadLatest(read), errTestCommitFailed) },
-		5*time.Second, time.Millisecond, "a failed commit is reported before anything waits on it")
-	require.ErrorIs(t, executor.AwaitCommits(), errTestCommitFailed)
-	require.ErrorIs(t, executor.ReadLatest(read), errTestCommitFailed, "and still once it has been waited on")
-}
-
-// ReadLatest refuses a commit that has recorded its failure but not yet released its waiters.
-func TestReadLatestFailsOnACommitThatFailedBeforeReleasingItsWaiters(t *testing.T) {
-	store := &recordingGigaStore{snapshot: newMemoryGigaSnapshot(40)}
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
-	defer executor.Close()
-	// What a failed commit leaves between recording its error and closing its channel.
-	done := make(chan struct{})
-	executor.pipelineMu.Lock()
-	executor.pipelineDone = done
-	executor.pipelineErr = errTestCommitFailed
-	executor.pipelineMu.Unlock()
-	defer close(done)
-
-	require.ErrorIs(t, executor.ReadLatest(func(precompiles.State) error { return nil }), errTestCommitFailed)
+	require.Equal(t, []*big.Int{big.NewInt(7), big.NewInt(12)}, seen)
+	require.Equal(t, []int64{41, 42}, store.commitBlock)
 }

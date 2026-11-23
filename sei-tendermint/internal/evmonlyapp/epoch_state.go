@@ -3,6 +3,8 @@ package evmonlyapp
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -81,11 +83,33 @@ func epochWeights(validators []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint
 	return weights, nil
 }
 
+// ClosingEpoch returns the epoch road is the last road of, when the retained window holds it.
+func (e *EpochRegistry) ClosingEpoch(road atypes.RoadHeight) utils.Option[atypes.EpochIndex] {
+	for state := range e.state.Lock() {
+		return closingEpoch(state.registry, road)
+	}
+	panic("unreachable")
+}
+
+// closingEpoch returns the epoch of registry that road is the last road of, if registry holds it.
+func closingEpoch(registry *atypes.EpochRegistry, road atypes.RoadHeight) utils.Option[atypes.EpochIndex] {
+	for _, epoch := range registry.Epochs() {
+		if epoch.RoadRange().Next == road+1 {
+			return utils.Some(epoch.EpochIndex())
+		}
+	}
+	return utils.None[atypes.EpochIndex]()
+}
+
 // Changes returns the FlatKV write for road and advances the registry to the window that road
-// produces. The genesis road and each road that closes an epoch write the registry row. A repeat
-// of the road that produced the newest epoch discards that epoch and derives it again. Other roads
-// write nothing.
-func (e *EpochRegistry) Changes(road atypes.RoadHeight) ([]gigatypes.MiscChange, error) {
+// produces. The genesis road and each road that closes an epoch write the registry row; the epoch
+// a closing road derives is committed to the weights staked returns, or to the configured
+// validators when it returns none. A repeat of the road that produced the newest epoch discards
+// that epoch and derives it again. Other roads write nothing.
+func (e *EpochRegistry) Changes(
+	road atypes.RoadHeight,
+	staked func() (map[atypes.PublicKey]uint64, error),
+) ([]gigatypes.MiscChange, error) {
 	for state := range e.state.Lock() {
 		registry := state.registry
 		if registry.DerivedOn(road) {
@@ -95,7 +119,11 @@ func (e *EpochRegistry) Changes(road atypes.RoadHeight) ([]gigatypes.MiscChange,
 				return nil, err
 			}
 		}
-		advanced, err := registry.Advance(road, e.weights)
+		weights, err := e.committeeWeights(registry, road, staked)
+		if err != nil {
+			return nil, err
+		}
+		advanced, err := registry.Advance(road, weights)
 		if err != nil {
 			return nil, fmt.Errorf("advance epoch registry at road %d: %w", road, err)
 		}
@@ -111,6 +139,46 @@ func (e *EpochRegistry) Changes(road atypes.RoadHeight) ([]gigatypes.MiscChange,
 		}}, nil
 	}
 	panic("unreachable")
+}
+
+// committeeWeights returns the weights the epoch road derives is committed to: staked's when road
+// closes an epoch of registry and staked returns some, and the configured validators' otherwise.
+// staked is read only on a closing road.
+func (e *EpochRegistry) committeeWeights(
+	registry *atypes.EpochRegistry,
+	road atypes.RoadHeight,
+	staked func() (map[atypes.PublicKey]uint64, error),
+) (map[atypes.PublicKey]uint64, error) {
+	if !closingEpoch(registry, road).IsPresent() {
+		return e.weights, nil
+	}
+	weights, err := staked()
+	if err != nil {
+		return nil, fmt.Errorf("read staking's committee at road %d: %w", road, err)
+	}
+	if len(weights) == 0 {
+		return e.weights, nil
+	}
+	return weights, nil
+}
+
+// stakingWeights returns the voting weight of each member of the bonded set staking snapshotted
+// at the end of the latest epoch in state, or none before its first snapshot.
+func stakingWeights(state precompiles.State) (map[atypes.PublicKey]uint64, error) {
+	members, err := staking.EpochValidators(state)
+	if err != nil {
+		return nil, err
+	}
+	weights := make(map[atypes.PublicKey]uint64, len(members))
+	for _, member := range members {
+		// PublicKeyFromBytes checks only the length, and a common.Hash is always 32 bytes.
+		key := utils.OrPanic1(atypes.PublicKeyFromBytes(member.ConsensusPubkey[:]))
+		if _, dup := weights[key]; dup {
+			return nil, fmt.Errorf("duplicate consensus key %s in staking's epoch snapshot", key)
+		}
+		weights[key] = member.Power
+	}
+	return weights, nil
 }
 
 func (a *evmOnlyApplication) EpochRegistry() (*atypes.EpochRegistry, error) {

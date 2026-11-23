@@ -15,13 +15,6 @@ type BondedValidator struct {
 	Power           uint64
 }
 
-// BondedValidators returns the bonded set the last EndBlock stored, in the
-// order it ranked them, or none before staking has bonded a set. It fails when
-// the stored set does not add up.
-func BondedValidators(state precompiles.State) ([]BondedValidator, error) {
-	return bondedValidators(newStore(state))
-}
-
 // EpochValidators returns the bonded set snapshotted at the end of the latest
 // epoch, in the order it ranked them, or none before the first snapshot. It
 // fails when the stored set does not add up.

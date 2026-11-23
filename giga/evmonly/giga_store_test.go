@@ -12,6 +12,7 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -224,7 +225,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	store := &recordingGigaStore{snapshot: snapshot}
 	wantMisc := []gigatypes.MiscChange{{Module: "encoded", Key: []byte("key"), Value: []byte("value")}}
 	encodeCalls := 0
-	encoder := func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error) {
+	encoder := func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
 		encodeCalls++
 		return wantMisc, nil
 	}
@@ -357,7 +358,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		executor := NewExecutor(
 			Config{BlockResultPoolSize: 1},
 			withTestStores(store, NewMemoryReceiptStore()),
-			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error) {
+			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
 				return nil, encodeErr
 			}),
 		)
@@ -383,7 +384,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		executor := NewExecutor(
 			Config{MinGasPrice: big.NewInt(0)},
 			withTestStores(store, NewMemoryReceiptStore()),
-			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error) {
+			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
 				encodeCalls++
 				return nil, nil
 			}),
@@ -408,7 +409,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		executor := NewExecutor(
 			Config{BlockResultPoolSize: 1},
 			withTestStores(store, NewMemoryReceiptStore()),
-			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error) {
+			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
 				cancel()
 				return nil, nil
 			}),

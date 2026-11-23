@@ -67,7 +67,6 @@ type mockAppState struct {
 	nextNonce        map[common.Address]uint64
 	lastBlockHeight  int64
 	lastBlockAppHash []byte
-	validators       []proxy.ValidatorUpdate
 	nextTransition   mockAppTransition
 }
 
@@ -107,10 +106,8 @@ func (app *MockApp) InitChain(req *proxy.RequestInitChain) (*proxy.ResponseInitC
 		if err != nil {
 			return nil, err
 		}
-		validators := app.app.GetValidators()
 		state.lastBlockHeight = req.InitialHeight - 1
 		state.lastBlockAppHash = nil
-		state.validators = slices.Clone(validators)
 		state.nextTransition = mockAppTransitionFinalize
 		return &proxy.ResponseInitChain{Validators: slices.Clone(res.Validators)}, nil
 	}
@@ -125,13 +122,6 @@ func (app *MockApp) Info() *proxy.ResponseInfo {
 		info.LastBlockHeight = state.lastBlockHeight
 		info.LastBlockAppHash = slices.Clone(state.lastBlockAppHash)
 		return &info
-	}
-	panic("unreachable")
-}
-
-func (app *MockApp) GetValidators() []proxy.ValidatorUpdate {
-	for state := range app.state.RLock() {
-		return slices.Clone(state.validators)
 	}
 	panic("unreachable")
 }
@@ -311,7 +301,8 @@ func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
 			return fmt.Errorf("mock app commit height = %d does not fit a road height", height)
 		}
 		var err error
-		misc, err = app.epochRegistry.Changes(road)
+		// A mock block runs no staking, so each closing road derives the configured validators.
+		misc, err = app.epochRegistry.Changes(road, func() (map[atypes.PublicKey]uint64, error) { return nil, nil })
 		if err != nil {
 			return err
 		}

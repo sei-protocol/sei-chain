@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	dto "github.com/prometheus/client_model/go"
@@ -35,9 +36,10 @@ func logEvent(events *eventLog, format string, args ...any) {
 // recordingApp is an application that records each call execution makes.
 type recordingApp struct {
 	proxy.EVMApplication
-	events     *eventLog
-	state      utils.Mutex[*recordingAppState]
-	validators []proxy.ValidatorUpdate
+	events *eventLog
+	state  utils.Mutex[*recordingAppState]
+	// registry is the epoch registry the app reports; nil reports one holding no epochs.
+	registry *atypes.EpochRegistry
 }
 
 type recordingAppState struct {
@@ -59,7 +61,13 @@ func newRecordingApp(events *eventLog, last int64) *recordingApp {
 	return &recordingApp{events: events, state: utils.NewMutex(&recordingAppState{last: last})}
 }
 
-func (a *recordingApp) GetValidators() []proxy.ValidatorUpdate { return a.validators }
+func (a *recordingApp) EpochRegistry() (*atypes.EpochRegistry, error) {
+	if a.registry == nil {
+		return new(atypes.EpochRegistry), nil
+	}
+	return a.registry, nil
+}
+
 func (a *recordingApp) Info() *proxy.ResponseInfo {
 	return &proxy.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
 }
@@ -215,8 +223,6 @@ func TestInitAppRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 	require.NoError(t, env.write(0, 3, true))
 	tip := env.road(1)
 	app := newRecordingApp(env.events, int64(tip))
-	vals := []proxy.ValidatorUpdate{{PubKey: env.keys[0].Public(), Power: 3}}
-	app.validators = vals
 
 	next, err := env.executor(app).initApp(t.Context())
 	require.NoError(t, err)
@@ -308,27 +314,30 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 	}
 }
 
-func TestRunMarksTheLastBlockOfEachEpochInTheGenesisEpochLength(t *testing.T) {
+func TestRunNamesTheLowestKeyOfTheBlocksCommitteeAsProposer(t *testing.T) {
 	rng := utils.TestRng()
-	env := newTestEnv(t, rng, 5)
-	params := types.DefaultAutobahnParams()
-	params.EpochLength = 2
-	env.genDoc.Autobahn = utils.Some(params)
-	require.NoError(t, env.write(0, 5, true))
+	env := newTestEnv(t, rng, 3)
+	require.NoError(t, env.write(0, 3, true))
+	keys := utils.GenSliceN(rng, 4, atypes.GenSecretKey)
+	weights := map[atypes.PublicKey]uint64{}
+	for _, key := range keys {
+		weights[key.Public()] = 1
+	}
 	app := newRecordingApp(env.events, 0)
+	app.registry = utils.OrPanic1(atypes.GenesisRegistry(weights, env.road(0), epoch.DefaultEpochLength))
 	executor := env.executor(app)
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
-		return waitExecuted(ctx, executor, env.road(4))
+		return waitExecuted(ctx, executor, env.road(2))
 	}))
 
-	var closing []utils.Option[atypes.EpochIndex]
-	for _, req := range app.finalized() {
-		closing = append(closing, req.Header.ClosingEpoch)
+	lowest := slices.MinFunc(keys, func(a, b atypes.SecretKey) int { return a.Public().Compare(b.Public()) })
+	finalized := app.finalized()
+	require.Len(t, finalized, 3)
+	for _, req := range finalized {
+		require.Equal(t, []byte(lowest.Public().ED25519().Address()), req.Header.ProposerAddress)
 	}
-	none := utils.None[atypes.EpochIndex]()
-	require.Equal(t, []utils.Option[atypes.EpochIndex]{none, utils.Some[atypes.EpochIndex](0), none, utils.Some[atypes.EpochIndex](1), none}, closing)
 }
 
 // TestNewPublishesTheAppTipAsExecuted verifies that the executed-block feed

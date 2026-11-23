@@ -285,27 +285,6 @@ func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
 	require.Empty(t, info.LastBlockAppHash)
 }
 
-func TestMockAppGetValidatorsCachesWrappedAppValidators(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng).Public()
-	inner := &mockAppValidatorsTarget{validators: []proxy.ValidatorUpdate{{PubKey: key, Power: 7}}}
-	app := NewMockApp(inner)
-
-	require.Empty(t, app.GetValidators())
-	require.Zero(t, inner.calls)
-
-	_, err := app.InitChain(&proxy.RequestInitChain{InitialHeight: 1})
-	require.NoError(t, err)
-	require.Equal(t, []proxy.ValidatorUpdate{{PubKey: key, Power: 7}}, app.GetValidators())
-	require.Equal(t, []proxy.ValidatorUpdate{{PubKey: key, Power: 7}}, app.GetValidators())
-	require.Equal(t, 1, inner.calls)
-
-	inner.validators = []proxy.ValidatorUpdate{{PubKey: key, Power: 11}}
-	app.InitLastHeader(&proxy.Header{Height: 3})
-	require.Equal(t, []proxy.ValidatorUpdate{{PubKey: key, Power: 7}}, app.GetValidators())
-	require.Equal(t, 1, inner.calls)
-}
-
 func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
 	app := NewMockApp(mockAppFixture{})
 	want := new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000))
@@ -363,9 +342,8 @@ type mockAppFixture struct {
 func (mockAppFixture) InitChain(*proxy.RequestInitChain) (*proxy.ResponseInitChain, error) {
 	return &proxy.ResponseInitChain{}, nil
 }
-func (mockAppFixture) EvmChainID() uint64                     { return mockAppFixtureEVMChainID }
-func (mockAppFixture) GetValidators() []proxy.ValidatorUpdate { return nil }
-func (mockAppFixture) Info() *proxy.ResponseInfo              { return &proxy.ResponseInfo{} }
+func (mockAppFixture) EvmChainID() uint64        { return mockAppFixtureEVMChainID }
+func (mockAppFixture) Info() *proxy.ResponseInfo { return &proxy.ResponseInfo{} }
 
 type mockAppForwardTarget struct {
 	mockAppFixture
@@ -395,17 +373,6 @@ func (mockAppInfoTarget) Info() *proxy.ResponseInfo {
 		LastBlockAppHash: []byte("wrapped-hash"),
 		MinimumGasPrices: "1usei",
 	}
-}
-
-type mockAppValidatorsTarget struct {
-	mockAppFixture
-	validators []proxy.ValidatorUpdate
-	calls      int
-}
-
-func (app *mockAppValidatorsTarget) GetValidators() []proxy.ValidatorUpdate {
-	app.calls++
-	return app.validators
 }
 
 func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint64, gas uint64) ([]byte, *ethtypes.Transaction, common.Address) {
@@ -495,10 +462,11 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 
 	_, err = mock.InitChain(&proxy.RequestInitChain{InitialHeight: 1, MaxGas: 30_000_000})
 	require.NoError(t, err)
-	validators := mock.GetValidators()
-	require.Len(t, validators, 1)
-	require.Equal(t, validator.ValidatorKey, validators[0].PubKey)
-	require.Equal(t, int64(1), validators[0].Power)
+	registry, err := mock.EpochRegistry()
+	require.NoError(t, err)
+	committee := registry.Epochs()[0].Committee()
+	require.Equal(t, 1, committee.Lanes().Len())
+	require.Equal(t, uint64(1), committee.Weight(validator.ValidatorKey))
 	var blockHash [32]byte
 	blockHash[0] = 1
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), 1, blockHash))

@@ -58,15 +58,13 @@ func newTestApp() *testApp {
 
 func (a *testApp) EvmNonce(common.Address) uint64 { return 0 }
 
+// EpochRegistry reports a registry holding no epochs, so execution names no proposer.
+func (a *testApp) EpochRegistry() (*atypes.EpochRegistry, error) {
+	return new(atypes.EpochRegistry), nil
+}
+
 // EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
 func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
-
-func (a *testApp) GetValidators() []proxy.ValidatorUpdate {
-	for state := range a.state.Lock() {
-		return slices.Clone(state.Validators)
-	}
-	panic("unreachable")
-}
 
 func (a *testApp) Info() *proxy.ResponseInfo {
 	for state := range a.state.Lock() {

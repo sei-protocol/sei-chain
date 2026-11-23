@@ -382,10 +382,11 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.Nil(t, manager.StateDB().UndoSS())
 	require.NotNil(t, manager.ReceiptDB())
 	require.Equal(t, "evmonly", app.Info().Data)
-	validators := app.GetValidators()
-	require.Len(t, validators, 1)
-	require.Equal(t, int64(1), validators[0].Power)
-	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.Bytes())
+	registry, err := app.EpochRegistry()
+	require.NoError(t, err)
+	committee := registry.Epochs()[0].Committee()
+	require.Equal(t, 1, committee.Lanes().Len())
+	require.Equal(t, uint64(1), committee.Weight(validator.ValidatorKey))
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this

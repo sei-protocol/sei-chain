@@ -298,10 +298,12 @@ committee two epochs ahead and writes it to the epoch registry, which the
 precompiles do not read. Rewards need the committee that served a block.
 
 So at the end of an epoch's last block, EndBlock copies `lastValidators`, with
-each member's consensus key, into `epochValidators[epoch]`, and the committee
-that served a block in epoch E is the snapshot of epoch E−2. The snapshot is
-committed state, so every node reads the same one, and a node that state-syncs
-gets it too. Consensus marks the block that closes an epoch, so staking never
+each member's consensus key, into `epochValidators[epoch]`, and once the block
+has run the app derives the committee from the latest snapshot: the committee
+that serves a block in epoch E is the snapshot of epoch E−2, or the configured
+validators until staking has taken one. The snapshot is committed state, so
+every node reads the same one, and a node that state-syncs gets it too. The app
+marks the block that closes an epoch from its epoch registry, so staking never
 needs the epoch length. The keys are copied because a member can leave the
 bonded set, finish unbonding with no shares and be removed while its snapshot
 is still read.
@@ -600,8 +602,6 @@ Known gaps that need an owner or a decision.
   on vesting accounts. Giga has no vesting accounts; what happens when a
   vesting delegator undelegates is undecided.
 - **Bank balances and escrow funding** at cutover belong to the bank migration.
-- **Dynamic validator sets in autobahn.** The giga application returns the
-  genesis validator set today, and validator updates have nowhere to go.
 - **Validator operations through authz.** Some operators run validator
   operations through authz grants, which the giga precompiles would not
   support.

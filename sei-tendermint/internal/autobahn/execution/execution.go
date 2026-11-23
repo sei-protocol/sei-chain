@@ -5,13 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -145,6 +143,22 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 	return last + 1, nil
 }
 
+// committeeProposer returns the address of the member with the lowest public key in the committee
+// of the epoch holding road, or none when the app's epoch registry does not hold that epoch.
+func committeeProposer(app *proxy.EVMProxy, road atypes.RoadHeight) (types.Address, error) {
+	registry, err := app.EpochRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("app.EpochRegistry(): %w", err)
+	}
+	for _, epoch := range registry.Epochs() {
+		if epoch.RoadRange().Has(road) {
+			// A committee has at least one member, and its lanes are ordered by public key.
+			return epoch.Committee().Lanes().At(0).Validator.ED25519().Address(), nil
+		}
+	}
+	return nil, nil
+}
+
 // executeBlock reports b's hash to the app hash builder, then finalizes and
 // commits b. A cancel does not interrupt it.
 func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
@@ -154,12 +168,10 @@ func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
-		// Deterministically select a proposer from the app's validator committee.
-		// We need it so that app does not emit error logs.
-		proposer := slices.MinFunc(vals, func(a, b proxy.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		proposerAddress = proposer.PubKey.ED25519().Address()
+	// A deterministic proposer, so that the app does not emit error logs.
+	proposerAddress, err := committeeProposer(app, b.Height)
+	if err != nil {
+		return err
 	}
 
 	resp, err := app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
@@ -176,12 +188,6 @@ func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
 			// WARNING: the reward distribution has corner cases where it forgets the proposer,
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
-			// Epochs are counted as the epoch registry counts them: from the genesis initial height, in the genesis epoch length.
-			ClosingEpoch: epoch.ClosingEpoch(
-				atypes.RoadHeight(e.cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
-				e.cfg.GenDoc.Autobahn.Or(types.DefaultAutobahnParams()).EpochLength,
-				b.Height,
-			),
 		},
 	})
 	if err != nil {

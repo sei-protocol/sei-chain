@@ -19,7 +19,6 @@ import (
 type EVMApplication interface {
 	// Application state and initialization.
 	Info() *ResponseInfo
-	GetValidators() []ValidatorUpdate
 	EpochRegistry() (*atypes.EpochRegistry, error)
 	LastBlockHeight() int64
 	InitChain(*RequestInitChain) (*ResponseInitChain, error)
@@ -117,11 +116,6 @@ func NewEVM(app EVMApplication) *EVMProxy {
 func (app *EVMProxy) Info() *ResponseInfo {
 	defer addTimeSample(Global.MethodTimingAt("info", "sync"))()
 	return app.app.Info()
-}
-
-func (app *EVMProxy) GetValidators() []ValidatorUpdate {
-	defer addTimeSample(Global.MethodTimingAt("get_validators", "sync"))()
-	return app.app.GetValidators()
 }
 
 func (app *EVMProxy) LastBlockHeight() int64 {

@@ -116,8 +116,6 @@ type evmOnlyApplication struct {
 	storage     *bootstrap.GigaStorageManager
 	// epochRegistry is the epoch registry each executed block advances.
 	epochRegistry *EpochRegistry
-	// validators are the configured validators, served until staking bonds a set.
-	validators []proxy.ValidatorUpdate
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	// alloc, when set, funds the chain at its initial height, and every
@@ -188,7 +186,6 @@ var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
 // durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
-	validators []proxy.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	epochRegistry *EpochRegistry,
 	execution gigaconfig.ExecutionConfig,
@@ -216,7 +213,6 @@ func NewEVMOnlyApplication(
 		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:           storage,
 		epochRegistry:     epochRegistry,
-		validators:        slices.Clone(validators),
 		customPrecompiles: customPrecompiles,
 		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
@@ -286,6 +282,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 func (a *evmOnlyApplication) encodeCursorChangeSet(
 	block evmonly.BlockContext,
 	result *evmonly.BlockResult,
+	after func() precompiles.State,
 ) ([]gigatypes.MiscChange, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
@@ -295,7 +292,9 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		epochChanges, err := a.epochRegistry.Changes(atypes.RoadHeight(block.Number))
+		epochChanges, err := a.epochRegistry.Changes(atypes.RoadHeight(block.Number), func() (map[atypes.PublicKey]uint64, error) {
+			return stakingWeights(after())
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -1020,7 +1019,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req *proxy.Reque
 		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
 		senders := a.takeSenders(req.Txs)
 		block := a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash)
-		if epoch, ok := req.Header.ClosingEpoch.Get(); ok {
+		if epoch, ok := a.epochRegistry.ClosingEpoch(atypes.RoadHeight(number)).Get(); ok {
 			block.ClosingEpoch = utils.Some(uint64(epoch))
 		}
 		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
