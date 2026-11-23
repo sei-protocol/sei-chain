@@ -1,10 +1,10 @@
-package proxy
+package evm
 
 import "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 
 // epochSnapshotApp serves the current snapshot of a test epoch registry.
 type epochSnapshotApp struct {
-	EVMApplication
+	Application
 	snapshot func() *types.EpochRegistry
 }
 
@@ -14,6 +14,6 @@ func (a epochSnapshotApp) EpochRegistry() (*types.EpochRegistry, error) {
 
 // TestEpochApp returns an EVM proxy whose epoch registry is registry's current snapshot.
 // Intended for use in tests only.
-func TestEpochApp(registry interface{ Snapshot() *types.EpochRegistry }) *EVMProxy {
-	return NewEVM(epochSnapshotApp{snapshot: registry.Snapshot})
+func TestEpochApp(registry interface{ Snapshot() *types.EpochRegistry }) *Proxy {
+	return NewProxy(epochSnapshotApp{snapshot: registry.Snapshot})
 }

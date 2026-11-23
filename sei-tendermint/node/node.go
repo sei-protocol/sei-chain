@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
 	_ "github.com/lib/pq" // provide the psql db driver
 	"github.com/prometheus/client_golang/prometheus"
@@ -24,6 +26,7 @@ import (
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -181,7 +184,8 @@ func makeNode(
 
 	var (
 		proxyApp           utils.Option[*proxy.Proxy]
-		evmApp             utils.Option[*proxy.EVMProxy]
+		evmApp             utils.Option[*abevm.Proxy]
+		evmSigner          utils.Option[*abevm.Signer]
 		gigaStorageManager utils.Option[*bootstrap.GigaStorageManager]
 	)
 	gigaEnabled := cfg.AutobahnConfigFile != ""
@@ -190,7 +194,11 @@ func makeNode(
 		if err != nil {
 			return nil, err
 		}
-		evmApp = utils.Some(proxy.NewEVM(evm))
+		evmApp = utils.Some(abevm.NewProxy(evm))
+		// The cap bounds each generation of senders retained for admitted transactions.
+		const senderCacheCapacity = 1 << 22
+		signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(evm.EvmChainID()))
+		evmSigner = utils.Some(abevm.NewSigner(signer, senderCacheCapacity, opts.giga.Execution.ParseWorkers))
 		gigaStorageManager = utils.Some(storage)
 	} else {
 		proxyApp = utils.Some(proxy.New(app))
@@ -327,6 +335,7 @@ func makeNode(
 		gigaValidatorKey,
 		cfg,
 		evmApp,
+		evmSigner,
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
@@ -353,7 +362,7 @@ func makeNode(
 		if _, ok := node.giga.Get(); !ok {
 			return nil, errors.New("autobahn requires a router")
 		}
-		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
+		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), evmSigner.OrPanic("Autobahn requires a transaction signer"), genDoc, manager))
 		node.rpcEnv.Executor = node.executor
 	}
 
@@ -758,7 +767,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 			return errors.New("autobahn rpc requires an EVM application")
 		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
-			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, EVMProxy: evm}
+			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, Proxy: evm}
 			n.evmOnlyRPC, err = evmonlyrpc.Start(evmEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
 			if err != nil {
 				return err

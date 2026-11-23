@@ -7,7 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -28,8 +28,8 @@ func newOverrideLimits(limits gigaconfig.RPCConfig) overrideLimits {
 
 // callOverrides returns the overrides a call's optional state and block override arguments name,
 // refusing a state override larger than l allows.
-func (l overrideLimits) callOverrides(state *export.StateOverride, block *export.BlockOverrides) (evmonly.CallOverrides, error) {
-	var overrides evmonly.CallOverrides
+func (l overrideLimits) callOverrides(state *export.StateOverride, block *export.BlockOverrides) (abevm.CallOverrides, error) {
+	var overrides abevm.CallOverrides
 	if err := l.check(state); err != nil {
 		return overrides, err
 	}

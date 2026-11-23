@@ -35,7 +35,7 @@ func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Addres
 	if number, ok := block.Number(); ok && number == ethrpc.PendingBlockNumber {
 		return api.pendingTransactionCount(ctx, address)
 	}
-	height, latest, err := stateHeight(ctx, api.backend, block)
+	height, latest, err := stateHeight(ctx, api.backend, api.store, block)
 	if err != nil {
 		return nil, err
 	}

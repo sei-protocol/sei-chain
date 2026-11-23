@@ -27,7 +27,7 @@ func (api *callAPI) CreateAccessList(ctx context.Context, args export.Transactio
 	if block != nil {
 		selector = *block
 	}
-	height, latest, err := stateHeight(ctx, api.backend, selector)
+	height, latest, err := stateHeight(ctx, api.backend, api.store, selector)
 	if err != nil {
 		return nil, err
 	}

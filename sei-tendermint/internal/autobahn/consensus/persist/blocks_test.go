@@ -14,7 +14,7 @@ import (
 func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.LaneHeight) *types.Signed[*types.LaneProposal] {
 	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	block := types.NewLaneBlock(lane, n, types.GenLaneBlockHeaderHash(rng), types.GenPayload(rng))
-	return types.Sign(key, types.NewLaneProposal(block))
+	return key.Sign(types.NewLaneProposal(block))
 }
 
 func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.LaneProposal]) {
@@ -550,7 +550,7 @@ func TestSyncLanesDeletesOpenLane(t *testing.T) {
 
 	leaver := types.GenSecretKey(rng)
 	lane := types.LaneID{Validator: leaver.Public(), Joined: 0}
-	proposal := types.Sign(leaver, types.NewLaneProposal(
+	proposal := leaver.Sign(types.NewLaneProposal(
 		types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng)),
 	))
 
@@ -559,10 +559,10 @@ func TestSyncLanesDeletesOpenLane(t *testing.T) {
 	_, err = os.Stat(lanePath)
 	require.NoError(t, err)
 
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	require.NoError(t, bp.SyncLanes(map[types.LaneID]struct{}{}))
 	_, err = os.Stat(lanePath)
 	require.True(t, os.IsNotExist(err))
 
 	// Idempotent.
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	require.NoError(t, bp.SyncLanes(map[types.LaneID]struct{}{}))
 }

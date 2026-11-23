@@ -11,7 +11,7 @@ import (
 )
 
 func genTestCommittee(rng utils.Rng, size int) (*types.Committee, []types.SecretKey) {
-	keys := utils.GenSliceN(rng, size, types.GenSecretKey)
+	keys := rng.GenSliceN(size, types.GenSecretKey)
 	weights := make(map[types.PublicKey]uint64, size)
 	for _, key := range keys {
 		weights[key.Public()] = 1

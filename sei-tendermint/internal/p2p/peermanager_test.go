@@ -157,8 +157,8 @@ func TestPeerManager_PushPex(t *testing.T) {
 	rng := utils.TestRng()
 
 	t.Log("Generate persistent and bootstrap peers")
-	persistentAddrs := utils.GenSliceN(rng, 2, makeAddr)
-	bootstrapAddrs := utils.GenSliceN(rng, 4, makeAddr)
+	persistentAddrs := rng.GenSliceN(2, makeAddr)
+	bootstrapAddrs := rng.GenSliceN(4, makeAddr)
 	unconditionalPeer := makeNodeID(rng)
 
 	m := makePeerManager(selfID, &RouterOptions{
@@ -198,7 +198,7 @@ func TestPeerManager_PushPex(t *testing.T) {
 func TestPeerManager_ConcurrentDials(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	addrs := utils.GenSliceN(rng, 4, makeAddr)
+	addrs := rng.GenSliceN(4, makeAddr)
 	addrSet := map[types.NodeID]bool{}
 	for _, addr := range addrs {
 		addrSet[addr.NodeID] = true
@@ -273,9 +273,9 @@ func TestPeerManager_MaxConnected(t *testing.T) {
 	const maxIn = 3
 	const maxOut = 4
 
-	unconditionalPeers := utils.GenSliceN(rng, 3, makeNodeID)
-	persistentPeers := utils.GenSliceN(rng, 2, makeAddr)
-	bootstrapPeers := utils.GenSliceN(rng, maxOut*2, makeAddr)
+	unconditionalPeers := rng.GenSliceN(3, makeNodeID)
+	persistentPeers := rng.GenSliceN(2, makeAddr)
+	bootstrapPeers := rng.GenSliceN(maxOut*2, makeAddr)
 	m := makePeerManager(makeNodeID(rng), &RouterOptions{
 		PersistentPeers:    persistentPeers,
 		BootstrapPeers:     bootstrapPeers,
@@ -318,7 +318,7 @@ func TestPeerManager_MaxConnectedForDial(t *testing.T) {
 	maxOut := 10
 	rng := utils.TestRng()
 
-	addrs := utils.GenSliceN(rng, maxOut*2, makeAddr)
+	addrs := rng.GenSliceN(maxOut*2, makeAddr)
 	m := makePeerManager(makeNodeID(rng), &RouterOptions{
 		BootstrapPeers: addrs,
 		MaxOutbound:    utils.Some(maxOut),
@@ -469,24 +469,24 @@ func TestPeerManager_Wake(t *testing.T) {
 		MaxInbound:      utils.Some(maxConns),
 	})
 	// Adding an address while none are available should wake.
-	require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
+	require.True(t, m.inner.MonitorUpdates(func() {
 		require.NoError(t, m.PushPex(utils.Some(makeNodeID(rng)), utils.Slice(makeAddr(rng))))
 	}))
 	t.Log("freeing a dial slot via DialFailed should wake")
 	addrs := mustStartDial(t, ctx, m)
-	require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
+	require.True(t, m.inner.MonitorUpdates(func() {
 		m.DialFailed(addrs[0].NodeID)
 	}))
 
 	t.Log("establishing a connection should wake")
 	addrs = mustStartDial(t, ctx, m)
 	conn := makeConnTo(addrs[0])
-	require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
+	require.True(t, m.inner.MonitorUpdates(func() {
 		require.NoError(t, m.Connected(conn))
 	}))
 
 	t.Log("disconnecting should wake")
-	require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
+	require.True(t, m.inner.MonitorUpdates(func() {
 		m.Disconnected(conn)
 	}))
 }
@@ -494,7 +494,7 @@ func TestPeerManager_Wake(t *testing.T) {
 // Test checking that manager closes duplicate inbound connection.
 func TestPeerManager_DuplicateConn(t *testing.T) {
 	rng := utils.TestRng()
-	ids := utils.GenSliceN(rng, 10, makeNodeID)
+	ids := rng.GenSliceN(10, makeNodeID)
 	m := makePeerManager(makeNodeID(rng), &RouterOptions{
 		MaxInbound: utils.Some(len(ids) + 5),
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -41,8 +42,7 @@ func (api *subscribeAPI) Logs(ctx context.Context, crit *filters.FilterCriteria)
 	if !ok {
 		return nil, ethrpc.ErrNotificationsUnsupported
 	}
-	criteria := subscriptionLogCriteria(crit)
-	cursor, err := api.logs.pollStart(criteria)
+	criteria, cursor, err := api.logs.pollStart(subscriptionLogCriteria(crit))
 	if err != nil {
 		return nil, err
 	}
@@ -64,17 +64,24 @@ func (api *subscribeAPI) Logs(ctx context.Context, crit *filters.FilterCriteria)
 	return rpcSub, nil
 }
 
-// subscriptionLogCriteria returns the criteria a logs subscription polls with. A fromBlock of 0
-// with a tag toBlock, which ethclient sends for an open-ended query, is treated as an omitted
-// fromBlock.
+// subscriptionLogCriteria returns the criteria a logs subscription polls with. An earliest
+// fromBlock with a head tag toBlock, which ethclient sends for an open-ended query, is treated as
+// an omitted fromBlock.
 func subscriptionLogCriteria(crit *filters.FilterCriteria) filters.FilterCriteria {
 	if crit == nil {
 		return filters.FilterCriteria{}
 	}
-	if crit.FromBlock != nil && crit.FromBlock.Sign() == 0 && crit.ToBlock != nil && crit.ToBlock.Sign() < 0 {
+	if crit.FromBlock != nil && crit.ToBlock != nil && isOpenEndedRange(crit.FromBlock, crit.ToBlock) {
 		return filters.FilterCriteria{Addresses: crit.Addresses, Topics: crit.Topics}
 	}
 	return *crit
+}
+
+// isOpenEndedRange reports whether fromBlock is earliest and toBlock is a head tag.
+func isOpenEndedRange(fromBlock, toBlock *big.Int) bool {
+	fromKind, fromErr := classifyFilterBound(fromBlock)
+	toKind, toErr := classifyFilterBound(toBlock)
+	return fromErr == nil && toErr == nil && fromKind == earliestBlock && toKind == headBlock
 }
 
 func (api *subscribeAPI) streamLogs(

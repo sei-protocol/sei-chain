@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // Call executes msg as a read-only EVM message call against the current
@@ -21,13 +22,13 @@ func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Me
 		return nil, err
 	}
 	defer snapshot.Close()
-	return e.CallAt(ctx, snapshot, blockCtx, msg, CallOverrides{})
+	return e.CallAt(ctx, snapshot, blockCtx, msg, abevm.CallOverrides{})
 }
 
 // CallAt executes msg as a read-only EVM message call against the state view
 // holds, with overrides applied, and returns the execution result. It persists
 // no state change.
-func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, overrides CallOverrides) (*core.ExecutionResult, error) {
+func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return nil, err
@@ -35,7 +36,7 @@ func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, bloc
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	evmCtx, err := overrides.blockContext(blockCtx)
+	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx))
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +46,7 @@ func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, bloc
 
 	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.
 	evm := e.newEVM(evmCtx, stateDB, chainConfig, vm.Config{NoBaseFee: true})
-	if err := overrides.applyState(evm, stateDB); err != nil {
+	if err := overrides.ApplyState(evm, stateDB); err != nil {
 		return nil, err
 	}
 	result, cancelled, err := applyMessage(ctx, evm, msg)
