@@ -96,3 +96,10 @@ func TestLogFetcherReturnsErrorWhenStateUnavailable(t *testing.T) {
 	require.ErrorIs(t, err, cause)
 	require.False(t, ok)
 }
+
+func TestGetHeaderReturnsErrorWhenStateUnavailable(t *testing.T) {
+	cause := errors.New("unable to load historical state with SS disabled")
+	b := &Backend{ctxProvider: unavailableStateProvider(cause)}
+	_, err := b.getHeader(&coretypes.ResultBlock{Block: &tmtypes.Block{Header: tmtypes.Header{Height: 5}}})
+	require.ErrorIs(t, err, cause)
+}
