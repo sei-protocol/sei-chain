@@ -13,13 +13,24 @@ package evmrpc
 //
 // Method shape (one call = one cell):
 //
-//	debug_benchProgram({name, a:{code,calldata,extra,gas}, b:{...}|null,
+//	debug_benchProgram({name, a:{code,calldata,extra,gas,wantOut,wantTimedGas}, b:{...}|null,
 //	                    precompile:{addr,input,wantOut,wantGas}|null,
 //	                    n, opGas, gate:"diff"|"equal"|"abs",
-//	                    rounds, batchNs, pinCpu})
-//	-> {gateOk, gateNote, gasA, gasB, itersA, itersB,
+//	                    rounds, batchNs, pinCpu, timed, roundGapNs})
+//	-> {gateOk, gateNote, gasA, gasB, itersA, itersB, timedGasA, timedGasB,
 //	    rounds:[{round, order, nsA, nsB}], runtime:{before, after},
 //	    busyPin, busySib, busyAll, height, pinned}
+//
+// Timed mode (timed: true; the large-working-set cells of PLAN §3): each arm
+// carries its own timing boundary — an experiment-only precompile at
+// benchTimerAddr that records time.Now() and the GAS value the program
+// hands it, twice per call. One call is one batch (itersA = itersB = 1) and
+// the round's nsA/nsB are the stamped intervals, so preparation (memory
+// expansion, page touch, warm-up sweeps) and verification lie outside the
+// clock while the interpreter and opcodes are the release ones. The gate
+// checks the return data against wantOut and gas1 − gas2 against
+// wantTimedGas; the two arms must use equal total gas. roundGapNs sleeps
+// between rounds so the probe does not keep the node under sustained load.
 //
 // Both arms run in every round, in alternating order; the client differences
 // them within the round. Batches are sized by a pilot to ~batchNs. The gas
@@ -43,6 +54,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"runtime"
 	rtmetrics "runtime/metrics"
@@ -50,6 +62,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -61,6 +74,7 @@ import (
 const (
 	benchGasLimit     = 500_000_000
 	benchMaxCode      = 64 << 10
+	benchMaxCalldata  = 64 << 20 // timed mode ships an address table (32 B per cache line)
 	benchMaxRounds    = 2000
 	benchMaxBatchNs   = 20e6
 	benchMaxIters     = 5_000_000
@@ -70,6 +84,28 @@ const (
 
 var benchCaller = common.HexToAddress("0x00000000000000000000000000000000c0de00ca")
 var benchContract = common.HexToAddress("0x00000000000000000000000000000000c0de0001")
+
+// benchTimerAddr is the timing boundary of timed mode; the same address the
+// out-of-process harness installs (memops-prod pkg/ws.go timerAddr).
+var benchTimerAddr = common.HexToAddress("0x000000000000000000000000000000000000c10c")
+
+// benchTimer records the first two stamps of one call.
+type benchTimer struct {
+	t [2]time.Time
+	g [2]uint64
+	n int
+}
+
+func (t *benchTimer) RequiredGas([]byte) uint64 { return 0 }
+func (t *benchTimer) Run(_ *vm.EVM, _, _ common.Address, input []byte, _ *big.Int, _, _ bool, _ *tracing.Hooks) ([]byte, error) {
+	now := time.Now()
+	if t.n < 2 {
+		t.t[t.n] = now
+		t.g[t.n] = new(big.Int).SetBytes(input).Uint64()
+	}
+	t.n++
+	return nil, nil
+}
 
 type BenchAPI struct {
 	keeper      *keeper.Keeper
@@ -89,6 +125,9 @@ type BenchArm struct {
 	Calldata hexutil.Bytes                    `json:"calldata"`
 	Extra    map[common.Address]hexutil.Bytes `json:"extra"`
 	Gas      uint64                           `json:"gas"` // analytic expectation; 0 = not checked
+	// timed mode only
+	WantOut      hexutil.Bytes `json:"wantOut"`      // expected return data
+	WantTimedGas uint64        `json:"wantTimedGas"` // expected gas1 - gas2 across the two stamps (cold timer address)
 }
 
 type BenchPrecompile struct {
@@ -111,6 +150,8 @@ type BenchRequest struct {
 	PinCPU     int              `json:"pinCpu"`
 	ItersA     int              `json:"itersA"` // 0 = size by pilot
 	ItersB     int              `json:"itersB"`
+	Timed      bool             `json:"timed"`      // arms carry their own timing boundary (see header)
+	RoundGapNs float64          `json:"roundGapNs"` // sleep between rounds; 0 = none
 }
 
 type BenchRound struct {
@@ -133,25 +174,27 @@ type BenchRuntime struct {
 }
 
 type BenchResponse struct {
-	Name     string       `json:"name"`
-	GateOK   bool         `json:"gateOk"`
-	GateNote string       `json:"gateNote"`
-	GasA     uint64       `json:"gasA"`
-	GasB     uint64       `json:"gasB"`
-	ItersA   int          `json:"itersA"`
-	ItersB   int          `json:"itersB"`
-	Rounds   []BenchRound `json:"rounds"`
-	Before   BenchRuntime `json:"before"`
-	After    BenchRuntime `json:"after"`
-	BusyPin  float64      `json:"busyPin"`
-	BusySib  float64      `json:"busySib"`
-	BusyAll  float64      `json:"busyAll"`
-	Height   int64        `json:"height"`
-	Pinned   bool         `json:"pinned"`
-	PinCPU   int          `json:"pinCpu"`
-	Sibling  int          `json:"sibling"`
-	WallMs   float64      `json:"wallMs"`
-	GoVer    string       `json:"goVersion"`
+	Name      string       `json:"name"`
+	GateOK    bool         `json:"gateOk"`
+	GateNote  string       `json:"gateNote"`
+	GasA      uint64       `json:"gasA"`
+	GasB      uint64       `json:"gasB"`
+	ItersA    int          `json:"itersA"`
+	ItersB    int          `json:"itersB"`
+	TimedGasA uint64       `json:"timedGasA"` // timed mode: gas1 - gas2 observed at the gate
+	TimedGasB uint64       `json:"timedGasB"`
+	Rounds    []BenchRound `json:"rounds"`
+	Before    BenchRuntime `json:"before"`
+	After     BenchRuntime `json:"after"`
+	BusyPin   float64      `json:"busyPin"`
+	BusySib   float64      `json:"busySib"`
+	BusyAll   float64      `json:"busyAll"`
+	Height    int64        `json:"height"`
+	Pinned    bool         `json:"pinned"`
+	PinCPU    int          `json:"pinCpu"`
+	Sibling   int          `json:"sibling"`
+	WallMs    float64      `json:"wallMs"`
+	GoVer     string       `json:"goVersion"`
 }
 
 func benchRuntime() BenchRuntime {
@@ -185,6 +228,13 @@ func benchRuntime() BenchRuntime {
 // the way the keeper builds a read-only EVM for static calls, and installs
 // the arm's contracts on its StateDB.
 func (api *BenchAPI) newBenchEVM(arm *BenchArm) (*vm.EVM, int64, error) {
+	return api.newBenchEVMTimer(arm, nil)
+}
+
+// newBenchEVMTimer is newBenchEVM with the timing precompile installed at
+// benchTimerAddr (timed mode). The node's custom precompiles are cloned, not
+// modified.
+func (api *BenchAPI) newBenchEVMTimer(arm *BenchArm, tp *benchTimer) (*vm.EVM, int64, error) {
 	sdkCtx := api.ctxProvider(LatestCtxHeight)
 	cacheCtx, _ := sdkCtx.CacheContext()
 	executionCtx := cacheCtx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(cacheCtx))
@@ -195,7 +245,15 @@ func (api *BenchAPI) newBenchEVM(arm *BenchArm) (*vm.EVM, int64, error) {
 	}
 	sstore := api.keeper.GetSstoreSetGasEIP2200(executionCtx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(api.keeper.ChainID(executionCtx), &sstore)
-	evm := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, api.keeper.CustomPrecompiles(executionCtx))
+	custom := api.keeper.CustomPrecompiles(executionCtx)
+	if tp != nil {
+		custom = maps.Clone(custom)
+		if custom == nil {
+			custom = map[common.Address]vm.PrecompiledContract{}
+		}
+		custom[benchTimerAddr] = tp
+	}
+	evm := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, custom)
 	evm.SetTxContext(vm.TxContext{Origin: benchCaller})
 	if arm != nil {
 		for addr, code := range arm.Extra {
@@ -260,8 +318,8 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 		if a == nil {
 			continue
 		}
-		if len(a.Code) > benchMaxCode || len(a.Calldata) > benchMaxCode {
-			return nil, fmt.Errorf("code/calldata above %d bytes", benchMaxCode)
+		if len(a.Code) > benchMaxCode || len(a.Calldata) > benchMaxCalldata {
+			return nil, fmt.Errorf("code above %d or calldata above %d bytes", benchMaxCode, benchMaxCalldata)
 		}
 		for _, c := range a.Extra {
 			if len(c) > benchMaxCode {
@@ -303,7 +361,74 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 	// 15 µs → 90 µs over 60 rounds). A batch of a few dozen calls on a
 	// fresh StateDB is what a transaction sees; the build is not timed.
 	var runA, runB func() (func(), error)
-	if req.Precompile != nil {
+	// timed mode: one call = one stamped interval (see the header).
+	var timedA, timedB func() (float64, error)
+	if req.Timed {
+		if req.Precompile != nil || req.A == nil || req.B == nil {
+			return nil, errors.New("timed mode needs arms a and b and no precompile")
+		}
+		exec := func(a *BenchArm) (ns float64, used, g1, g2 uint64, out []byte, err error) {
+			tp := &benchTimer{}
+			evm, _, err := api.newBenchEVMTimer(a, tp)
+			if err != nil {
+				return 0, 0, 0, 0, nil, err
+			}
+			out, left, err := evm.Call(benchCaller, benchContract, a.Calldata, benchGasLimit, uint256.NewInt(0))
+			if err != nil {
+				return 0, benchGasLimit - left, 0, 0, out, err
+			}
+			if tp.n != 2 {
+				return 0, benchGasLimit - left, 0, 0, out, fmt.Errorf("timer stamped %d times, want 2", tp.n)
+			}
+			return float64(tp.t[1].Sub(tp.t[0]).Nanoseconds()), benchGasLimit - left, tp.g[0], tp.g[1], out, nil
+		}
+		check := func(label string, a *BenchArm) (used, timed uint64, note string, ok bool) {
+			_, used, g1, g2, out, err := exec(a)
+			if err != nil {
+				return used, 0, fmt.Sprintf("FAIL arm %s: %v", label, err), false
+			}
+			if string(out) != string(a.WantOut) {
+				return used, g1 - g2, fmt.Sprintf("FAIL arm %s: return data differs from the client's expectation", label), false
+			}
+			switch g1 - g2 {
+			case a.WantTimedGas:
+			case a.WantTimedGas - 2500:
+				note = "timer address warm in the node (timed-section gas 2500 below the cold expectation)"
+			default:
+				return used, g1 - g2, fmt.Sprintf("FAIL arm %s: timed-section gas %d != analytic %d", label, g1-g2, a.WantTimedGas), false
+			}
+			return used, g1 - g2, note, true
+		}
+		_, h, err := api.newBenchEVM(nil)
+		if err != nil {
+			return nil, err
+		}
+		resp.Height = h
+		var ok bool
+		var noteA, noteB string
+		resp.GasA, resp.TimedGasA, noteA, ok = check("A", req.A)
+		if !ok {
+			resp.GateNote = noteA
+			return resp, nil
+		}
+		resp.GasB, resp.TimedGasB, noteB, ok = check("B", req.B)
+		if !ok {
+			resp.GateNote = noteB
+			return resp, nil
+		}
+		if req.Gate == "equal" && resp.GasA != resp.GasB {
+			resp.GateNote = fmt.Sprintf("FAIL gas differs by %d (must be equal)", int64(resp.GasA)-int64(resp.GasB))
+			return resp, nil
+		}
+		if noteA != "" {
+			resp.GateNote = noteA
+		}
+		armA, armB := req.A, req.B
+		timedA = func() (float64, error) { ns, _, _, _, _, err := exec(armA); return ns, err }
+		timedB = func() (float64, error) { ns, _, _, _, _, err := exec(armB); return ns, err }
+		runA = func() (func(), error) { return func() {}, nil }
+		runB = runA
+	} else if req.Precompile != nil {
 		evm, h, err := api.newBenchEVM(nil)
 		if err != nil {
 			return nil, err
@@ -409,14 +534,24 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 
 	// ---------- sizing ----------
 	resp.ItersA = req.ItersA
-	if resp.ItersA <= 0 {
+	if req.Timed {
+		resp.ItersA, resp.ItersB = 1, 1
+		for i := 0; i < 3; i++ { // warm calls, as the out-of-process harness does
+			if _, err := timedA(); err != nil {
+				return nil, err
+			}
+			if _, err := timedB(); err != nil {
+				return nil, err
+			}
+		}
+	} else if resp.ItersA <= 0 {
 		fn, err := runA()
 		if err != nil {
 			return nil, err
 		}
 		resp.ItersA = benchPilot(fn, req.BatchNs)
 	}
-	if runB != nil {
+	if runB != nil && !req.Timed {
 		resp.ItersB = req.ItersB
 		if resp.ItersB <= 0 {
 			fn, err := runB()
@@ -433,6 +568,12 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 			return 0, err
 		}
 		return benchBatch(fn, iters), nil
+	}
+	batchA := func(iters int) (float64, error) { return batch(runA, iters) }
+	batchB := func(iters int) (float64, error) { return batch(runB, iters) }
+	if req.Timed {
+		batchA = func(int) (float64, error) { return timedA() }
+		batchB = func(int) (float64, error) { return timedB() }
 	}
 
 	// ---------- rounds ----------
@@ -452,22 +593,25 @@ func (api *BenchAPI) BenchProgram(ctx context.Context, req BenchRequest) (*Bench
 		var errA, errB error
 		order := "AB"
 		if i%2 == 0 {
-			a, errA = batch(runA, resp.ItersA)
+			a, errA = batchA(resp.ItersA)
 			if runB != nil {
-				b, errB = batch(runB, resp.ItersB)
+				b, errB = batchB(resp.ItersB)
 			}
 		} else {
 			order = "BA"
 			if runB != nil {
-				b, errB = batch(runB, resp.ItersB)
+				b, errB = batchB(resp.ItersB)
 			}
-			a, errA = batch(runA, resp.ItersA)
+			a, errA = batchA(resp.ItersA)
 		}
 		if errA != nil || errB != nil {
 			resp.GateNote = fmt.Sprintf("stopped at round %d: %v %v", i, errA, errB)
 			break
 		}
 		resp.Rounds = append(resp.Rounds, BenchRound{Round: i, Order: order, NsA: a, NsB: b})
+		if req.RoundGapNs > 0 && i+1 < req.Rounds {
+			time.Sleep(time.Duration(req.RoundGapNs))
+		}
 	}
 	resp.WallMs = float64(time.Since(t0).Microseconds()) / 1e3
 	resp.After = benchRuntime()
