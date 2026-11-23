@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
@@ -38,6 +39,9 @@ type GigaStorageManager struct {
 	// receiptDB is nil when ReceiptDBConfig.Enable is false.
 	receiptDB receiptdb.ReceiptStore
 
+	// archive is nil when ArchiveConfig is nil.
+	archive archive.ArchivalStore
+
 	// stateDB owns the live state DB, the historical state DB and the state WAL they share, along
 	// with the checkpoint schedule those stores run on.
 	stateDB *giga.StateDB
@@ -65,8 +69,8 @@ type GigaStorageManager struct {
 }
 
 // NewGigaStorageManager opens every store a Giga node runs on, first aligning the state stores and the receipt
-// store on the lowest height they and the app hash vault hold (see alignStores()). It refuses to start when any
-// store is ahead of a non-empty block store.
+// store on the lowest height they, the app hash vault and the history archive hold (see alignStores()). It
+// refuses to start when any store is ahead of a non-empty block store.
 //
 // The app hash builder's setup is completed at the aligned height. The builder halts the node before setup
 // completes if the aligned state disagrees with the app hash it already stores for that height. A failed call
@@ -103,8 +107,22 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	if err := assertInvariants(cfg, blockStoreHead, heads); err != nil {
 		return nil, fmt.Errorf("assert storage invariants: %w", err)
 	}
+	target := recoveryTarget(heads)
+	timer.SetPhase("archive")
+	// An empty archive starts at the block the node executes next: the one after target, or on a fresh chain
+	// the giga activation height.
+	archiveStore, err := openArchive(ctx, cfg, max(target+1, cfg.AppHashBuilderConfig.GigaActivationHeight))
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	if archiveStore != nil {
+		defer closeOnFailure(&retErr, "archive", archiveStore.Close)
+		// The archive is never rolled back, so the stores align at or below its head and the node executes the
+		// blocks it lacks again. Like the app hash vault's, its head counts even when it is 0.
+		target = min(target, archiveStore.LatestBlock())
+	}
 	timer.SetPhase("align_stores")
-	if err := alignStores(ctx, cfg, recoveryTarget(heads)); err != nil {
+	if err := alignStores(ctx, cfg, target); err != nil {
 		return nil, fmt.Errorf("align stores: %w", err)
 	}
 
@@ -179,6 +197,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		cfg:            cfg,
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
+		archive:        archiveStore,
 		stateDB:        stateDB,
 		gc:             gc,
 		appHashBuilder: appHashBuilder,
@@ -315,6 +334,9 @@ func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStor
 // ReceiptDB returns the receipt store, or nil when receipts are disabled.
 func (m *GigaStorageManager) ReceiptDB() receiptdb.ReceiptStore { return m.receiptDB }
 
+// Archive returns the history archive, or nil when no archive is configured.
+func (m *GigaStorageManager) Archive() archive.ArchivalStore { return m.archive }
+
 // StateDB returns the Giga state DB over the state WAL, the live state DB and the historical state DB.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }
 
@@ -352,6 +374,12 @@ func (m *GigaStorageManager) Close() error {
 		timer.SetPhase("receipt_store")
 		if err := m.receiptDB.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close receipt store: %w", err))
+		}
+	}
+	if m.archive != nil {
+		timer.SetPhase("archive")
+		if err := m.archive.Close(); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close archive: %w", err))
 		}
 	}
 	timer.SetPhase("state_db")
