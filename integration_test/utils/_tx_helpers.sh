@@ -9,6 +9,9 @@
 #
 # Source from a deploy script after setting $seidbin, $keyname, $chainid.
 
+# The Tendermint RPC of seid's gov commands, which use the EVM JSON-RPC
+# without --node.
+: "${v2_node:=tcp://localhost:26657}"
 : "${TX_WAIT_TIMEOUT:=30}"
 : "${TX_WAIT_INTERVAL:=0.5}"
 
@@ -121,7 +124,7 @@ _get_latest_height() {
 }
 
 get_proposal_status() {
-    $seidbin q gov proposal "$1" --output json 2>/dev/null | jq -r '.status // ""'
+    $seidbin q gov proposal "$1" --output json --node "$v2_node" 2>/dev/null | jq -r '.status // ""'
 }
 
 wait_for_proposal_status() {
@@ -133,7 +136,7 @@ wait_for_proposal_status() {
     local deadline=$(($(date +%s) + timeout_secs))
     local status=""
     while [ "$(date +%s)" -lt "$deadline" ]; do
-        local raw; raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
+        local raw; raw=$($seidbin q gov proposal "$proposal_id" --output json --node "$v2_node" 2>/dev/null || true)
         status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
         if [ "$status" = "$target_status" ]; then
             echo "$status"
@@ -178,7 +181,7 @@ submit_tx_and_wait() {
     local from_addr; from_addr=$(_get_key_address "$from_key")
     local seq_before; seq_before=$(_get_account_sequence "$from_addr")
     local resp; resp=$(printf "12345678\n" | $seidbin tx "$@" --from "$from_key" \
-        -y --chain-id="$chainid" --broadcast-mode=sync --output=json)
+        -y --chain-id="$chainid" --broadcast-mode=sync --output=json --node "$v2_node")
     local code; code=$(echo "$resp" | jq -r '.code // 0')
     if [ "$code" != "0" ]; then
         echo "submit_tx_and_wait CheckTx rejected: $(echo "$resp" | jq -r '.raw_log')" >&2
@@ -277,7 +280,7 @@ bank_send_and_wait() {
 # empty stdin and emits nothing — explicit fallback to 0 keeps callers
 # from hitting "integer expression expected" on empty $().
 _get_max_proposal_id() {
-    local out; out=$($seidbin q gov proposals --reverse --limit 1 -o json 2>/dev/null)
+    local out; out=$($seidbin q gov proposals --reverse --limit 1 -o json --node "$v2_node" 2>/dev/null)
     if [ -z "$out" ]; then echo 0; return; fi
     local id; id=$(echo "$out" | jq -r '.proposals[0].proposal_id // .proposals[0].id // 0' 2>/dev/null)
     echo "${id:-0}"
@@ -300,7 +303,7 @@ find_proposal_by_title() {
             local id
             local query_failed=0
             for ((id=max_id_before+1; id<=cur; id++)); do
-                local raw; raw=$($seidbin q gov proposal "$id" -o json 2>/dev/null)
+                local raw; raw=$($seidbin q gov proposal "$id" -o json --node "$v2_node" 2>/dev/null)
                 if [ -z "$raw" ]; then
                     # Transient query failure (RPC blip, indexer lag,
                     # etc.) — leave the id for re-scan on the next
@@ -337,7 +340,7 @@ submit_gov_proposal() {
     local title="$1"; shift
     local max_before; max_before=$(_get_max_proposal_id)
     local resp; resp=$(printf "12345678\n" | $seidbin tx "$@" --from "$from_key" \
-        -y --chain-id="$chainid" --broadcast-mode=sync --output=json)
+        -y --chain-id="$chainid" --broadcast-mode=sync --output=json --node "$v2_node")
     local code; code=$(echo "$resp" | jq -r '.code // 0')
     if [ "$code" != "0" ]; then
         echo "submit_gov_proposal CheckTx rejected: $(echo "$resp" | jq -r '.raw_log')" >&2
