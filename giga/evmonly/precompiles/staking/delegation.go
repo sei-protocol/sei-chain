@@ -42,7 +42,7 @@ func (p Precompile) delegateCall(ctx *precompiles.Context, s store, method *abi.
 		return nil, fmt.Errorf("%w: %s", errNoValidatorFound, op)
 	}
 	amount := new(big.Int).Set(ctx.ApparentValue)
-	if err := checkDelegation(ctx.Block, s, s.params(), &v, amount); err != nil {
+	if err := checkDelegation(ctx.Block, s.lastTotalPower(), s.params(), &v, amount); err != nil {
 		return nil, err
 	}
 	if err := transfer(s.State, ctx.Address, StagedEscrow, amount); err != nil {
@@ -95,7 +95,7 @@ func (p Precompile) redelegateCall(ctx *precompiles.Context, s store, method *ab
 	if tokens.Sign() == 0 {
 		return nil, errTinyRedelegationAmount
 	}
-	if err := checkDelegation(ctx.Block, s, params, &dstValidator, tokens); err != nil {
+	if err := checkDelegation(ctx.Block, s.lastTotalPower(), params, &dstValidator, tokens); err != nil {
 		return nil, err
 	}
 	epoch, err := stage(s, stagedOperation{kind: stagedRedelegate, delegator: ctx.Caller, validator: src, dstValidator: dst, amount: shares})
@@ -109,14 +109,15 @@ func (p Precompile) redelegateCall(ctx *precompiles.Context, s store, method *ab
 }
 
 // delegate adds amount to delegator's delegation to op's validator v and
-// returns the shares it issues, as x/staking's Delegate does. The tokens come
-// from the balance of from, or, when from is the zero address, from the escrow
-// of a validator whose status was tokenSrc.
+// returns the shares it issues, as x/staking's Delegate does, checking the
+// voting power ratio against bondedPower. The tokens come from the balance of
+// from, or, when from is the zero address, from the escrow of a validator whose
+// status was tokenSrc.
 func (p Precompile) delegate(
-	block precompiles.BlockContext, s store, params chainparams.Staking,
+	block precompiles.BlockContext, s store, params chainparams.Staking, bondedPower *big.Int,
 	delegator, op common.Address, v *validator, amount *big.Int, tokenSrc uint8, from common.Address,
 ) (*big.Int, error) {
-	if err := checkDelegation(block, s, params, v, amount); err != nil {
+	if err := checkDelegation(block, bondedPower, params, v, amount); err != nil {
 		return nil, err
 	}
 	shares, found := s.delegation(delegator, op)
@@ -150,19 +151,20 @@ func (p Precompile) delegate(
 }
 
 // checkDelegation fails when amount may not be delegated to v, as x/staking's
-// Delegate checks before it moves any tokens.
-func checkDelegation(block precompiles.BlockContext, s store, params chainparams.Staking, v *validator, amount *big.Int) error {
+// Delegate checks before it moves any tokens, with bondedPower the bonded set's
+// power.
+func checkDelegation(block precompiles.BlockContext, bondedPower *big.Int, params chainparams.Staking, v *validator, amount *big.Int) error {
 	if v.invalidExRate() {
 		return errExRateInvalid
 	}
-	return checkVotingPowerRatio(block, s, params, v, amount)
+	return checkVotingPowerRatio(block, bondedPower, params, v, amount)
 }
 
 // checkVotingPowerRatio fails when delegating amount to v would take v past the
-// max voting power ratio of the bonded set's power, once that power reaches the
-// enforcement threshold, as x/staking's Delegate checks.
-func checkVotingPowerRatio(block precompiles.BlockContext, s store, params chainparams.Staking, v *validator, amount *big.Int) error {
-	newTotalPower := new(big.Int).Add(s.lastTotalPower(), consensusPower(amount))
+// max voting power ratio of bondedPower, the bonded set's power, once that
+// power reaches the enforcement threshold, as x/staking's Delegate checks.
+func checkVotingPowerRatio(block precompiles.BlockContext, bondedPower *big.Int, params chainparams.Staking, v *validator, amount *big.Int) error {
+	newTotalPower := new(big.Int).Add(bondedPower, consensusPower(amount))
 	if block.Number == 0 || newTotalPower.Sign() == 0 || newTotalPower.Cmp(params.MaxVotingPowerEnforcementThreshold) < 0 {
 		return nil
 	}
@@ -320,11 +322,12 @@ func (p Precompile) undelegate(
 }
 
 // redelegate moves shares of delegator's delegation to src into a delegation
-// to dst, as x/staking's BeginRedelegation does, and queues the redelegation
-// entry unless src is unbonded and still exists once the shares leave it. It
-// returns the tokens moved and the entry's completion time, or 0 for no entry.
+// to dst, as x/staking's BeginRedelegation does, checking the voting power
+// ratio against bondedPower, and queues the redelegation entry unless src is
+// unbonded and still exists once the shares leave it. It returns the tokens
+// moved and the entry's completion time, or 0 for no entry.
 func (p Precompile) redelegate(
-	block precompiles.BlockContext, s store, params chainparams.Staking, delegator, src, dst common.Address, shares *big.Int,
+	block precompiles.BlockContext, s store, params chainparams.Staking, bondedPower *big.Int, delegator, src, dst common.Address, shares *big.Int,
 ) (*big.Int, uint64, error) {
 	srcValidator, dstValidator, err := checkRedelegation(s, params, delegator, src, dst, stagedDelegation{})
 	if err != nil {
@@ -337,7 +340,7 @@ func (p Precompile) redelegate(
 	if amount.Sign() == 0 {
 		return nil, 0, errTinyRedelegationAmount
 	}
-	sharesDst, err := p.delegate(block, s, params, delegator, dst, &dstValidator, amount, srcValidator.status, common.Address{})
+	sharesDst, err := p.delegate(block, s, params, bondedPower, delegator, dst, &dstValidator, amount, srcValidator.status, common.Address{})
 	if err != nil {
 		return nil, 0, err
 	}

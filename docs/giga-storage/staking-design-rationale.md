@@ -347,7 +347,8 @@ every destination, since they are not counted per destination.
 What can still change between the call and its epoch's end is what other
 operations do: a validator can be removed once its last shares leave, and a
 delegation can reach the max voting power ratio once others ahead of it take
-effect. An operation that then fails is dropped and reported: a delegation's
+effect, as it is checked against the bonded set's power as they leave it, not
+as last stored. An operation that then fails is dropped and reported: a delegation's
 tokens go back to its delegator, and the stake an undelegation or redelegation
 would have moved stays where it is.
 

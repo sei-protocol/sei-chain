@@ -206,7 +206,7 @@ func TestEndBlockBudgetDefersTheRest(t *testing.T) {
 		delegators[i] = d
 		h.fund(d, sei(1))
 		v := h.validator(val1)
-		_, err := h.staking.delegate(h.block(), s, testParams, d, val1, &v, sei(1), statusUnbonded, d)
+		_, err := h.staking.delegate(h.block(), s, testParams, s.lastTotalPower(), d, val1, &v, sei(1), statusUnbonded, d)
 		require.NoError(t, err)
 		_, _, err = h.staking.undelegate(h.block(), s, testParams, d, val1, h.shares(d, val1))
 		require.NoError(t, err)

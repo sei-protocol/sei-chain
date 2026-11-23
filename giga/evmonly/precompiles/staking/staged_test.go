@@ -82,19 +82,19 @@ func TestAStagedDelegationThatCanNoLongerBeMadeIsRefunded(t *testing.T) {
 	params.MaxVotingPowerRatio = new(big.Int).Div(dec.One(), big.NewInt(2))
 	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1)
 	h := newHarness(t, params)
-	// val2 holds 20 of 50 bonded power. 4 more is 24 of 54, under one half, but
-	// once bob's 4 are in, alice's 4 make 28 of 54.
-	require.NoError(t, h.stageDelegate(bob, val2, sei(4)))
-	require.NoError(t, h.stageDelegate(alice, val2, sei(4)), "each fits on its own")
+	// val2 holds 20 of 50 bonded power. 8 more is 28 of 58, under one half, but
+	// once bob's 8 are in, alice's 8 make 36 of 66.
+	require.NoError(t, h.stageDelegate(bob, val2, sei(8)))
+	require.NoError(t, h.stageDelegate(alice, val2, sei(8)), "each fits on its own")
 	h.endEpoch(0)
 	h.endEpoch(1)
 	require.Len(t, h.failures, 1)
 	require.ErrorIs(t, h.failures[0], precompiles.ErrDegraded)
 	require.ErrorIs(t, h.failures[0], errExceedMaxVotingPower)
-	require.Equal(t, dec.FromInt(sei(4)), h.shares(bob, val2))
+	require.Equal(t, dec.FromInt(sei(8)), h.shares(bob, val2))
 	_, found := h.store().delegation(alice, val2)
 	require.False(t, found)
-	require.Equal(t, sei(4), h.state.GetBalance(alice), "alice's tokens come back")
+	require.Equal(t, sei(8), h.state.GetBalance(alice), "alice's tokens come back")
 	h.requireInvariants(alice, bob)
 }
 
@@ -162,4 +162,38 @@ func TestStagedTotalsThatDoNotAddUpAreReported(t *testing.T) {
 	require.ErrorContains(t, h.failures[1], "left unsettled")
 	require.Equal(t, dec.FromInt(sei(5)), h.shares(alice, val1), "the undelegation is dropped")
 	require.Equal(t, dec.FromInt(sei(1)), h.shares(bob, val1), "and holds up nothing behind it")
+}
+
+// TestAStagedDelegationCountsThePowerTheDelegationsBeforeItAdd applies two
+// delegations to val2 whose sum stays under the voting power ratio once the
+// first is counted in the bonded set's power as well as in val2's.
+func TestAStagedDelegationCountsThePowerTheDelegationsBeforeItAdd(t *testing.T) {
+	params := testParams
+	params.MaxVotingPowerRatio = dec.Quo(dec.FromInt(big.NewInt(1)), dec.FromInt(big.NewInt(2)))
+	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1)
+	h := newHarness(t, params)
+	require.NoError(t, h.stageDelegate(bob, val2, sei(4)))
+	require.NoError(t, h.stageDelegate(alice, val2, sei(4)))
+
+	require.NoError(t, h.inEffect(nil), "28 of 58")
+	require.Equal(t, sei(28), h.validator(val2).tokens)
+	h.requireInvariants(alice, bob)
+}
+
+// TestAStagedDelegationIsCheckedAgainstThePowerTheOperationsBeforeItLeave
+// applies an undelegation that takes 20 of the bonded set's 50, then a
+// delegation the voting power ratio allows only against the 50.
+func TestAStagedDelegationIsCheckedAgainstThePowerTheOperationsBeforeItLeave(t *testing.T) {
+	params := testParams
+	params.MaxVotingPowerRatio = dec.Quo(dec.FromInt(big.NewInt(1)), dec.FromInt(big.NewInt(2)))
+	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1)
+	h := newHarness(t, params)
+	require.NoError(t, h.stageUndelegate(val1, val1, sei(20)))
+	require.NoError(t, h.stageDelegate(alice, val2, sei(10)), "30 of 60 is allowed when staged")
+
+	require.ErrorIs(t, h.inEffect(nil), errExceedMaxVotingPower, "30 of 40 once val1's 20 has left")
+	require.Equal(t, sei(10), h.validator(val1).tokens)
+	require.Equal(t, sei(20), h.validator(val2).tokens)
+	require.Equal(t, sei(10), h.state.GetBalance(alice), "the dropped delegation's tokens are returned")
+	h.requireInvariants(alice)
 }

@@ -3,6 +3,7 @@ package staking
 import (
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -88,34 +89,72 @@ func uncountStaged(s store, op stagedOperation) error {
 // tokens go back to its delegator, and the stake an undelegation or
 // redelegation would have moved stays where it is.
 func (p Precompile) applyStaged(block precompiles.BlockContext, s store, params chainparams.Staking, ended uint64, failures *[]error) {
+	// The bonded set's power as the operations applied so far leave it. The
+	// stored power is only updated once they all are, and a delegation checked
+	// against it would not see the stake an earlier one moved.
+	bondedPower := s.lastTotalPower()
 	drain(s.stagedQueue(), ended, "staged", failures,
 		func(common.Hash) uint64 { return 1 },
-		func(e common.Hash) error { return p.applyStagedOperation(block, s, params, s.stagedOperationAt(e)) },
+		func(e common.Hash) error {
+			return p.applyStagedOperation(block, s, params, bondedPower, s.stagedOperationAt(e))
+		},
 		func(e common.Hash) error { return dropStaged(s, s.stagedOperationAt(e)) })
 }
 
-// applyStagedOperation takes op out of its delegations' staged totals and
-// carries it out as the call that staged it would have at this block.
-func (p Precompile) applyStagedOperation(block precompiles.BlockContext, s store, params chainparams.Staking, op stagedOperation) error {
+// applyStagedOperation takes op out of its delegations' staged totals, carries
+// it out as the call that staged it would have at this block, and adds what op
+// changed the bonded set's power by to bondedPower.
+func (p Precompile) applyStagedOperation(block precompiles.BlockContext, s store, params chainparams.Staking, bondedPower *big.Int, op stagedOperation) error {
 	if err := uncountStaged(s, op); err != nil {
 		return err
 	}
+	before := bondedPowerOf(s, op.validators())
+	if err := p.carryOutStaged(block, s, params, bondedPower, op); err != nil {
+		return err
+	}
+	bondedPower.Add(bondedPower, new(big.Int).Sub(bondedPowerOf(s, op.validators()), before))
+	return nil
+}
+
+// carryOutStaged carries out op as the call that staged it would have at this
+// block, checking the voting power ratio against bondedPower.
+func (p Precompile) carryOutStaged(block precompiles.BlockContext, s store, params chainparams.Staking, bondedPower *big.Int, op stagedOperation) error {
 	switch op.kind {
 	case stagedDelegate:
 		v, ok := s.validator(op.validator)
 		if !ok {
 			return fmt.Errorf("%w: %s", errNoValidatorFound, op.validator)
 		}
-		_, err := p.delegate(block, s, params, op.delegator, op.validator, &v, op.amount, v.status, StagedEscrow)
+		_, err := p.delegate(block, s, params, bondedPower, op.delegator, op.validator, &v, op.amount, v.status, StagedEscrow)
 		return err
 	case stagedUndelegate:
 		_, _, err := p.undelegate(block, s, params, op.delegator, op.validator, op.amount)
 		return err
 	case stagedRedelegate:
-		_, _, err := p.redelegate(block, s, params, op.delegator, op.validator, op.dstValidator, op.amount)
+		_, _, err := p.redelegate(block, s, params, bondedPower, op.delegator, op.validator, op.dstValidator, op.amount)
 		return err
 	}
 	return fmt.Errorf("%w: %d", errUnknownStagedKind, op.kind)
+}
+
+// validators returns the validators op moves stake to or from.
+func (op stagedOperation) validators() []common.Address {
+	if op.kind == stagedRedelegate {
+		return []common.Address{op.validator, op.dstValidator}
+	}
+	return []common.Address{op.validator}
+}
+
+// bondedPowerOf returns the consensus power ops hold among the bonded
+// validators.
+func bondedPowerOf(s store, ops []common.Address) *big.Int {
+	power := new(big.Int)
+	for _, op := range ops {
+		if v, ok := s.validator(op); ok && v.bonded() {
+			power.Add(power, consensusPower(v.tokens))
+		}
+	}
+	return power
 }
 
 // dropStaged takes op out of its delegations' staged totals and, for a
