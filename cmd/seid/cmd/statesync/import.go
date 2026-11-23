@@ -40,6 +40,7 @@ const (
 	importStepRewritten      = "import: checkpoint rewritten"
 	importStepMarked         = "import: marker written"
 	importStepProofInstalled = "import: state sync proof installed"
+	importStepAnchorStored   = "import: restore anchor stored"
 	importStepInstalled      = "import: checkpoint installed"
 )
 
@@ -106,13 +107,17 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 		return err
 	}
 	_, _ = fmt.Fprintf(stderr, "Rewrote %d rows, %d bytes in %s\n", m.RowCount, m.StateBytes, time.Since(start).Round(time.Millisecond))
+	appHash, err := node.VerifyRestoreProof(checkpoint, m.Height, proof)
+	if err != nil {
+		return fmt.Errorf("verify the archived state sync proof file: %w", err)
+	}
 	if err := stop(importStepRewritten); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(download); err != nil {
 		return fmt.Errorf("remove the downloaded checkpoint: %w", err)
 	}
-	if err := installRestore(lock, t.layout, m.Height, proof, checkpoint, stop); err != nil {
+	if err := installRestore(lock, t, m.Height, proof, appHash, checkpoint, stop); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(staging); err != nil {
@@ -123,7 +128,8 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 }
 
 // prepareHome checks the manifest of the archive against the home of t and src, removes the FlatKV
-// data of an earlier import when resume is set, and checks that the home has room for the import.
+// data and the app-hash vault of an earlier import when resume is set, and checks that the home has
+// room for the import.
 func prepareHome(t target, lock *flatkv.RootLock, src source, m *ssarchive.Manifest, resume bool, stop stepHook) error {
 	if m.ChainID != t.chainID {
 		return fmt.Errorf("%w: archive chain id %q, genesis chain id %q", errOtherChain, m.ChainID, t.chainID)
@@ -134,6 +140,9 @@ func prepareHome(t target, lock *flatkv.RootLock, src source, m *ssarchive.Manif
 	if resume {
 		if err := lock.Clear(); err != nil {
 			return fmt.Errorf("clear the FlatKV data of an earlier import: %w", err)
+		}
+		if err := os.RemoveAll(t.layout.AppHashVaultDir); err != nil {
+			return fmt.Errorf("remove the app-hash vault of an earlier import: %w", err)
 		}
 		if err := stop(importStepFlatKVCleared); err != nil {
 			return err
@@ -217,20 +226,34 @@ func rewriteCheckpoint(
 	return checkpoint, nil
 }
 
-// installRestore installs the rewritten checkpoint at height into the home of layout. It writes
-// the restore marker, the state sync proof file and last the FlatKV checkpoint, so a home whose
-// FlatKV is at height also holds the other two.
-func installRestore(lock *flatkv.RootLock, layout node.AutobahnLayout, height int64, proof []byte, checkpoint string, stop stepHook) error {
-	if err := writeFileAtomic(layout.ImportStagingDir, layout.RestoreMarkerFile, []byte(strconv.FormatInt(height, 10)+"\n")); err != nil {
+// installRestore installs the rewritten checkpoint at height into the home of t. It writes the
+// restore marker, the state sync proof file, appHash as the restore anchor of the app-hash vault,
+// and last the FlatKV checkpoint, so a home whose FlatKV is at height also holds the other three.
+func installRestore(
+	lock *flatkv.RootLock,
+	t target,
+	height int64,
+	proof []byte,
+	appHash [32]byte,
+	checkpoint string,
+	stop stepHook,
+) error {
+	if err := writeFileAtomic(t.layout.ImportStagingDir, t.layout.RestoreMarkerFile, []byte(strconv.FormatInt(height, 10)+"\n")); err != nil {
 		return fmt.Errorf("write the restore marker: %w", err)
 	}
 	if err := stop(importStepMarked); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(layout.ImportStagingDir, layout.RestoreProofFile, proof); err != nil {
+	if err := writeFileAtomic(t.layout.ImportStagingDir, t.layout.RestoreProofFile, proof); err != nil {
 		return fmt.Errorf("install the state sync proof file: %w", err)
 	}
 	if err := stop(importStepProofInstalled); err != nil {
+		return err
+	}
+	if err := node.StoreRestoreAnchor(t.layout, t.mode, t.storage, t.genDoc, height, appHash); err != nil {
+		return err
+	}
+	if err := stop(importStepAnchorStored); err != nil {
 		return err
 	}
 	if err := lock.InstallSnapshot(checkpoint, height); err != nil {
@@ -240,8 +263,8 @@ func installRestore(lock *flatkv.RootLock, layout node.AutobahnLayout, height in
 }
 
 // checkHome returns an error when the persistent state dir holds a file that import did not
-// write, or FlatKV data without the restore marker. It reports whether the marker is present, in
-// which case the FlatKV data is from an earlier import, which import replaces.
+// write, or FlatKV data or an app-hash vault without the restore marker. It reports whether the
+// marker is present, in which case that data is from an earlier import, which import replaces.
 func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock) (resume bool, err error) {
 	foreign, err := foreignFiles(layout)
 	if err != nil {
@@ -264,6 +287,11 @@ func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock) (resume bool, 
 	if !empty {
 		return false, fmt.Errorf("the FlatKV root holds data that import did not write; remove %s and run import again", layout.FlatKVDir)
 	}
+	if _, err := os.Stat(layout.AppHashVaultDir); err == nil {
+		return false, fmt.Errorf("the app-hash vault holds data that import did not write; remove %s and run import again", layout.AppHashVaultDir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("stat the app-hash vault: %w", err)
+	}
 	return false, nil
 }
 
@@ -271,9 +299,9 @@ func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock) (resume bool, 
 const maxForeignFiles = 5
 
 // foreignFiles returns the first files under the persistent state dir that are not in the FlatKV
-// root, the staging dir, the restore marker or the restore proof file. It follows a symlink at the
-// persistent state dir and at each dir that holds the FlatKV root, and names files by their paths
-// under the persistent state dir.
+// root, the app-hash vault, the staging dir, the restore marker or the restore proof file. It
+// follows a symlink at the persistent state dir and at each dir that holds the FlatKV root, and
+// names files by their paths under the persistent state dir.
 func foreignFiles(layout node.AutobahnLayout) ([]string, error) {
 	var foreign []string
 	var walk func(dir string) error
@@ -296,7 +324,7 @@ func foreignFiles(layout node.AutobahnLayout) ([]string, error) {
 			}
 			path := filepath.Join(dir, rel)
 			switch {
-			case path == layout.FlatKVDir || path == layout.ImportStagingDir:
+			case path == layout.FlatKVDir || path == layout.AppHashVaultDir || path == layout.ImportStagingDir:
 				// SkipDir on an entry that is not a directory, such as a symlink, skips its parent.
 				if d.IsDir() {
 					return filepath.SkipDir

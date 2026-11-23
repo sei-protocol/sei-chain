@@ -24,6 +24,7 @@ type AutobahnLayout struct {
 	RestoreMarkerFile  string
 	RestoreProofFile   string
 	StateSyncProofDir  string
+	AppHashVaultDir    string
 	// ImportStagingDir holds the files of a state sync import until it installs them.
 	ImportStagingDir string
 }
@@ -50,6 +51,7 @@ func autobahnLayout(psd string) AutobahnLayout {
 		RestoreMarkerFile:  p2p.RestoreMarkerFile(psd),
 		RestoreProofFile:   p2p.RestoreProofFile(psd),
 		StateSyncProofDir:  dbutils.GetStateSyncProofPath(psd),
+		AppHashVaultDir:    dbutils.GetAppHashVaultPath(psd),
 		ImportStagingDir:   filepath.Join(psd, importStagingDirName),
 	}
 }

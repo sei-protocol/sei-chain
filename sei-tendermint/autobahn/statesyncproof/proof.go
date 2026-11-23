@@ -40,6 +40,18 @@ func (p *Proof) AppQC() *types.AppQC {
 	return p.appQC
 }
 
+// Verify returns an error unless the road block verifies against ep and a quorum of the committee
+// of ep signed the AppQC.
+func (p *Proof) Verify(ep *types.Epoch) error {
+	if err := p.block.Verify(ep); err != nil {
+		return fmt.Errorf("road block: %w", err)
+	}
+	if err := p.appQC.Verify(ep.Committee()); err != nil {
+		return fmt.Errorf("AppQC: %w", err)
+	}
+	return nil
+}
+
 // FileName returns the canonical state sync proof file name for index.
 func FileName(height types.RoadHeight) string {
 	return fmt.Sprintf("%0*d%s", heightDigits, height, fileSuffix)

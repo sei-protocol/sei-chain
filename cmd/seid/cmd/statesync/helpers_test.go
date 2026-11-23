@@ -21,8 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -40,6 +38,7 @@ func testLayout(psd string) node.AutobahnLayout {
 		RestoreMarkerFile:  filepath.Join(psd, "state-sync-restore-pending"),
 		RestoreProofFile:   filepath.Join(psd, "state-sync-proof"),
 		StateSyncProofDir:  filepath.Join(psd, "data", "state_commit", "state_sync_proofs"),
+		AppHashVaultDir:    filepath.Join(psd, "data", "ledger", "app_hash"),
 		ImportStagingDir:   filepath.Join(psd, ".state-sync-import"),
 	}
 }
@@ -90,10 +89,12 @@ func openStore(t *testing.T, dir string) *flatkv.CommitStore {
 	return s
 }
 
-// commit commits one block that writes to all four FlatKV databases and to the bank module, and
-// waits for its checkpoint. It returns the height of the block.
+// commit commits one block that writes to all four FlatKV databases, to the bank module and the
+// epoch registry row of the restore fixture of the block, and waits for its checkpoint. It returns
+// the height of the block.
 func (p *producer) commit(t *testing.T, n byte) int64 {
 	t.Helper()
+	fixture := fixtureAt(t, p.store.Version()+1)
 	var addr ktype.Address
 	addr[19] = n
 	var slot ktype.Slot
@@ -111,9 +112,11 @@ func (p *producer) commit(t *testing.T, n byte) int64 {
 		{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)), Value: value},
 	}
 	bankPairs := []*proto.KVPair{{Key: []byte{'b', n}, Value: []byte{n}}}
+	registryPairs := []*proto.KVPair{{Key: fixture.Key, Value: fixture.Value}}
 	require.NoError(t, p.store.ApplyChangeSets(p.store.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: evmPairs}},
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
+		{Name: fixture.Module, Changeset: proto.ChangeSet{Pairs: registryPairs}},
 	}))
 	v, err := p.store.Commit(p.store.Version() + 1)
 	require.NoError(t, err)
@@ -124,6 +127,7 @@ func (p *producer) commit(t *testing.T, n byte) int64 {
 		p.rows["evm/"+string(kv.Key)] = got
 	}
 	p.rows["bank/"+string(bankPairs[0].Key)] = bankPairs[0].Value
+	p.rows[fixture.Module+"/"+string(fixture.Key)] = fixture.Value
 	rows := make(map[string][]byte, len(p.rows))
 	for k, v := range p.rows {
 		rows[k] = v
@@ -151,19 +155,33 @@ func (p *producer) archive(t *testing.T, chainID string, height int64) []byte {
 // sync proof file of height.
 func archiveOf(t *testing.T, dir string, chainID string, height int64) []byte {
 	t.Helper()
+	return archiveWithProof(t, dir, chainID, height, proofAt(t, height))
+}
+
+// archiveWithProof returns the archive of the checkpoint in dir at height of chain chainID, with
+// the state sync proof file proof.
+func archiveWithProof(t *testing.T, dir string, chainID string, height int64, proof []byte) []byte {
+	t.Helper()
 	m, err := ssarchive.BuildManifest(chainID, height, dir)
 	require.NoError(t, err)
 	var out bytes.Buffer
-	require.NoError(t, ssarchive.WriteArchive(t.Context(), &out, m, proofAt(t, height), dir))
+	require.NoError(t, ssarchive.WriteArchive(t.Context(), &out, m, proof, dir))
 	return out.Bytes()
 }
 
-// proofAt returns a state sync proof file of height.
+// fixtureAt returns the restore fixture of height: the epoch registry row that the producer
+// commits at height, and a state sync proof file of height that verifies against it.
+func fixtureAt(t *testing.T, height int64) node.RestoreFixture {
+	t.Helper()
+	fixture, err := node.GenRestoreFixture(utils.TestRngFromSeed(height), height)
+	require.NoError(t, err)
+	return fixture
+}
+
+// proofAt returns the state sync proof file of the restore fixture of height.
 func proofAt(t *testing.T, height int64) []byte {
 	t.Helper()
-	proof, err := statesyncproof.EncodeForTesting(utils.TestRngFromSeed(height), atypes.RoadHeight(height)) //nolint:gosec // test heights are positive.
-	require.NoError(t, err)
-	return proof
+	return fixtureAt(t, height).Proof
 }
 
 func bytesSource(data []byte) source {
@@ -174,7 +192,8 @@ func bytesSource(data []byte) source {
 }
 
 // requireRestored asserts that the home of tg holds the rows of p at height in FlatKV, the restore
-// marker of height and the state sync proof file of height, and no staging dir.
+// marker of height, the state sync proof file of height, the restore anchor of height, and no
+// staging dir.
 func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 	t.Helper()
 	marker, err := os.ReadFile(tg.layout.RestoreMarkerFile)
@@ -183,6 +202,11 @@ func requireRestored(t *testing.T, tg target, p *producer, height int64) {
 	proof, err := os.ReadFile(tg.layout.RestoreProofFile)
 	require.NoError(t, err)
 	require.Equal(t, proofAt(t, height), proof)
+	anchor, err := node.ReadNewestAppHashForTesting(tg.layout, tg.genDoc)
+	require.NoError(t, err)
+	require.True(t, anchor.IsRestoreAnchor())
+	require.Equal(t, uint64(height), anchor.BlockHeight()) //nolint:gosec // test heights are positive.
+	require.Equal(t, fixtureAt(t, height).AppHash, anchor.AppHash())
 	require.NoDirExists(t, tg.layout.ImportStagingDir)
 
 	s := openStore(t, tg.layout.FlatKVDir)
@@ -202,11 +226,12 @@ func requireRows(t *testing.T, s *flatkv.CommitStore, p *producer, height int64)
 	}
 }
 
-// requireUntouched asserts that a failed import left the home of tg without FlatKV data, restore
-// marker or staging dir.
+// requireUntouched asserts that a failed import left the home of tg without FlatKV data, app-hash
+// vault, restore marker or staging dir.
 func requireUntouched(t *testing.T, tg target) {
 	t.Helper()
 	require.NoFileExists(t, tg.layout.RestoreMarkerFile)
+	require.NoDirExists(t, tg.layout.AppHashVaultDir)
 	require.NoDirExists(t, tg.layout.ImportStagingDir)
 	lock, err := flatkv.LockRoot(tg.layout.FlatKVDir)
 	require.NoError(t, err)

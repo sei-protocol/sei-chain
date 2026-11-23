@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
@@ -212,6 +213,20 @@ func TestRewriteAcceptsAnArchiveOfAnOlderPebbleFormat(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+func TestImportRejectsAProofOfAnotherCommittee(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	other, err := node.GenRestoreFixture(utils.TestRngFromSeed(height+1000), height)
+	require.NoError(t, err)
+	tg := freshHome(t)
+
+	archive := archiveWithProof(t, p.stage(t, height), testChainID, height, other.Proof)
+	err = runImport(t.Context(), tg, bytesSource(archive), io.Discard)
+
+	require.ErrorContains(t, err, "verify the archived state sync proof file")
+	requireUntouched(t, tg)
+}
+
 // changeOneRow changes the value of one data row of the checkpoint in dir, and leaves its
 // metadata as it is.
 func changeOneRow(t *testing.T, dir string) {
@@ -277,6 +292,14 @@ func TestImportRejectsAHomeWithOtherData(t *testing.T) {
 		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.FlatKVDir)
 		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
 	})
+	t.Run("an app-hash vault without the marker", func(t *testing.T) {
+		tg := freshHome(t)
+		require.NoError(t, os.MkdirAll(tg.layout.AppHashVaultDir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(tg.layout.AppHashVaultDir, "0.wal"), []byte("x"), 0o600))
+
+		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.AppHashVaultDir)
+		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
+	})
 }
 
 func TestForeignFilesLooksPastASymlinkedFlatKVRoot(t *testing.T) {
@@ -328,6 +351,7 @@ func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
 		importStepRewritten,
 		importStepMarked,
 		importStepProofInstalled,
+		importStepAnchorStored,
 		importStepInstalled,
 	} {
 		t.Run(step, func(t *testing.T) {
