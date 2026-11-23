@@ -2,7 +2,6 @@ package tx
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -21,25 +20,18 @@ import (
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
-// baseAppSimulateFn is the signature of the Baseapp#Simulate function. ctx
-// bounds the simulation: a deadline it carries aborts execution before the
-// next message in a multi-message tx runs.
-type baseAppSimulateFn func(ctx context.Context, txBytes []byte) (sdk.GasInfo, *sdk.Result, error)
-
 // txServer is the server for the protobuf Tx service.
 type txServer struct {
 	node              client.LocalClient
 	txConfig          client.TxConfig
-	simulate          baseAppSimulateFn
 	interfaceRegistry codectypes.InterfaceRegistry
 }
 
 // NewTxServer creates a new Tx service server.
-func NewTxServer(node client.LocalClient, txConfig client.TxConfig, simulate baseAppSimulateFn, interfaceRegistry codectypes.InterfaceRegistry) txtypes.ServiceServer {
+func NewTxServer(node client.LocalClient, txConfig client.TxConfig, interfaceRegistry codectypes.InterfaceRegistry) txtypes.ServiceServer {
 	return txServer{
 		node:              node,
 		txConfig:          txConfig,
-		simulate:          simulate,
 		interfaceRegistry: interfaceRegistry,
 	}
 }
@@ -95,32 +87,6 @@ func (s txServer) GetTxsEvent(ctx context.Context, req *txtypes.GetTxsEventReque
 		Pagination: &pagination.PageResponse{
 			Total: result.TotalCount,
 		},
-	}, nil
-}
-
-// Simulate implements the ServiceServer.Simulate RPC method.
-func (s txServer) Simulate(ctx context.Context, req *txtypes.SimulateRequest) (*txtypes.SimulateResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid empty tx")
-	}
-
-	txBytes := req.TxBytes
-	if txBytes == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "empty txBytes is not allowed")
-	}
-
-	gasInfo, result, err := s.simulate(ctx, txBytes)
-	if err != nil {
-		code := codes.Unknown
-		if errors.Is(err, context.DeadlineExceeded) {
-			code = codes.DeadlineExceeded
-		}
-		return nil, status.Errorf(code, "%v With gas wanted: '%d' and gas used: '%d' ", err, gasInfo.GasWanted, gasInfo.GasUsed)
-	}
-
-	return &txtypes.SimulateResponse{
-		GasInfo: &gasInfo,
-		Result:  result,
 	}, nil
 }
 
@@ -246,10 +212,9 @@ func RegisterTxService(
 	qrt gogogrpc.Server,
 	node client.LocalClient,
 	txConfig client.TxConfig,
-	simulateFn baseAppSimulateFn,
 	interfaceRegistry codectypes.InterfaceRegistry,
 ) {
-	txtypes.RegisterServiceServer(qrt, NewTxServer(node, txConfig, simulateFn, interfaceRegistry))
+	txtypes.RegisterServiceServer(qrt, NewTxServer(node, txConfig, interfaceRegistry))
 }
 
 // RegisterGatewayRoutes mounts the tx service's GRPC-gateway routes on the

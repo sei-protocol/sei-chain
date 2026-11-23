@@ -350,7 +350,7 @@ type AuthInfo struct {
 	// Fee is the fee and gas limit for the transaction. The first signer is the
 	// primary signer and the one which pays the fee. The fee can be calculated
 	// based on the cost of evaluating the body and doing signature verification
-	// of the signers. This can be estimated via simulation.
+	// of the signers.
 	Fee *Fee `protobuf:"bytes,2,opt,name=fee,proto3" json:"fee,omitempty"`
 }
 

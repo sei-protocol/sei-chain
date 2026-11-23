@@ -147,7 +147,7 @@ func TestEIP7702SelfBalanceDrainProducesStubReceipt(t *testing.T) {
 	}
 
 	req := &abci.RequestFinalizeBlock{Header: &types.Header{ChainID: "sei-test", Height: 1}}
-	_, txResults, _, err := a.ProcessBlock(ctx, txs, finalizeToBlockProcessReq(req), req.DecidedLastCommit, false, nil)
+	_, txResults, _, err := a.ProcessBlock(ctx, txs, finalizeToBlockProcessReq(req), req.DecidedLastCommit, nil)
 	require.NoError(t, err)
 	require.Len(t, txResults, 4)
 

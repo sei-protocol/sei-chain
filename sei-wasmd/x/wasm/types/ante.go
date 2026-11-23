@@ -17,7 +17,7 @@ func WithTXCounter(ctx sdk.Context, counter uint32) sdk.Context {
 }
 
 // TXCounter returns the tx counter value and found bool from the context.
-// The result will be (0, false) for external queries or simulations where no counter available.
+// The result will be (0, false) for external queries where no counter is available.
 func TXCounter(ctx sdk.Context) (uint32, bool) {
 	val, ok := ctx.Value(contextKeyTXCount).(uint32)
 	return val, ok

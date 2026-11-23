@@ -97,23 +97,14 @@ func (b AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) 
 type AppModule struct {
 	AppModuleBasic
 
-	keeper        keeper.Keeper
-	accountKeeper types.AccountKeeper
-	bankKeeper    types.BankKeeper
-	stakingKeeper types.StakingKeeper
+	keeper keeper.Keeper
 }
 
 // NewAppModule creates a new AppModule object
-func NewAppModule(
-	cdc codec.Codec, keeper keeper.Keeper, accountKeeper types.AccountKeeper,
-	bankKeeper types.BankKeeper, stakingKeeper types.StakingKeeper,
-) AppModule {
+func NewAppModule(cdc codec.Codec, keeper keeper.Keeper) AppModule {
 	return AppModule{
 		AppModuleBasic: AppModuleBasic{cdc: cdc},
 		keeper:         keeper,
-		accountKeeper:  accountKeeper,
-		bankKeeper:     bankKeeper,
-		stakingKeeper:  stakingKeeper,
 	}
 }
 

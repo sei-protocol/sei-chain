@@ -183,7 +183,7 @@ func TestDisabledMsgTypeURLsLeavePrecompilesOpen(t *testing.T) {
 	require.NoError(t, err)
 
 	req := &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: 1}}
-	_, txResults, _, err := a.ProcessBlock(ctx, [][]byte{signAndEncodeEVMTx(t, a, delegateTx)}, finalizeToBlockProcessReq(req), req.DecidedLastCommit, false, nil)
+	_, txResults, _, err := a.ProcessBlock(ctx, [][]byte{signAndEncodeEVMTx(t, a, delegateTx)}, finalizeToBlockProcessReq(req), req.DecidedLastCommit, nil)
 
 	require.NoError(t, err)
 	require.Len(t, txResults, 1)

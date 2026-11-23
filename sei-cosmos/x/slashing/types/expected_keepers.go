@@ -4,24 +4,9 @@ package types
 
 import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	auth "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
-
-// AccountKeeper expected account keeper
-type AccountKeeper interface {
-	GetAccount(ctx sdk.Context, addr sdk.AccAddress) auth.AccountI
-	IterateAccounts(ctx sdk.Context, process func(auth.AccountI) (stop bool))
-}
-
-// BankKeeper defines the expected interface needed to retrieve account balances.
-type BankKeeper interface {
-	GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
-	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
-}
 
 // ParamSubspace defines the expected Subspace interfacace
 type ParamSubspace interface {

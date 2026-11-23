@@ -801,7 +801,6 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 		return sdk.Context{}, nil, emptyRelease, err
 	}
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(validators)
-	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease, err := traceCtxAtHeight(ctxProvider, prevBlockHeight)
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, err
@@ -1047,7 +1046,7 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	}
 	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
 	_ = tb.SetMsgs(msg)
-	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
+	newCtx, err := b.antehandler(ctx, tb.GetTx())
 	if err != nil {
 		return fmt.Errorf("transaction failed ante handler due to %s", err)
 	}
@@ -1078,7 +1077,7 @@ func (b *Backend) PrepareTxNoFlush(statedb vm.StateDB, tx *ethtypes.Transaction)
 	}
 	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
 	_ = tb.SetMsgs(msg)
-	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
+	newCtx, err := b.antehandler(ctx, tb.GetTx())
 	if err != nil {
 		return fmt.Errorf("transaction failed ante handler due to %s", err)
 	}
