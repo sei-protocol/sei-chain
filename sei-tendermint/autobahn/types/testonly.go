@@ -360,6 +360,8 @@ func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*LaneBlock) {
 	return proposalAtBlocks(ep, view, n, utils.None[RoadBlockHeaderHash]())
 }
 
+// proposalAtBlocks returns a Proposal at view with parentHash and a lane range of n blocks, n >= 1,
+// together with those blocks.
 func proposalAtBlocks(ep *Epoch, view View, n int, parentHash utils.Option[RoadBlockHeaderHash]) (*Proposal, []*LaneBlock) {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
