@@ -79,21 +79,28 @@ func ParseRoadBlockHeaderHash(bytes []byte) (RoadBlockHeaderHash, error) {
 	return RoadBlockHeaderHash(h), err
 }
 
-// RoadBlockHeader identifies a road block and contains its timestamp and lane ranges.
+// RoadBlockHeader identifies a road block and contains its parent hash, timestamp and lane ranges.
 type RoadBlockHeader struct {
 	utils.ReadOnly
 	epochIndex EpochIndex
 	height     RoadHeight
+	parentHash utils.Option[RoadBlockHeaderHash]
 	timestamp  time.Time
 	laneRanges map[LaneID]*LaneRange
 }
 
-func newRoadBlockHeader(epochIndex EpochIndex, height RoadHeight, timestamp time.Time, laneRanges []*LaneRange) *RoadBlockHeader {
+func newRoadBlockHeader(
+	epochIndex EpochIndex,
+	height RoadHeight,
+	parentHash utils.Option[RoadBlockHeaderHash],
+	timestamp time.Time,
+	laneRanges []*LaneRange,
+) *RoadBlockHeader {
 	laneRangesM := map[LaneID]*LaneRange{}
 	for _, r := range laneRanges {
 		laneRangesM[r.Lane()] = r
 	}
-	return &RoadBlockHeader{epochIndex: epochIndex, height: height, timestamp: timestamp, laneRanges: laneRangesM}
+	return &RoadBlockHeader{epochIndex: epochIndex, height: height, parentHash: parentHash, timestamp: timestamp, laneRanges: laneRangesM}
 }
 
 // EpochIndex returns the epoch containing this road block.
@@ -101,6 +108,21 @@ func (m *RoadBlockHeader) EpochIndex() EpochIndex { return m.epochIndex }
 
 // Height returns the height of the road block.
 func (m *RoadBlockHeader) Height() RoadHeight { return m.height }
+
+// ParentHash returns the hash of the header of the road block at Height() - 1.
+// It is None only for the first road block of the chain.
+func (m *RoadBlockHeader) ParentHash() utils.Option[RoadBlockHeaderHash] { return m.parentHash }
+
+// VerifyParent checks that the header names parent as its parent. A header
+// whose parent is None must name no parent.
+func (m *RoadBlockHeader) VerifyParent(parent utils.Option[*RoadBlockHeader]) error {
+	want := parent.Map((*RoadBlockHeader).Hash)
+	if m.parentHash != want {
+		show := func(h utils.Option[RoadBlockHeaderHash]) string { return h.Map(RoadBlockHeaderHash.String).Or("none") }
+		return fmt.Errorf("%w: parentHash = %v, want %v", ErrParentMismatch, show(m.parentHash), show(want))
+	}
+	return nil
+}
 
 // view returns the consensus view for this header and view number.
 func (m *RoadBlockHeader) view(number ViewNumber) View {
@@ -263,11 +285,16 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 			laneRanges = append(laneRanges, r)
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
+		var parentHash []byte
+		if h, ok := m.parentHash.Get(); ok {
+			parentHash = h.Bytes()
+		}
 		return &pb.RoadBlockHeader{
 			EpochIndex: new(uint64(m.epochIndex)),
 			Height:     new(uint64(m.height)),
 			Timestamp:  TimeConv.Encode(m.timestamp),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
+			ParentHash: parentHash,
 		}
 	},
 	Decode: func(m *pb.RoadBlockHeader) (*RoadBlockHeader, error) {
@@ -285,7 +312,15 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 		if err != nil {
 			return nil, fmt.Errorf("lane_ranges: %w", err)
 		}
-		header := newRoadBlockHeader(EpochIndex(*m.EpochIndex), RoadHeight(*m.Height), timestamp, laneRanges)
+		parentHash := utils.None[RoadBlockHeaderHash]()
+		if m.ParentHash != nil {
+			h, err := ParseRoadBlockHeaderHash(m.ParentHash)
+			if err != nil {
+				return nil, fmt.Errorf("parent_hash: %w", err)
+			}
+			parentHash = utils.Some(h)
+		}
+		header := newRoadBlockHeader(EpochIndex(*m.EpochIndex), RoadHeight(*m.Height), parentHash, timestamp, laneRanges)
 		if len(header.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("lane_ranges: duplicate ranges")
 		}

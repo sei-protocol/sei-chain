@@ -7,7 +7,11 @@ import (
 
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protowire"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -219,4 +223,63 @@ func TestLaneRangeVerifyRejectsHashOnEmptyRange(t *testing.T) {
 	require.Error(t, (&LaneRange{
 		lane: lane, first: 1, next: 1, lastHash: GenLaneBlockHeaderHash(rng),
 	}).Verify(committee))
+}
+
+func TestRoadBlockHeaderParentHashRoundTrips(t *testing.T) {
+	rng := utils.TestRng()
+	for _, parentHash := range []utils.Option[RoadBlockHeaderHash]{
+		utils.None[RoadBlockHeaderHash](),
+		utils.Some(GenRoadBlockHeaderHash(rng)),
+	} {
+		h := newRoadBlockHeader(GenEpochIndex(rng), RoadHeight(rng.Uint64()), parentHash, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))
+		got, err := RoadBlockHeaderConv.Decode(RoadBlockHeaderConv.Encode(h))
+		require.NoError(t, err)
+		require.Equal(t, parentHash, got.ParentHash())
+		require.Equal(t, h.Hash(), got.Hash())
+	}
+}
+
+// A header with no parent omits field 6 from its canonical encoding.
+func TestRoadBlockHeaderWithoutParentOmitsTheField(t *testing.T) {
+	rng := utils.TestRng()
+	fields := func(parentHash utils.Option[RoadBlockHeaderHash]) map[protowire.Number]bool {
+		h := newRoadBlockHeader(GenEpochIndex(rng), RoadHeight(rng.Uint64()), parentHash, utils.GenTimestamp(rng), nil)
+		b := hashable.MarshalCanonical(RoadBlockHeaderConv.Encode(h))
+		got := map[protowire.Number]bool{}
+		for len(b) > 0 {
+			num, typ, n := protowire.ConsumeTag(b)
+			require.GreaterOrEqual(t, n, 0)
+			b = b[n:]
+			n = protowire.ConsumeFieldValue(num, typ, b)
+			require.GreaterOrEqual(t, n, 0)
+			b = b[n:]
+			got[num] = true
+		}
+		return got
+	}
+	require.False(t, fields(utils.None[RoadBlockHeaderHash]())[6])
+	require.True(t, fields(utils.Some(GenRoadBlockHeaderHash(rng)))[6])
+}
+
+// A present parent hash decodes only when it is 32 bytes long. A 33 byte value fails the
+// wireguard size check of the unmarshal, before the header decoder runs.
+func TestRoadBlockHeaderDecodeRejectsAParentHashOfTheWrongLength(t *testing.T) {
+	rng := utils.TestRng()
+	h := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), nil)
+	for _, n := range []int{0, 31, 32, 33} {
+		m := RoadBlockHeaderConv.Encode(h)
+		m.ParentHash = utils.GenBytes(rng, n)
+		decoded, err := protoutils.Unmarshal[*pb.RoadBlockHeader](protoutils.Marshal(m))
+		if n > 32 {
+			require.Error(t, err)
+			continue
+		}
+		require.NoError(t, err)
+		_, err = RoadBlockHeaderConv.Decode(decoded)
+		if n == 32 {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
+	}
 }

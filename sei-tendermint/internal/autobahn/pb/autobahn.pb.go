@@ -948,11 +948,13 @@ func (x *View) GetEpochIndex() uint64 {
 }
 
 type RoadBlockHeader struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	EpochIndex    *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // required
-	Height        *uint64                `protobuf:"varint,5,opt,name=height,proto3,oneof" json:"height,omitempty"`                           // required
-	Timestamp     *Timestamp             `protobuf:"bytes,1,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                      // required
-	LaneRanges    []*LaneRange           `protobuf:"bytes,2,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`        // Sorted by lane.
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	EpochIndex *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // required
+	Height     *uint64                `protobuf:"varint,5,opt,name=height,proto3,oneof" json:"height,omitempty"`                           // required
+	Timestamp  *Timestamp             `protobuf:"bytes,1,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                      // required
+	LaneRanges []*LaneRange           `protobuf:"bytes,2,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`        // Sorted by lane.
+	// Hash of the header of the road block at height - 1. Absent only for the first road block of the chain.
+	ParentHash    []byte `protobuf:"bytes,6,opt,name=parent_hash,json=parentHash,proto3,oneof" json:"parent_hash,omitempty"` // optional
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1011,6 +1013,13 @@ func (x *RoadBlockHeader) GetTimestamp() *Timestamp {
 func (x *RoadBlockHeader) GetLaneRanges() []*LaneRange {
 	if x != nil {
 		return x.LaneRanges
+	}
+	return nil
+}
+
+func (x *RoadBlockHeader) GetParentHash() []byte {
+	if x != nil {
+		return x.ParentHash
 	}
 	return nil
 }
@@ -2905,18 +2914,21 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\t\n" +
 	"\a_heightB\t\n" +
 	"\a_numberB\x0e\n" +
-	"\f_epoch_indexJ\x04\b\x01\x10\x02R\x05index\"\x8e\x02\n" +
+	"\f_epoch_indexJ\x04\b\x01\x10\x02R\x05index\"\xcc\x02\n" +
 	"\x0fRoadBlockHeader\x12$\n" +
 	"\vepoch_index\x18\x03 \x01(\x04H\x00R\n" +
 	"epochIndex\x88\x01\x01\x12\x1b\n" +
 	"\x06height\x18\x05 \x01(\x04H\x01R\x06height\x88\x01\x01\x126\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x02R\ttimestamp\x88\x01\x01\x12<\n" +
 	"\vlane_ranges\x18\x02 \x03(\v2\x13.autobahn.LaneRangeB\x06Ј\xe2\xab\fdR\n" +
-	"laneRanges:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
+	"laneRanges\x12,\n" +
+	"\vparent_hash\x18\x06 \x01(\fB\x06؈\xe2\xab\f H\x03R\n" +
+	"parentHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
 	"\f_epoch_indexB\t\n" +
 	"\a_heightB\f\n" +
 	"\n" +
-	"_timestampJ\x04\b\x04\x10\x05R\x05index\"\xf2\x01\n" +
+	"_timestampB\x0e\n" +
+	"\f_parent_hashJ\x04\b\x04\x10\x05R\x05index\"\xf2\x01\n" +
 	"\bProposal\x12$\n" +
 	"\vview_number\x18\b \x01(\x04H\x00R\n" +
 	"viewNumber\x88\x01\x01\x126\n" +
