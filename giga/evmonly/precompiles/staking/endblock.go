@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"slices"
 
@@ -25,24 +26,27 @@ var (
 // endBlockBudget bounds the work one EndBlock does on each queue: one unit per
 // entry, plus one per unbonding entry of the delegation an unbonding queue entry
 // pays. Entries past the budget wait for the next EndBlock; an entry larger than
-// the whole budget runs when nothing has spent it, and uses it up. Staging an
-// operation writes at least three new slots, over 60,000 gas, so 300M gas of
-// calls stage at most 5,000 a block, and applying one queues at most one
-// unbonding or redelegation entry. The redelegation queue completes as many a
-// block as the staged queue applies; the unbonding queue, whose entries cost at
-// least two units, completes at most 1,500. A backlog in any of them waits for
-// blocks with fewer calls.
+// the whole budget runs when nothing has spent it, and uses it up. A block that
+// closes an epoch spends a second budget on the staged queue, applying entries
+// to project its snapshot and then reverting them. Staging an operation writes
+// at least three new slots, over 60,000 gas, so 300M gas of calls stage at most
+// 5,000 a block, and applying one queues at most one unbonding or redelegation
+// entry. The redelegation queue completes as many a block as the staged queue
+// applies; the unbonding queue, whose entries cost at least two units,
+// completes at most 1,500. A backlog in any of them waits for blocks with fewer
+// calls.
 const endBlockBudget = 3_000
 
 // EndBlock advances the current epoch when the block closes one, applies the
-// staged operations whose epoch has ended, updates the bonded set, snapshots it
-// when the block closes an epoch, then completes the validators, unbonding
-// entries and redelegation entries whose unbonding period is over, in that
-// order, as x/staking's BlockValidatorUpdates does. Before staking's params are
-// written it does nothing. Its failures are staged operations that could not be
-// applied, which are dropped, a bonded set that could not be updated, which is
-// kept as it was, a snapshot that could not be taken, and queue entries whose
-// stored data does not add up, which are dropped. It returns no error.
+// staged operations whose epoch has ended, updates the bonded set, snapshots the
+// bonded set as it will be once the operations still staged take effect when the
+// block closes an epoch, then completes the validators, unbonding entries and
+// redelegation entries whose unbonding period is over, in that order, as
+// x/staking's BlockValidatorUpdates does. Before staking's params are written it
+// does nothing. Its failures are staged operations that could not be applied,
+// which are dropped, a bonded set that could not be updated, which is kept as it
+// was, a snapshot that could not be taken, and queue entries whose stored data
+// does not add up, which are dropped. It returns no error.
 func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	if !chainparams.HasStaking(state) {
 		return nil, nil
@@ -60,7 +64,7 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 		failures = append(failures, fmt.Errorf("%w: bonded set kept as it was: %w", precompiles.ErrDegraded, err))
 	}
 	if epoch, ok := block.ClosingEpoch.Get(); ok {
-		if err := snapshotEpoch(s, epoch); err != nil {
+		if err := snapshotEpoch(block, s, params, epoch); err != nil {
 			failures = append(failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
 		}
 	}
@@ -175,11 +179,28 @@ func (p Precompile) applyBondedSet(block precompiles.BlockContext, s store, para
 // serving an epoch is the bonded set at the end of the epoch two before it.
 const epochSnapshotsKept = 3
 
-// snapshotEpoch copies the bonded set, with each member's consensus key, into
-// epoch's snapshot and deletes the one that no longer falls among the latest
-// epochSnapshotsKept.
-func snapshotEpoch(s store, epoch uint64) error {
-	set, err := bondedValidators(s)
+// projectedBondedSet returns the bonded set as it will be once the staged
+// operations queued now take effect, as many as one EndBlock applies: the set an
+// update would bond after applying them, or the set as it is when that update
+// fails. It leaves the state as it was and calls no hooks.
+func projectedBondedSet(block precompiles.BlockContext, s store, params chainparams.Staking) ([]BondedValidator, error) {
+	snap := s.State.Snapshot()
+	defer s.State.RevertToSnapshot(snap)
+	// Nothing here takes effect, so the precompiles that track delegations are
+	// left out. A dropped operation is reported when it is applied for real.
+	var projection Precompile
+	var dropped []error
+	projection.applyStaged(block, s, params, math.MaxUint64, &dropped)
+	// A failed update keeps the bonded set as it was, as the real one would.
+	_ = projection.updateBondedSet(block, s, params)
+	return bondedValidators(s)
+}
+
+// snapshotEpoch records the projected bonded set, with each member's consensus
+// key, as epoch's snapshot and deletes the one that no longer falls among the
+// latest epochSnapshotsKept.
+func snapshotEpoch(block precompiles.BlockContext, s store, params chainparams.Staking, epoch uint64) error {
+	set, err := projectedBondedSet(block, s, params)
 	if err != nil {
 		return err
 	}

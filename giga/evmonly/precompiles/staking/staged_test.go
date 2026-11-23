@@ -14,7 +14,7 @@ import (
 
 // TestAStagedOperationTakesEffectAtTheEndOfTheNextEpoch stages delegations in
 // epoch 0, one of them in the block that closes it, and one in epoch 1, and
-// follows them through the end of epochs 0, 1 and 2.
+// follows them and the epoch snapshots through the end of epochs 0, 1 and 2.
 func TestAStagedOperationTakesEffectAtTheEndOfTheNextEpoch(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.stageDelegate(alice, val1, sei(5)))
@@ -27,6 +27,10 @@ func TestAStagedOperationTakesEffectAtTheEndOfTheNextEpoch(t *testing.T) {
 	require.Empty(t, h.failures)
 	require.Zero(t, h.shares(alice, val1).Sign(), "the end of the epoch it was staged in is too soon")
 	require.Equal(t, uint64(1), h.store().currentEpoch())
+	require.Equal(t, []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 36},
+		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 20},
+	}, must(EpochValidators(h.state)), "epoch 0's snapshot counts what will take effect at the end of epoch 1")
 	require.NoError(t, h.stageDelegate(alice, val2, sei(2)))
 	h.endBlock()
 	require.Zero(t, h.shares(alice, val1).Sign())
@@ -39,8 +43,8 @@ func TestAStagedOperationTakesEffectAtTheEndOfTheNextEpoch(t *testing.T) {
 	require.Zero(t, h.shares(alice, val2).Sign(), "epoch 1's wait for the end of epoch 2")
 	require.Equal(t, []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 36},
-		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 20},
-	}, must(EpochValidators(h.state)), "epoch 1's snapshot counts what took effect at its end")
+		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 22},
+	}, must(EpochValidators(h.state)), "epoch 1's snapshot counts what will take effect at the end of epoch 2")
 	h.requireInvariants(alice, bob)
 
 	h.endEpoch(2)
@@ -87,6 +91,11 @@ func TestAStagedDelegationThatCanNoLongerBeMadeIsRefunded(t *testing.T) {
 	require.NoError(t, h.stageDelegate(bob, val2, sei(8)))
 	require.NoError(t, h.stageDelegate(alice, val2, sei(8)), "each fits on its own")
 	h.endEpoch(0)
+	require.Empty(t, h.failures, "a drop in the projection is not reported")
+	require.Equal(t, []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 28},
+	}, must(EpochValidators(h.state)), "epoch 0's snapshot leaves out the delegation that will be dropped")
 	h.endEpoch(1)
 	require.Len(t, h.failures, 1)
 	require.ErrorIs(t, h.failures[0], precompiles.ErrDegraded)
@@ -96,6 +105,37 @@ func TestAStagedDelegationThatCanNoLongerBeMadeIsRefunded(t *testing.T) {
 	require.False(t, found)
 	require.Equal(t, sei(8), h.state.GetBalance(alice), "alice's tokens come back")
 	h.requireInvariants(alice, bob)
+}
+
+func TestProjectingAnEpochSnapshotLeavesTheStateAndHooksAsTheyWere(t *testing.T) {
+	h := newHarness(t, testParams)
+	var log hookLog
+	h.staking.Hooks = loggingHooks{log: &log}
+	// val3 has 10 and is unbonded; 15 more puts it ahead of val2's 20.
+	require.NoError(t, h.stageDelegate(bob, val3, sei(15)))
+	bonded, notBonded := h.state.GetBalance(BondedEscrow), h.state.GetBalance(NotBondedEscrow)
+
+	h.endEpoch(0)
+	require.Equal(t, []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+		{Operator: val3, ConsensusPubkey: common.BytesToHash(val3[:]), Power: 25},
+	}, must(EpochValidators(h.state)), "val3 is in the set the staged delegation will bond")
+	require.Equal(t, statusUnbonded, h.validator(val3).status, "but is not bonded yet")
+	require.Equal(t, sei(10), h.validator(val3).tokens)
+	require.Zero(t, h.shares(bob, val3).Sign())
+	require.Equal(t, bonded, h.state.GetBalance(BondedEscrow))
+	require.Equal(t, notBonded, h.state.GetBalance(NotBondedEscrow))
+	require.Equal(t, sei(15), h.state.GetBalance(StagedEscrow))
+	q := h.store().stagedQueue()
+	require.Equal(t, uint64(1), q.tail()-q.head(), "the operation is still staged")
+	require.Empty(t, log, "the projection calls no hooks")
+	h.requireInvariants(bob)
+
+	h.endEpoch(1)
+	require.Empty(t, h.failures)
+	require.Equal(t, statusBonded, h.validator(val3).status)
+	require.NotEmpty(t, log, "applying it calls them")
+	h.requireInvariants(bob)
 }
 
 func TestStagedOperationsOnARemovedValidatorAreDropped(t *testing.T) {

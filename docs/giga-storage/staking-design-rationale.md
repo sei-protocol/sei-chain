@@ -298,16 +298,19 @@ committee once per epoch: on an epoch's last block, the app derives the
 committee two epochs ahead and writes it to the epoch registry, which the
 precompiles do not read. Rewards need the committee that served a block.
 
-So at the end of an epoch's last block, EndBlock copies `lastValidators`, with
-each member's consensus key, into `epochValidators[epoch]`, and once the block
-has run the app derives the committee from the latest snapshot: the committee
-that serves a block in epoch E is the snapshot of epoch E−2, or the configured
-validators until staking has taken one. The snapshot is committed state, so
-every node reads the same one, and a node that state-syncs gets it too. The app
-marks the block that closes an epoch from its epoch registry, so staking never
-needs the epoch length. The keys are copied because a member can leave the
-bonded set, finish unbonding with no shares and be removed while its snapshot
-is still read.
+So at the end of an epoch's last block, EndBlock records in
+`epochValidators[epoch]`, with each member's consensus key, the bonded set as it
+will be once the operations still staged take effect, and once the block has
+run the app derives the committee from the latest snapshot: the committee that
+serves a block in epoch E is the snapshot of epoch E−2, or the configured
+validators until staking has taken one. The operations that snapshot counts
+take effect at the end of E−1, so the committee matches the delegations during
+E (see *Staged operations*). The snapshot is committed state, so every node
+reads the same one, and a node that state-syncs gets it too. The app marks the
+block that closes an epoch from its epoch registry, so staking never needs the
+epoch length. The keys are copied because a member can leave the bonded set,
+finish unbonding with no shares and be removed while its snapshot is still
+read.
 
 Three are kept, E−2 to E, and EndBlock deletes the one before them when it
 takes a new one: about 150 slot writes once an epoch at 35 validators.
@@ -322,11 +325,23 @@ A call checks the operation as V2 would at that block and queues it in
 `stagedQueue`, a first-in first-out queue like the others, under the epoch it
 waits for: `currentEpoch` plus one. EndBlock sets `currentEpoch` from the epoch
 the app marks the block as closing, whether or not the snapshot is taken. At the
-end of each epoch, before the bonded set is updated and snapshotted, EndBlock
-applies the operations due, in the order they were called, through the same
-code V2's messages run, so the snapshot of epoch T+1 counts them. The work
-falls under EndBlock's budget like the other queues: operations past it wait for
-the blocks after, and miss that epoch's snapshot.
+end of each epoch, EndBlock applies the operations due, in the order they were
+called, through the same code V2's messages run, then updates the bonded set.
+
+It then projects the snapshot: it applies the operations still staged, those
+called during the epoch now ending, takes the bonded set they would produce,
+and reverts them, calling no hooks. So the snapshot taken at the end of T counts
+the operations called during T, and the committee of T+2, derived from it,
+changes in the same epoch as the delegations. Snapshotting the bonded set as it
+is would count each change one epoch late, and for that epoch part of a
+validator's voting power would be stake already unbonding, which staking does
+not slash. An operation that will be dropped when it is applied is left out of
+the projection too, unless what it depends on changes during T+1 first, as when
+its validator is removed.
+
+The work falls under EndBlock's budget like the other queues, and the
+projection spends a second one: operations past it wait for the blocks after,
+and miss the snapshot they belong in.
 
 The tokens a delegate sends wait in `StagedEscrow`, apart from any validator's,
 and count toward no power until the delegation takes effect. Stake an
@@ -573,9 +588,10 @@ of a million state writes per epoch.
   that served a block from staking's epoch snapshot.
 - A block's rewards go only to the committee that served it, split by committee
   power, and within each member among its delegators by the shares they hold,
-  as in V2. Both hold still through an epoch: committee power is the snapshot
-  of two epochs before, and delegations change only at epoch ends (see *Staged
-  operations*). A delegation's rewards are settled before every change to it,
+  as in V2. Both hold still through an epoch, and they match: committee power
+  is the snapshot of two epochs before, which counts the operations that take
+  effect at the end of the epoch before, and delegations change only at epoch
+  ends (see *Staged operations*). A delegation's rewards are settled before every change to it,
   through staking's delegation hooks, so staking keeps no history of past
   delegations. Validators outside the committee earn nothing, as jailed
   validators earn nothing in V2. A member with no delegator shares left cannot
