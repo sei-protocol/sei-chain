@@ -212,6 +212,7 @@ Staking:
 | `0x32`, `0x33` | unbonding delegations and their index | `unbondingDelegations`; the index is not carried over |
 | `0x34`–`0x36` | redelegations and their indexes | `redelegationEntryCounts` and `redelegationsByValDst`; entries live in the redelegation queue, and `0x35` is not carried over |
 | `0x41`–`0x43` | unbonding, redelegation, validator queues | three queues |
+| none | delegates, undelegates and redelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue` and `stagedDelegations` (see *Staged operations*) |
 | `0x50` | historical info | not carried over (see below) |
 
 Distribution: prefixes `0x00`–`0x08` map one to one onto the nine state
@@ -311,6 +312,50 @@ is still read.
 Three are kept, E−2 to E, and EndBlock deletes the one before them when it
 takes a new one: about 150 slot writes once an epoch at 35 validators.
 
+### Staged operations
+
+Staking treats an epoch as its unit: a delegate, undelegate or redelegate
+called during epoch T takes effect at the end of epoch T+1, so delegations hold
+still through every epoch and change only at its end. V2 applies each at once.
+
+A call checks the operation as V2 would at that block and queues it in
+`stagedQueue`, a first-in first-out queue like the others, under the epoch it
+waits for: `currentEpoch` plus one. EndBlock sets `currentEpoch` from the epoch
+the app marks the block as closing, whether or not the snapshot is taken. At the
+end of each epoch, before the bonded set is updated and snapshotted, EndBlock
+applies the operations due, in the order they were called, through the same
+code V2's messages run, so the snapshot of epoch T+1 counts them. The work
+falls under EndBlock's budget like the other queues: operations past it wait for
+the blocks after, and miss that epoch's snapshot.
+
+The tokens a delegate sends wait in `StagedEscrow`, apart from any validator's,
+and count toward no power until the delegation takes effect. Stake an
+undelegate or redelegate takes stays with its validator, and keeps counting,
+until then; the unbonding or redelegation period begins only when it takes
+effect.
+
+Because the operations a delegation has staged have not changed it yet, a call
+has to count them to be checked as V2 checks it: `stagedDelegations` holds, for
+each delegation, the shares staged to leave it and how many undelegations,
+redelegations out and redelegations in are staged, in two slots that are zero
+again once everything staged has taken effect. A call may not stage away shares
+already staged away, its undelegations count toward `maxEntries`, a staged
+redelegation into a validator blocks one out of it as a redelegation in progress
+does, and redelegations staged out of a validator count toward `maxEntries` for
+every destination, since they are not counted per destination.
+
+What can still change between the call and its epoch's end is what other
+operations do: a validator can be removed once its last shares leave, and a
+delegation can reach the max voting power ratio once others ahead of it take
+effect. An operation that then fails is dropped and reported: a delegation's
+tokens go back to its delegator, and the stake an undelegation or redelegation
+would have moved stays where it is.
+
+The other queries show a delegation as it stands, so `stagedOperations` pages
+through `stagedQueue` itself, filtered by delegator. Its page key is a queue
+index rather than an offset, so a walk that spans the end of an epoch resumes at
+the first operation still staged instead of skipping some.
+
 ### Where the structures don't carry over
 
 Each of these is a place where slot storage, or a deliberate simplification,
@@ -377,9 +422,9 @@ clamped:
 - A redelegation from an unbonding validator. V2 completes it when that
   validator finishes unbonding. The clamp moves it to the completion time of the
   entry queued before it, up to one unbonding period from now. The stake moves
-  at once either way, so the entry only holds the delegator to the chaining rule
-  and `maxEntries` for longer, by at most the time since the source began
-  unbonding.
+  when the redelegation takes effect either way, so the entry only holds the
+  delegator to the chaining rule and `maxEntries` for longer, by at most the
+  time since the source began unbonding.
 - Every new entry after governance shortens `unbondingTime`, which waits behind
   older ones rather than overtaking them.
 
@@ -525,6 +570,15 @@ of a million state writes per epoch.
 - Minting belongs to the rewards design. pacific-1's release schedule is empty.
 - Power and the bonded set are read from staking, not copied: the committee
   that served a block from staking's epoch snapshot.
+- A block's rewards go only to the committee that served it, split by committee
+  power, and within each member among its delegators by the shares they hold,
+  as in V2. Both hold still through an epoch: committee power is the snapshot
+  of two epochs before, and delegations change only at epoch ends (see *Staged
+  operations*). A delegation's rewards are settled before every change to it,
+  through staking's delegation hooks, so staking keeps no history of past
+  delegations. Validators outside the committee earn nothing, as jailed
+  validators earn nothing in V2. A member with no delegator shares left cannot
+  pay its part to anyone, and V2 sends such a part to the community pool.
 - `communityTax` and the proposer reward params stay in distribution's params
   (all zero on pacific-1).
 

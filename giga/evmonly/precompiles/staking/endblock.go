@@ -25,19 +25,22 @@ var (
 // endBlockBudget bounds the work one EndBlock does on each queue: one unit per
 // entry, plus one per unbonding entry of the delegation an unbonding queue entry
 // pays. Entries past the budget wait for the next EndBlock; an entry larger than
-// the whole budget runs when nothing has spent it, and uses it up. Queuing an
-// unbonding or redelegation entry writes at least five new slots, over 100,000
-// gas, so 300M gas of calls queue at most 3,000 a block. The redelegation queue
-// completes that many; the unbonding queue, whose entries cost at least two
-// units, completes at most 1,500, and a backlog waits for blocks with fewer
-// undelegations.
+// the whole budget runs when nothing has spent it, and uses it up. Staging an
+// operation writes at least three new slots, over 60,000 gas, so 300M gas of
+// calls stage at most 5,000 a block, and applying one queues at most one
+// unbonding or redelegation entry. The redelegation queue completes as many a
+// block as the staged queue applies; the unbonding queue, whose entries cost at
+// least two units, completes at most 1,500. A backlog in any of them waits for
+// blocks with fewer calls.
 const endBlockBudget = 3_000
 
-// EndBlock updates the bonded set, snapshots it when the block closes an epoch,
-// then completes the validators, unbonding entries and redelegation entries
-// whose unbonding period is over, in that order, as x/staking's
-// BlockValidatorUpdates does. Before staking's params are written it does
-// nothing. Its failures are a bonded set that could not be updated, which is
+// EndBlock advances the current epoch when the block closes one, applies the
+// staged operations whose epoch has ended, updates the bonded set, snapshots it
+// when the block closes an epoch, then completes the validators, unbonding
+// entries and redelegation entries whose unbonding period is over, in that
+// order, as x/staking's BlockValidatorUpdates does. Before staking's params are
+// written it does nothing. Its failures are staged operations that could not be
+// applied, which are dropped, a bonded set that could not be updated, which is
 // kept as it was, a snapshot that could not be taken, and queue entries whose
 // stored data does not add up, which are dropped. It returns no error.
 func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
@@ -47,6 +50,12 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 	s := newStore(state)
 	params := s.params()
 	var failures []error
+	if epoch, ok := block.ClosingEpoch.Get(); ok {
+		s.setCurrentEpoch(epoch + 1)
+	}
+	if current := s.currentEpoch(); current > 0 {
+		p.applyStaged(block, s, params, current-1, &failures)
+	}
 	if err := p.updateBondedSet(block, s, params); err != nil {
 		failures = append(failures, fmt.Errorf("%w: bonded set kept as it was: %w", precompiles.ErrDegraded, err))
 	}
@@ -55,18 +64,18 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 			failures = append(failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
 		}
 	}
-	drain(block, s.validatorQueue(), "validator", &failures,
+	drain(s.validatorQueue(), block.UnixNano, "validator", &failures,
 		func(common.Hash) uint64 { return 1 },
-		func(e common.Hash) error { return p.completeValidatorUnbonding(block, s, e) })
-	drain(block, s.unbondingQueue(), "unbonding", &failures,
+		func(e common.Hash) error { return p.completeValidatorUnbonding(block, s, e) }, nil)
+	drain(s.unbondingQueue(), block.UnixNano, "unbonding", &failures,
 		func(e common.Hash) uint64 {
 			delegator, op := unbondingQueueEntry(s, e)
 			return 1 + s.unbondingEntryCount(delegator, op)
 		},
-		func(e common.Hash) error { return completeUnbonding(block, s, e) })
-	drain(block, s.redelegationQueue(), "redelegation", &failures,
+		func(e common.Hash) error { return completeUnbonding(block, s, e) }, nil)
+	drain(s.redelegationQueue(), block.UnixNano, "redelegation", &failures,
 		func(common.Hash) uint64 { return 1 },
-		func(e common.Hash) error { return completeRedelegation(s, e) })
+		func(e common.Hash) error { return completeRedelegation(s, e) }, nil)
 	return failures, nil
 }
 
@@ -184,18 +193,19 @@ func snapshotEpoch(s store, epoch uint64) error {
 	return nil
 }
 
-// drain completes each entry due in q, in queue order, under a budget of its
-// own, until none is due or the next does not fit what is left. Each entry is
-// removed from q once completed. A completion that fails is reverted and its
-// entry removed all the same, so it holds up no other, and the failure is
-// reported. A queue whose head is past its tail is reported and left alone.
-func drain(block precompiles.BlockContext, q queue, name string, failures *[]error, cost func(e common.Hash) uint64, complete func(e common.Hash) error) {
+// drain completes each entry of q due by now, in queue order, under a budget of
+// its own, until none is due or the next does not fit what is left. Each entry
+// is removed from q once completed. A completion that fails is reverted and
+// reported, fail, when given, records the outcome, and the entry is removed all
+// the same, so it holds up no other. A queue whose head is past its tail is
+// reported and left alone.
+func drain(q queue, now uint64, name string, failures *[]error, cost func(e common.Hash) uint64, complete, fail func(e common.Hash) error) {
 	if err := q.check(); err != nil {
 		*failures = append(*failures, fmt.Errorf("%w: %s queue: %w", precompiles.ErrDegraded, name, err))
 		return
 	}
 	budget := uint64(endBlockBudget)
-	for e, ok := q.due(block.UnixNano); ok; e, ok = q.due(block.UnixNano) {
+	for e, ok := q.due(now); ok; e, ok = q.due(now) {
 		if !take(&budget, cost(e)) {
 			return
 		}
@@ -203,8 +213,21 @@ func drain(block precompiles.BlockContext, q queue, name string, failures *[]err
 		if err := complete(e); err != nil {
 			q.s.State.RevertToSnapshot(snap)
 			*failures = append(*failures, fmt.Errorf("%w: %s queue entry %d dropped: %w", precompiles.ErrDegraded, name, q.head(), err))
+			if fail != nil {
+				failInPlace(q, name, e, fail, failures)
+			}
 		}
 		q.pop()
+	}
+}
+
+// failInPlace runs fail on entry e of q, whose completion failed, reverting it
+// and reporting why when it fails too.
+func failInPlace(q queue, name string, e common.Hash, fail func(e common.Hash) error, failures *[]error) {
+	snap := q.s.State.Snapshot()
+	if err := fail(e); err != nil {
+		q.s.State.RevertToSnapshot(snap)
+		*failures = append(*failures, fmt.Errorf("%w: %s queue entry %d left unsettled: %w", precompiles.ErrDegraded, name, q.head(), err))
 	}
 }
 

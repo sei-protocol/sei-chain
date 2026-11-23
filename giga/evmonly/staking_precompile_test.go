@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 var (
@@ -58,6 +59,24 @@ func stakingRegistry() precompiles.Registry {
 	return precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{staking.Address: staking.Precompile{}}, staking.Address)
 }
 
+// executeStakingBlock runs txs in block on state, requiring each to succeed and
+// log its event, applies the result, and moves block on to the next.
+func executeStakingBlock(t *testing.T, state *MemoryState, cfg Config, block *BlockContext, closing utils.Option[uint64], txs ...[]byte) *BlockResult {
+	t.Helper()
+	block.ClosingEpoch = closing
+	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: *block, Txs: txs})
+	require.NoError(t, err)
+	for i, tx := range result.Txs {
+		require.NoError(t, tx.Err, "tx %d", i)
+		require.Equal(t, uint64(1), tx.Status, "tx %d", i)
+		require.Len(t, result.Receipts[i].Logs, 1, "tx %d logs its event", i)
+	}
+	state.ApplyChangeSet(result.ChangeSet)
+	block.Number++
+	block.Time++
+	return result
+}
+
 func TestStakingPrecompileThroughExecutor(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.HexToECDSA(behaviorAnvilKey0)
@@ -73,32 +92,29 @@ func TestStakingPrecompileThroughExecutor(t *testing.T) {
 	redelegate, err := staking.ABI.Pack(staking.RedelegateMethod, stakingVal2, stakingVal1, seiWei(1))
 	require.NoError(t, err)
 	to := staking.Address
-	txs := [][]byte{
-		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, seiWei(10), delegate, 2_000_000, big.NewInt(0)),
-		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), undelegate, 2_000_000, big.NewInt(0)),
-		signLegacyTxWithGasPrice(t, key, chainID, 2, &to, big.NewInt(0), redelegate, 2_000_000, big.NewInt(0)),
-	}
 	cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: stakingRegistry()}
 	block := blockContext(chainID)
-	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: txs})
-	require.NoError(t, err)
-	for i, tx := range result.Txs {
-		require.NoError(t, tx.Err, "tx %d", i)
-		require.Equal(t, uint64(1), tx.Status, "tx %d", i)
-		require.Len(t, result.Receipts[i].Logs, 1, "tx %d logs its event", i)
-	}
-	state.ApplyChangeSet(result.ChangeSet)
 
+	executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](0),
+		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, seiWei(10), delegate, 2_000_000, big.NewInt(0)))
 	require.Equal(t, seiWei(90), state.GetBalance(sender))
 	require.Zero(t, state.GetBalance(staking.Address).Sign())
+	require.Equal(t, seiWei(10), state.GetBalance(staking.StagedEscrow), "staged in epoch 0, the delegation waits for the end of epoch 1")
+	executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](1))
+	require.Zero(t, state.GetBalance(staking.StagedEscrow).Sign())
+	require.Equal(t, seiWei(60), state.GetBalance(staking.BondedEscrow))
+
+	executeStakingBlock(t, state, cfg, &block, utils.None[uint64](),
+		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), undelegate, 2_000_000, big.NewInt(0)),
+		signLegacyTxWithGasPrice(t, key, chainID, 2, &to, big.NewInt(0), redelegate, 2_000_000, big.NewInt(0)))
+	executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](2))
+	require.Equal(t, seiWei(60), state.GetBalance(staking.BondedEscrow), "staged in epoch 2, they wait for the end of epoch 3")
+	executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](3))
 	require.Equal(t, seiWei(56), state.GetBalance(staking.BondedEscrow), "both validators are bonded")
 	require.Equal(t, seiWei(4), state.GetBalance(staking.NotBondedEscrow), "the unbonding entry waits")
 
-	block.Number++
 	block.Time += 100
-	result, err = NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block})
-	require.NoError(t, err)
-	state.ApplyChangeSet(result.ChangeSet)
+	executeStakingBlock(t, state, cfg, &block, utils.None[uint64]())
 	require.Equal(t, seiWei(94), state.GetBalance(sender), "the unbonding entry is paid")
 	require.Zero(t, state.GetBalance(staking.NotBondedEscrow).Sign())
 }
@@ -113,29 +129,38 @@ func TestStakingPrecompileOCCMatchesSequential(t *testing.T) {
 		keys[i] = key
 	}
 	to := staking.Address
-	var txs [][]byte
-	send := func(i int, value *big.Int, method string, args ...interface{}) {
+	sign := func(i int, value *big.Int, method string, args ...interface{}) []byte {
 		data, err := staking.ABI.Pack(method, args...)
 		require.NoError(t, err)
-		txs = append(txs, signLegacyTxWithGasPrice(t, keys[i], chainID, nonces[i], &to, value, data, 2_000_000, big.NewInt(0)))
+		tx := signLegacyTxWithGasPrice(t, keys[i], chainID, nonces[i], &to, value, data, 2_000_000, big.NewInt(0))
 		nonces[i]++
+		return tx
 	}
+	var delegations [][]byte
 	for i := range keys {
-		send(i, seiWei(int64(5+i)), staking.DelegateMethod, []common.Address{stakingVal1, stakingVal2}[i%2])
+		delegations = append(delegations, sign(i, seiWei(int64(5+i)), staking.DelegateMethod, []common.Address{stakingVal1, stakingVal2}[i%2]))
 	}
-	send(0, nil, staking.UndelegateMethod, stakingVal1, seiWei(2))
-	send(1, nil, staking.RedelegateMethod, stakingVal2, stakingVal1, seiWei(3))
-	send(2, nil, staking.RedelegateMethod, stakingVal1, stakingVal2, seiWei(7))
-	send(3, nil, staking.UndelegateMethod, stakingVal2, seiWei(8))
-	send(4, seiWei(1), staking.DelegateMethod, stakingVal2)
+	txs := [][]byte{
+		sign(0, nil, staking.UndelegateMethod, stakingVal1, seiWei(2)),
+		sign(1, nil, staking.RedelegateMethod, stakingVal2, stakingVal1, seiWei(3)),
+		sign(2, nil, staking.RedelegateMethod, stakingVal1, stakingVal2, seiWei(7)),
+		sign(3, nil, staking.UndelegateMethod, stakingVal2, seiWei(8)),
+		sign(4, seiWei(1), staking.DelegateMethod, stakingVal2),
+	}
 
+	// run takes the delegations through the ends of epochs 0 and 1, where they
+	// take effect, then runs txs with workers.
 	run := func(workers int) *BlockResult {
 		state := stakingGenesis(t)
 		for _, key := range keys {
 			state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), seiWei(100))
 		}
-		result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, CustomPrecompiles: stakingRegistry()}, withTestState(state)).
-			ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: txs})
+		block := blockContext(chainID)
+		cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: stakingRegistry()}
+		executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](0), delegations...)
+		executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](1))
+		cfg.OCCWorkers = workers
+		result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: txs})
 		require.NoError(t, err)
 		return result
 	}

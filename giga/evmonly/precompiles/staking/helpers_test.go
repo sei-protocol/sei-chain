@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -211,15 +212,34 @@ type callOpts struct {
 	delegateCall bool
 }
 
-// call runs method as caller. Like the EVM, it credits value to the precompile
-// before running it, and undoes the call's writes when it fails.
+// call runs method as caller, as run does.
 func (h *harness) call(caller common.Address, opts callOpts, method string, args ...interface{}) error {
 	input, err := ABI.Pack(method, args...)
 	require.NoError(h.t, err)
 	return h.run(caller, opts, input)
 }
 
+// run runs input as caller, requiring a transaction that succeeds to return
+// true.
 func (h *harness) run(caller common.Address, opts callOpts, input []byte) error {
+	values, err := h.exec(caller, opts, input)
+	if err == nil && !ABI.Methods[methodName(input)].IsConstant() {
+		require.Equal(h.t, []interface{}{true}, values)
+	}
+	return err
+}
+
+// query runs view method in a static call and returns its results.
+func (h *harness) query(method string, args ...interface{}) ([]interface{}, error) {
+	input, err := ABI.Pack(method, args...)
+	require.NoError(h.t, err)
+	return h.exec(common.Address{}, callOpts{readOnly: true}, input)
+}
+
+// exec runs input as caller and returns its results. Like the EVM, it credits
+// value to the precompile before running it, and undoes the call's writes
+// when it fails.
+func (h *harness) exec(caller common.Address, opts callOpts, input []byte) ([]interface{}, error) {
 	snap := h.state.Snapshot()
 	if opts.value != nil {
 		require.NoError(h.t, h.state.SubBalance(caller, opts.value))
@@ -241,15 +261,14 @@ func (h *harness) run(caller common.Address, opts callOpts, input []byte) error 
 	if errors.Is(err, vm.ErrExecutionReverted) {
 		reason, unpackErr := abi.UnpackRevert(out)
 		require.NoError(h.t, unpackErr)
-		return fmt.Errorf("%w: %s", err, reason)
+		return nil, fmt.Errorf("%w: %s", err, reason)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	values, err := ABI.Methods[methodName(input)].Outputs.Unpack(out)
 	require.NoError(h.t, err)
-	require.Equal(h.t, []interface{}{true}, values)
-	return nil
+	return values, nil
 }
 
 func methodName(input []byte) string {
@@ -265,17 +284,90 @@ func (h *harness) fund(addr common.Address, amount *big.Int) {
 	h.state.AddBalance(addr, amount)
 }
 
+// delegate funds delegator with amount and delegates it to op, applying the
+// staged delegation at once.
 func (h *harness) delegate(delegator, op common.Address, amount *big.Int) error {
+	return h.inEffect(h.stageDelegate(delegator, op, amount))
+}
+
+// undelegate undelegates amount from delegator's delegation to op, applying the
+// staged undelegation at once.
+func (h *harness) undelegate(delegator, op common.Address, amount *big.Int) error {
+	return h.inEffect(h.stageUndelegate(delegator, op, amount))
+}
+
+// redelegate moves amount of delegator's delegation from src to dst, applying
+// the staged redelegation at once.
+func (h *harness) redelegate(delegator, src, dst common.Address, amount *big.Int) error {
+	return h.inEffect(h.stageRedelegate(delegator, src, dst, amount))
+}
+
+// stageDelegate funds delegator with amount and stages delegating it to op.
+func (h *harness) stageDelegate(delegator, op common.Address, amount *big.Int) error {
 	h.fund(delegator, amount)
 	return h.call(delegator, callOpts{value: amount}, DelegateMethod, op)
 }
 
-func (h *harness) undelegate(delegator, op common.Address, amount *big.Int) error {
+func (h *harness) stageUndelegate(delegator, op common.Address, amount *big.Int) error {
 	return h.call(delegator, callOpts{}, UndelegateMethod, op, amount)
 }
 
-func (h *harness) redelegate(delegator, src, dst common.Address, amount *big.Int) error {
+func (h *harness) stageRedelegate(delegator, src, dst common.Address, amount *big.Int) error {
 	return h.call(delegator, callOpts{}, RedelegateMethod, src, dst, amount)
+}
+
+// inEffect returns err, the error of a call that stages operations, or when
+// it is nil applies every staged operation at the current block, as the end of
+// its epoch would, and returns the failures.
+func (h *harness) inEffect(err error) error {
+	if err != nil {
+		return err
+	}
+	var failures []error
+	s := h.store()
+	h.staking.applyStaged(h.block(), s, s.params(), math.MaxUint64, &failures)
+	return errors.Join(failures...)
+}
+
+// stagedTotals returns each delegation's staged totals, keyed by delegator and
+// validator, and the staged delegations' tokens, counted from the staged queue.
+func (h *harness) stagedTotals() (map[[2]common.Address]stagedDelegation, *big.Int) {
+	s, q := h.store(), h.store().stagedQueue()
+	totals := map[[2]common.Address]stagedDelegation{}
+	add := func(delegator, op common.Address, shares *big.Int, undelegations, out, in uint64) {
+		t, ok := totals[[2]common.Address{delegator, op}]
+		if !ok {
+			t.sharesOut = new(big.Int)
+		}
+		t.sharesOut = new(big.Int).Add(t.sharesOut, shares)
+		t.undelegations += undelegations
+		t.redelegationsOut += out
+		t.redelegationsIn += in
+		totals[[2]common.Address{delegator, op}] = t
+	}
+	tokens := new(big.Int)
+	for i := q.head(); i < q.tail(); i++ {
+		switch op := s.stagedOperationAt(q.entry(i)); op.kind {
+		case stagedDelegate:
+			tokens.Add(tokens, op.amount)
+		case stagedUndelegate:
+			add(op.delegator, op.validator, op.amount, 1, 0, 0)
+		case stagedRedelegate:
+			add(op.delegator, op.validator, op.amount, 0, 1, 0)
+			add(op.delegator, op.dstValidator, new(big.Int), 0, 0, 1)
+		}
+	}
+	return totals, tokens
+}
+
+// formatStaged formats staged's totals for comparison.
+func formatStaged(staged stagedDelegation) string {
+	shares := "0"
+	if staged.sharesOut != nil {
+		shares = staged.sharesOut.String()
+	}
+	return fmt.Sprintf("%s shares out, %d undelegations, %d redelegations out, %d in",
+		shares, staged.undelegations, staged.redelegationsOut, staged.redelegationsIn)
 }
 
 func (h *harness) store() store {
@@ -316,9 +408,10 @@ func requireReverts(t *testing.T, err error, want error, msgAndArgs ...interface
 }
 
 // requireInvariants checks that each validator's shares are its delegations'
-// shares, each escrow holds the tokens and balances it should, and the power
-// index holds every unjailed validator in order. delegators are every account
-// that may delegate.
+// shares, each delegation's staged totals are its staged operations' and leave
+// it no fewer than zero shares, each escrow holds the tokens and balances it
+// should, and the power index holds every unjailed validator in order.
+// delegators are every account that may delegate.
 func (h *harness) requireInvariants(delegators ...common.Address) {
 	t, s := h.t, h.store()
 	delegators = append(delegators, val1, val2, val3)
@@ -357,6 +450,16 @@ func (h *harness) requireInvariants(delegators ...common.Address) {
 	}
 	require.Equal(t, bonded.String(), h.state.GetBalance(BondedEscrow).String(), "the bonded escrow holds the bonded validators' tokens")
 	require.Equal(t, notBonded.String(), h.state.GetBalance(NotBondedEscrow).String(), "the not-bonded escrow holds the other validators' tokens and every unbonding balance")
+
+	totals, stagedTokens := h.stagedTotals()
+	require.Equal(t, stagedTokens.String(), h.state.GetBalance(StagedEscrow).String(), "the staged escrow holds the staged delegations' tokens")
+	for _, d := range delegators {
+		for _, op := range []common.Address{val1, val2, val3} {
+			want, staged := totals[[2]common.Address{d, op}], s.stagedDelegation(d, op)
+			require.Equal(t, formatStaged(want), formatStaged(staged), "%s's staged totals for %s", d, op)
+			require.LessOrEqual(t, staged.sharesOut.Cmp(h.shares(d, op)), 0, "%s stages no more shares out of %s than it holds", d, op)
+		}
+	}
 
 	index := h.powerIndex()
 	require.ElementsMatch(t, unjailed, index, "the power index holds every unjailed validator")

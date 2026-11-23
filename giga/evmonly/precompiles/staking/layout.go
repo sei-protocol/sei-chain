@@ -30,6 +30,10 @@ const (
 	slotRedelegationQueue           = 18
 	slotValidatorQueueBounds        = 19
 	slotValidatorQueue              = 20
+	slotCurrentEpoch                = 21
+	slotStagedQueueBounds           = 22
+	slotStagedQueue                 = 23
+	slotStagedDelegations           = 24
 )
 
 // member is a struct member's position relative to the struct's base slot.
@@ -120,12 +124,34 @@ var (
 	validatorQueueOperator        = member{1, 0}
 )
 
+// StakingStorage.StagedOperation members after its epoch, which is the
+// completionTime member every queue entry begins with.
+var (
+	stagedOperationKind         = member{0, 8}
+	stagedOperationDelegator    = member{0, 9}
+	stagedOperationValidator    = member{1, 0}
+	stagedOperationDstValidator = member{2, 0}
+	stagedOperationAmount       = member{3, 0}
+)
+
 // How many slots each queue's entries take.
 const (
 	unbondingQueueEntrySlots    = 2
 	redelegationQueueEntrySlots = 5
 	validatorQueueEntrySlots    = 2
+	stagedQueueEntrySlots       = 4
 )
+
+// StakingStorage.StagedDelegation members.
+var (
+	stagedSharesOut        = member{0, 0}
+	stagedUndelegations    = member{1, 0}
+	stagedRedelegationsOut = member{1, 8}
+	stagedRedelegationsIn  = member{1, 16}
+)
+
+// stagedDelegationSlots is how many slots a StakingStorage.StagedDelegation takes.
+const stagedDelegationSlots = 2
 
 // BondedEscrow holds the tokens of bonded validators.
 var BondedEscrow = escrow("bonded")
@@ -133,6 +159,9 @@ var BondedEscrow = escrow("bonded")
 // NotBondedEscrow holds the tokens of unbonded and unbonding validators and the
 // balance of every unbonding entry.
 var NotBondedEscrow = escrow("not_bonded")
+
+// StagedEscrow holds the tokens of staged delegations.
+var StagedEscrow = escrow("staged")
 
 func escrow(name string) common.Address {
 	return common.BytesToAddress(crypto.Keccak256([]byte("sei.evmonly.escrow"), Address[:], []byte(name))[12:])

@@ -7,8 +7,9 @@ import "./Sets.sol";
 /// address's contract storage. Each state variable is an x/staking store prefix,
 /// named in its comment.
 /// @dev Params are `ParamsStorage.staking`. Bonded tokens sit in the balance of
-/// `BondedEscrow` and unbonded and unbonding tokens in `NotBondedEscrow`, derived
-/// addresses in `staking/layout.go`. Tokens and balances are wei; shares and
+/// `BondedEscrow`, unbonded and unbonding tokens in `NotBondedEscrow`, and staged
+/// delegations' tokens in `StagedEscrow`, derived addresses in
+/// `staking/layout.go`. Tokens and balances are wei; shares and
 /// rates are 1e18-scaled; times are Unix nanoseconds. Accounts are EVM addresses,
 /// and a validator is keyed by its operator's. An enumeration is kept only where an
 /// on-chain path walks it.
@@ -102,6 +103,27 @@ contract StakingStorage {
         uint64 tail;
     }
 
+    /// @dev A delegate, undelegate or redelegate staged in one epoch, which takes
+    /// effect at the end of the next. An entry's epoch is never earlier than the
+    /// one before it.
+    struct StagedOperation {
+        uint64 epoch; // the epoch it takes effect at the end of
+        uint8 kind; // 1=Delegate, 2=Undelegate, 3=Redelegate
+        address delegator;
+        address validator; // delegated to, or undelegated or redelegated from
+        address dstValidator; // redelegated to
+        uint256 amount; // tokens delegated, or shares undelegated or redelegated
+    }
+
+    /// @dev What a delegation's staged operations will take or add once they take
+    /// effect.
+    struct StagedDelegation {
+        uint256 sharesOut; // undelegated or redelegated away
+        uint64 undelegations;
+        uint64 redelegationsOut;
+        uint64 redelegationsIn; // redelegated to this delegation's validator
+    }
+
     ValidatorPower[] internal lastValidators; // 0x11: the bonded set, as last sent to consensus
     uint256 internal lastTotalPower; // 0x12
     /// @dev The bonded set at the end of each epoch's last block, with each
@@ -130,6 +152,13 @@ contract StakingStorage {
     mapping(uint64 => RedelegationQueueEntry) internal redelegationQueue; // 0x42: index =>
     QueueBounds internal validatorQueueBounds;
     mapping(uint64 => ValidatorQueueEntry) internal validatorQueue; // 0x43: index =>
+
+    /// @dev Delegates, undelegates and redelegates wait here from the epoch they
+    /// are called in until the end of the next.
+    uint64 internal currentEpoch; // one after the last epoch a block closed, 0 before any
+    QueueBounds internal stagedQueueBounds;
+    mapping(uint64 => StagedOperation) internal stagedQueue; // index =>
+    mapping(address => mapping(address => StagedDelegation)) internal stagedDelegations; // delegator => validator =>
 
     /// @dev V2 to giga migration. The phase runs from the cutover height until
     /// migrationCursor passes the last V2 key.

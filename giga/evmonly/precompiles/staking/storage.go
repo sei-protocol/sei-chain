@@ -72,6 +72,16 @@ func (v validator) tokensFromShares(shares *big.Int) *big.Int {
 	return dec.Quo(new(big.Int).Mul(shares, v.tokens), v.delegatorShares)
 }
 
+// unbondedTokens returns the tokens taking shares out of v pays, truncated, as
+// x/staking's RemoveValidatorTokensAndShares does: the last shares out take
+// every token left.
+func (v validator) unbondedTokens(shares *big.Int) *big.Int {
+	if shares.Cmp(v.delegatorShares) == 0 {
+		return new(big.Int).Set(v.tokens)
+	}
+	return dec.Truncate(v.tokensFromShares(shares))
+}
+
 // store is StakingStorage at the staking precompile's address.
 type store struct {
 	solstorage.Store
@@ -269,6 +279,16 @@ func (s store) setLatestSnapshotEpoch(epoch uint64) {
 	s.SetUint64(solstorage.Slot(slotNextSnapshotEpoch), 0, epoch+1)
 }
 
+// currentEpoch returns the epoch in progress: one after the last epoch a block
+// closed, or 0 before any.
+func (s store) currentEpoch() uint64 {
+	return s.Uint64(solstorage.Slot(slotCurrentEpoch), 0)
+}
+
+func (s store) setCurrentEpoch(epoch uint64) {
+	s.SetUint64(solstorage.Slot(slotCurrentEpoch), 0, epoch)
+}
+
 // lastTotalPower returns the consensus power of the bonded set as last stored.
 func (s store) lastTotalPower() *big.Int {
 	return s.Uint256(solstorage.Slot(slotLastTotalPower))
@@ -441,6 +461,75 @@ func (s store) redelegationQueue() queue {
 
 func (s store) validatorQueue() queue {
 	return queue{s, solstorage.Slot(slotValidatorQueueBounds), solstorage.Slot(slotValidatorQueue), validatorQueueEntrySlots}
+}
+
+// stagedQueue is the staged operations, each completing at the end of its
+// epoch.
+func (s store) stagedQueue() queue {
+	return queue{s, solstorage.Slot(slotStagedQueueBounds), solstorage.Slot(slotStagedQueue), stagedQueueEntrySlots}
+}
+
+// stagedOperation is StakingStorage.StagedOperation.
+type stagedOperation struct {
+	epoch        uint64
+	kind         uint8
+	delegator    common.Address
+	validator    common.Address
+	dstValidator common.Address
+	amount       *big.Int
+}
+
+// stagedOperationAt returns the staged operation at queue entry e.
+func (s store) stagedOperationAt(e common.Hash) stagedOperation {
+	return stagedOperation{
+		epoch:        s.Uint64(at(e, queueCompletionTime), queueCompletionTime.offset),
+		kind:         s.Uint8(at(e, stagedOperationKind), stagedOperationKind.offset),
+		delegator:    s.AddressAt(at(e, stagedOperationDelegator), stagedOperationDelegator.offset),
+		validator:    s.AddressAt(at(e, stagedOperationValidator), stagedOperationValidator.offset),
+		dstValidator: s.AddressAt(at(e, stagedOperationDstValidator), stagedOperationDstValidator.offset),
+		amount:       s.Uint256(at(e, stagedOperationAmount)),
+	}
+}
+
+// setStagedOperation writes op at queue entry e, whose epoch push wrote.
+func (s store) setStagedOperation(e common.Hash, op stagedOperation) {
+	s.SetUint8(at(e, stagedOperationKind), stagedOperationKind.offset, op.kind)
+	s.SetAddressAt(at(e, stagedOperationDelegator), stagedOperationDelegator.offset, op.delegator)
+	s.SetAddressAt(at(e, stagedOperationValidator), stagedOperationValidator.offset, op.validator)
+	s.SetAddressAt(at(e, stagedOperationDstValidator), stagedOperationDstValidator.offset, op.dstValidator)
+	s.SetUint256(at(e, stagedOperationAmount), op.amount)
+}
+
+// stagedDelegation is StakingStorage.StagedDelegation.
+type stagedDelegation struct {
+	sharesOut        *big.Int
+	undelegations    uint64
+	redelegationsOut uint64
+	redelegationsIn  uint64
+}
+
+func stagedDelegationBase(delegator, op common.Address) common.Hash {
+	return solstorage.MapAddress(solstorage.MapAddress(solstorage.Slot(slotStagedDelegations), delegator), op)
+}
+
+// stagedDelegation returns what delegator's staged operations will take from or
+// add to its delegation to op.
+func (s store) stagedDelegation(delegator, op common.Address) stagedDelegation {
+	base := stagedDelegationBase(delegator, op)
+	return stagedDelegation{
+		sharesOut:        s.Uint256(at(base, stagedSharesOut)),
+		undelegations:    s.Uint64(at(base, stagedUndelegations), stagedUndelegations.offset),
+		redelegationsOut: s.Uint64(at(base, stagedRedelegationsOut), stagedRedelegationsOut.offset),
+		redelegationsIn:  s.Uint64(at(base, stagedRedelegationsIn), stagedRedelegationsIn.offset),
+	}
+}
+
+func (s store) setStagedDelegation(delegator, op common.Address, staged stagedDelegation) {
+	base := stagedDelegationBase(delegator, op)
+	s.SetUint256(at(base, stagedSharesOut), staged.sharesOut)
+	s.SetUint64(at(base, stagedUndelegations), stagedUndelegations.offset, staged.undelegations)
+	s.SetUint64(at(base, stagedRedelegationsOut), stagedRedelegationsOut.offset, staged.redelegationsOut)
+	s.SetUint64(at(base, stagedRedelegationsIn), stagedRedelegationsIn.offset, staged.redelegationsIn)
 }
 
 func (q queue) head() uint64 {

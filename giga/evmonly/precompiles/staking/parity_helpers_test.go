@@ -643,13 +643,16 @@ func (pr *pair) createValidator(v parityValidator) {
 		func() error { return pr.v2.createValidator(v.op, pubkey, self, minSelf) }))
 }
 
-// delegate funds delegator with usei, then delegates it to op.
+// delegate funds delegator with usei, then delegates it to op, applying the
+// precompile's staged delegation at once.
 func (pr *pair) delegate(delegator, op common.Address, usei int64) error {
 	amount := sdk.NewInt(usei)
 	pr.v2.fund(delegator, amount)
 	pr.p.fund(delegator, toWei(amount))
 	return pr.apply("delegate", fmt.Sprintf("%d usei from %s to %s", usei, delegator, op),
-		func() error { return pr.p.call(delegator, callOpts{value: toWei(amount)}, DelegateMethod, op) },
+		func() error {
+			return pr.p.inEffect(pr.p.call(delegator, callOpts{value: toWei(amount)}, DelegateMethod, op))
+		},
 		func() error { return pr.v2.delegate(delegator, op, amount) })
 }
 

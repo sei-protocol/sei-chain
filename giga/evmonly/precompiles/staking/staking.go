@@ -2,12 +2,15 @@
 // and its state is docs/giga-storage/StakingStorage.sol, held as contract
 // storage at Address. Its params are the params precompile's staking subspace.
 //
-// It serves delegate, redelegate and undelegate, and its EndBlock updates the
-// bonded set and completes matured unbondings and redelegations. Unlike
-// x/staking, it never jails a validator, so an operator may hold less than its
-// minimum self-delegation; its queues are first-in first-out, so an entry never
-// completes before one queued ahead of it; and it does not slash unbonding or
-// redelegation entries.
+// It serves delegate, redelegate and undelegate, and queries of validators,
+// delegations, unbonding delegations, staged operations, the pool and its
+// params. A delegate, redelegate or undelegate is staged when called and takes
+// effect at the end of the epoch after the one it is called in. Its EndBlock
+// applies staged operations, updates the bonded set and completes matured
+// unbondings and redelegations. Unlike x/staking, it never jails a validator,
+// so an operator may hold less than its minimum self-delegation; its queues are
+// first-in first-out, so an entry never completes before one queued ahead of
+// it; and it does not slash unbonding or redelegation entries.
 package staking
 
 import (
@@ -36,11 +39,35 @@ var ABI = func() abi.ABI {
 	return parsed
 }()
 
-const (
-	DelegateMethod   = "delegate"
-	RedelegateMethod = "redelegate"
-	UndelegateMethod = "undelegate"
+// Methods staking serves, by their names in ABI.
+var (
+	// Each is found by signature: ABI suffixes every overload of a name but the
+	// first solc lists, and solc, not this package, picks that order.
+	DelegateMethod             = methodNamed("delegate(address)")
+	RedelegateMethod           = methodNamed("redelegate(address,address,uint256)")
+	UndelegateMethod           = methodNamed("undelegate(address,uint256)")
+	DelegationMethod           = methodNamed("delegation(address,address)")
+	ValidatorMethod            = methodNamed("validator(address)")
+	ValidatorsMethod           = methodNamed("validators(uint8,bytes)")
+	ValidatorDelegationsMethod = methodNamed("validatorDelegations(address,bytes)")
+	DelegatorDelegationsMethod = methodNamed("delegatorDelegations(address,bytes)")
+	DelegatorValidatorMethod   = methodNamed("delegatorValidator(address,address)")
+	DelegatorValidatorsMethod  = methodNamed("delegatorValidators(address,bytes)")
+	UnbondingDelegationMethod  = methodNamed("unbondingDelegation(address,address)")
+	StagedOperationsMethod     = methodNamed("stagedOperations(address,bytes)")
+	PoolMethod                 = methodNamed("pool()")
+	ParamsMethod               = methodNamed("params()")
 )
+
+// methodNamed returns the name ABI gives the method with signature sig.
+func methodNamed(sig string) string {
+	for name, m := range ABI.Methods {
+		if m.Sig == sig {
+			return name
+		}
+	}
+	panic("staking ABI has no method " + sig)
+}
 
 // Events.
 const (
@@ -63,6 +90,13 @@ var retiredMethods = map[string]string{
 	"redelegateWithAuthorization(address,string,string,uint256)": authzUnsupported,
 	"undelegateWithAuthorization(address,string,uint256)":        authzUnsupported,
 	"revokeStakingAuthorization(address)":                        authzUnsupported,
+	"delegation(address,string)":                                 "delegation(address,string) is not supported; use delegation(address,address) with the validator's operator address",
+	"validator(string)":                                          "validator(string) is not supported; use validator(address) with the validator's operator address",
+	"validators(string,bytes)":                                   "validators(string,bytes) is not supported; use validators(uint8,bytes) with status 0 for any, 1 for Unbonded, 2 for Unbonding or 3 for Bonded",
+	"validatorDelegations(string,bytes)":                         "validatorDelegations(string,bytes) is not supported; use validatorDelegations(address,bytes) with the validator's operator address",
+	"unbondingDelegation(address,string)":                        "unbondingDelegation(address,string) is not supported; use unbondingDelegation(address,address) with the validator's operator address",
+	"delegatorValidator(address,string)":                         "delegatorValidator(address,string) is not supported; use delegatorValidator(address,address) with the validator's operator address",
+	"historicalInfo(int64)":                                      "historicalInfo(int64) is not supported; staking keeps no historical info",
 }
 
 // Flat per-call gas, as V2's pcommon.DefaultGasCost prices it from the
@@ -71,6 +105,8 @@ const (
 	unknownMethodGas   = 3_000
 	transactionGas     = 2_000
 	transactionByteGas = 30
+	queryGas           = 1_000
+	queryByteGas       = 3
 )
 
 var (
@@ -94,10 +130,15 @@ var (
 )
 
 func (Precompile) RequiredGas(input []byte) uint64 {
-	if _, err := methodOf(input); err != nil {
+	method, err := methodOf(input)
+	if err != nil {
 		return unknownMethodGas
 	}
-	return transactionGas + transactionByteGas*uint64(len(input)-4) //nolint:gosec // methodOf requires a 4-byte selector
+	args := uint64(len(input) - 4) //nolint:gosec // methodOf requires a 4-byte selector
+	if method.IsConstant() {
+		return queryGas + queryByteGas*args
+	}
+	return transactionGas + transactionByteGas*args
 }
 
 func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) {
@@ -113,7 +154,7 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	if reason, ok := retiredMethods[method.Sig]; ok {
 		return precompiles.Revert(reason)
 	}
-	if ctx.ReadOnly {
+	if ctx.ReadOnly && !method.IsConstant() {
 		return nil, errStaticCall
 	}
 	args, err := method.Inputs.Unpack(input[4:])
@@ -129,6 +170,32 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 		}
 	}
 	s := newStore(ctx.State)
+
+	switch method.Name {
+	case DelegationMethod:
+		return delegationQuery(s, method, args)
+	case ValidatorMethod:
+		return validatorQuery(s, method, args)
+	case ValidatorsMethod:
+		return validatorsQuery(s, method, args)
+	case ValidatorDelegationsMethod:
+		return validatorDelegationsQuery(s, method, args)
+	case DelegatorDelegationsMethod:
+		return delegatorDelegationsQuery(s, method, args)
+	case DelegatorValidatorMethod:
+		return delegatorValidatorQuery(s, method, args)
+	case DelegatorValidatorsMethod:
+		return delegatorValidatorsQuery(s, method, args)
+	case UnbondingDelegationMethod:
+		return unbondingDelegationQuery(s, method, args)
+	case StagedOperationsMethod:
+		return stagedOperationsQuery(s, method, args)
+	case PoolMethod:
+		return poolQuery(s, method)
+	case ParamsMethod:
+		return paramsQuery(s, method)
+	}
+
 	// x/staking bonds its genesis validators before the first block runs, and
 	// here the first EndBlock does. Until then the voting power ratio would be
 	// checked against no bonded power.
@@ -164,12 +231,30 @@ var argChecks = map[string]func(ctx *precompiles.Context, args []interface{}) er
 	DelegateMethod:   func(ctx *precompiles.Context, _ []interface{}) error { return checkAmount(ctx.ApparentValue) },
 	RedelegateMethod: func(_ *precompiles.Context, args []interface{}) error { return checkAmount(args[2].(*big.Int)) },
 	UndelegateMethod: func(_ *precompiles.Context, args []interface{}) error { return checkAmount(args[1].(*big.Int)) },
+	ValidatorsMethod: func(_ *precompiles.Context, args []interface{}) error {
+		if err := checkStatusFilter(args[0].(uint8)); err != nil {
+			return err
+		}
+		return checkPageKey(args[1].([]byte))
+	},
+	ValidatorDelegationsMethod: func(_ *precompiles.Context, args []interface{}) error { return checkPageKey(args[1].([]byte)) },
+	DelegatorDelegationsMethod: func(_ *precompiles.Context, args []interface{}) error { return checkPageKey(args[1].([]byte)) },
+	DelegatorValidatorsMethod:  func(_ *precompiles.Context, args []interface{}) error { return checkPageKey(args[1].([]byte)) },
+	StagedOperationsMethod:     func(_ *precompiles.Context, args []interface{}) error { return checkPageKey(args[1].([]byte)) },
 }
 
 // checkAmount requires a positive whole number of usei.
 func checkAmount(amount *big.Int) error {
 	if amount == nil || amount.Sign() <= 0 || new(big.Int).Mod(amount, weiPerUsei).Sign() != 0 {
 		return fmt.Errorf("%w: %s", errInvalidAmount, amount)
+	}
+	return nil
+}
+
+// checkStatusFilter requires 0, for any status, or a validator status.
+func checkStatusFilter(status uint8) error {
+	if status > statusBonded {
+		return fmt.Errorf("%w: %d", errInvalidStatus, status)
 	}
 	return nil
 }

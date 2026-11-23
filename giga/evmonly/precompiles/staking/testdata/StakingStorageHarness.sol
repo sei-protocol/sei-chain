@@ -61,6 +61,14 @@ contract StakingStorageHarness is StakingStorage {
         });
         validatorQueueBounds = QueueBounds({head: 4, tail: 5});
         validatorQueue[4] = ValidatorQueueEntry({completionTime: 81, unbondingHeight: 82, operator: other});
+
+        currentEpoch = 9;
+        stagedQueueBounds = QueueBounds({head: 2, tail: 3});
+        stagedQueue[2] = StagedOperation({
+            epoch: 10, kind: 3, delegator: delegator, validator: op, dstValidator: other, amount: 91
+        });
+        stagedDelegations[delegator][op] =
+            StagedDelegation({sharesOut: 92, undelegations: 93, redelegationsOut: 94, redelegationsIn: 95});
     }
 
     function add(AddressSet storage set, address a) internal {

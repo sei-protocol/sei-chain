@@ -170,10 +170,7 @@ func (s store) removeDelegationShares(op common.Address, v *validator, shares *b
 	if remaining.Sign() < 0 {
 		return nil, fmt.Errorf("%w: removing %s of %s", errInsufficientShares, shares, v.delegatorShares)
 	}
-	issued := new(big.Int).Set(v.tokens)
-	if remaining.Sign() != 0 {
-		issued = dec.Truncate(v.tokensFromShares(shares))
-	}
+	issued := v.unbondedTokens(shares)
 	tokens := new(big.Int).Sub(v.tokens, issued)
 	if tokens.Sign() < 0 {
 		return nil, fmt.Errorf("%w: removing %s tokens of %s", errInsufficientShares, issued, v.tokens)

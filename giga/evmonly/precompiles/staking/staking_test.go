@@ -32,7 +32,7 @@ func TestDelegateIssuesSharesAndBondsTheTokens(t *testing.T) {
 	require.Equal(t, []common.Hash{ABI.Events[DelegateEvent].ID, addressTopic(alice), addressTopic(val1)}, log.Topics)
 	data, err := ABI.Events[DelegateEvent].Inputs.NonIndexed().Unpack(log.Data)
 	require.NoError(t, err)
-	require.Equal(t, []interface{}{sei(5), dec.FromInt(sei(5))}, data)
+	require.Equal(t, []interface{}{sei(5), uint64(1)}, data, "staged in epoch 0, it takes effect at the end of epoch 1")
 	h.requireInvariants(alice)
 }
 
@@ -97,7 +97,7 @@ func TestUndelegateQueuesAnUnbondingEntry(t *testing.T) {
 	require.Equal(t, []common.Hash{ABI.Events[UndelegateEvent].ID, addressTopic(alice), addressTopic(val1)}, log.Topics)
 	data, err := ABI.Events[UndelegateEvent].Inputs.NonIndexed().Unpack(log.Data)
 	require.NoError(t, err)
-	require.Equal(t, []interface{}{sei(2), completion}, data)
+	require.Equal(t, []interface{}{sei(2), uint64(1)}, data)
 	h.requireInvariants(alice)
 }
 
@@ -181,7 +181,7 @@ func TestRedelegateMovesTheStakeAndQueuesTheEntry(t *testing.T) {
 	require.Equal(t, []common.Hash{ABI.Events[RedelegateEvent].ID, addressTopic(alice), addressTopic(val1), addressTopic(val2)}, log.Topics)
 	data, err := ABI.Events[RedelegateEvent].Inputs.NonIndexed().Unpack(log.Data)
 	require.NoError(t, err)
-	require.Equal(t, []interface{}{sei(2), completion}, data)
+	require.Equal(t, []interface{}{sei(2), uint64(1)}, data)
 	h.requireInvariants(alice)
 }
 
@@ -193,9 +193,6 @@ func TestRedelegatingFromAnUnbondedValidatorCompletesAtOnce(t *testing.T) {
 	q := h.store().redelegationQueue()
 	require.Equal(t, q.head(), q.tail(), "no entry is queued")
 	require.Equal(t, sei(55), h.state.GetBalance(BondedEscrow), "the tokens move to the bonded escrow")
-	data, err := ABI.Events[RedelegateEvent].Inputs.NonIndexed().Unpack(h.state.logs[len(h.state.logs)-1].Data)
-	require.NoError(t, err)
-	require.Equal(t, []interface{}{sei(5), uint64(0)}, data)
 	h.requireInvariants(alice)
 }
 
@@ -205,9 +202,8 @@ func TestRedelegatingTheLastSharesOutOfAnUnbondedValidatorWaits(t *testing.T) {
 	_, ok := h.store().validator(val3)
 	require.False(t, ok, "the last shares out remove an unbonded validator")
 	require.Equal(t, int64(1), h.store().redelegationEntryCount(val3, val3, val1).Int64(), "a missing source waits as a bonded one does")
-	data, err := ABI.Events[RedelegateEvent].Inputs.NonIndexed().Unpack(h.state.logs[len(h.state.logs)-1].Data)
-	require.NoError(t, err)
-	require.Equal(t, []interface{}{sei(10), h.time + testParams.UnbondingTime}, data)
+	q := h.store().redelegationQueue()
+	require.Equal(t, h.time+testParams.UnbondingTime, h.store().Uint64(at(q.entry(q.head()), queueCompletionTime), queueCompletionTime.offset))
 
 	h.advance(testParams.UnbondingTime)
 	require.Empty(t, h.failures)
@@ -281,6 +277,13 @@ func TestRetiredMethodsRevertNamingTheReplacement(t *testing.T) {
 		"redelegateWithAuthorization(address,string,string,uint256)": {bob, "seivaloper1", "seivaloper2", big.NewInt(1)},
 		"undelegateWithAuthorization(address,string,uint256)":        {bob, "seivaloper1", big.NewInt(1)},
 		"revokeStakingAuthorization(address)":                        {bob},
+		"delegation(address,string)":                                 {bob, "seivaloper1"},
+		"validator(string)":                                          {"seivaloper1"},
+		"validators(string,bytes)":                                   {"BOND_STATUS_BONDED", []byte{}},
+		"validatorDelegations(string,bytes)":                         {"seivaloper1", []byte{}},
+		"unbondingDelegation(address,string)":                        {bob, "seivaloper1"},
+		"delegatorValidator(address,string)":                         {bob, "seivaloper1"},
+		"historicalInfo(int64)":                                      {int64(1)},
 	} {
 		method := methodBySig(t, sig)
 		input, err := method.Inputs.Pack(args...)
@@ -370,6 +373,9 @@ func TestRequiredGas(t *testing.T) {
 	input, err := ABI.Pack(UndelegateMethod, val1, sei(1))
 	require.NoError(t, err)
 	require.Equal(t, uint64(transactionGas+transactionByteGas*64), Precompile{}.RequiredGas(input))
+	input, err = ABI.Pack(DelegationMethod, alice, val1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(queryGas+queryByteGas*64), Precompile{}.RequiredGas(input))
 	require.Equal(t, uint64(unknownMethodGas), Precompile{}.RequiredGas([]byte{1}))
 }
 

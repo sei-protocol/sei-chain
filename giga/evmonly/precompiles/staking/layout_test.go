@@ -70,9 +70,13 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"redelegationQueue":           slotRedelegationQueue,
 		"validatorQueueBounds":        slotValidatorQueueBounds,
 		"validatorQueue":              slotValidatorQueue,
-		"migrating":                   21,
-		"migrationCursor":             22,
-		"migrationFailures":           23,
+		"currentEpoch":                slotCurrentEpoch,
+		"stagedQueueBounds":           slotStagedQueueBounds,
+		"stagedQueue":                 slotStagedQueue,
+		"stagedDelegations":           slotStagedDelegations,
+		"migrating":                   25,
+		"migrationCursor":             26,
+		"migrationFailures":           27,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and
@@ -148,6 +152,20 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"head": queueHead,
 			"tail": queueTail,
 		}, 1},
+		"struct StakingStorage.StagedOperation": {map[string]member{
+			"epoch":        queueCompletionTime,
+			"kind":         stagedOperationKind,
+			"delegator":    stagedOperationDelegator,
+			"validator":    stagedOperationValidator,
+			"dstValidator": stagedOperationDstValidator,
+			"amount":       stagedOperationAmount,
+		}, stagedQueueEntrySlots},
+		"struct StakingStorage.StagedDelegation": {map[string]member{
+			"sharesOut":        stagedSharesOut,
+			"undelegations":    stagedUndelegations,
+			"redelegationsOut": stagedRedelegationsOut,
+			"redelegationsIn":  stagedRedelegationsIn,
+		}, stagedDelegationSlots},
 		"struct AddressSet": {map[string]member{
 			"values":    {0, 0},
 			"positions": {1, 0},
@@ -277,6 +295,18 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.True(t, due)
 	require.Equal(t, uint64(82), s.Uint64(at(e, validatorQueueUnbondingHeight), validatorQueueUnbondingHeight.offset))
 	require.Equal(t, other, s.AddressAt(at(e, validatorQueueOperator), validatorQueueOperator.offset))
+
+	require.Equal(t, uint64(9), s.currentEpoch())
+	sq := s.stagedQueue()
+	require.Equal(t, uint64(2), sq.head())
+	_, due = sq.due(9)
+	require.False(t, due)
+	e, due = sq.due(10)
+	require.True(t, due)
+	require.Equal(t, stagedOperation{epoch: 10, kind: stagedRedelegate, delegator: delegator, validator: op, dstValidator: other, amount: big.NewInt(91)},
+		s.stagedOperationAt(e))
+	require.Equal(t, stagedDelegation{sharesOut: big.NewInt(92), undelegations: 93, redelegationsOut: 94, redelegationsIn: 95},
+		s.stagedDelegation(delegator, op))
 }
 
 var seedABI = func() abi.ABI {

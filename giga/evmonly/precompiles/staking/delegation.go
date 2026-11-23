@@ -33,6 +33,8 @@ var (
 	errInvalidStatus            = errors.New("invalid validator status")
 )
 
+// delegateCall stages delegating the call's value to a validator, holding the
+// value in StagedEscrow until it takes effect.
 func (p Precompile) delegateCall(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	op := args[0].(common.Address)
 	v, ok := s.validator(op)
@@ -40,43 +42,67 @@ func (p Precompile) delegateCall(ctx *precompiles.Context, s store, method *abi.
 		return nil, fmt.Errorf("%w: %s", errNoValidatorFound, op)
 	}
 	amount := new(big.Int).Set(ctx.ApparentValue)
-	shares, err := p.delegate(ctx.Block, s, s.params(), ctx.Caller, op, &v, amount, statusUnbonded, ctx.Address)
+	if err := checkDelegation(ctx.Block, s, s.params(), &v, amount); err != nil {
+		return nil, err
+	}
+	if err := transfer(s.State, ctx.Address, StagedEscrow, amount); err != nil {
+		return nil, err
+	}
+	epoch, err := stage(s, stagedOperation{kind: stagedDelegate, delegator: ctx.Caller, validator: op, amount: amount})
 	if err != nil {
 		return nil, err
 	}
-	if err := emit(ctx, DelegateEvent, []common.Hash{addressTopic(ctx.Caller), addressTopic(op)}, amount, shares); err != nil {
+	if err := emit(ctx, DelegateEvent, []common.Hash{addressTopic(ctx.Caller), addressTopic(op)}, amount, epoch); err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
 }
 
+// undelegateCall stages undelegating shares of the caller's delegation.
 func (p Precompile) undelegateCall(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	op, amount := args[0].(common.Address), args[1].(*big.Int)
-	shares, err := validateUnbondAmount(s, ctx.Caller, op, amount)
+	v, shares, err := validateUnbondAmount(s, ctx.Caller, op, amount)
 	if err != nil {
 		return nil, err
 	}
-	returned, completionTime, err := p.undelegate(ctx.Block, s, s.params(), ctx.Caller, op, shares)
+	if err := checkUnbondingEntries(s, s.params(), ctx.Caller, op, s.stagedDelegation(ctx.Caller, op)); err != nil {
+		return nil, err
+	}
+	epoch, err := stage(s, stagedOperation{kind: stagedUndelegate, delegator: ctx.Caller, validator: op, amount: shares})
 	if err != nil {
 		return nil, err
 	}
-	if err := emit(ctx, UndelegateEvent, []common.Hash{addressTopic(ctx.Caller), addressTopic(op)}, returned, completionTime); err != nil {
+	if err := emit(ctx, UndelegateEvent, []common.Hash{addressTopic(ctx.Caller), addressTopic(op)}, v.unbondedTokens(shares), epoch); err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
 }
 
+// redelegateCall stages moving shares of the caller's delegation to another
+// validator.
 func (p Precompile) redelegateCall(ctx *precompiles.Context, s store, method *abi.Method, args []interface{}) ([]byte, error) {
 	src, dst, amount := args[0].(common.Address), args[1].(common.Address), args[2].(*big.Int)
-	shares, err := validateUnbondAmount(s, ctx.Caller, src, amount)
+	srcValidator, shares, err := validateUnbondAmount(s, ctx.Caller, src, amount)
 	if err != nil {
 		return nil, err
 	}
-	returned, completionTime, err := p.redelegate(ctx.Block, s, s.params(), ctx.Caller, src, dst, shares)
+	params := s.params()
+	_, dstValidator, err := checkRedelegation(s, params, ctx.Caller, src, dst, s.stagedDelegation(ctx.Caller, src))
 	if err != nil {
 		return nil, err
 	}
-	if err := emit(ctx, RedelegateEvent, []common.Hash{addressTopic(ctx.Caller), addressTopic(src), addressTopic(dst)}, returned, completionTime); err != nil {
+	tokens := srcValidator.unbondedTokens(shares)
+	if tokens.Sign() == 0 {
+		return nil, errTinyRedelegationAmount
+	}
+	if err := checkDelegation(ctx.Block, s, params, &dstValidator, tokens); err != nil {
+		return nil, err
+	}
+	epoch, err := stage(s, stagedOperation{kind: stagedRedelegate, delegator: ctx.Caller, validator: src, dstValidator: dst, amount: shares})
+	if err != nil {
+		return nil, err
+	}
+	if err := emit(ctx, RedelegateEvent, []common.Hash{addressTopic(ctx.Caller), addressTopic(src), addressTopic(dst)}, tokens, epoch); err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
@@ -90,10 +116,7 @@ func (p Precompile) delegate(
 	block precompiles.BlockContext, s store, params chainparams.Staking,
 	delegator, op common.Address, v *validator, amount *big.Int, tokenSrc uint8, from common.Address,
 ) (*big.Int, error) {
-	if v.invalidExRate() {
-		return nil, errExRateInvalid
-	}
-	if err := checkVotingPowerRatio(block, s, params, v, amount); err != nil {
+	if err := checkDelegation(block, s, params, v, amount); err != nil {
 		return nil, err
 	}
 	shares, found := s.delegation(delegator, op)
@@ -126,6 +149,15 @@ func (p Precompile) delegate(
 	return issued, p.hooks().AfterDelegationModified(block, s.State, delegator, op)
 }
 
+// checkDelegation fails when amount may not be delegated to v, as x/staking's
+// Delegate checks before it moves any tokens.
+func checkDelegation(block precompiles.BlockContext, s store, params chainparams.Staking, v *validator, amount *big.Int) error {
+	if v.invalidExRate() {
+		return errExRateInvalid
+	}
+	return checkVotingPowerRatio(block, s, params, v, amount)
+}
+
 // checkVotingPowerRatio fails when delegating amount to v would take v past the
 // max voting power ratio of the bonded set's power, once that power reaches the
 // enforcement threshold, as x/staking's Delegate checks.
@@ -142,26 +174,64 @@ func checkVotingPowerRatio(block precompiles.BlockContext, s store, params chain
 	return nil
 }
 
-// validateUnbondAmount returns the shares of delegator's delegation to op that
-// amount of tokens is worth, as x/staking's ValidateUnbondAmount does, failing
-// when they are more than the delegation holds.
-func validateUnbondAmount(s store, delegator, op common.Address, amount *big.Int) (*big.Int, error) {
+// validateUnbondAmount returns op's validator and the shares of delegator's
+// delegation to op that amount of tokens is worth, as x/staking's
+// ValidateUnbondAmount does, failing when they are more than the delegation
+// holds beyond the shares it has staged to take away.
+func validateUnbondAmount(s store, delegator, op common.Address, amount *big.Int) (validator, *big.Int, error) {
 	v, ok := s.validator(op)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", errNoValidatorFound, op)
+		return validator{}, nil, fmt.Errorf("%w: %s", errNoValidatorFound, op)
 	}
 	delegated, ok := s.delegation(delegator, op)
 	if !ok {
-		return nil, errNoDelegation
+		return validator{}, nil, errNoDelegation
 	}
 	shares, err := v.sharesFromTokens(amount)
 	if err != nil {
-		return nil, err
+		return validator{}, nil, err
 	}
-	if shares.Cmp(delegated) > 0 {
-		return nil, errInvalidShares
+	if shares.Cmp(new(big.Int).Sub(delegated, s.stagedDelegation(delegator, op).sharesOut)) > 0 {
+		return validator{}, nil, errInvalidShares
 	}
-	return shares, nil
+	return v, shares, nil
+}
+
+// checkUnbondingEntries fails when delegator's unbonding from op holds
+// MaxEntries entries, counting the undelegations staged, as x/staking's
+// Undelegate checks.
+func checkUnbondingEntries(s store, params chainparams.Staking, delegator, op common.Address, staged stagedDelegation) error {
+	if s.unbondingEntryCount(delegator, op)+staged.undelegations >= uint64(params.MaxEntries) {
+		return errMaxUnbondingEntries
+	}
+	return nil
+}
+
+// checkRedelegation fails as x/staking's BeginRedelegation does before it moves
+// any stake, counting the redelegations staged into and out of src, and returns
+// src's and dst's validators.
+func checkRedelegation(
+	s store, params chainparams.Staking, delegator, src, dst common.Address, staged stagedDelegation,
+) (srcValidator, dstValidator validator, err error) {
+	if src == dst {
+		return validator{}, validator{}, errSelfRedelegation
+	}
+	dstValidator, ok := s.validator(dst)
+	if !ok {
+		return validator{}, validator{}, fmt.Errorf("%w: %s", errBadRedelegationValidator, dst)
+	}
+	srcValidator, ok = s.validator(src)
+	if !ok {
+		return validator{}, validator{}, fmt.Errorf("%w: %s", errBadRedelegationValidator, src)
+	}
+	if s.receivingRedelegations(src, delegator).Sign() > 0 || staged.redelegationsIn > 0 {
+		return validator{}, validator{}, errTransitiveRedelegation
+	}
+	entries := new(big.Int).Add(s.redelegationEntryCount(delegator, src, dst), new(big.Int).SetUint64(staged.redelegationsOut))
+	if entries.Cmp(new(big.Int).SetUint64(uint64(params.MaxEntries))) >= 0 {
+		return validator{}, validator{}, errMaxRedelegationEntries
+	}
+	return srcValidator, dstValidator, nil
 }
 
 // unbond takes shares from delegator's delegation to op and returns the tokens
@@ -219,8 +289,8 @@ func (p Precompile) undelegate(
 	if !ok {
 		return nil, 0, fmt.Errorf("%w: %s", errNoValidatorFound, op)
 	}
-	if s.unbondingEntryCount(delegator, op) >= uint64(params.MaxEntries) {
-		return nil, 0, errMaxUnbondingEntries
+	if err := checkUnbondingEntries(s, params, delegator, op, stagedDelegation{}); err != nil {
+		return nil, 0, err
 	}
 	amount, err := p.unbond(block, s, delegator, op, shares)
 	if err != nil {
@@ -256,25 +326,10 @@ func (p Precompile) undelegate(
 func (p Precompile) redelegate(
 	block precompiles.BlockContext, s store, params chainparams.Staking, delegator, src, dst common.Address, shares *big.Int,
 ) (*big.Int, uint64, error) {
-	if src == dst {
-		return nil, 0, errSelfRedelegation
+	srcValidator, dstValidator, err := checkRedelegation(s, params, delegator, src, dst, stagedDelegation{})
+	if err != nil {
+		return nil, 0, err
 	}
-	dstValidator, ok := s.validator(dst)
-	if !ok {
-		return nil, 0, fmt.Errorf("%w: %s", errBadRedelegationValidator, dst)
-	}
-	srcValidator, ok := s.validator(src)
-	if !ok {
-		return nil, 0, fmt.Errorf("%w: %s", errBadRedelegationValidator, src)
-	}
-	if s.receivingRedelegations(src, delegator).Sign() > 0 {
-		return nil, 0, errTransitiveRedelegation
-	}
-	entries := s.redelegationEntryCount(delegator, src, dst)
-	if entries.Cmp(new(big.Int).SetUint64(uint64(params.MaxEntries))) >= 0 {
-		return nil, 0, errMaxRedelegationEntries
-	}
-
 	amount, err := p.unbond(block, s, delegator, src, shares)
 	if err != nil {
 		return nil, 0, err
@@ -305,6 +360,7 @@ func (p Precompile) redelegate(
 	s.SetAddressAt(at(e, redelegationQueueDstValidator), redelegationQueueDstValidator.offset, dst)
 	s.SetUint256(at(e, redelegationQueueInitialBalance), amount)
 	s.SetUint256(at(e, redelegationQueueSharesDst), sharesDst)
+	entries := s.redelegationEntryCount(delegator, src, dst)
 	s.setRedelegationEntryCount(delegator, src, dst, entries.Add(entries, big.NewInt(1)))
 	received := s.receivingRedelegations(dst, delegator)
 	s.setReceivingRedelegations(dst, delegator, received.Add(received, big.NewInt(1)))
