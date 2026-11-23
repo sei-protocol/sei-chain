@@ -36,7 +36,7 @@ type Config struct {
 	BlockStore *blockstore.Store
 }
 
-// finalizeAheadBlocks is how many blocks Run may be inside FinalizeBlock for at once.
+// finalizeAheadBlocks is how many blocks Run may have in FinalizeBlock at once.
 const finalizeAheadBlocks = 3
 
 // Executor executes durable blocks on the app, one at a time in road order.
@@ -60,94 +60,62 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return e.executed.Subscribe()
 }
 
-// pendingExec is one in-flight executeBlock. gasUsed resolves to the gas the block used once it
-// is finalized.
-type pendingExec struct {
-	height  atypes.RoadHeight
-	gasUsed scope.JoinHandle[int64]
-}
-
 // Run initializes the app, then executes the durable blocks after its tip in
 // road order until ctx is canceled or a block fails. Up to finalizeAheadBlocks
-// calls to FinalizeBlock are in flight at once; the app prepares a later block
-// before the earlier one's turn to execute.
+// blocks are in FinalizeBlock at once, so the app can prepare a block while the
+// previous one executes.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
 		return err
 	}
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		inFlight := utils.NewSemaphore(finalizeAheadBlocks)
-		results := make(chan pendingExec, finalizeAheadBlocks)
+		results := make(chan scope.JoinHandle[atypes.ExecutedBlock], finalizeAheadBlocks)
 		s.Spawn(func() error {
 			for n := next; ; n++ {
 				release, err := inFlight.Acquire(ctx)
 				if err != nil {
 					return err
 				}
-				gigametrics.SetPhase(gigametrics.PhaseConsensus)
 				block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
 				if err != nil {
-					release()
-					logStopped(n-1, false)
 					return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 				}
 				b := block.SuperBlock()
 				// Reported here, in road order: the builder requires each height to follow the last.
 				if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
-					release()
 					return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 				}
-				txs, err := e.cfg.Signer.ParseTxs(b.Txs)
-				if err != nil {
-					release()
-					return fmt.Errorf("decode block transactions: %w", err)
-				}
-				req := abevm.FinalizeBlockReq{
-					Txs: txs,
-					// The road block hash identifies the block before execution and is fed as the block hash to EVM contracts.
-					Hash:   common.Hash(b.Hash),
-					Height: b.Height,
-					Time:   b.Timestamp,
-				}
-				gasUsed := s.Spawn1(func() (int64, error) {
+				result := s.Spawn1(func() (atypes.ExecutedBlock, error) {
 					defer release()
-					gasUsed, err := e.executeBlock(ctx, req)
+					executed, err := e.executeBlock(ctx, b)
 					if err != nil {
-						return 0, fmt.Errorf("executeBlock(%v): %w", b.Height, err)
+						return atypes.ExecutedBlock{}, fmt.Errorf("executeBlock(%v): %w", n, err)
 					}
-					return gasUsed, nil
+					return executed, nil
 				})
-				if err := utils.Send(ctx, results, pendingExec{height: b.Height, gasUsed: gasUsed}); err != nil {
+				if err := utils.Send(ctx, results, result); err != nil {
 					return err
 				}
 			}
 		})
 		for {
-			p, err := utils.Recv(ctx, results)
+			gigametrics.SetPhase(gigametrics.PhaseConsensus)
+			result, err := utils.Recv(ctx, results)
 			if err != nil {
 				return err
 			}
-			gasUsed, err := p.gasUsed.Join(ctx)
+			gigametrics.SetPhase(gigametrics.PhaseExecution)
+			executed, err := result.Join(ctx)
 			if err != nil {
 				return err
 			}
-			e.publishExecuted(p.height, gasUsed)
+			e.publishExecuted(executed)
 		}
 	})
-}
-
-// publishExecuted records a finalized block in the executed-block window and the gas metric.
-// It must be called in road order: the window indexes blocks by their offset from the oldest.
-func (e *Executor) publishExecuted(height atypes.RoadHeight, gasUsed int64) {
-	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	metrics.GasUsed.Add(gasUsed)
-	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
-		Height:  height,
-		GasUsed: utils.Clamp[uint64](gasUsed),
-	}))
-	gigametrics.EndStoragePhase()
+	logger.Info("Execution stopped", "last_executed", e.executed.Load().Latest().Height)
+	return err
 }
 
 // initApp brings the app to a state execution can extend: InitChain on a fresh
@@ -191,24 +159,35 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 	return last + 1, nil
 }
 
-// executeBlock finalizes req and returns the gas it used. FinalizeBlock may already be running for
-// later blocks; the app executes them in height order.
-func (e *Executor) executeBlock(ctx context.Context, req abevm.FinalizeBlockReq) (int64, error) {
-	gigametrics.SetPhase(gigametrics.PhaseExecution)
-	e.cfg.Signer.ForgetTxs(req.Txs)
-	resp, err := e.cfg.App.FinalizeBlock(ctx, req)
+// executeBlock finalizes b and returns its execution result. FinalizeBlock may
+// still be running for earlier blocks; the app finalizes them in road order.
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (atypes.ExecutedBlock, error) {
+	app := e.cfg.App
+	txs, err := e.cfg.Signer.ParseTxs(b.Txs)
 	if err != nil {
-		return 0, fmt.Errorf("app.FinalizeBlock(): %w", err)
+		return atypes.ExecutedBlock{}, fmt.Errorf("decode block transactions: %w", err)
 	}
-	return utils.Clamp[int64](resp.GasUsed), nil
+
+	e.cfg.Signer.ForgetTxs(txs)
+	resp, err := app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
+		Txs: txs,
+		// The road block hash identifies the block before execution and is fed as the block hash to EVM contracts.
+		Hash:   common.Hash(b.Hash),
+		Height: b.Height,
+		Time:   b.Timestamp,
+	})
+	if err != nil {
+		return atypes.ExecutedBlock{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
+	}
+	return atypes.ExecutedBlock{Height: b.Height, GasUsed: resp.GasUsed}, nil
 }
 
-// logStopped reports where execution stopped on a cancel.
-func logStopped(
-	// The last block executed.
-	lastExecuted atypes.RoadHeight,
-	// Whether the cancel arrived while that block was executing.
-	blockInFlight bool,
-) {
-	logger.Info("Execution stopped", "last_executed", lastExecuted, "block_in_flight", blockInFlight)
+// publishExecuted records b in the executed-block window and the gas metric.
+// Blocks must be published in road order.
+func (e *Executor) publishExecuted(b atypes.ExecutedBlock) {
+	gigametrics.SetPhase(gigametrics.PhaseStorage)
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
+	metrics.GasUsed.Add(utils.Clamp[int64](b.GasUsed))
+	e.executed.Store(e.executed.Load().Push(b))
+	gigametrics.EndStoragePhase()
 }

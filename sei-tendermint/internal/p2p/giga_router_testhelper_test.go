@@ -135,6 +135,11 @@ func (a *testApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq)
 		if !ok {
 			return abevm.FinalizeBlockResp{}, fmt.Errorf("app not initialized")
 		}
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			return init.InitialHeight+atypes.RoadHeight(len(state.Blocks)) >= req.Height
+		}); err != nil {
+			return abevm.FinalizeBlockResp{}, err
+		}
 		txs := make([][]byte, len(req.Txs))
 		for i, tx := range req.Txs {
 			txs[i] = utils.OrPanic1(tx.MarshalBinary())
