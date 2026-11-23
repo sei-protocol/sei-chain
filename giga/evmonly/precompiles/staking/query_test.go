@@ -149,7 +149,7 @@ func TestValidatorsQueryFiltersByStatus(t *testing.T) {
 func TestPagedQueriesWalkEveryEntry(t *testing.T) {
 	params := testParams
 	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1_000_000)
-	h := newHarness(t, params)
+	h := newGenesisHarness(t, params)
 	ops := []common.Address{val1, val2, val3}
 	for i := range pageLimit + 5 {
 		op := common.BigToAddress(big.NewInt(int64(0x1000 + i)))
@@ -161,6 +161,9 @@ func TestPagedQueriesWalkEveryEntry(t *testing.T) {
 			MinSelfDelegation: sei(1),
 		}))
 		ops = append(ops, op)
+	}
+	h.endBlock()
+	for _, op := range ops[3:] {
 		require.NoError(t, h.delegate(alice, op, sei(1)))
 		require.NoError(t, h.delegate(op, val1, sei(1)))
 	}

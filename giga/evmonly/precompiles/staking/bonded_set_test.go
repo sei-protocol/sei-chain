@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
-func TestBondedValidatorsAreTheSetTheLastEndBlockStored(t *testing.T) {
+func TestBondedValidatorsAreTheSetTheLastEpochEndStored(t *testing.T) {
 	h := newHarness(t, testParams)
 	want := []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
@@ -19,12 +19,14 @@ func TestBondedValidatorsAreTheSetTheLastEndBlockStored(t *testing.T) {
 	require.Equal(t, want, must(bondedValidators(h.store())))
 
 	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	require.Equal(t, want, must(bondedValidators(h.store())), "a delegation moves the set only at EndBlock")
+	require.Equal(t, want, must(bondedValidators(h.store())), "applying a delegation does not move the set")
 	h.endBlock()
+	require.Equal(t, want, must(bondedValidators(h.store())), "a block that closes no epoch leaves the set as it is")
+	h.endCurrentEpoch()
 	require.Equal(t, []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
 		{Operator: val3, ConsensusPubkey: common.BytesToHash(val3[:]), Power: 25},
-	}, must(bondedValidators(h.store())), "the set moves at any EndBlock, not only an epoch's last")
+	}, must(bondedValidators(h.store())), "the set moves at an epoch's end")
 }
 
 func TestNoValidatorsAreBondedBeforeStakingBondsASet(t *testing.T) {
@@ -56,9 +58,9 @@ func TestEpochValidatorsAreTheSetAtTheLatestEpochEnd(t *testing.T) {
 	}
 	require.Equal(t, want, must(EpochValidators(h.state)))
 
-	require.NoError(t, h.delegate(alice, val3, sei(15)))
+	require.NoError(t, h.stageDelegate(alice, val3, sei(15)))
 	h.endBlock()
-	require.Equal(t, want, must(EpochValidators(h.state)), "the bonded set moves within an epoch, its snapshot only at the epoch's end")
+	require.Equal(t, want, must(EpochValidators(h.state)), "the snapshot moves only at an epoch's end")
 	h.endEpoch(1)
 	require.Equal(t, []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
@@ -93,13 +95,13 @@ func TestEpochValidatorsOutliveTheirValidators(t *testing.T) {
 	want := must(EpochValidators(h.state))
 
 	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.NoError(t, h.undelegate(val2, val2, sei(20)))
 	h.advance(testParams.UnbondingTime)
 	require.Empty(t, h.failures)
 	_, ok := h.store().validator(val2)
 	require.False(t, ok, "val2 left the bonded set and was removed once it unbonded with no shares")
-	require.Equal(t, want, must(EpochValidators(h.state)))
+	require.Equal(t, want, must(h.store().epochValidators(0)))
 }
 
 func TestAnEpochWhoseSetDoesNotAddUpIsNotSnapshotted(t *testing.T) {

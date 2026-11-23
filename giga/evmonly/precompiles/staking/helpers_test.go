@@ -146,9 +146,18 @@ type harness struct {
 	failures []error
 }
 
-// newHarness starts staking with params and val1, val2 and val3 self-delegating
-// 30, 20 and 10 SEI, then runs the first EndBlock, which bonds val1 and val2.
+// newHarness starts staking as newGenesisHarness does, then runs the first
+// EndBlock, which bonds val1 and val2.
 func newHarness(t *testing.T, params chainparams.Staking) *harness {
+	h := newGenesisHarness(t, params)
+	h.endBlock()
+	require.Empty(t, h.failures)
+	return h
+}
+
+// newGenesisHarness writes params and adds val1, val2 and val3 self-delegating
+// 30, 20 and 10 SEI, before any EndBlock.
+func newGenesisHarness(t *testing.T, params chainparams.Staking) *harness {
 	h := &harness{t: t, state: newMemState(), time: startTime}
 	require.NoError(t, SetParams(h.state, params))
 	for i, op := range []common.Address{val1, val2, val3} {
@@ -161,8 +170,6 @@ func newHarness(t *testing.T, params chainparams.Staking) *harness {
 			MinSelfDelegation: sei(1),
 		}))
 	}
-	h.endBlock()
-	require.Empty(t, h.failures)
 	return h
 }
 
@@ -170,8 +177,8 @@ func (h *harness) block() precompiles.BlockContext {
 	return precompiles.BlockContext{Number: h.number, UnixNano: h.time}
 }
 
-// endBlock runs EndBlock at the current block, then starts the next block one
-// second later.
+// endBlock runs EndBlock at the current block, which closes no epoch, then
+// starts the next block one second later.
 func (h *harness) endBlock() {
 	h.endBlockWith(h.block())
 }
@@ -183,6 +190,12 @@ func (h *harness) endEpoch(epoch uint64) {
 	h.endBlockWith(block)
 }
 
+// endCurrentEpoch ends the current block as the last block of the epoch in
+// progress.
+func (h *harness) endCurrentEpoch() {
+	h.endEpoch(h.store().currentEpoch())
+}
+
 func (h *harness) endBlockWith(block precompiles.BlockContext) {
 	failures, err := h.staking.EndBlock(block, h.state)
 	require.NoError(h.t, err)
@@ -192,18 +205,16 @@ func (h *harness) endBlockWith(block precompiles.BlockContext) {
 }
 
 // advance ends blocks until it has ended one at least d after the current
-// block, keeping every block's failures.
+// block, the last of them closing the epoch in progress, keeping every block's
+// failures.
 func (h *harness) advance(d uint64) {
 	var failures []error
-	for end := h.time + d; ; {
-		ended := h.time
+	for end := h.time + d; h.time < end; {
 		h.endBlock()
 		failures = append(failures, h.failures...)
-		if ended >= end {
-			break
-		}
 	}
-	h.failures = failures
+	h.endCurrentEpoch()
+	h.failures = append(failures, h.failures...)
 }
 
 type callOpts struct {

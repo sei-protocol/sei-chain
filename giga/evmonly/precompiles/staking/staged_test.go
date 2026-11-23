@@ -138,6 +138,60 @@ func TestProjectingAnEpochSnapshotLeavesTheStateAndHooksAsTheyWere(t *testing.T)
 	h.requireInvariants(bob)
 }
 
+// TestOperationsStagedBeforeStakingSeesAnEpochCloseWaitForTheNextEpochsEnd
+// starts staking during epoch 5, so the first epoch it sees close is 5.
+func TestOperationsStagedBeforeStakingSeesAnEpochCloseWaitForTheNextEpochsEnd(t *testing.T) {
+	h := newHarness(t, testParams)
+	require.NoError(t, h.stageDelegate(alice, val3, sei(15)))
+	h.endEpoch(5)
+	require.Empty(t, h.failures)
+	require.Zero(t, h.shares(alice, val3).Sign(), "staged during epoch 5, it waits for the end of epoch 6")
+	projected := []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+		{Operator: val3, ConsensusPubkey: common.BytesToHash(val3[:]), Power: 25},
+	}
+	require.Equal(t, projected, must(EpochValidators(h.state)), "epoch 5's snapshot counts it")
+
+	h.endEpoch(6)
+	require.Empty(t, h.failures)
+	require.Equal(t, dec.FromInt(sei(15)), h.shares(alice, val3))
+	require.Equal(t, projected, must(bondedValidators(h.store())))
+	h.requireInvariants(alice)
+}
+
+// TestAStagedDelegationMeetsTheValidatorItsProjectionCounted stages a
+// delegation to val2 while it unbonds with no shares left, and lets val2's
+// unbonding time pass before the epoch in which the delegation takes effect ends.
+func TestAStagedDelegationMeetsTheValidatorItsProjectionCounted(t *testing.T) {
+	h := newHarness(t, testParams)
+	require.NoError(t, h.stageUndelegate(val2, val2, sei(20)))
+	h.endEpoch(0)
+	h.endEpoch(1)
+	require.Empty(t, h.failures)
+	v2 := h.validator(val2)
+	require.Equal(t, statusUnbonding, v2.status)
+	require.Zero(t, v2.delegatorShares.Sign())
+
+	require.NoError(t, h.stageDelegate(bob, val2, sei(15)))
+	h.time = v2.unbondingTime - second
+	h.endEpoch(2)
+	require.Empty(t, h.failures)
+	projected := []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 15},
+	}
+	require.Equal(t, projected, must(EpochValidators(h.state)), "epoch 2's snapshot counts bob's delegation")
+
+	h.endBlock()
+	_, ok := h.store().validator(val2)
+	require.True(t, ok, "val2 finishes unbonding only when an epoch closes")
+	h.endEpoch(3)
+	require.Empty(t, h.failures)
+	require.Equal(t, dec.FromInt(sei(15)), h.shares(bob, val2))
+	require.Equal(t, projected, must(bondedValidators(h.store())), "the set is the one epoch 2's snapshot projected")
+	h.requireInvariants(bob)
+}
+
 // TestAValidatorStakeIsStagedToIsKept has val3, unbonded, undelegate its last
 // shares ahead of a redelegation and a delegation staged to it.
 func TestAValidatorStakeIsStagedToIsKept(t *testing.T) {
@@ -158,8 +212,8 @@ func TestAValidatorStakeIsStagedToIsKept(t *testing.T) {
 }
 
 // TestAStagedDelegationKeepsItsValidatorPastItsUnbonding stages a delegation to
-// val2 while it is unbonding with no shares, and lets its unbonding complete
-// before the delegation takes effect.
+// val2 while it is unbonding with no shares, and lets its unbonding complete at
+// the end of the epoch before the delegation takes effect.
 func TestAStagedDelegationKeepsItsValidatorPastItsUnbonding(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.stageUndelegate(val2, val2, sei(20)))
@@ -170,17 +224,15 @@ func TestAStagedDelegationKeepsItsValidatorPastItsUnbonding(t *testing.T) {
 	require.Zero(t, h.validator(val2).delegatorShares.Sign())
 
 	require.NoError(t, h.stageDelegate(bob, val2, sei(15)))
+	h.time = h.validator(val2).unbondingTime
 	h.endEpoch(2)
 	require.Empty(t, h.failures)
+	require.Equal(t, statusUnbonded, h.validator(val2).status, "val2 finishes unbonding with no shares and is kept")
 	projected := must(EpochValidators(h.state))
 	require.Equal(t, []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
 		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 15},
 	}, projected, "epoch 2's snapshot counts bob's delegation")
-
-	h.advance(testParams.UnbondingTime)
-	require.Empty(t, h.failures)
-	require.Equal(t, statusUnbonded, h.validator(val2).status, "val2 finishes unbonding with no shares and is kept")
 
 	h.endEpoch(3)
 	require.Empty(t, h.failures)
@@ -191,7 +243,8 @@ func TestAStagedDelegationKeepsItsValidatorPastItsUnbonding(t *testing.T) {
 
 // TestAStagedDelegationKeepsItsValidatorPastItsLastUndelegation stages, while
 // val2 is unbonding, the undelegation of its last shares and then a delegation
-// to it, and lets its unbonding complete before they take effect.
+// to it, and lets its unbonding complete at the end of the epoch before they
+// take effect.
 func TestAStagedDelegationKeepsItsValidatorPastItsLastUndelegation(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.stageDelegate(bob, val3, sei(15)))
@@ -202,17 +255,15 @@ func TestAStagedDelegationKeepsItsValidatorPastItsLastUndelegation(t *testing.T)
 
 	require.NoError(t, h.stageUndelegate(val2, val2, sei(20)))
 	require.NoError(t, h.stageDelegate(alice, val2, sei(26)))
+	h.time = h.validator(val2).unbondingTime
 	h.endEpoch(2)
 	require.Empty(t, h.failures)
+	require.Equal(t, statusUnbonded, h.validator(val2).status)
 	projected := must(EpochValidators(h.state))
 	require.Equal(t, []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
 		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 26},
 	}, projected, "epoch 2's snapshot counts alice's delegation")
-
-	h.advance(testParams.UnbondingTime)
-	require.Empty(t, h.failures)
-	require.Equal(t, statusUnbonded, h.validator(val2).status)
 
 	h.endEpoch(3)
 	require.Empty(t, h.failures)
@@ -240,7 +291,7 @@ func TestAValidatorKeptForAStagedDelegationIsRemovedWhenItIsDropped(t *testing.T
 	h.requireInvariants(bob)
 }
 
-func TestStagedOperationsPastTheBudgetWaitForTheNextBlock(t *testing.T) {
+func TestStagedOperationsPastTheBudgetWaitForTheNextEpochsEnd(t *testing.T) {
 	h := newHarness(t, testParams)
 	s := h.store()
 	n := endBlockBudget + 1
@@ -253,8 +304,10 @@ func TestStagedOperationsPastTheBudgetWaitForTheNextBlock(t *testing.T) {
 	h.endEpoch(1)
 	require.Empty(t, h.failures)
 	q := s.stagedQueue()
-	require.Equal(t, uint64(1), q.tail()-q.head(), "one waits for the next block")
+	require.Equal(t, uint64(1), q.tail()-q.head(), "one waits for the next epoch's end")
 	h.endBlock()
+	require.Equal(t, uint64(1), q.tail()-q.head(), "a block that closes no epoch applies none")
+	h.endEpoch(2)
 	require.Empty(t, h.failures)
 	require.Equal(t, q.head(), q.tail())
 	require.Equal(t, new(big.Int).Add(sei(10), new(big.Int).Mul(weiPerUsei, big.NewInt(int64(n)))), h.validator(val3).tokens)

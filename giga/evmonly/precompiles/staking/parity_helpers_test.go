@@ -670,11 +670,11 @@ func (pr *pair) redelegate(delegator, src, dst common.Address, usei int64) error
 		func() error { return pr.v2.redelegate(delegator, src, dst, amount) })
 }
 
-// endBlock runs EndBlock on both sides, then starts the next block one second
-// later.
+// endBlock runs EndBlock on both sides, the precompile's as the last block of
+// the epoch in progress, then starts the next block one second later.
 func (pr *pair) endBlock() {
 	_ = pr.apply("EndBlock", "", func() error {
-		pr.p.endBlock()
+		pr.p.endCurrentEpoch()
 		return errors.Join(pr.p.failures...)
 	}, func() error {
 		pr.v2.keeper.BlockValidatorUpdates(pr.v2.ctx)

@@ -298,6 +298,11 @@ func (s store) setLastTotalPower(power *big.Int) {
 	s.SetUint256(solstorage.Slot(slotLastTotalPower), power)
 }
 
+// started reports whether staking has bonded a set.
+func (s store) started() bool {
+	return s.lastTotalPower().Sign() != 0
+}
+
 func delegationSlot(delegator, op common.Address) common.Hash {
 	return solstorage.MapAddress(solstorage.MapAddress(solstorage.Slot(slotDelegations), delegator), op)
 }
