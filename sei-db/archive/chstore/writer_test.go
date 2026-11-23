@@ -19,9 +19,12 @@ import (
 const testChain = 713715
 
 // testConfig returns a config for a throwaway database on the ClickHouse server named by
-// SEI_ARCHIVE_TEST_CLICKHOUSE, skipping the test when it is unset.
+// SEI_ARCHIVE_TEST_CLICKHOUSE. Without one it skips the test, or fails it on CI.
 func testConfig(t *testing.T) clickhouse.Config {
 	addr := os.Getenv("SEI_ARCHIVE_TEST_CLICKHOUSE")
+	if addr == "" && os.Getenv("CI") != "" {
+		t.Fatal("SEI_ARCHIVE_TEST_CLICKHOUSE is not set; on CI, these tests run in the clickhouse-test job")
+	}
 	if addr == "" {
 		t.Skip("SEI_ARCHIVE_TEST_CLICKHOUSE is not set")
 	}
