@@ -23,6 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
@@ -1229,6 +1230,113 @@ func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 			require.False(t, router.evmProxy(keys[0].Public()).IsPresent())
 		})
 	}
+}
+
+func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := atypes.GenCommittee(rng, 2)
+	state, _ := testDataState(t, committee)
+	validatorState, _ := testDataState(t, committee)
+	validatorKey := keys[0]
+	nodeKey := makeKey(rng)
+	localNodeKey := makeKey(rng)
+	localAddr := tcp.TestReserveAddr()
+	genDoc := &tmtypes.GenesisDoc{ChainID: "loopback-evmrpc", InitialHeight: 1}
+	require.NoError(t, genDoc.ValidateAndComplete())
+	dir := t.TempDir()
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		addr := tcp.TestReserveAddr()
+		s.SpawnBg(func() error {
+			// Run an evmrpc server which is local.
+			rpcServer := ethrpc.NewServer()
+			defer rpcServer.Stop()
+			httpServer := httptest.NewServer(rpcServer.WebsocketHandler([]string{"*"}))
+			defer httpServer.Close()
+			endpoint := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpServer.URL, "http")))
+			if !utils.IsLoopbackOrLinkLocalURL(endpoint) {
+				return fmt.Errorf("need a local evmrpc for this test")
+			}
+
+			// Accept and run the fullnode and validator P2P connections.
+			listener, err := tcp.Listen(addr)
+			if err != nil {
+				return fmt.Errorf("tcp.Listen(): %w", err)
+			}
+			defer func() { _ = listener.Close() }()
+			for {
+				conn, err := listener.AcceptOrClose(ctx)
+				if err != nil {
+					return utils.IgnoreCancel(err)
+				}
+				s.SpawnBg(func() error { return utils.IgnoreCancel(conn.Run(ctx)) })
+				hConn, err := handshake(ctx, conn, handshakeSpec{
+					NodeKey: nodeKey,
+					Giga: utils.Some(gigaHandshakeSpec{
+						ValidatorKey: utils.Some(validatorKey),
+						EVMRPC:       endpoint,
+					}),
+					IsServer: true,
+				})
+				if err != nil {
+					return utils.IgnoreCancel(err)
+				}
+				s.SpawnBg(func() error { return utils.IgnoreCancel(rpc.NewServer[giga.API]().Run(ctx, hConn.conn)) })
+			}
+		})
+		cfg := GigaRouterCommonConfig{
+			ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+				keys[1].Public(): {
+					Key:      localNodeKey.Public(),
+					HostPort: tcp.HostPort{Hostname: localAddr.Addr().String(), Port: localAddr.Port()},
+				},
+				validatorKey.Public(): {
+					Key:      nodeKey.Public(),
+					HostPort: tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()},
+				},
+			},
+			DialInterval:       time.Second,
+			App:                proxy.NewEVM(newTestApp()),
+			AppHashBuilder:     newManualAppHashBuilder(),
+			GenDoc:             genDoc,
+			PersistentStateDir: dir,
+			EnableEvmProxy:     true,
+		}
+		fullnodeRouter := utils.OrPanic1(NewGigaFullnodeRouter(&cfg, localNodeKey, state))
+		s.SpawnBg(func() error { return utils.IgnoreCancel(fullnodeRouter.Run(ctx)) })
+
+		validatorRouter := utils.OrPanic1(NewGigaValidatorRouter(&GigaValidatorConfig{
+			GigaRouterCommonConfig: cfg,
+			ValidatorKey:           keys[1],
+			EVMRPC:                 testEVMRPCURL(),
+			ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+			ProposalTimeout:        time.Hour,
+			Producer: &producer.Config{
+				MaxGasWantedPerBlock:    1,
+				MaxGasEstimatedPerBlock: 1,
+				MaxTxsPerBlock:          1,
+				MaxTxsPerSecond:         utils.None[uint64](),
+				BlockInterval:           time.Second,
+			},
+		}, localNodeKey, validatorState))
+		s.SpawnBg(func() error { return utils.IgnoreCancel(validatorRouter.Run(ctx)) })
+
+		// This test is not fully robust: these checks may be void in case runEvmProxy has not run yet,
+		// even though the P2P connection is established.
+		if err := fullnodeRouter.poolOut.WaitFor(ctx, validatorKey.Public()); err != nil {
+			return err
+		}
+		if fullnodeRouter.evmProxy(validatorKey.Public()).IsPresent() {
+			return fmt.Errorf("fullnode EVM proxy created for loopback EVM RPC address")
+		}
+		if err := validatorRouter.poolOut.WaitFor(ctx, validatorKey.Public()); err != nil {
+			return err
+		}
+		if validatorRouter.evmProxy(validatorKey.Public()).IsPresent() {
+			return fmt.Errorf("validator EVM proxy created for loopback EVM RPC address")
+		}
+		return nil
+	}))
 }
 
 func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
