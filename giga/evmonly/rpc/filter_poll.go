@@ -20,8 +20,8 @@ import (
 // NewFilter installs a log filter for crit and returns its ID. Its polls start at a fromBlock
 // height, at the earliest indexed block for an earliest fromBlock, and otherwise at the block
 // after the latest indexed one.
-func (api *filterAPI) NewFilter(_ context.Context, crit filters.FilterCriteria) (ethrpc.ID, error) {
-	crit, cursor, err := api.pollStart(crit)
+func (api *filterAPI) NewFilter(ctx context.Context, crit filters.FilterCriteria) (ethrpc.ID, error) {
+	crit, cursor, err := api.pollStart(ctx, crit)
 	if err != nil {
 		return "", err
 	}
@@ -30,8 +30,8 @@ func (api *filterAPI) NewFilter(_ context.Context, crit filters.FilterCriteria) 
 
 // NewBlockFilter installs a filter whose polls return the hashes of the blocks committed since
 // the previous poll, and returns its ID.
-func (api *filterAPI) NewBlockFilter(context.Context) (ethrpc.ID, error) {
-	return api.filters.add(&pollFilter{cursor: api.backend.EvmBlockNumber() + 1})
+func (api *filterAPI) NewBlockFilter(ctx context.Context) (ethrpc.ID, error) {
+	return api.filters.add(&pollFilter{cursor: committedHead(ctx, api.backend) + 1})
 }
 
 // NewPendingTransactionFilter returns the regular RPC's not-supported error.
@@ -86,7 +86,7 @@ func (api *filterAPI) UninstallFilter(_ context.Context, id ethrpc.ID) bool {
 // an earliest fromBlock, a fromBlock height as given, and otherwise the block after the latest
 // indexed one. It rejects a fromBlock height below the earliest indexed block, and a toBlock
 // below the first block.
-func (api *filterAPI) pollStart(crit filters.FilterCriteria) (filters.FilterCriteria, uint64, error) {
+func (api *filterAPI) pollStart(ctx context.Context, crit filters.FilterCriteria) (filters.FilterCriteria, uint64, error) {
 	fromKind, err := classifyFilterBound(crit.FromBlock)
 	if err != nil {
 		return crit, 0, err
@@ -98,7 +98,7 @@ func (api *filterAPI) pollStart(crit filters.FilterCriteria) (filters.FilterCrit
 	if crit.BlockHash != nil {
 		return crit, 0, nil
 	}
-	earliest, latest := indexedRange(api.backend, api.store)
+	earliest, latest := indexedRange(ctx, api.backend, api.store)
 	start := latest + 1
 	switch fromKind {
 	case headBlock:
@@ -147,7 +147,7 @@ func (api *filterAPI) pollLogs(ctx context.Context, crit filters.FilterCriteria,
 		}
 		return logs, cursor + 1, nil
 	}
-	earliest, latest := indexedRange(api.backend, api.store)
+	earliest, latest := indexedRange(ctx, api.backend, api.store)
 	if cursor < earliest {
 		// Pruned blocks cannot be served on a later poll either, so the filter moves on. A filter
 		// from block 0 asked for whatever the node has, so only one that lost blocks is told.
@@ -176,7 +176,7 @@ func (api *filterAPI) pollLogs(ctx context.Context, crit filters.FilterCriteria,
 // than maxBlockFilterHashes blocks. A failed lookup returns cursor, so the next poll returns the
 // same blocks.
 func (api *filterAPI) pollBlockHashes(ctx context.Context, cursor uint64) ([]common.Hash, uint64, error) {
-	latest := api.backend.EvmBlockNumber()
+	latest := committedHead(ctx, api.backend)
 	if cursor > latest {
 		return []common.Hash{}, cursor, nil
 	}

@@ -84,6 +84,32 @@ func TestInitializeBlockReleasesLeaseOnUnrelatedBeginBlockPanic(t *testing.T) {
 	require.Equal(t, 1, released)
 }
 
+func TestInitializeBlockReturnsErrorWhenStateUnavailable(t *testing.T) {
+	orig := runTraceBeginBlock
+	t.Cleanup(func() { runTraceBeginBlock = orig })
+	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {}
+
+	cause := errors.New("unable to load historical state with SS disabled")
+	for _, unavailable := range []int64{7, 8} {
+		t.Run(fmt.Sprintf("height %d", unavailable), func(t *testing.T) {
+			var leased, released int
+			backend, block := newInitializeBlockTestBackend(t)
+			_, _, release, err := backend.initializeBlock(t.Context(), block, func(h int64) (sdk.Context, func()) {
+				if h == unavailable {
+					panic(cause)
+				}
+				leased++
+				return sdk.Context{}.WithBlockHeight(h), func() { released++ }
+			})
+			require.ErrorIs(t, err, cause)
+			require.ErrorContains(t, err, fmt.Sprintf("state at height %d is unavailable", unavailable))
+			require.Equal(t, leased, released, "every lease taken must be released")
+			release()
+			require.Equal(t, leased, released)
+		})
+	}
+}
+
 func newInitializeBlockTestBackend(t *testing.T) (*Backend, *ethtypes.Block) {
 	t.Helper()
 	tm := &fakeTMClient{

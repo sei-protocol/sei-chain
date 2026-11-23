@@ -137,6 +137,9 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	}
 	switch kind {
 	case headBlock:
+		if head, ok := pinnedHead(ctx).Get(); ok {
+			return api.blockAt(ctx, int64(head)) //nolint:gosec // G115: a committed height fits in int64.
+		}
 		return api.fetchBlock(ctx, nil)
 	case earliestBlock:
 		return api.blockAt(ctx, earliestRetainedHeight(api.backend, api.store))
