@@ -9,11 +9,12 @@ import (
 	"testing/synctest"
 	"time"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -132,7 +133,7 @@ func commitQCAtRoad(
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
 	prepareQC := types.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(types.NewCommitVote(prepareQC)))
 	}
 	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.LaneBlockHeader{block.Header()}), []*types.LaneBlock{block}
 }
@@ -145,7 +146,7 @@ func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	qcMid, blocksMid := commitQCAtRoad(ep1, keys, registry.LastRoad(1)-1)
 	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qcMid}, [][]*types.LaneBlock{blocksMid})
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.Equal(t, ep1, state.Anchor().Load().NextHeightEpoch())
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qcMid.Height(), qcMid.Height()+1))
 	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
@@ -161,7 +162,7 @@ func TestNextHeightEpoch_AfterAppQCActivation(t *testing.T) {
 	qc, blocks := commitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
 	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		if err := registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}); err != nil {
@@ -181,7 +182,7 @@ func TestState(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -253,7 +254,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 	committee := ep0.Committee()
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
 	// Push a valid QC to advance inner.nextPartialBlock.
 	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
@@ -316,7 +317,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
 	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range badKeys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(types.NewCommitVote(prepareQC)))
 	}
 	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
 
@@ -350,7 +351,7 @@ func TestPushPartialBlockIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
 	// Push qc1 with NO blocks — only the QC is stored.
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -388,7 +389,7 @@ func TestExecution(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -424,7 +425,7 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		epoch := registry.MustEpoch(0)
@@ -475,7 +476,7 @@ func TestCommitteeFill_DerivedBeforeAppQC(t *testing.T) {
 	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
 	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
@@ -526,7 +527,7 @@ func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T)
 	qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0))
 	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc0}, [][]*types.LaneBlock{blocks0})
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	qc1, blocks1 := commitQCAtRoad(ep1, keys, ep1.RoadRange().First)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -562,7 +563,7 @@ func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	store := newTestBlockStore(t, t.TempDir())
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	ep := registry.MustEpoch(0)
 	qc, blocks := commitQCAtRoad(ep, keys, ep.RoadRange().First)
 	n := qc.Height()
@@ -590,7 +591,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
 	// Push QC without blocks.
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -611,7 +612,7 @@ func TestPushBlockRejectsMismatchedHeader(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
 
@@ -651,7 +652,7 @@ func TestPushBlockRejectsMismatchedHeader(t *testing.T) {
 func TestInsertAppProposalRequiresCommitQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	previous := utils.None[*types.CommitQC]()
 
 	for range 2 {
@@ -693,10 +694,10 @@ func TestPushEmptyQC(t *testing.T) {
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
 	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for i, key := range keys {
-		votes[i] = types.Sign(key, types.NewCommitVote(prepareQC))
+		votes[i] = key.Sign(types.NewCommitVote(prepareQC))
 	}
 	qc := types.NewFullCommitQC(types.NewCommitQC(votes), nil)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	require.NoError(t, state.PushPartialBlock(t.Context(), previous, TestBlockMap(blocks)))
 	require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
 	want := types.NewRoadBlock(qc, nil).SuperBlock()
@@ -714,7 +715,7 @@ func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	ep := registry.MustEpoch(0)
 	qc1, blocks1 := TestCommitQC(rng, ep, keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, ep, keys, utils.Some(qc1.QC()))
@@ -749,7 +750,7 @@ func TestSuperBlockByHash(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)))
@@ -791,7 +792,7 @@ func TestPushPartialBlockBeforeRunPersistsToBlockStore(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 
 	db := newTestBlockStore(t, dir)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db)
 
 	// Transport-race window: PushPartialBlock before data.Run / runPersist starts.
 	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
@@ -811,7 +812,7 @@ func TestPushPartialBlockBeforeRunPersistsToBlockStore(t *testing.T) {
 
 	require.NoError(t, db.Close())
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db2)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 	require.Equal(t, qc1.Height()+1, state2.NextQC())
 	got, err := state2.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
 	require.NoError(t, err, "block %d", qc1.Height())
@@ -828,7 +829,7 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 	store := newTestBlockStore(t, t.TempDir())
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 	require.NoError(t, state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2[:len(blocks2)-1])))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -862,7 +863,7 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 }
 
 type epochTestApplication struct {
-	proxy.EVMApplication
+	abevm.Application
 	fetch func() (*types.EpochRegistry, error)
 }
 
@@ -888,7 +889,7 @@ func TestPersistFetchesEpochRegistryAtTransition(t *testing.T) {
 			committee := utils.OrPanic1(types.NewCommittee(weights))
 			registry := utils.OrPanic1(epoch.TestGenesisRegistry(committee, 0, 3))
 			var fetches int
-			app := proxy.NewEVM(&epochTestApplication{fetch: func() (*types.EpochRegistry, error) {
+			app := abevm.NewProxy(&epochTestApplication{fetch: func() (*types.EpochRegistry, error) {
 				fetches++
 				if fetches > 2 && tc.fetchErr != nil {
 					return nil, tc.fetchErr
@@ -962,7 +963,7 @@ func TestNewStateRejectsUnavailableEpochRegistry(t *testing.T) {
 		{name: "fetch error", fetchErr: fetchFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewState(&Config{App: proxy.NewEVM(&epochTestApplication{fetch: func() (*types.EpochRegistry, error) {
+			_, err := NewState(&Config{App: abevm.NewProxy(&epochTestApplication{fetch: func() (*types.EpochRegistry, error) {
 				return nil, tc.fetchErr
 			}})}, newTestStore(t))
 			require.Error(t, err)
@@ -985,7 +986,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
@@ -1067,7 +1068,7 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qc1.Height(), qc1.Height()+1))
 	require.NoError(t, pushAppQCForBlock(ctx, state, keys, qc1.Height()))
@@ -1088,7 +1089,7 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 	epoch := registry.MustEpoch(0)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
 		prev := utils.None[*types.CommitQC]()
@@ -1135,7 +1136,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
@@ -1215,7 +1216,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 
 	db1 := newTestBlockStore(t, dir)
-	state1 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db1)
+	state1 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db1)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state1.Run(ctx)) })
 
@@ -1248,7 +1249,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	require.NoError(t, db1.Close())
 
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db2)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 	for inner := range state2.inner.Lock() {
 		require.Equal(t, qc1.Height()+1, inner.nextAppProposal)
 		require.Equal(t, qc1.Height()+1, inner.nextAppQC)
@@ -1273,7 +1274,7 @@ func TestAnchorCoversOnlyPersistedAppQC(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
 
 	db := newTestBlockStore(t, t.TempDir())
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		s.SpawnBgNamed("checkAnchor", func() error {
@@ -1328,7 +1329,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 
-	state1 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state1 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state1.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, qc1.Height(), qc1.Height()+1))
 
@@ -1345,7 +1346,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db2)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 	require.Equal(t, qc1.Height()+1, state2.NextQC())
 	got, err = state2.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
 	require.NoError(t, err)
@@ -1369,7 +1370,7 @@ func TestPruningPreservesRAMAndRecoveryAnchor(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 
-	state1 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state1 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state1.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 	require.NoError(t, state1.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)))
 
@@ -1425,7 +1426,7 @@ func TestPruningPreservesRAMAndRecoveryAnchor(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db2)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 	require.Equal(t, qc2.Height()+1, state2.NextQC())
 	got, err := state2.TryBlock(types.LaneBlockPos{Height: qc2.Height()})
 	require.NoError(t, err)
@@ -1438,7 +1439,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 3)
 		ep0 := registry.MustEpoch(0)
-		state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 		qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 		require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 		qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
@@ -1480,7 +1481,7 @@ func TestTryBlockServesPartialBlocks(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
 	require.Equal(t, qc.Height()+1, state.NextQC())
 	last := types.LaneBlockPos{Height: qc.Height(), Offset: uint64(len(blocks) - 1)}
@@ -1559,7 +1560,7 @@ func TestPushPartialBlock_RecordsNextBlockQC(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc1}, [][]*types.LaneBlock{blocks1})
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.Equal(t, int64(qc1.Height()+1), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
 
 	qc2, _ := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
@@ -1575,13 +1576,13 @@ func TestLaneBlockInvalidOffset(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	store := newTestStore(t)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
 	pos := types.LaneBlockPos{Height: qc.Height(), Offset: uint64(len(blocks))}
 	_, err := state.TryBlock(pos)
 	require.ErrorIs(t, err, types.ErrNotFound)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	recovered := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	recovered := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	_, err = recovered.Block(t.Context(), pos)
 	require.ErrorIs(t, err, types.ErrNotFound)
 }
@@ -1592,7 +1593,7 @@ func TestLaneBlockCacheBound(t *testing.T) {
 		registry, keys := epoch.GenRegistry(rng, 2)
 		ep := registry.MustEpoch(0)
 		store := newTestStore(t)
-		state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 		var qcs []*types.FullCommitQC
 		var blocks [][]*types.LaneBlock
 		prev := utils.None[*types.CommitQC]()
@@ -1609,7 +1610,7 @@ func TestLaneBlockCacheBound(t *testing.T) {
 			require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks[i])))
 		}
 		writeToBlockStore(t, store, qcs, blocks)
-		state = newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+		state = newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 
 		hashes := []types.AppHash{types.GenAppHash(rng), types.GenAppHash(rng)}
 		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -1644,7 +1645,7 @@ func TestLaneBlockCacheAllowsOvershoot(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	ep := registry.MustEpoch(0)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	prev := utils.None[*types.CommitQC]()
 	for count := 0; count < maxLaneBlock; {
 		qc, blocks := testCommitQCBlocks(rng, ep, keys, prev, 20)
@@ -1667,7 +1668,7 @@ func TestRoadBlockCacheManySmallRoads(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	ep := registry.MustEpoch(0)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	for i := range maxRoadBlocks {
 		qc, _ := commitQCAtRoad(ep, keys, ep.RoadRange().First+types.RoadHeight(i))
 		require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
@@ -1683,7 +1684,7 @@ func TestRoadBlockCacheEmptyRoads(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 1)
 		ep := registry.MustEpoch(0)
-		state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestStore(t))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 		prev := utils.None[*types.CommitQC]()
 		var nextQC *types.FullCommitQC
 		for i := range maxRoadBlocks + 1 {
@@ -1691,7 +1692,7 @@ func TestRoadBlockCacheEmptyRoads(t *testing.T) {
 			proposal, err := types.NewProposal(keys[0], vs, vs.NextTimestamp(), nil)
 			require.NoError(t, err)
 			vote := types.NewCommitVote(types.BuildPrepareQC(keys, proposal.Proposal().Msg()))
-			nextQC = types.NewFullCommitQC(types.NewCommitQC([]*types.Signed[*types.CommitVote]{types.Sign(keys[0], vote)}), nil)
+			nextQC = types.NewFullCommitQC(types.NewCommitQC([]*types.Signed[*types.CommitVote]{keys[0].Sign(vote)}), nil)
 			if i < maxRoadBlocks {
 				require.NoError(t, state.PushPartialBlock(t.Context(), nextQC, nil))
 			}

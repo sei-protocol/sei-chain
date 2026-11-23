@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -24,28 +24,30 @@ type gatedCheckTx struct {
 type gatedApp struct {
 	*testApp
 	gate utils.Watch[*gatedCheckTx]
+	ctx  context.Context
 }
 
-func newGatedApp() *gatedApp {
+func newGatedApp(ctx context.Context) *gatedApp {
 	return &gatedApp{
 		testApp: newTestApp(),
+		ctx:     ctx,
 		gate:    utils.NewWatch(&gatedCheckTx{}),
 	}
 }
 
-func (a *gatedApp) CheckTx(ctx context.Context, req *proxy.RequestCheckTxV2) *proxy.ResponseCheckTxV2 {
+func (a *gatedApp) CheckTx(req abevm.EvmTx) (abevm.AdmittedTx, error) {
 	for g, ctrl := range a.gate.Lock() {
 		g.inflight += 1
 		g.maxSeen = max(g.maxSeen, g.inflight)
 		ctrl.Updated()
-		err := ctrl.WaitUntil(ctx, func() bool { return g.open })
+		err := ctrl.WaitUntil(a.ctx, func() bool { return g.open })
 		g.inflight -= 1
 		ctrl.Updated()
 		if err != nil {
-			return &proxy.ResponseCheckTxV2{ResponseCheckTx: &proxy.ResponseCheckTx{Code: 1, Log: err.Error()}}
+			return abevm.AdmittedTx{}, err
 		}
 	}
-	return a.testApp.CheckTx(ctx, req)
+	return a.testApp.CheckTx(req)
 }
 
 // waitInflight blocks until exactly n CheckTx calls are in flight.
@@ -76,11 +78,12 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 	limit := uint64(2)
 	ctx := t.Context()
 	rng := utils.TestRng()
-	app := newGatedApp()
+	app := newGatedApp(ctx)
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some(limit)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
+		defer app.openGate()
+		env := newTestEnv(t, rng, cfg, app)
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
@@ -122,10 +125,10 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	app := newGatedApp()
+	app := newGatedApp(ctx)
 	cfg := app.Cfg()
 	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
-	env := newTestEnv(t, rng, cfg, proxy.NewEVM(app))
+	env := newTestEnv(t, rng, cfg, app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -137,6 +140,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 			return env.genTx(rng, addr, nonce).encode()
 		}
 		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			defer app.openGate()
 			holder := newTx()
 			s.Spawn(func() error {
 				_, err := env.state.InsertTx(ctx, holder)
@@ -185,7 +189,7 @@ func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), proxy.NewEVM(app))
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -200,7 +204,7 @@ func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 		for _, tx := range [][]byte{env.fullTx(rng, app).encode(), {1}} {
 			calls := app.checked.Load()
 			resp, err := env.state.TryInsertTx(ctx, tx)
-			if resp != nil {
+			if resp != (abevm.AdmittedTx{}) {
 				return fmt.Errorf("expected nil response")
 			}
 			if !errors.Is(err, errMempoolFull) {

@@ -23,3 +23,4 @@ func (*Committee) IsHashable()       {}
 func (*Epoch) IsHashable()           {}
 func (*EpochRegistry) IsHashable()   {}
 func (*EpochMember) IsHashable()     {}
+func (*Challenge) IsHashable()       {}

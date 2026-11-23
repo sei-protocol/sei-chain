@@ -2,6 +2,7 @@
 package pb
 
 import (
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	reflect "reflect"
@@ -12,7 +13,15 @@ func (*NodePublicKey) MaxSize() int {
 }
 
 func (*Handshake) MaxSize() int {
-	return 34878
+	return 34927
+}
+
+func (*GigaHandshake) MaxSize() int {
+	return 2199
+}
+
+func (*ValidatorHandshake) MaxSize() int {
+	return 2196
 }
 
 func init() {
@@ -48,14 +57,22 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.Handshake.
 	runtime.MustRegister[*Handshake](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*NodePublicKey]())},
-		2: {MaxCount: 1, MaxSize: 64},
-		4: {MaxCount: 1, MaxSize: 320},
-		5: {MaxCount: 100, MaxSize: 320},
-		3: {MaxCount: 1},
-		6: {MaxCount: 1, MaxSize: 32},
-		7: {MaxCount: 1, MaxSize: 64},
-		8: {MaxCount: 1, MaxSize: 2048},
+		1:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*NodePublicKey]())},
+		2:  {MaxCount: 1, MaxSize: 64},
+		4:  {MaxCount: 1, MaxSize: 320},
+		5:  {MaxCount: 100, MaxSize: 320},
+		12: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*GigaHandshake]())},
+	})
+
+	// Register the wireguard.Schema generated for p2p.GigaHandshake.
+	runtime.MustRegister[*GigaHandshake](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ValidatorHandshake]())},
+	})
+
+	// Register the wireguard.Schema generated for p2p.ValidatorHandshake.
+	runtime.MustRegister[*ValidatorHandshake](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedChallenge]())},
+		2: {MaxCount: 1, MaxSize: 2048},
 	})
 
 }

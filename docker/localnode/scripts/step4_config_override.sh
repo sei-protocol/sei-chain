@@ -203,7 +203,7 @@ if [ "$AUTOBAHN" = "true" ]; then
   if [ -n "$EVM_PREINSTALLS" ]; then
     ALLOC_FLAGS="$ALLOC_FLAGS --evm-preinstalls $EVM_PREINSTALLS"
   fi
-  seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS $ALLOC_FLAGS --evm-chain-id 713700 --output "$AUTOBAHN_CONFIG" ||
+  seid tendermint gen-autobahn-config $NODE_DIRS $GOVERNANCE_FLAGS $ALLOC_FLAGS --evm-chain-id 713700 --evmrpc "$(cat "build/generated/node_${NODE_ID}/evmrpc_url.txt")" --output "$AUTOBAHN_CONFIG" ||
     { echo "ERROR: gen-autobahn-config failed" >&2; exit 1; }
   # Autobahn serves the EVM JSON-RPC only: clear the Tendermint RPC and Cosmos
   # query surfaces it does not serve.
