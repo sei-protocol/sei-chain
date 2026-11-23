@@ -45,7 +45,10 @@ type CompositeCommitStore struct {
 
 	// The flatKV backend, nil until migration to flatKV starts. SetWriteMode
 	// installs it while views from GetChildStoreByName may be reading it, so
-	// access it only through loadFlatKV and storeFlatKV.
+	// access it only through loadFlatKV and storeFlatKV. Readers load it, the
+	// write mode and the router independently, so an instance is published
+	// before the mode and router that route to it, and unpublished before it
+	// is closed.
 	flatKV atomic.Pointer[gigatypes.LiveStateStore]
 
 	// flatKVHash is the last hash flatKV handed over, written by the listener registered on it and
@@ -221,13 +224,12 @@ func NewCompositeCommitStore(
 // adoptFlatKV installs store as this composite's flatKV backend and starts tracking the hash it
 // publishes for each block.
 func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) error {
-	cs.storeFlatKV(store)
-
 	mostRecent, err := store.RegisterHashListener(cs.recordFlatKVHash)
 	if err != nil {
 		return fmt.Errorf("failed to register the flatkv hash listener: %w", err)
 	}
 	cs.flatKVHash.Store(&mostRecent)
+	cs.storeFlatKV(store)
 	return nil
 }
 
@@ -436,10 +438,9 @@ func (cs *CompositeCommitStore) discardStaleIdleFlatKV() error {
 		"memiavlVersion", cs.memIAVL.Version(),
 		"flatkvVersion", cs.loadFlatKV().Version(),
 		"flatkvDir", flatKVDir)
-	if err := cs.loadFlatKV().Close(); err != nil {
+	if err := cs.releaseFlatKV(); err != nil {
 		return fmt.Errorf("failed to close stale idle flatkv: %w", err)
 	}
-	cs.storeFlatKV(nil)
 	if err := os.RemoveAll(flatKVDir); err != nil {
 		return fmt.Errorf("failed to remove stale idle flatkv directory %q: %w", flatKVDir, err)
 	}
@@ -597,10 +598,9 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 	if derived == types.MemiavlOnly && closeIdleFlatKV {
 		logger.Info("flatkv directory exists but no migration has started; " +
 			"closing flatkv until a MigrateEVM transition materializes it")
-		if err := cs.loadFlatKV().Close(); err != nil {
+		if err := cs.releaseFlatKV(); err != nil {
 			return fmt.Errorf("failed to close non-participating flatkv: %w", err)
 		}
-		cs.storeFlatKV(nil)
 	}
 	logger.Debug("derived effective write mode from migration metadata", "mode", derived)
 	cs.storeWriteMode(derived)
@@ -664,6 +664,13 @@ func (cs *CompositeCommitStore) storeFlatKV(store gigatypes.LiveStateStore) {
 	cs.flatKV.Store(&store)
 }
 
+// releaseFlatKV unpublishes the flatKV backend and closes it.
+func (cs *CompositeCommitStore) releaseFlatKV() error {
+	store := cs.loadFlatKV()
+	cs.storeFlatKV(nil)
+	return store.Close()
+}
+
 // loadWriteMode returns the effective write mode.
 func (cs *CompositeCommitStore) loadWriteMode() types.WriteMode {
 	if mode := cs.currentWriteMode.Load(); mode != nil {
@@ -694,10 +701,23 @@ func (cs *CompositeCommitStore) storeRouter(router migration.Router) {
 }
 
 // buildRouter constructs the migration router against the currently-opened
-// backends and installs it with storeRouter. Must be called after memIAVL and
-// flatKV (if any) have been opened via LoadVersion and after the effective
-// mode has been resolved.
+// backends and installs it. Must be called after memIAVL and flatKV (if any)
+// have been opened via LoadVersion and after the effective mode has been
+// resolved.
 func (cs *CompositeCommitStore) buildRouter() error {
+	router, cancel, err := cs.newRouter(cs.loadWriteMode(), cs.loadFlatKV())
+	if err != nil {
+		return err
+	}
+	cs.installRouter(router, cancel)
+	return nil
+}
+
+// newRouter constructs, without installing, the migration router for mode over memIAVL and flatKV.
+// cancel stops the router's background work.
+func (cs *CompositeCommitStore) newRouter(
+	mode types.WriteMode, flatKV gigatypes.LiveStateStore,
+) (_ migration.Router, cancel context.CancelFunc, _ error) {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
 	var options []migration.RouterOption
 	if cs.derived {
@@ -706,17 +726,21 @@ func (cs *CompositeCommitStore) buildRouter() error {
 		options = append(options, migration.WithoutTelemetry())
 	}
 	router, err := migration.BuildRouter(
-		routerCtx, cs.loadWriteMode(), cs.memIAVL, cs.loadFlatKV(), int(cs.migrationBatchSize.Load()), options...)
+		routerCtx, mode, cs.memIAVL, flatKV, int(cs.migrationBatchSize.Load()), options...)
 	if err != nil {
 		cancel()
-		return fmt.Errorf("failed to build router: %w", err)
+		return nil, nil, fmt.Errorf("failed to build router: %w", err)
 	}
+	return router, cancel, nil
+}
+
+// installRouter makes router the installed router and cancels the one it replaces.
+func (cs *CompositeCommitStore) installRouter(router migration.Router, cancel context.CancelFunc) {
 	if cs.routerCancel != nil {
 		cs.routerCancel()
 	}
 	cs.storeRouter(router)
 	cs.routerCancel = cancel
-	return nil
 }
 
 // SetMigrationBatchSize records the governance-controlled migration batch
@@ -838,34 +862,47 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 
 	// The MemiavlOnly -> MigrateEVM edge is where flatkv comes into
 	// existence under lazy-open (the constructor skips it while its
-	// directory is absent). Materialize it before the router that routes
-	// to it is built.
-	materialized := false
-	if cs.loadFlatKV() == nil {
-		if err := cs.materializeFlatKV(); err != nil {
+	// directory is absent).
+	flatKV := cs.loadFlatKV()
+	materialized := flatKV == nil
+	if materialized {
+		if flatKV, err = cs.materializeFlatKV(); err != nil {
 			return fmt.Errorf("failed to materialize flatkv for write mode %q: %w", targetWriteMode, err)
 		}
-		materialized = true
 	}
-
-	cs.storeWriteMode(targetWriteMode)
-	if err := cs.buildRouter(); err != nil {
-		// buildRouter leaves the previous router installed on failure.
-		cs.storeWriteMode(prev)
+	if err := cs.publishWriteMode(targetWriteMode, flatKV, materialized); err != nil {
 		if materialized {
-			// Restore the lazy-flatkv invariant (flatKV open iff the
-			// effective mode is past MemiavlOnly). The on-disk directory
-			// remains; the re-fired transition re-opens it idempotently.
-			if closeErr := cs.loadFlatKV().Close(); closeErr != nil {
+			// The on-disk directory remains; the re-fired transition re-opens it idempotently.
+			if closeErr := flatKV.Close(); closeErr != nil {
 				logger.Error("failed to close flatkv while rolling back write mode transition",
 					"err", closeErr)
 			}
-			cs.storeFlatKV(nil)
 		}
-		return fmt.Errorf("failed to build router for write mode %q: %w", targetWriteMode, err)
+		return fmt.Errorf("failed to publish write mode %q: %w", targetWriteMode, err)
 	}
 	cs.migrationAdvancedThisCommit = false
 	logger.Info("write mode transitioned", "from", prev, "to", targetWriteMode)
+	return nil
+}
+
+// publishWriteMode builds the router for mode over flatKV and, only once it is built, installs mode
+// and the router, adopting flatKV first when it is new. On error nothing is installed, so readers
+// never see a flatKV or mode that a failed transition rolls back.
+func (cs *CompositeCommitStore) publishWriteMode(
+	mode types.WriteMode, flatKV gigatypes.LiveStateStore, newFlatKV bool,
+) error {
+	router, cancel, err := cs.newRouter(mode, flatKV)
+	if err != nil {
+		return err
+	}
+	if newFlatKV {
+		if err := cs.adoptFlatKV(flatKV); err != nil {
+			cancel()
+			return err
+		}
+	}
+	cs.storeWriteMode(mode)
+	cs.installRouter(router, cancel)
 	return nil
 }
 
@@ -875,13 +912,6 @@ func (cs *CompositeCommitStore) IsWriteModeComplete(mode types.WriteMode) (bool,
 	return migration.IsModeComplete(cs.loadFlatKV(), mode)
 }
 
-// materializeFlatKV creates, opens, and seeds the flatkv backend. Called
-// from SetWriteMode on the MemiavlOnly -> MigrateEVM edge when flatkv was
-// never opened (lazy-open found no directory at construction, or the
-// directory was created by an interrupted transition and closed again by
-// resolveCurrentWriteMode). Seeding mirrors the migration-entry seeding in
-// LoadVersion and is idempotent: a flatkv left at a non-zero version by an
-// interrupted transition is not re-seeded.
 // newFlatKVInstance constructs (but does not open) a flatkv commit store
 // rooted at this store's home directory, mirroring the constructor's
 // configuration.
@@ -900,20 +930,27 @@ func (cs *CompositeCommitStore) newFlatKVInstance() (gigatypes.LiveStateStore, e
 	return created, nil
 }
 
-func (cs *CompositeCommitStore) materializeFlatKV() error {
+// materializeFlatKV creates, opens, and seeds a flatkv backend without adopting it. Called
+// from SetWriteMode on the MemiavlOnly -> MigrateEVM edge when flatkv was
+// never opened (lazy-open found no directory at construction, or the
+// directory was created by an interrupted transition and closed again by
+// resolveCurrentWriteMode). Seeding mirrors the migration-entry seeding in
+// LoadVersion and is idempotent: a flatkv left at a non-zero version by an
+// interrupted transition is not re-seeded.
+func (cs *CompositeCommitStore) materializeFlatKV() (gigatypes.LiveStateStore, error) {
 	created, err := cs.newFlatKVInstance()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// An interrupted earlier transition may have left crash artifacts in
 	// the pre-existing directory; clean them like process startup does.
 	if err := created.CleanupOrphanedReadOnlyDirs(); err != nil {
 		_ = created.Close()
-		return fmt.Errorf("failed to clean up FlatKV crash artifacts: %w", err)
+		return nil, fmt.Errorf("failed to clean up FlatKV crash artifacts: %w", err)
 	}
 	if err := created.LoadLatest(); err != nil {
 		_ = created.Close()
-		return fmt.Errorf("failed to load FlatKV: %w", err)
+		return nil, fmt.Errorf("failed to load FlatKV: %w", err)
 	}
 	loaded := created
 	if cs.memIAVL.Version() > 0 && loaded.Version() == 0 {
@@ -922,11 +959,11 @@ func (cs *CompositeCommitStore) materializeFlatKV() error {
 			"memiavlVersion", cs.memIAVL.Version(), "flatkvInitialVersion", seedTo)
 		if err := loaded.SetInitialVersion(seedTo); err != nil {
 			_ = loaded.Close()
-			return fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
+			return nil, fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
 				cs.memIAVL.Version(), err)
 		}
 	}
-	return cs.adoptFlatKV(loaded)
+	return loaded, nil
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
