@@ -38,8 +38,8 @@ type infoAPI struct {
 }
 
 // BlockNumber returns the height of the most recently committed block.
-func (api *infoAPI) BlockNumber(_ context.Context) hexutil.Uint64 {
-	return hexutil.Uint64(api.backend.EvmBlockNumber())
+func (api *infoAPI) BlockNumber(ctx context.Context) hexutil.Uint64 {
+	return hexutil.Uint64(committedHead(ctx, api.backend))
 }
 
 // ChainId returns the EVM chain ID this Autobahn shard is configured for.
@@ -163,7 +163,7 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 		return nil, err
 	}
 
-	end, err := api.resolveEndHeight(lastBlock)
+	end, err := api.resolveEndHeight(ctx, lastBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +175,11 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 }
 
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
-func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error) {
+func (api *infoAPI) resolveEndHeight(ctx context.Context, lastBlock ethrpc.BlockNumber) (int64, error) {
 	current := api.store.LatestVersion()
+	if head, ok := pinnedHead(ctx).Get(); ok {
+		current = min(current, int64(head)) //nolint:gosec // G115: a committed height fits in int64.
+	}
 	kind, err := classifyBlockNumber(lastBlock)
 	if err != nil {
 		return 0, err

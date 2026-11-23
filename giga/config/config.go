@@ -33,6 +33,7 @@ type Config struct {
 	Execution ExecutionConfig `mapstructure:"execution"`
 	RPC       RPCConfig       `mapstructure:"rpc"`
 	StateSync StateSyncConfig `mapstructure:"state_sync"`
+	Archive   ArchiveConfig   `mapstructure:"archive"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -225,6 +226,22 @@ type StateSyncConfig struct {
 	SnapshotUploadInterval time.Duration `mapstructure:"snapshot_upload_interval"`
 }
 
+// ArchiveConfig is the [giga.archive] sub-table: the ClickHouse history archive this node writes
+// its blocks to.
+type ArchiveConfig struct {
+	// ClickHouseAddr is the archive's ClickHouse native-protocol address, host:port. Empty
+	// disables the archive.
+	ClickHouseAddr string `mapstructure:"clickhouse_addr"`
+	// Database is the ClickHouse database holding this chain's archive.
+	Database string `mapstructure:"database"`
+	// User and Password authenticate to ClickHouse.
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+}
+
+// Enabled reports whether an archive is configured.
+func (c ArchiveConfig) Enabled() bool { return c.ClickHouseAddr != "" }
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -265,6 +282,10 @@ var DefaultConfig = Config{
 	StateSync: StateSyncConfig{
 		Enabled:                false,
 		SnapshotUploadInterval: time.Hour,
+	},
+	Archive: ArchiveConfig{
+		Database: "sei_archive",
+		User:     "default",
 	},
 }
 
@@ -325,6 +346,10 @@ const (
 	FlagStateSyncSnapshotRegion          = "giga.state_sync.snapshot_region"
 	FlagStateSyncSnapshotUpload          = "giga.state_sync.snapshot_upload"
 	FlagStateSyncSnapshotUploadInterval  = "giga.state_sync.snapshot_upload_interval"
+	FlagArchiveClickHouseAddr            = "giga.archive.clickhouse_addr"
+	FlagArchiveDatabase                  = "giga.archive.database"
+	FlagArchiveUser                      = "giga.archive.user"
+	FlagArchivePassword                  = "giga.archive.password" //nolint:gosec // a config key, not a credential
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -536,6 +561,26 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUploadInterval, err)
 		}
 	}
+	if v := opts.Get(FlagArchiveClickHouseAddr); v != nil {
+		if cfg.Archive.ClickHouseAddr, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveClickHouseAddr, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveDatabase); v != nil {
+		if cfg.Archive.Database, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveDatabase, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveUser); v != nil {
+		if cfg.Archive.User, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveUser, err)
+		}
+	}
+	if v := opts.Get(FlagArchivePassword); v != nil {
+		if cfg.Archive.Password, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchivePassword, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -638,6 +683,9 @@ func (c Config) Validate() error {
 	}
 	if c.StateSync.SnapshotUploadInterval < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %s", FlagStateSyncSnapshotUploadInterval, c.StateSync.SnapshotUploadInterval)
+	}
+	if c.Archive.Enabled() && c.Archive.Database == "" {
+		return fmt.Errorf("%s: must be set when %s is", FlagArchiveDatabase, FlagArchiveClickHouseAddr)
 	}
 	deadlines, err := c.RPC.DeadlineConfig()
 	if err != nil {
@@ -822,6 +870,20 @@ snapshot_upload = {{ .Giga.StateSync.SnapshotUpload }}
 # snapshot_upload_interval is the least time between two snapshot uploads of this chain, measured
 # from the last write of latest.txt by any node. 0 uploads each checkpoint.
 snapshot_upload_interval = "{{ .Giga.StateSync.SnapshotUploadInterval }}"
+
+[giga.archive]
+# clickhouse_addr is the ClickHouse native-protocol address (host:port) of the history archive
+# this node writes its blocks to. Empty disables the archive. Block execution waits for an
+# archive that falls behind, so do not enable it on a validator.
+clickhouse_addr = "{{ .Giga.Archive.ClickHouseAddr }}"
+
+# database is the ClickHouse database holding this chain's archive: letters, digits and
+# underscores.
+database = "{{ .Giga.Archive.Database }}"
+
+# user and password authenticate to ClickHouse.
+user = "{{ .Giga.Archive.User }}"
+password = {{ printf "%q" .Giga.Archive.Password }}
 `
 
 // requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one
