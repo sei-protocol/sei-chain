@@ -23,7 +23,7 @@ func TestExecutorEstimateGasPlainTransferReturnsIntrinsicGas(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	msg := callMessage(sender, &target)
 	msg.Value = uint256.NewInt(1)
@@ -46,7 +46,7 @@ func TestExecutorEstimateGasSurfacesRevertReason(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -77,7 +77,7 @@ func TestExecutorEstimateGasDoesNotMutateCommittedState(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -105,7 +105,7 @@ func TestExecutorEstimateGasUsesBlockGasLimitAsUpperBound(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -136,7 +136,7 @@ func TestExecutorEstimateGasHonorsGasCap(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -153,11 +153,7 @@ func TestExecutorEstimateGasHonorsGasCap(t *testing.T) {
 	require.ErrorContains(t, err, "gas required exceeds allowance")
 }
 
-func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
-	original := callTimeout
-	callTimeout = 20 * time.Millisecond
-	defer func() { callTimeout = original }()
-
+func TestExecutorEstimateGasStopsAtContextDeadline(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -171,7 +167,7 @@ func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
 	cfg := DefaultChainConfig()
 	cfg.OsakaTime = nil
 	cfg.SeiAmsterdamTime = nil
-	executor := NewExecutor(Config{ChainConfig: cfg}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{ChainConfig: cfg}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -181,11 +177,13 @@ func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := callMessage(sender, &contractAddr)
-	msg.GasLimit = 1_000_000_000_000 // far more gas than the shrunk timeout allows spending
+	msg.GasLimit = 1_000_000_000_000 // far more gas than the deadline allows spending
 
-	_, _, err = executor.EstimateGas(t.Context(), blockContext(chainID), msg, 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	_, _, err = executor.EstimateGas(ctx, blockContext(chainID), msg, 0)
 
-	require.ErrorContains(t, err, "timeout")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestExecutorEstimateGasReportsCancellationDistinctFromTimeout(t *testing.T) {
@@ -198,7 +196,7 @@ func TestExecutorEstimateGasReportsCancellationDistinctFromTimeout(t *testing.T)
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -284,7 +282,7 @@ func TestExecutorEstimateGasContextOpcodesDoNotPanic(t *testing.T) {
 			state := NewMemoryState()
 			state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 			store := NewMemoryStore(state)
-			executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+			executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 			deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(tc.runtime), 300_000)
 			_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -345,7 +343,7 @@ func TestExecutorEstimateGasHonorsCoinbaseAndBlobBaseFee(t *testing.T) {
 			state := NewMemoryState()
 			state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 			store := NewMemoryStore(state)
-			executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+			executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 
 			deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(pushReverts(tc.op)), 300_000)
 			_, err = executor.ExecuteBlock(t.Context(), BlockRequest{

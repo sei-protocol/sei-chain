@@ -104,6 +104,6 @@ message Metadata {
 message AllowList {
   option (gogoproto.equal) = true;
 
-  // Can be empty for no admin, or a valid sei address
+  // addresses is a list of bech32 account addresses.
   repeated string addresses = 1 [(gogoproto.moretags) = "yaml:\"addresses\""];
 }

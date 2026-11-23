@@ -314,14 +314,10 @@ enable = false
 
 # RPC servers (comma-separated) for light client verification of the synced state machine and
 # retrieval of state data for node bootstrapping. Also needs a trusted height and corresponding
-# header hash obtained from a trusted source, and a period during which validators can be trusted.
-#
-# For Cosmos SDK-based chains, trust_period should usually be about 2/3 of the unbonding time (~2
-# weeks) during which they can be financially punished (slashed) for misbehavior.
+# header hash obtained from a trusted source.
 rpc-servers = ""
 trust-height = 0
 trust-hash = ""
-trust-period = "168h0m0s"
 
 # Time to spend discovering snapshots before initiating a restore.
 discovery-time = "15s"

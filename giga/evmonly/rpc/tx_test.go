@@ -2,10 +2,13 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -21,7 +24,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -37,7 +41,6 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber),
 	} {
 		got, err := api.GetTransactionCount(t.Context(), address, tag)
 		require.NoError(t, err)
@@ -45,29 +48,107 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 	}
 }
 
-func TestGetTransactionCountRejectsHistoricalState(t *testing.T) {
+func TestGetTransactionCountPending(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	backend := &testBackend{transactionCount: func(common.Address) uint64 {
-		t.Fatal("historical lookup reached the backend")
-		return 0
-	}}
-	api := &txAPI{backend: backend}
+	pending := ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber)
 
-	for _, tag := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(8),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false),
-		{},
-	} {
-		_, err := api.GetTransactionCount(t.Context(), address, tag)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
+	t.Run("local mempool", func(t *testing.T) {
+		api := &txAPI{backend: &testBackend{
+			transactionCount: func(common.Address) uint64 { return 1 },
+			pendingNonce: func(got common.Address) utils.Option[uint64] {
+				require.Equal(t, address, got)
+				return utils.Some[uint64](5)
+			},
+		}}
+		got, err := api.GetTransactionCount(t.Context(), address, pending)
+		require.NoError(t, err)
+		require.Equal(t, hexutil.Uint64(5), *got)
+	})
+
+	t.Run("forwarded to the sender's lane", func(t *testing.T) {
+		lane := dialHandler(t, &testBackend{
+			pendingNonce: func(got common.Address) utils.Option[uint64] {
+				require.Equal(t, address, got)
+				return utils.Some[uint64](9)
+			},
+		}, noRPCLimits)
+		api := &txAPI{backend: &testBackend{
+			proxy: utils.Some(lane),
+			pendingNonce: func(common.Address) utils.Option[uint64] {
+				t.Error("a forwarded sender read the local mempool")
+				return utils.None[uint64]()
+			},
+		}}
+		got, err := api.GetTransactionCount(t.Context(), address, pending)
+		require.NoError(t, err)
+		require.Equal(t, hexutil.Uint64(9), *got)
+	})
+
+	t.Run("lane error is returned", func(t *testing.T) {
+		lane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			var req struct {
+				ID json.RawMessage `json:"id"`
+			}
+			if err := json.Unmarshal(body, &req); err != nil || len(req.ID) == 0 {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32000,"message":"lane refused"}}`, req.ID)
+		}))
+		t.Cleanup(lane.Close)
+		client, err := ethrpc.DialHTTP(lane.URL)
+		require.NoError(t, err)
+		t.Cleanup(client.Close)
+		api := &txAPI{backend: &testBackend{
+			proxy: utils.Some(client),
+			pendingNonce: func(common.Address) utils.Option[uint64] {
+				return utils.Some[uint64](3)
+			},
+		}}
+		_, err = api.GetTransactionCount(t.Context(), address, pending)
+		require.ErrorContains(t, err, "lane refused")
+	})
+
+	t.Run("fullnode without a lane fails", func(t *testing.T) {
+		api := &txAPI{backend: &testBackend{}}
+		_, err := api.GetTransactionCount(t.Context(), address, pending)
+		require.ErrorIs(t, err, errPendingNonceUnavailable)
+	})
+}
+
+func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	api := &txAPI{backend: &testBackend{
+		blockNumber: func() uint64 { return 9 },
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("a numbered block read the latest state")
+			return 0
+		},
+		transactionCountAt: func(got common.Address, height int64) (uint64, error) {
+			require.Equal(t, address, got)
+			return uint64(height), nil //nolint:gosec // test heights are small
+		},
+	}}
+
+	for height, want := range map[ethrpc.BlockNumber]hexutil.Uint64{ethrpc.EarliestBlockNumber: 1, 0: 1, 8: 8, 9: 9} {
+		got, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(height))
+		require.NoError(t, err)
+		require.Equal(t, want, *got, "block %d", height)
 	}
+	_, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHash{})
+	require.ErrorIs(t, err, errBlockNotSpecified)
 }
 
 func TestGetTransactionCountEndToEnd(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{transactionCount: func(common.Address) uint64 { return 3 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -90,7 +171,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 	topic := common.HexToHash("0x4567")
 	bloom := ethtypes.Bloom{9}
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxType:            uint32(ethtypes.DynamicFeeTxType),
@@ -124,7 +205,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -182,7 +263,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 func TestGetTransactionReceiptReturnsNullBeforeBlockCommit(t *testing.T) {
 	txHash := common.Hash{1}
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:   txHash.Hex(),
@@ -214,7 +295,7 @@ func TestGetTransactionByHash(t *testing.T) {
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	to := common.HexToAddress("0x2000000000000000000000000000000000000002")
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(713700)
 	unsigned := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     5,
@@ -233,7 +314,7 @@ func TestGetTransactionByHash(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -256,8 +337,8 @@ func TestGetTransactionByHash(t *testing.T) {
 				},
 			}, nil
 		},
-		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		chainConfig: func() *params.ChainConfig { return chainConfig },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 
 	got, err := (&txAPI{backend: backend, store: store}).GetTransactionByHash(t.Context(), tx.Hash())
@@ -303,7 +384,7 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 	require.NoError(t, err)
 
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -312,7 +393,7 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 			From:             sender.Hex(),
 		},
 	}}))
-	chainConfig := testChainConfig(big.NewInt(713715))
+	chainConfig := testChainConfig(big.NewInt(713700))
 	backend := &testBackend{
 		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 			return &coretypes.ResultBlock{
@@ -323,8 +404,8 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 				},
 			}, nil
 		},
-		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		chainConfig: func() *params.ChainConfig { return chainConfig },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 
 	got, err := (&txAPI{backend: backend, store: store}).GetTransactionByHash(t.Context(), tx.Hash())
@@ -349,7 +430,7 @@ func TestGetTransactionByHashReturnsNullForUnknownHash(t *testing.T) {
 func TestGetTransactionByHashReturnsNullBeforeBlockCommit(t *testing.T) {
 	txHash := common.Hash{1}
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:   txHash.Hex(),
@@ -370,11 +451,11 @@ func TestGetTransactionByHashReturnsNullBeforeBlockCommit(t *testing.T) {
 
 func TestGetTransactionByHashEndToEnd(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx)
 	require.NoError(t, err)
 	blockHash := common.HexToHash("0xabcd")
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -383,7 +464,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 			From:             sender.Hex(),
 		},
 	}}))
-	chainConfig := testChainConfig(big.NewInt(713715))
+	chainConfig := testChainConfig(big.NewInt(713700))
 	backend := &testBackend{
 		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 			return &coretypes.ResultBlock{
@@ -394,10 +475,10 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 				},
 			}, nil
 		},
-		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		chainConfig: func() *params.ChainConfig { return chainConfig },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -423,7 +504,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 }
 
 func TestHandlerRequiresReceiptStore(t *testing.T) {
-	_, err := newHandler(&testBackend{}, nil)
+	_, err := newHandler(&testBackend{}, nil, noRPCLimits)
 	require.EqualError(t, err, "EVM-only RPC requires a receipt store")
 }
 
@@ -431,7 +512,7 @@ func TestLookupFinalizedTxSurfacesStoreAndBlockErrors(t *testing.T) {
 	txHash := common.Hash{1}
 	// Setup: one real receipt so overflow/lookup cases have something to find.
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:   txHash.Hex(),
@@ -544,7 +625,7 @@ func TestLookupFinalizedTxSurfacesStoreAndBlockErrors(t *testing.T) {
 func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -601,7 +682,7 @@ func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T
 func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(),
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
@@ -609,33 +690,6 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 			TransactionIndex: 0,
 		},
 	}}))
-	block := func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-			},
-		}, nil
-	}
-
-	t.Run("chain config", func(t *testing.T) {
-		want := errors.New("no chain config")
-		api := &txAPI{
-			backend: &testBackend{
-				block:       block,
-				chainConfig: func() (*params.ChainConfig, error) { return nil, want },
-			},
-			store: store,
-		}
-
-		// Test: EvmChainConfig fails after a successful decode.
-		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
 
 	t.Run("negative block time", func(t *testing.T) {
 		api := &txAPI{
@@ -648,7 +702,7 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 						},
 					}, nil
 				},
-				chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
+				chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713700)) },
 			},
 			store: store,
 		}
@@ -661,24 +715,6 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 		require.ErrorContains(t, err, "time is negative")
 	})
 
-	t.Run("base fee", func(t *testing.T) {
-		want := errors.New("no base fee")
-		api := &txAPI{
-			backend: &testBackend{
-				block:       block,
-				chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
-				baseFee:     func() (*big.Int, error) { return nil, want },
-			},
-			store: store,
-		}
-
-		// Test: EvmBaseFee fails after a valid timestamp.
-		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
 }
 
 func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.T) {
@@ -686,7 +722,7 @@ func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.
 	blockHash := common.HexToHash("0xabcd")
 	created := common.HexToAddress("0x4000000000000000000000000000000000000004")
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: txHash,
 		Receipt: &evmtypes.Receipt{
 			TxHashHex:        txHash.Hex(),
@@ -715,4 +751,78 @@ func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, &created, got["contractAddress"])
 	require.Empty(t, got["logs"])
+}
+
+func TestTransactionErrorMethods(t *testing.T) {
+	failed, succeeded, unfinalized := common.Hash{1}, common.Hash{2}, common.Hash{3}
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
+		{TxHash: failed, Receipt: &evmtypes.Receipt{TxHashHex: failed.Hex(), BlockNumber: 7, VmError: "execution reverted"}},
+		{TxHash: succeeded, Receipt: &evmtypes.Receipt{TxHashHex: succeeded.Hex(), BlockNumber: 7}},
+		{TxHash: unfinalized, Receipt: &evmtypes.Receipt{TxHashHex: unfinalized.Hex(), BlockNumber: 8}},
+	}))
+	backend := &testBackend{
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			if *req.Height > 7 {
+				return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, *req.Height)
+			}
+			return &coretypes.ResultBlock{Block: &tmtypes.Block{}}, nil
+		},
+	}
+	handler, err := newHandler(backend, store, noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	for _, tc := range []struct {
+		name     string
+		hash     common.Hash
+		want     string
+		notFound bool
+	}{
+		{name: "failed transaction", hash: failed, want: "execution reverted"},
+		{name: "successful transaction", hash: succeeded, want: ""},
+		{name: "unknown hash", hash: common.Hash{9}, notFound: true},
+		{name: "block not finalized", hash: unfinalized, notFound: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var byHash string
+			require.NoError(t, client.CallContext(t.Context(), &byHash, "eth_getTransactionErrorByHash", tc.hash))
+			require.Equal(t, tc.want, byHash)
+
+			var vmError string
+			err := client.CallContext(t.Context(), &vmError, "eth_getVMError", tc.hash)
+			if tc.notFound {
+				require.ErrorContains(t, err, receiptdb.ErrNotFound.Error())
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, vmError)
+		})
+	}
+}
+
+func TestTransactionErrorMethodsSurfaceStoreErrors(t *testing.T) {
+	storeErr := errors.New("store unavailable")
+	api := &txAPI{backend: &testBackend{}, store: stubReceiptStore{
+		get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) { return nil, storeErr },
+	}}
+
+	for _, tc := range []struct {
+		name   string
+		method func(context.Context, common.Hash) (string, error)
+	}{
+		{name: "eth_getVMError", method: api.GetVMError},
+		{name: "eth_getTransactionErrorByHash", method: api.GetTransactionErrorByHash},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.method(t.Context(), common.Hash{1})
+			require.ErrorIs(t, err, storeErr)
+			require.Empty(t, got)
+		})
+	}
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
@@ -28,7 +29,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -201,7 +202,7 @@ func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, heig
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for height %d", height)
+		return nil, fmt.Errorf("could not find block for height %s", stringifyInt64Ptr(height))
 	}
 	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(height)}, blockRes)
 	return blockRes, err
@@ -253,11 +254,15 @@ type indexedMsg struct {
 // as "skip this tx" must fail here, or they answer with empty data.
 func requireReceiptStore(k *keeper.Keeper) error {
 	if k == nil || k.ReceiptStore() == nil {
-		return receipt.ErrNotConfigured
+		return receiptdb.ErrNotConfigured
 	}
 	return nil
 }
 
+// filterTransactions returns, in block order, the block's EVM transaction messages that executed in
+// it, plus its CosmWasm execute messages when includeSyntheticTxs is set. A message whose receipt
+// cannot be read is omitted, so callers answering for a block identifier must reject heights below
+// the receipt floor before calling it.
 func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
@@ -296,7 +301,6 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
 				receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
 				if err != nil {
 					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
@@ -307,6 +311,7 @@ func filterTransactions(
 				if receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
+				sender := receiptSender(receipt, ethtx, block)
 				txCount := txCounts[sender.Hex()]
 				if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
 					// check if the transaction bumped nonce. If not, exclude it
@@ -404,6 +409,11 @@ func getTxHashesFromBlock(
 	if err != nil {
 		return nil, err
 	}
+	return typedTxHashesOf(block, txs), nil
+}
+
+// typedTxHashesOf returns the hash of each message in txs, in order.
+func typedTxHashesOf(block *coretypes.ResultBlock, txs []indexedMsg) []typedTxHash {
 	txHashes := []typedTxHash{}
 	for _, tx := range txs {
 		switch tx.msg.(type) {
@@ -414,7 +424,17 @@ func getTxHashesFromBlock(
 			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
 		}
 	}
-	return txHashes, nil
+	return txHashes
+}
+
+// receiptSender returns the sender receipt records for ethtx, or the sender its signature recovers
+// to when the receipt records none or is for another transaction.
+func receiptSender(receipt *types.Receipt, ethtx *ethtypes.Transaction, block *coretypes.ResultBlock) common.Address {
+	if receipt.From != "" && common.HexToHash(receipt.TxHashHex) == ethtx.Hash() {
+		return common.HexToAddress(receipt.From)
+	}
+	sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
+	return sender
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
@@ -480,15 +500,22 @@ func recoverAndLog() {
 func ctxAtHeight(ctxProvider func(int64) sdk.Context, height int64) (ctx sdk.Context, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			e, ok := r.(error)
-			var runtimeErr runtime.Error
-			if !ok || errors.As(e, &runtimeErr) {
-				panic(r)
-			}
-			err = fmt.Errorf("state at height %d is unavailable: %w", height, e)
+			err = fmt.Errorf("state at height %d is unavailable: %w", height, errorFromPanic(r))
 		}
 	}()
 	return ctxProvider(height), nil
+}
+
+// errorFromPanic returns the recovered panic value r as an error when a read panicked with one because
+// its data is unavailable. It panics with r again when r is not an error or is a runtime.Error.
+func errorFromPanic(r any) error {
+	e, ok := r.(error)
+	var runtimeErr runtime.Error
+	// A non-error value or a runtime error is a bug, which must not pass for missing data.
+	if !ok || errors.As(e, &runtimeErr) {
+		panic(r)
+	}
+	return e
 }
 
 func must[V any](v V, err error) V {

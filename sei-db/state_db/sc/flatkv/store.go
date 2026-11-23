@@ -13,7 +13,6 @@ import (
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
 
-	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -114,9 +113,8 @@ type CommitStore struct {
 	// finalizer being rebuilt by restartHashing. Never nil.
 	hashListeners *hashListenerRegistry
 
-	// The four data stores below mediate every read and write of their databases. The block being
-	// applied accumulates its writes inside each store, so a read through a store already sees what
-	// that same block staged, with no separate overlay to consult.
+	// The four data stores below mediate every read and write of their databases. Commit stages a block's
+	// writes inside each store and seals them under mu, so a reader never observes a partly staged block.
 	//
 	// They are constructed as the last step of open, after any replay or rollback has run, and are nil
 	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.
@@ -147,12 +145,11 @@ type CommitStore struct {
 	// lifecycle is decoupled from the DB open/close cycle, so closeDBsOnly does not touch it.
 	wal statewal.StateWAL
 
-	// Changes to feed into the WAL at the next commit.
+	// pendingChangeSets is the changesets ApplyChangeSets has buffered for the block the next Commit writes, in
+	// arrival order.
 	pendingChangeSets []*proto.NamedChangeSet
 
-	// pendingBlockHeight is the version stamped by the current buffered ApplyChangeSets. 0 means no
-	// pending apply. It records the staged height; it does not constrain it — neither ApplyChangeSets
-	// nor Commit validates its version against this field.
+	// pendingBlockHeight is the height of the buffered block, or 0 when nothing is buffered.
 	pendingBlockHeight int64
 
 	// Writes snapshots off the execution thread. Built by openStores once the view managers exist and
@@ -169,10 +166,6 @@ type CommitStore struct {
 	fileLock filelock.TryLockerSafe
 
 	phaseTimer *metrics.PhaseTimer
-
-	// classifyBucketSizes is the length of each kind's bucket in the previous ApplyChangeSets call, used to size
-	// the next call's buckets. Zero for a kind that call did not touch.
-	classifyBucketSizes [keys.EVMKeyKindCount]int
 
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
@@ -219,9 +212,8 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
 		// and later persist as the per-module meta key "_meta/x:/hash", which
 		// ParseModuleLtHashKey rejects on the very next reopen — permanently
-		// bricking the store (root != sum(modules) forever). Reject it here,
-		// at the state-sync import dispatch boundary, mirroring the
-		// classifyAndPrefix guard on the live-commit path (store_apply.go).
+		// bricking the store (root != sum(modules) forever). Every committed
+		// and imported key is routed here, so this is where it is rejected.
 		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
 	if moduleName != keys.EVMStoreKey {
@@ -352,6 +344,15 @@ func lthashWorkerCount(cfg *config.Config, coreCount int) int {
 // sortWorkerCount computes the fixed diff-sorting pool worker count from config, clamped to at least 1.
 func sortWorkerCount(cfg *config.Config, coreCount int) int {
 	n := int(cfg.SortThreadsPerCore * float64(coreCount))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// stateChangeSetWorkerCount returns how many tasks convert a block's state change set at once.
+func stateChangeSetWorkerCount(cfg *config.Config, coreCount int) int {
+	n := int(cfg.StateChangeSetThreadsPerCore * float64(coreCount))
 	if n < 1 {
 		n = 1
 	}
@@ -816,23 +817,9 @@ func (s *CommitStore) open() (retErr error) {
 }
 
 func (s *CommitStore) acquireFileLock(dir string) error {
-	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
+	fl, err := lockDir(dir)
 	if err != nil {
-		return fmt.Errorf("abs lock path: %w", err)
-	}
-	fl, err := filelock.New(lockPath)
-	if err != nil {
-		return fmt.Errorf("create file lock: %w", err)
-	}
-	locked, err := fl.TryLock()
-	if err != nil {
-		if errors.Is(err, filelock.ErrLocked) {
-			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
-		}
-		return fmt.Errorf("acquire file lock: %w", err)
-	}
-	if !locked {
-		return fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
+		return err
 	}
 	s.fileLock = fl
 	return nil
@@ -957,7 +944,9 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
 	// own reads onto either pool, for the same reason.
 	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
-		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool, s.sortPool)
+		// Each store starts at the height its own database holds, which may be past the store-wide version.
+		height := uint64(s.localMeta[cfg.Name].CommittedVersion) //nolint:gosec // versions are non-negative
+		store, storeErr := view.NewViewManager(cfg, height, db, s.readPool, s.miscPool, s.sortPool)
 		if storeErr != nil {
 			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
 		}
@@ -966,19 +955,19 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 
 	s.accountStore, err = open(&s.config.AccountStoreConfig, dbs.account)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the account store: %w", err)
 	}
 	s.codeStore, err = open(&s.config.CodeStoreConfig, dbs.code)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the code store: %w", err)
 	}
 	s.storageStore, err = open(&s.config.StorageStoreConfig, dbs.storage)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the storage store: %w", err)
 	}
 	s.miscStore, err = open(&s.config.MiscStoreConfig, dbs.misc)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the misc store: %w", err)
 	}
 
 	s.stores = []view.ViewManager{
@@ -990,11 +979,11 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// "before", so every key in the first replayed block would be mixed in as new with nothing mixed out and
 	// the view would report a hash matching no real chain history.
 	if err := s.sealBaseline(); err != nil {
-		return err
+		return fmt.Errorf("seal the baseline: %w", err)
 	}
 
 	if err := s.startHashing(); err != nil {
-		return err
+		return fmt.Errorf("start hashing: %w", err)
 	}
 
 	if !s.readOnly {
@@ -1115,33 +1104,6 @@ func (s *CommitStore) closeStores() error {
 	s.miscStore = nil
 	s.stores = nil
 	return errors.Join(errs...)
-}
-
-// computeStoreHeights reports the height each database actually reached on disk, keyed by database
-// directory name, or nil when they all sit at the store's committed version and replay has nothing to
-// skip.
-//
-// Replay starts from the committed version, which deriveGlobalState has already set to the lowest of
-// these heights; the databases that are past that block skip it individually rather than the whole
-// block being refused.
-//
-// Must run after each database's LocalMeta has been read off pebble, and before the stores exist.
-func (s *CommitStore) computeStoreHeights() map[string]int64 {
-	heights := make(map[string]int64, len(dataDBDirs))
-	for _, dir := range dataDBDirs {
-		heights[dir] = s.localMeta[dir].CommittedVersion
-	}
-
-	// A database ahead of the store-wide version flushed a block whose peers did not. Only when all four
-	// agree is there nothing to catch up.
-	for _, height := range heights {
-		if height != s.committedVersion {
-			logger.Info("FlatKV stores are at different heights; replay will catch them up",
-				"storeWide", s.committedVersion, "perDB", heights)
-			return heights
-		}
-	}
-	return nil
 }
 
 // loadGlobalMetadata rebuilds the store's in-memory global state from the data DBs' metadata.
@@ -1324,13 +1286,13 @@ func (s *CommitStore) reloadLocalMeta() error {
 	return nil
 }
 
-// requireAlignedDataDBs returns an error unless every data DB sits at the store's committed version.
+// requireAlignedDBs returns an error unless every data DB sits at the store's committed version.
 // The condition holds once replay has run; before then the DBs may legally disagree, and
 // rebuildIfAnyDataDBIsUnreachable has already removed the disagreements replay cannot close.
 //
 // This is what makes summing the per-DB roots into the store root sound: the sum only describes a real
 // state if every DB contributed at the same version.
-func (s *CommitStore) requireAlignedDataDBs() error {
+func (s *CommitStore) requireAlignedDBs() error {
 	// s.localMeta describes what load saw, not what the replay above has since recorded.
 	if err := s.reloadLocalMeta(); err != nil {
 		return fmt.Errorf("flatkv: reload local meta before checking data DB alignment: %w", err)

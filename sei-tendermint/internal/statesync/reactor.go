@@ -223,19 +223,19 @@ func NewReactor(
 	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) (*Reactor, error) {
-	snapshotChannel, err := p2p.OpenChannel(router, GetSnapshotChannelDescriptor())
+	snapshotChannel, err := router.OpenChannel(GetSnapshotChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open snapshot channel: %w", err)
 	}
-	chunkChannel, err := p2p.OpenChannel(router, GetChunkChannelDescriptor())
+	chunkChannel, err := router.OpenChannel(GetChunkChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open chunk channel: %w", err)
 	}
-	lightBlockChannel, err := p2p.OpenChannel(router, GetLightBlockChannelDescriptor())
+	lightBlockChannel, err := router.OpenChannel(GetLightBlockChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open light block channel: %w", err)
 	}
-	paramsChannel, err := p2p.OpenChannel(router, GetParamsChannelDescriptor())
+	paramsChannel, err := router.OpenChannel(GetParamsChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("open params channel: %w", err)
 	}
@@ -268,7 +268,7 @@ func NewReactor(
 
 func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initialHeight int64) error {
 	to := light.TrustOptions{
-		Period: r.cfg.TrustPeriod,
+		Period: config.StateSyncTrustPeriod(chainID),
 		Height: r.cfg.TrustHeight,
 		Hash:   r.cfg.TrustHashBytes(),
 	}

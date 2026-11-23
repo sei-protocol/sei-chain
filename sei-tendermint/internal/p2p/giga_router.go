@@ -8,9 +8,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -20,7 +21,6 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
-	EVMRPC   url.URL
 }
 
 func (a GigaNodeAddr) String() string {
@@ -35,30 +35,36 @@ type GigaRouterCommonConfig struct {
 	ValidatorAddrs   map[atypes.PublicKey]GigaNodeAddr
 	GenDoc           *types.GenesisDoc
 	// PersistentStateDir is the absolute on-disk root for durable state
-	// (BlockDB, hashvault, epoch snapshots, and the validator's consensus
-	// persister in sibling subdirs). Required and must already exist.
+	// (BlockDB, epoch snapshots, and the validator's consensus persister in
+	// sibling subdirs). Required and must already exist.
 	PersistentStateDir string
-	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
-	// also passes it to producer.NewState so the producer's internal
-	// mempool drives the same proxy.
-	App *proxy.Proxy
+	// App is the application the blocks run on. The router reads its committed
+	// height and validator set, and NewGigaValidatorRouter passes it to the
+	// producer's mempool.
+	App *abevm.Proxy
+	// AppHashBuilder is the source of every Autobahn application hash. The
+	// storage manager owns it. The router reads each executed block's app hash
+	// from it.
+	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
-	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
+	// peers outside PersistentPeerIDs. 0 rejects every such peer; a positive
+	// value caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
-
-	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The guard is
-	// on by default (false); the GigaRouter builds and owns it (see runExecute). Setting this to true
-	// is an explicit, last-resort operator decision to run WITHOUT equivocation protection.
-	HashVaultDisabledUnsafe bool
+	// PersistentPeerIDs are node IDs from p2p.persistent-peers and
+	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
+	PersistentPeerIDs map[types.NodeID]struct{}
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
+	// AllowLocalAddrs permits loopback and link-local EVM RPC URLs in tests.
+	AllowLocalAddrs bool
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
 	ValidatorKey    atypes.SecretKey
+	EVMRPC          url.URL
 	ViewTimeout     func(atypes.View) time.Duration
 	ProposalTimeout time.Duration
 	Producer        *producer.Config
@@ -72,16 +78,20 @@ type GigaValidatorConfig struct {
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
-	LastCommittedBlockNumber() int64
-	// ExecutedBlocks publishes the recently committed blocks as they are committed to the app.
-	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks]
+	LastCommittedHeight() int64
 	MaxGasEstimatedPerBlock() uint64
-	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
-	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
+	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error)
+	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
+	// CheckTx checks a transaction for admission without inserting it into the mempool.
+	CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error)
+	// RememberEvmSender records a verified sender for local admission.
+	RememberEvmSender(hash common.Hash, sender common.Address)
+	// ForgetEvmSender removes the cached sender for hash.
+	ForgetEvmSender(hash common.Hash)
 	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, atypes.GlobalBlockNumber, error)
-	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
+	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
+	fillInboundHandshake(spec handshakeSpec) handshakeSpec
 }

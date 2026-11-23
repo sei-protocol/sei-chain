@@ -29,3 +29,8 @@ func (blockExec *BlockExecutor) PrunableHeight(state State, requested int64) (in
 func (blockExec *BlockExecutor) PruneBlocks(retainHeight int64) (uint64, error) {
 	return blockExec.pruneBlocks(retainHeight)
 }
+
+// StoredFinalizeBlockResponses is an alias for storedFinalizeBlockResponses exported for testing.
+func StoredFinalizeBlockResponses(res *abci.ResponseFinalizeBlock, maxBytes int) *abci.ResponseFinalizeBlock {
+	return storedFinalizeBlockResponses(res, maxBytes)
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -266,7 +267,7 @@ func Test0xc2da776841226a9837bc3bb506fcf487e75a7e7787ab1084896251114d6bd7f9(t *t
 		"v5.7.5",
 		"0x933d4",
 		"",
-		false,
+		true,
 	)
 }
 
@@ -344,9 +345,9 @@ func Test0x29b9a9764a27ba65139ccf06ef51e18358a63dfe143bfa6a16a891127cfc8ab6(t *t
 	testTx(t,
 		"0x29b9a9764a27ba65139ccf06ef51e18358a63dfe143bfa6a16a891127cfc8ab6",
 		"v6.0.2",
-		"0x92986",
-		"0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
-		false,
+		"0x92cc1",
+		"",
+		true,
 	)
 }
 
@@ -364,9 +365,9 @@ func Test0x534a7d8dac27858aff75623792fee542dd7cec2539c2ddac92749e85bdc08e84(t *t
 	testTx(t,
 		"0x534a7d8dac27858aff75623792fee542dd7cec2539c2ddac92749e85bdc08e84",
 		"v6.0.3",
-		"0x921c1",
-		"0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
-		false,
+		"0x924f2",
+		"",
+		true,
 	)
 }
 
@@ -387,7 +388,7 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 		blockHeight := mockStatesFromTxJson(ctx, txHash, a, mc)
 		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		ctx = withCapturedConsensusParams(ctx, mc, blockHeight)
-		removeFutureGovernanceActivation(ctx, a, version)
+		removeFutureActivations(ctx, a, version)
 		return ctx.WithBlockHeight(blockHeight)
 	})
 	s.Run(
@@ -428,7 +429,7 @@ func testBlock(
 			)
 			ctx = setLegacySstoreIfNeeded(ctx, a, version)
 			ctx = withCapturedConsensusParams(ctx, mc, blockHeight)
-			removeFutureGovernanceActivation(ctx, a, version)
+			removeFutureActivations(ctx, a, version)
 			return ctx.WithBlockHeight(blockHeight)
 		},
 	)
@@ -460,9 +461,12 @@ func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Co
 	return ctx
 }
 
-func removeFutureGovernanceActivation(ctx sdk.Context, a *app.App, version string) {
+// removeFutureActivations clears the markers genesis sets for features that mainnet
+// only turns on at a later upgrade than version.
+func removeFutureActivations(ctx sdk.Context, a *app.App, version string) {
 	if semver.Compare(version, "v6.8") < 0 {
 		ctx.KVStore(a.GetKey(govtypes.StoreKey)).Delete(govtypes.IncrementalTallyEnabledKey)
+		ctx.KVStore(a.GetKey(stakingtypes.StoreKey)).Delete(stakingtypes.DelegationByValIndexReadyKey)
 	}
 }
 

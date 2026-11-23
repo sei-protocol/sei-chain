@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -181,8 +180,8 @@ func TestStateSyncVectors(t *testing.T) {
 						AppVersion: 11,
 					},
 					Synchrony: &tmproto.SynchronyParams{
-						MessageDelay: utils.Alloc(550 * time.Nanosecond),
-						Precision:    utils.Alloc(90 * time.Nanosecond),
+						MessageDelay: new(550 * time.Nanosecond),
+						Precision:    new(90 * time.Nanosecond),
 					},
 				},
 			}),

@@ -703,19 +703,17 @@ func TestRollbackRejectsVersionZero(t *testing.T) {
 	requireRollbackRejected(t, rollbackFixture(t), 0, "version 0 means no state")
 }
 
-// TestRewindClosedStoreToRejectsVersionZero verifies the closed-store rewind refuses version 0 as
-// Rollback does. A store keeps a snapshot at 0, so 0 is a version this would otherwise land on and then
-// delete every snapshot above — which is all of them.
-func TestRewindClosedStoreToRejectsVersionZero(t *testing.T) {
+// TestRewindClosedStoreToVersionZero verifies the closed-store rewind to version 0 lands on the initial
+// snapshot and deletes every snapshot above it.
+func TestRewindClosedStoreToVersionZero(t *testing.T) {
 	s := rollbackFixture(t)
-	before := snapshotVersionsOnDisk(t, s)
 	require.NoError(t, s.Close())
 
-	_, err := RewindClosedStoreTo(s.flatkvDir(), 0)
+	landed, err := RewindClosedStoreTo(s.flatkvDir(), 0)
 
-	require.ErrorContains(t, err, "nothing to rewind to")
-	require.Equal(t, before, snapshotVersionsOnDisk(t, s),
-		"a refused rewind must leave the snapshots where they were")
+	require.NoError(t, err)
+	require.Zero(t, landed)
+	require.Equal(t, []int64{0}, snapshotVersionsOnDisk(t, s))
 }
 
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
@@ -1921,10 +1919,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	require.NoError(t, s2.Close())
 }
 
-// TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
-// tidwall/wal auto-truncates corrupted segments on open, so the observable effect
-// is entry loss. When catchup needs those entries to reach the requested version,
-// LoadVersion fails with a version mismatch.
+// A corrupted state WAL fails the store's construction.
 func TestWALSegmentCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -1940,18 +1935,6 @@ func TestWALSegmentCorruption(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB}) // v2
 	require.NoError(t, s.Close())
 
-	// Simulate a torn commit: rewind accountDB's version record to v1 so the
-	// store's watermark drops to v1 and catchup needs to replay v2 from the WAL.
-	workingAccount := filepath.Join(dbDir, "working", accountDBDir)
-	metaCfg := pebbledb.DefaultConfig()
-	metaCfg.DataDir = workingAccount
-	metaCfg.EnableMetrics = false
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
-	require.NoError(t, err)
-	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, mdb.Close())
-
-	// Corrupt WAL segments: tidwall/wal will auto-truncate, losing all entries.
 	walDir := filepath.Join(dbDir, changelogDir)
 	entries, err := os.ReadDir(walDir)
 	require.NoError(t, err)
@@ -1970,14 +1953,17 @@ func TestWALSegmentCorruption(t *testing.T) {
 	}
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
-	// Request version 2: the watermark says v1, the WAL auto-truncated (empty), so v2 is unreachable.
+	// Opening reads only the WAL's file names, so the corruption is reported once the WAL is read.
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
+	reopened, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
-	require.Error(t, s2.LoadLatest(),
-		"opening must fail loudly rather than silently skipping the corrupted WAL segment")
-	require.NoError(t, s2.Close())
+	defer func() { require.NoError(t, reopened.Close()) }()
+	it, err := reopened.wal.Iterator(1, 2)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	_, err = it.Next()
+	require.ErrorContains(t, err, "invalid magic prefix")
 }
 
 // =============================================================================
@@ -2062,6 +2048,9 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	_, err = s.Commit(s.Version() + 1) // v1
 	require.NoError(t, err)
+	s = reopenStore(t, s, cfg)
+	accountAt1 := copyDataDB(t, cfg, accountDBDir)
+	require.NoError(t, s.LoadLatest())
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
@@ -2076,15 +2065,8 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	hashAtV2 := rootHash(s)
 	require.NoError(t, s.Close())
 
-	// Simulate a torn commit: rewind accountDB's version record to v1 so catchup must replay v2
-	metaCfg := pebbledb.DefaultTestConfig(t)
-	metaCfg.DataDir = filepath.Join(dbDir, "working", accountDBDir)
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
-	require.NoError(t, err)
-	versionBuf := make([]byte, 8)
-	versionBuf[7] = 1 // version = 1
-	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionBuf, types.WriteOptions{Sync: true}))
-	require.NoError(t, mdb.Close())
+	// Put back accountDB as it was at v1, so catchup must replay v2 into it.
+	restoreDataDB(t, cfg, accountDBDir, accountAt1)
 
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)

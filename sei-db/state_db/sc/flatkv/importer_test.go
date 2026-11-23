@@ -121,7 +121,7 @@ func TestKVImporter_EmptyPhysicalValueRejected(t *testing.T) {
 			defer func() { require.NoError(t, s.Close()) }()
 
 			imp.AddNode(&types.SnapshotNode{
-				Key:     ktype.ModulePhysicalKey("bank", []byte("empty-marker")),
+				Key:     ktype.BuildPhysicalKey("bank", []byte("empty-marker")),
 				Value:   tc.value,
 				Version: 1,
 			})
@@ -142,7 +142,7 @@ func TestKVImporter_NodeVersionMustMatchImport(t *testing.T) {
 	const importVersion = 5
 	nodeAt := func(key string, version int64) *types.SnapshotNode {
 		return &types.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("bank", []byte(key)),
+			Key:     ktype.BuildPhysicalKey("bank", []byte(key)),
 			Value:   vtype.SerializeMisc(importVersion, []byte("v")),
 			Version: version,
 		}
@@ -186,7 +186,7 @@ func TestKVImporter_ImportAfterFailedImport(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	node := &types.SnapshotNode{
-		Key:     ktype.ModulePhysicalKey("bank", []byte("k")),
+		Key:     ktype.BuildPhysicalKey("bank", []byte("k")),
 		Value:   vtype.SerializeMisc(1, []byte("v")),
 		Version: 2,
 	}

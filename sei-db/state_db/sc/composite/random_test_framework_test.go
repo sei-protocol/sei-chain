@@ -35,10 +35,8 @@ import (
 )
 
 // randomTestStores is the set of module stores the randomized workload writes
-// to. It deliberately spans the three routing classes the production routers
-// distinguish: bank/ (stays on memiavl the longest), a generic non-bank /
-// non-evm module (staking/, migrates in the MigrateAllButBank step), and evm/
-// (migrates first, uses structurally-valid EVM keys).
+// to. It deliberately spans the production routing classes: evm/ migrates
+// first, while bank/ and staking/ migrate together during MigrateCosmos.
 var randomTestStores = []string{keys.BankStoreKey, keys.StakingStoreKey, keys.EVMStoreKey}
 
 // =============================================================================
@@ -261,7 +259,7 @@ func randomCodeValue(rng *testutil.TestRandom) []byte {
 
 // randomLegacyValue returns a variable-length value for cosmos / EVM-legacy
 // keys. Roughly 10% of the time it returns an explicit empty value to exercise
-// flatkv's nonNilValue empty-vs-nil WAL round-trip (and memiavl's empty-value
+// flatkv's empty-vs-nil WAL round-trip (and memiavl's empty-value
 // leaf): such keys are present but hold a zero-length value, and the restart /
 // state-sync / migration phases verify they survive replay. Empty values are
 // only ever generated for legacy-style keys -- a fixed-length nonce / code
@@ -727,13 +725,6 @@ func steadyStatePlacement(mode types.WriteMode) func(store string) backendPlacem
 			}
 			return inMemiavlOnly
 		}
-	case types.AllMigratedButBank:
-		return func(store string) backendPlacement {
-			if store == keys.BankStoreKey {
-				return inMemiavlOnly
-			}
-			return inFlatKVOnly
-		}
 	case types.TestOnlyDualWrite:
 		return func(store string) backendPlacement {
 			if store == keys.EVMStoreKey {
@@ -1057,7 +1048,7 @@ func oracleToFlatKVRows(
 		}
 		if store != keys.EVMStoreKey {
 			for k, v := range m {
-				rows[string(ktype.ModulePhysicalKey(store, []byte(k)))] =
+				rows[string(ktype.BuildPhysicalKey(store, []byte(k)))] =
 					flatKVExpectedRow{kind: rowLegacy, legacyValue: append([]byte(nil), v...)}
 			}
 			continue
@@ -1068,10 +1059,10 @@ func oracleToFlatKVRows(
 			case keys.EVMKeyStorage:
 				var sv [32]byte
 				copy(sv[:], v)
-				rows[string(ktype.EVMPhysicalKey(keys.EVMKeyStorage, stripped))] =
+				rows[string(ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, stripped))] =
 					flatKVExpectedRow{kind: rowStorage, storageValue: sv}
 			case keys.EVMKeyCode:
-				rows[string(ktype.EVMPhysicalKey(keys.EVMKeyCode, stripped))] =
+				rows[string(ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, stripped))] =
 					flatKVExpectedRow{kind: rowCode, code: append([]byte(nil), v...)}
 			case keys.EVMKeyNonce:
 				getAcct(string(stripped)).nonce = binary.BigEndian.Uint64(v)
@@ -1080,14 +1071,14 @@ func oracleToFlatKVRows(
 			case keys.EVMKeyBalance:
 				copy(getAcct(string(stripped)).balance[:], v)
 			default: // EVMKeyMisc: identity-mapped under the "evm/" prefix
-				rows[string(ktype.ModulePhysicalKey(keys.EVMStoreKey, []byte(k)))] =
+				rows[string(ktype.BuildPhysicalKey(keys.EVMStoreKey, []byte(k)))] =
 					flatKVExpectedRow{kind: rowLegacy, legacyValue: append([]byte(nil), v...)}
 			}
 		}
 	}
 
 	for addr, a := range accounts {
-		rows[string(ktype.EVMPhysicalKey(ktype.EVMKeyAccount, []byte(addr)))] =
+		rows[string(ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, []byte(addr)))] =
 			flatKVExpectedRow{kind: rowAccount, nonce: a.nonce, codeHash: a.codeHash, balance: a.balance}
 	}
 	return rows
@@ -1267,19 +1258,22 @@ func verifyMigrationMetadata(t *testing.T, cs *CompositeCommitStore, wantVersion
 	require.Equal(t, wantBoundary, boundaryPresent, "migration boundary key presence")
 }
 
-// verifyCommitInfo asserts the evm_lattice StoreInfo is present (or absent) in
-// both LastCommitInfo and WorkingCommitInfo, matching whether flatkv
-// participates in the AppHash for this mode.
+// verifyCommitInfo asserts that LastCommitInfo and WorkingCommitInfo carry the lattice StoreInfo exactly when
+// expectLattice is set, under the name that matches whether memiavl's store infos are present.
 func verifyCommitInfo(t *testing.T, cs *CompositeCommitStore, expectLattice bool) {
 	t.Helper()
 	last := cs.LastCommitInfo()
 	require.NotNil(t, last)
 	require.Equal(t, expectLattice, containsLatticeStoreInfo(last.StoreInfos),
-		"evm_lattice presence in LastCommitInfo")
+		"lattice presence in LastCommitInfo")
 	working := cs.WorkingCommitInfo(cs.Version() + 1)
 	require.NotNil(t, working)
 	require.Equal(t, expectLattice, containsLatticeStoreInfo(working.StoreInfos),
-		"evm_lattice presence in WorkingCommitInfo")
+		"lattice presence in WorkingCommitInfo")
+	if expectLattice {
+		requireLatticeName(t, last.StoreInfos, "LastCommitInfo")
+		requireLatticeName(t, working.StoreInfos, "WorkingCommitInfo")
+	}
 }
 
 // assertCommitInfoEqual asserts two CommitInfos describe the same committed

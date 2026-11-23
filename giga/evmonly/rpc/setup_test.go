@@ -4,39 +4,90 @@ import (
 	"context"
 	"math/big"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+// testRequestBodyBytes is the request size limit the handler runs under in tests. Unlike the other
+// limits it cannot be disabled.
+var testRequestBodyBytes = gigaconfig.DefaultConfig.RPC.MaxRequestBodyBytes
+
+// noRPCLimits disables every limit the handler can run without.
+var noRPCLimits = gigaconfig.RPCConfig{
+	MaxRequestBodyBytes:    testRequestBodyBytes,
+	MaxConcurrentSendCalls: gigaconfig.DefaultConfig.RPC.MaxConcurrentSendCalls,
+}
+
 type testBackend struct {
 	balance          func(common.Address) uint256.Int
-	baseFee          func() (*big.Int, error)
+	baseFee          func() *big.Int
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
 	broadcast        func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
-	chainConfig      func() (*params.ChainConfig, error)
+	chainConfig      func() *params.ChainConfig
 	chainID          func() uint64
 	code             func(common.Address) ([]byte, error)
 	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
-	gasLimit         func() (uint64, error)
-	minGasPrice      func() (*big.Int, error)
+	gasLimit         func() uint64
+	minGasPrice      func() *big.Int
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
+	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
+	senders          map[common.Hash]common.Address
+	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
+	pendingNonce     func(common.Address) utils.Option[uint64]
+	// initialHeight is the genesis InitialHeight GenesisInitialHeight reports.
+	initialHeight int64
+
+	balanceAt          func(common.Address, int64) (uint256.Int, error)
+	codeAt             func(common.Address, int64) ([]byte, error)
+	storageAt          func(common.Address, common.Hash, int64) (common.Hash, error)
+	transactionCountAt func(common.Address, int64) (uint64, error)
+
+	// gotOverrides is the overrides the last call or estimate ran with.
+	gotOverrides abevm.CallOverrides
+
+	callAt                  func(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error)
+	estimateGasAt           func(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
+	estimateGasAfterCalls   func(context.Context, []*core.Message, *core.Message, uint64) (uint64, []byte, error)
+	estimateGasAfterCallsAt func(context.Context, []*core.Message, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error)
+	createAccessList        func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
+	createAccessListAt      func(context.Context, *core.Message, *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
+
+	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
+	stateAt       func(context.Context, int64) (vm.SeiStateDB, func(), error)
+	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error)
+}
+
+func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	return b.blockContext(header)
+}
+
+func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
+	return b.stateAt(ctx, height)
+}
+
+func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+	return b.stateBeforeTx(ctx, header, txs)
 }
 
 func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
@@ -59,7 +110,23 @@ func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 	return b.balance(address)
 }
 
-func (b *testBackend) EvmBaseFee() (*big.Int, error) {
+func (b *testBackend) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
+	return b.balanceAt(address, height)
+}
+
+func (b *testBackend) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
+	return b.codeAt(address, height)
+}
+
+func (b *testBackend) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
+	return b.storageAt(address, key, height)
+}
+
+func (b *testBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {
+	return b.transactionCountAt(address, height)
+}
+
+func (b *testBackend) EvmBaseFee() *big.Int {
 	return b.baseFee()
 }
 
@@ -67,31 +134,71 @@ func (b *testBackend) EvmBlockNumber() uint64 {
 	return b.blockNumber()
 }
 
-func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+func (b *testBackend) GenesisInitialHeight() int64 {
+	return b.initialHeight
+}
+
+func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
+	b.gotOverrides = overrides
 	return b.call(ctx, msg)
 }
 
-func (b *testBackend) EvmChainConfig() (*params.ChainConfig, error) {
+func (b *testBackend) EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
+	b.gotOverrides = overrides
+	return b.callAt(ctx, msg, header)
+}
+
+func (b *testBackend) EvmEstimateGasAt(ctx context.Context, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides abevm.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
+	return b.estimateGasAt(ctx, msg, gasCap, header)
+}
+
+func (b *testBackend) EvmChainConfig() *params.ChainConfig {
 	return b.chainConfig()
 }
 
+// testChainID is the EVM chain ID testBackend reports when chainID is unset.
+const testChainID = 713700
+
 func (b *testBackend) EvmChainID() uint64 {
+	if b.chainID == nil {
+		return testChainID
+	}
 	return b.chainID()
 }
 
-func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
 	return b.estimateGas(ctx, msg, gasCap)
+}
+
+func (b *testBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
+	return b.estimateGasAfterCalls(ctx, calls, msg, gasCap)
+}
+
+func (b *testBackend) EvmEstimateGasAfterCallsAt(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, header *ethtypes.Header, overrides abevm.CallOverrides) (uint64, []byte, error) {
+	b.gotOverrides = overrides
+	return b.estimateGasAfterCallsAt(ctx, calls, msg, gasCap, header)
+}
+
+func (b *testBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.createAccessList(ctx, msg)
+}
+
+func (b *testBackend) EvmCreateAccessListAt(ctx context.Context, msg *core.Message, header *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return b.createAccessListAt(ctx, msg, header)
 }
 
 func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {
 	return b.code(address)
 }
 
-func (b *testBackend) EvmGasLimit() (uint64, error) {
+func (b *testBackend) EvmGasLimit() uint64 {
 	return b.gasLimit()
 }
 
-func (b *testBackend) EvmMinGasPrice() (*big.Int, error) {
+func (b *testBackend) EvmMinGasPrice() *big.Int {
 	return b.minGasPrice()
 }
 
@@ -100,18 +207,40 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	return b.proxy
 }
 
+func (b *testBackend) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if b.senders == nil {
+		b.senders = map[common.Hash]common.Address{}
+	}
+	b.senders[hash] = sender
+}
+
+func (b *testBackend) ForgetEvmSender(hash common.Hash) {
+	delete(b.senders, hash)
+}
+
 func (b *testBackend) EvmProxyEnabled() bool {
-	return b.proxy.IsPresent()
+	return b.proxyEnabled || b.proxy.IsPresent()
+}
+
+func (b *testBackend) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
+	return b.storage(address, key)
 }
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
 	return b.transactionCount(address)
 }
 
+func (b *testBackend) EvmPendingNonce(address common.Address) utils.Option[uint64] {
+	if b.pendingNonce == nil {
+		return utils.None[uint64]()
+	}
+	return b.pendingNonce(address)
+}
+
 // stubReceiptStore overrides GetReceipt on an otherwise real store so tests can
 // inject a store error or a nil receipt without ErrNotFound.
 type stubReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	get func(sdk.Context, common.Hash) (*evmtypes.Receipt, error)
 }
 
@@ -122,13 +251,13 @@ func (s stubReceiptStore) GetReceipt(ctx sdk.Context, hash common.Hash) (*evmtyp
 // stubBlockStatsStore overrides GetBlockStats to answer ErrNotFound for each height in
 // holeHeights, regardless of the wrapped store's real data.
 type stubBlockStatsStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	holeHeights map[uint64]bool
 }
 
-func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
+func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) (receipttypes.BlockStats, error) {
 	if s.holeHeights[blockNumber] {
-		return receipt.BlockStats{}, receipt.ErrNotFound
+		return receipttypes.BlockStats{}, receiptdb.ErrNotFound
 	}
 	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
 }
@@ -136,25 +265,25 @@ func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) 
 // hashOnlyReceiptStore answers ErrBlockStatsNotSupported and ErrRangeQueryNotSupported on an
 // otherwise real store, so tests can exercise the by-hash recompute path pebble takes.
 type hashOnlyReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 }
 
-func (hashOnlyReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
-	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+func (hashOnlyReceiptStore) GetBlockStats(sdk.Context, uint64) (receipttypes.BlockStats, error) {
+	return receipttypes.BlockStats{}, receiptdb.ErrBlockStatsNotSupported
 }
 
-func (hashOnlyReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+func (hashOnlyReceiptStore) IterateReceipts(uint64) (receiptdb.ReceiptIterator, error) {
+	return nil, receiptdb.ErrRangeQueryNotSupported
 }
 
 // stubIteratingReceiptStore overrides IterateReceipts on an otherwise real store, so tests can
 // exercise the iterator path without a real block-ordered backend.
 type stubIteratingReceiptStore struct {
-	receipt.ReceiptStore
-	iterate func(startBlock uint64) (receipt.ReceiptIterator, error)
+	receiptdb.ReceiptStore
+	iterate func(startBlock uint64) (receiptdb.ReceiptIterator, error)
 }
 
-func (s stubIteratingReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
+func (s stubIteratingReceiptStore) IterateReceipts(startBlock uint64) (receiptdb.ReceiptIterator, error) {
 	return s.iterate(startBlock)
 }
 
@@ -165,7 +294,7 @@ type fakeReceiptEntry struct {
 	receipt     *evmtypes.Receipt
 }
 
-// fakeReceiptIterator replays a fixed list of entries as a receipt.ReceiptIterator.
+// fakeReceiptIterator replays a fixed list of entries as a receiptdb.ReceiptIterator.
 type fakeReceiptIterator struct {
 	entries []fakeReceiptEntry
 	i       int

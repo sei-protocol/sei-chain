@@ -159,9 +159,17 @@ func (c *offsetScanCursor) phase() scanPhase {
 	}
 }
 
+// offsetConsumed reports whether the requested offset has been fully skipped.
+func (c *offsetScanCursor) offsetConsumed() bool {
+	if c.filtered {
+		return c.hits >= c.req.offset
+	}
+	return c.scanned >= c.req.offset
+}
+
 func (c *offsetScanCursor) beginIteration(key []byte) (stop bool, err error) {
 	if resumeKey, exhausted := c.budget.begin(key); exhausted {
-		if c.phase() == scanPhaseSkip {
+		if !c.offsetConsumed() {
 			return true, c.budget.offsetNotReachedError()
 		}
 		if c.nextKey == nil {

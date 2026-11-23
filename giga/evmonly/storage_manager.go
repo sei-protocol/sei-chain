@@ -2,32 +2,31 @@ package evmonly
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// WithStorageManager selects the stores used for state and receipt persistence.
-// The encoder converts executor-native state changes into the state store's format.
-func WithStorageManager(manager *bootstrap.GigaStorageManager, encoder NamedChangeSetEncoder) Option {
+// WithStorageManager selects the stores used for state and receipt persistence, and the receipt hasher that
+// receives each block's receipts.
+func WithStorageManager(manager *bootstrap.GigaStorageManager) Option {
 	return func(e *Executor) {
 		if manager != nil {
 			e.stateStore = manager.StateDB()
 			e.receiptStore = manager.ReceiptDB()
+			e.receiptHasher = manager.ReceiptHasher()
 		}
-		e.changeSetEncoder = encoder
 	}
 }
 
 // WithStore selects a state store independently of a storage manager.
-func WithStore(store gigatypes.StateDB, encoder NamedChangeSetEncoder) Option {
+func WithStore(store gigatypes.StateDB) Option {
 	return func(e *Executor) {
 		e.stateStore = store
-		e.changeSetEncoder = encoder
 	}
 }
 
 // WithReceiptStore selects a receipt store independently of a storage manager.
-func WithReceiptStore(store receipt.ReceiptStore) Option {
+func WithReceiptStore(store receiptdb.ReceiptStore) Option {
 	return func(e *Executor) {
 		e.receiptStore = store
 	}

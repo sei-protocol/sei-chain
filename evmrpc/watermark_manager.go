@@ -10,7 +10,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -20,6 +20,10 @@ var errNoHeightSource = errors.New("unable to determine height information")
 // node's safe latest watermark. eth_getBlockByNumber maps this to result null (Ethereum spec).
 var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 
+// ErrReceiptsPruned is returned when a block height is below the earliest version the receipt
+// store retains.
+var ErrReceiptsPruned = errors.New("receipts have been pruned")
+
 // WatermarkManager coordinates access to block, state, and receipt stores to
 // determine queryable block heights for RPC consumers. It ensures read-side
 // requests only target heights where all backing data sources are fully
@@ -27,15 +31,15 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 type WatermarkManager struct {
 	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
-	stateStore   types.StateStore     // nil if SS is disabled.
-	receiptStore receipt.ReceiptStore // nil if the receipt store is disabled.
+	stateStore   types.StateStore       // nil if SS is disabled.
+	receiptStore receiptdb.ReceiptStore // nil if the receipt store is disabled.
 }
 
 func NewWatermarkManager(
 	tmClient client.LocalClient,
 	ctxProvider func(int64) sdk.Context,
 	stateStore types.StateStore,
-	receiptStore receipt.ReceiptStore,
+	receiptStore receiptdb.ReceiptStore,
 ) *WatermarkManager {
 	return &WatermarkManager{
 		tmClient:     tmClient,
@@ -111,24 +115,28 @@ func (m *WatermarkManager) EarliestHeight(ctx context.Context) (int64, error) {
 	return blockEarliest, err
 }
 
-// ReceiptRange returns the inclusive range of heights with receipts available, never
-// starting below the genesis initial height.
-func (m *WatermarkManager) ReceiptRange(ctx context.Context) (earliest, latest int64, err error) {
-	blockEarliest, _, latest, err := m.Watermarks(ctx)
-	if err != nil {
-		return 0, 0, err
-	}
-	earliest = max(blockEarliest, m.genesisInitialHeight())
-	if m.receiptStore != nil {
-		earliest = max(earliest, m.receiptStore.EarliestVersion())
-	}
-	return earliest, latest, nil
-}
-
 // EarliestStateHeight returns the earliest height with state availability.
 func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, error) {
 	_, stateEarliest, _, err := m.Watermarks(ctx)
 	return stateEarliest, err
+}
+
+// EarliestReceiptHeight returns the earliest height whose block and receipts are both available.
+// It returns the earliest block height when the node keeps no receipt store.
+func (m *WatermarkManager) EarliestReceiptHeight(ctx context.Context) (int64, error) {
+	blockEarliest, err := m.EarliestHeight(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return m.receiptEarliest(blockEarliest), nil
+}
+
+// receiptEarliest returns the earliest height at or above blockEarliest whose receipts are available.
+func (m *WatermarkManager) receiptEarliest(blockEarliest int64) int64 {
+	if m.receiptStore == nil {
+		return blockEarliest
+	}
+	return max(blockEarliest, m.receiptStore.EarliestVersion())
 }
 
 // ResolveHeight normalizes a requested block identifier into a concrete height.
@@ -191,17 +199,17 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 	return ensureWithinWatermarks(height, blockEarliest, latest)
 }
 
-// EnsureReceiptHeightAvailable verifies that receipts for the given block height
-// have not been pruned from the receipt store. This is a separate check from
-// EnsureBlockHeightAvailable because the receipt store can be configured with a
-// smaller KeepRecent than the block or state stores.
+// EnsureReceiptHeightAvailable returns an error wrapping ErrReceiptsPruned when height is below the
+// earliest version the receipt store retains, and receiptdb.ErrNotConfigured when the node keeps no
+// receipt store.
 func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	if m.receiptStore == nil {
-		return receipt.ErrNotConfigured
+		return receiptdb.ErrNotConfigured
 	}
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {
-		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)
+		// The sentinel sits mid-message so the client-visible text stays unchanged.
+		return fmt.Errorf("requested height %d %w; earliest available is %d", height, ErrReceiptsPruned, earliest)
 	}
 	return nil
 }
@@ -214,6 +222,15 @@ func ensureWithinWatermarks(height, earliest, latest int64) error {
 		return fmt.Errorf("requested height %d has been pruned; earliest available is %d", height, earliest)
 	}
 	return nil
+}
+
+// blockWindow is the inclusive range of block heights Watermarks reported as available.
+type blockWindow struct {
+	earliest, latest int64
+}
+
+func (w blockWindow) ensureContains(height int64) error {
+	return ensureWithinWatermarks(height, w.earliest, w.latest)
 }
 
 func blockByNumberRespectingWatermarks(

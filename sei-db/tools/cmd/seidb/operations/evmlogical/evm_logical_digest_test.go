@@ -155,13 +155,16 @@ func TestCompositeInspectMemiavlTailOnlyCountsUnmigratedRows(t *testing.T) {
 
 	composite := newTestInspectAccumulator(operations.FlatKVBucketStorage)
 	composite.shardNextBytes = 1
-	composite.addLogical(operations.FlatKVBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
+	composite.addLogical(operations.FlatKVBucketStorage,
+		ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
 	require.NoError(t, consumeCompositeMemiavl(source, "memiavl", boundary, composite.addLogical, nil, nil, nil, nil))
 
 	expected := newTestInspectAccumulator(operations.FlatKVBucketStorage)
 	expected.shardNextBytes = 1
-	expected.addLogical(operations.FlatKVBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
-	expected.addLogical(operations.FlatKVBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, highKeyBytes), highVal, nil)
+	expected.addLogical(operations.FlatKVBucketStorage,
+		ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
+	expected.addLogical(operations.FlatKVBucketStorage,
+		ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, highKeyBytes), highVal, nil)
 
 	require.Equal(t, expected.matched, composite.matched)
 	require.Equal(t, expected.shards, composite.shards)
@@ -170,7 +173,7 @@ func TestCompositeInspectMemiavlTailOnlyCountsUnmigratedRows(t *testing.T) {
 func TestInspectAccountPrefixFilterSkipsOutOfRangeMemiavlAccounts(t *testing.T) {
 	matchingAddr := bytesOfLen(keys.AddressLen, 0x11)
 	skippedAddr := bytesOfLen(keys.AddressLen, 0x22)
-	accountOffset := len(ktype.EVMPhysicalKey(keys.EVMKeyNonce, nil))
+	accountOffset := len(ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, nil))
 	acc := newTestInspectAccumulator(operations.FlatKVBucketAccount)
 	acc.keyOffset = accountOffset
 	acc.keyPrefix = []byte{0x11}
@@ -198,7 +201,7 @@ func TestInspectAccountPrefixFilterDoesNotBufferOutOfRangeBalances(t *testing.T)
 	matchingAddr := bytesOfLen(keys.AddressLen, 0x11)
 	skippedAddr := bytesOfLen(keys.AddressLen, 0x22)
 	acc := newTestInspectAccumulator(operations.FlatKVBucketAccount)
-	acc.keyOffset = len(ktype.EVMPhysicalKey(keys.EVMKeyNonce, nil))
+	acc.keyOffset = len(ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, nil))
 	acc.keyPrefix = []byte{0x11}
 
 	accounts := make(map[string]*semanticAccountDigestState)
@@ -330,7 +333,8 @@ func TestCompositeAccountMergeCombinesFlatKVAndMemiavlFragments(t *testing.T) {
 
 	flatKVAccount := vtype.NewAccountData().SetBlockHeight(123).SetBalance(bal).SetNonce(9)
 	accounts := make(map[string]*semanticAccountDigestState)
-	require.NoError(t, mergeCompositeFlatKVAccount(accounts, ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr), flatKVAccount.Serialize()))
+	require.NoError(t, mergeCompositeFlatKVAccount(accounts,
+		ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, addr), flatKVAccount.Serialize()))
 
 	composite := evmDigest{}
 	require.NoError(t, composite.consumeSemanticMemiavlLeaf(accounts, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), codeHash))
@@ -340,7 +344,7 @@ func TestCompositeAccountMergeCombinesFlatKVAndMemiavlFragments(t *testing.T) {
 	codeHashParsed, err := vtype.ParseCodeHash(codeHash)
 	require.NoError(t, err)
 	fullAccount := vtype.NewAccountData().SetBlockHeight(456).SetBalance(bal).SetNonce(9).SetCodeHash(codeHashParsed)
-	require.NoError(t, expected.consume(ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr), fullAccount.Serialize()))
+	require.NoError(t, expected.consume(ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, addr), fullAccount.Serialize()))
 
 	require.Equal(t, expected.account, composite.account)
 }
@@ -565,7 +569,8 @@ func TestDigestJSONIsOneLine(t *testing.T) {
 func TestInspectJSONReportCarriesTheSameNumbersAsTheProse(t *testing.T) {
 	acc := newTestInspectAccumulator(operations.FlatKVBucketStorage)
 	acc.shardNextBytes = 1
-	physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, append(bytesOfLen(keys.AddressLen, 0x12), bytesOfLen(32, 0x34)...))
+	physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage,
+		append(bytesOfLen(keys.AddressLen, 0x12), bytesOfLen(32, 0x34)...))
 	logical := bytesOfLen(32, 0x56)
 	acc.addLogical(operations.FlatKVBucketStorage, physKey, logical, nil)
 	ctx := testDigestContext()

@@ -55,9 +55,8 @@ func TestEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	cases := map[string]struct {
-		sender             sdk.AccAddress
-		srcMsg             wasmvmtypes.CosmosMsg
-		srcContractIBCPort string
+		sender sdk.AccAddress
+		srcMsg wasmvmtypes.CosmosMsg
 		// set if valid
 		output []sdk.Msg
 		// set if invalid
@@ -377,8 +376,7 @@ func TestEncoding(t *testing.T) {
 			isError: true,
 		},
 		"IBC transfer is unsupported": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
+			sender: addr1,
 			srcMsg: wasmvmtypes.CosmosMsg{
 				IBC: &wasmvmtypes.IBCMsg{
 					Transfer: &wasmvmtypes.TransferMsg{
@@ -398,8 +396,7 @@ func TestEncoding(t *testing.T) {
 			errorIs: types.ErrUnsupportedForContract,
 		},
 		"IBC close channel is unsupported": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
+			sender: addr1,
 			srcMsg: wasmvmtypes.CosmosMsg{
 				IBC: &wasmvmtypes.IBCMsg{
 					CloseChannel: &wasmvmtypes.CloseChannelMsg{
@@ -411,8 +408,7 @@ func TestEncoding(t *testing.T) {
 			errorIs: types.ErrUnsupportedForContract,
 		},
 		"IBC send packet is unsupported": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
+			sender: addr1,
 			srcMsg: wasmvmtypes.CosmosMsg{
 				IBC: &wasmvmtypes.IBCMsg{
 					SendPacket: &wasmvmtypes.SendPacketMsg{
@@ -428,8 +424,7 @@ func TestEncoding(t *testing.T) {
 			errorIs: types.ErrUnsupportedForContract,
 		},
 		"Gov vote: yes": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
+			sender: addr1,
 			srcMsg: wasmvmtypes.CosmosMsg{
 				Gov: &wasmvmtypes.GovMsg{
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 1, Vote: wasmvmtypes.Yes},
@@ -444,8 +439,7 @@ func TestEncoding(t *testing.T) {
 			},
 		},
 		"Gov vote: No": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
+			sender: addr1,
 			srcMsg: wasmvmtypes.CosmosMsg{
 				Gov: &wasmvmtypes.GovMsg{
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 1, Vote: wasmvmtypes.No},
@@ -460,8 +454,7 @@ func TestEncoding(t *testing.T) {
 			},
 		},
 		"Gov vote: Abstain": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
+			sender: addr1,
 			srcMsg: wasmvmtypes.CosmosMsg{
 				Gov: &wasmvmtypes.GovMsg{
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 10, Vote: wasmvmtypes.Abstain},
@@ -476,8 +469,7 @@ func TestEncoding(t *testing.T) {
 			},
 		},
 		"Gov vote: No with veto": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
+			sender: addr1,
 			srcMsg: wasmvmtypes.CosmosMsg{
 				Gov: &wasmvmtypes.GovMsg{
 					Vote: &wasmvmtypes.VoteMsg{ProposalId: 1, Vote: wasmvmtypes.NoWithVeto},
@@ -497,7 +489,7 @@ func TestEncoding(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var ctx sdk.Context
 			encoder := DefaultEncoders(encodingConfig.Marshaler)
-			res, err := encoder.Encode(ctx, tc.sender, tc.srcContractIBCPort, tc.srcMsg, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
+			res, err := encoder.Encode(ctx, tc.sender, tc.srcMsg, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 			if tc.isError {
 				require.Error(t, err)
 				if tc.errorIs != nil {

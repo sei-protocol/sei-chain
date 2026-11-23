@@ -29,10 +29,9 @@ type HashLoggerConfig struct {
 	// character outside [A-Za-z0-9._] is replaced with "_") so that it can be embedded in file names.
 	Version string
 
-	// The ordered set of caller-reported hash types this logger records. Each type becomes a column in the
-	// CSV output, in this order, and a block is only written once a hash has been reported for every type.
-	// This must not include the reserved ChangesetHashType: the changeset column is owned and computed by the logger,
-	// not supplied via ReportHash.
+	// The caller-reported hash types this logger records. Each type becomes a CSV column, and a block is only
+	// written once a hash has been reported for every type. Must not include the reserved ChangesetHashType, which
+	// the logger computes itself.
 	HashTypes []string
 
 	// When true, changeset hashing is disabled entirely: no hasher thread is started, ReportChangeset becomes a no-op,

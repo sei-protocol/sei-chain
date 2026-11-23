@@ -16,7 +16,7 @@ func TestAbciQueryMetricRoute(t *testing.T) {
 	db := dbm.NewMemDB()
 	app := NewBaseApp(t.Name(), db, nil, nil, &testutil.TestAppOpts{})
 
-	grpcQR := app.GRPCQueryRouter()
+	grpcQR := app.QueryServiceRouter()
 	grpcQR.SetInterfaceRegistry(testdata.NewTestInterfaceRegistry())
 	testdata.RegisterQueryServer(grpcQR, testdata.QueryImpl{})
 

@@ -20,7 +20,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -42,7 +43,7 @@ func secondSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 		To:       &to,
 		Value:    big.NewInt(2),
 	})
-	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713715)), key)
+	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713700)), key)
 	require.NoError(t, err)
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)
@@ -55,9 +56,9 @@ func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Cont
 	t.Helper()
 	return &testBackend{
 		block:       block,
-		gasLimit:    func() (uint64, error) { return gasLimit, nil },
-		chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		gasLimit:    func() uint64 { return gasLimit },
+		chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713700)) },
+		baseFee:     func() *big.Int { return new(big.Int) },
 	}
 }
 
@@ -110,16 +111,46 @@ func TestGetBlockByNumberReturnsNullForAFutureHeight(t *testing.T) {
 	require.Nil(t, got)
 }
 
-func TestGetBlockByNumberEarliestReturnsNullBeforeAnyCommittedBlock(t *testing.T) {
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		require.NotNil(t, req.Height)
-		require.Equal(t, coretypes.Int64(0), *req.Height)
-		return nil, fmt.Errorf("%w: 0", coretypes.ErrZeroOrNegativeHeight)
-	})
+// earliest and 0x0 name the earliest block the receipt store retains, never below the chain's first.
+func TestGetBlockByNumberEarliestNamesTheEarliestRetainedBlock(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		number        ethrpc.BlockNumber
+		initialHeight int64
+		pruneTo       uint64
+		wantHeight    coretypes.Int64
+	}{
+		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: 1},
+		{name: "0x0", number: 0, wantHeight: 1},
+		{name: "after pruning", number: ethrpc.EarliestBlockNumber, pruneTo: 3, wantHeight: 3},
+		{name: "on a chain starting later", number: ethrpc.EarliestBlockNumber, initialHeight: 4, wantHeight: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				require.NotNil(t, req.Height)
+				require.Equal(t, tc.wantHeight, *req.Height)
+				return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, *req.Height)
+			})
+			backend.initialHeight = tc.initialHeight
+			store := evmonly.NewMemoryReceiptStore()
+			require.NoError(t, store.SetLatestVersion(5))
+			require.NoError(t, store.PruneHistory(tc.pruneTo))
 
-	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.EarliestBlockNumber, false)
+			got, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), tc.number, false)
 
-	require.NoError(t, err)
+			require.NoError(t, err)
+			require.Nil(t, got)
+		})
+	}
+}
+
+// A block number below zero that is not a tag is invalid params.
+func TestGetBlockByNumberRejectsAnUnknownTag(t *testing.T) {
+	got, err := (&blockAPI{backend: &testBackend{}, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(-6), false)
+
+	var invalid *invalidParamsError
+	require.ErrorAs(t, err, &invalid)
+	require.ErrorIs(t, err, errBlockTagUnsupported)
 	require.Nil(t, got)
 }
 
@@ -188,17 +219,17 @@ func TestEncodeBlockEmptyBlockHasZeroGasUsedAndNoTransactions(t *testing.T) {
 // multiTxBlock builds a two-transaction ResultBlock and the matching receipt
 // store entries, returning the block, its two decoded transactions in order,
 // and the store.
-func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime time.Time) (*coretypes.ResultBlock, *ethtypes.Transaction, *ethtypes.Transaction, receipt.ReceiptStore) {
+func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime time.Time) (*coretypes.ResultBlock, *ethtypes.Transaction, *ethtypes.Transaction, receiptdb.ReceiptStore) {
 	t.Helper()
 	tx1, raw1 := testSignedTransaction(t)
-	sender1, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx1)
+	sender1, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx1)
 	require.NoError(t, err)
 	tx2, raw2 := secondSignedTransaction(t)
-	sender2, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx2)
+	sender2, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx2)
 	require.NoError(t, err)
 
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{
 			TxHash: tx1.Hash(),
 			Receipt: &evmtypes.Receipt{
@@ -323,7 +354,7 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 		return block, nil
 	}
 	backend.proxy = utils.None[*ethrpc.Client]()
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -407,61 +438,6 @@ func TestEncodeBlockRejectsNegativeTime(t *testing.T) {
 	// Verify: negative time is rejected.
 	require.Nil(t, got)
 	require.ErrorContains(t, err, "time is negative")
-}
-
-func TestEncodeBlockSurfacesGasLimitAndBaseFeeErrors(t *testing.T) {
-	block := func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
-		}, nil
-	}
-
-	t.Run("gas limit", func(t *testing.T) {
-		want := errors.New("no gas limit")
-		backend := fixedGasLimitBackend(t, 35_000_000, block)
-		backend.gasLimit = func() (uint64, error) { return 0, want }
-
-		// Test: EvmGasLimit fails.
-		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
-
-	t.Run("base fee", func(t *testing.T) {
-		want := errors.New("no base fee")
-		backend := fixedGasLimitBackend(t, 35_000_000, block)
-		backend.baseFee = func() (*big.Int, error) { return nil, want }
-
-		// Test: EvmBaseFee fails after a valid gas limit.
-		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
-
-		// Verify: that error is returned as-is.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-	})
-}
-
-func TestEncodeBlockFullTxChainConfigError(t *testing.T) {
-	want := errors.New("no chain config")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: tmtypes.Txs{[]byte("tx")}},
-			},
-		}, nil
-	})
-	backend.chainConfig = func() (*params.ChainConfig, error) { return nil, want }
-
-	// Test: full-tx encoding needs a chain config.
-	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
-
-	// Verify: that error is returned as-is.
-	require.Nil(t, got)
-	require.ErrorIs(t, err, want)
 }
 
 func TestEncodeBlockRejectsUndecodableTransactions(t *testing.T) {
@@ -591,8 +567,10 @@ func TestGetBlockTransactionCountByNumber(t *testing.T) {
 		{name: "empty block is zero, not null", number: ethrpc.LatestBlockNumber, block: emptyBlock, want: countOf(0)},
 		// Heights with no block answer null, not an error.
 		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
-		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(0), blockErr: fmt.Errorf("%w: 0", coretypes.ErrZeroOrNegativeHeight)},
 		{name: "nil block", number: ethrpc.LatestBlockNumber},
+		// earliest and 0x0 name the chain's first block in an unpruned store.
+		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(1), block: twoTxBlock, want: countOf(2)},
+		{name: "0x0", number: ethrpc.BlockNumber(0), wantHeight: heightOf(1), block: twoTxBlock, want: countOf(2)},
 		// A pruned height and any other backend failure are errors.
 		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
 		{name: "unexpected backend error", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), blockErr: backendErr, wantErr: backendErr},
@@ -675,7 +653,7 @@ func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		block *coretypes.ResultBlock
-		store receipt.ReceiptStore
+		store receiptdb.ReceiptStore
 		want  hexutil.Uint
 	}{
 		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore, want: 2},
@@ -721,7 +699,7 @@ func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -778,7 +756,8 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 		{name: "empty block", number: ethrpc.LatestBlockNumber, index: 0, block: emptyBlock},
 		// Heights with no block answer null, not an error.
 		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
-		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(0), blockErr: fmt.Errorf("%w: 0", coretypes.ErrZeroOrNegativeHeight)},
+		{name: "earliest", number: ethrpc.EarliestBlockNumber, index: 0, wantHeight: heightOf(1), block: twoTxBlock, want: tx1},
+		{name: "0x0", number: ethrpc.BlockNumber(0), index: 1, wantHeight: heightOf(1), block: twoTxBlock, want: tx2},
 		{name: "nil block", number: ethrpc.LatestBlockNumber},
 		// A pruned height and any other backend failure are errors.
 		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
@@ -869,7 +848,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 	blockTime := time.Unix(1_700_000_000, 0)
 	twoTxBlock, _, _, twoTxStore := multiTxBlock(t, 9, blockHash, blockTime)
 	tx, raw := testSignedTransaction(t)
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx)
 	require.NoError(t, err)
 	oneTxBlock := &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
@@ -879,7 +858,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 		},
 	}
 	replayStore := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, replayStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, replayStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  tx.Hash(),
 		Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 3, TransactionIndex: 7, From: sender.Hex()},
 	}}))
@@ -887,7 +866,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 	for _, tc := range []struct {
 		name  string
 		block *coretypes.ResultBlock
-		store receipt.ReceiptStore
+		store receiptdb.ReceiptStore
 	}{
 		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore},
 		{name: "replayed transaction with an earlier block's receipt", block: oneTxBlock, store: replayStore},
@@ -935,8 +914,6 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 		}
 	}
 	validTime := time.Unix(1_700_000_000, 0)
-	baseFeeErr := errors.New("no base fee")
-	chainConfigErr := errors.New("no chain config")
 	receiptErr := errors.New("receipt db closed")
 	failingReceipts := stubReceiptStore{
 		ReceiptStore: evmonly.NewMemoryReceiptStore(),
@@ -948,26 +925,11 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		block           *coretypes.ResultBlock
-		configure       func(*testBackend)
-		store           receipt.ReceiptStore
+		store           receiptdb.ReceiptStore
 		wantErr         error
 		wantErrContains string
 	}{
 		{name: "negative block time", block: blockWith(tmtypes.Txs{raw}, time.Unix(-1, 0)), wantErrContains: "block 4 time is negative"},
-		{
-			name:      "base fee error",
-			block:     blockWith(tmtypes.Txs{raw}, validTime),
-			configure: func(b *testBackend) { b.baseFee = func() (*big.Int, error) { return nil, baseFeeErr } },
-			wantErr:   baseFeeErr,
-		},
-		{
-			name:  "chain config error",
-			block: blockWith(tmtypes.Txs{raw}, validTime),
-			configure: func(b *testBackend) {
-				b.chainConfig = func() (*params.ChainConfig, error) { return nil, chainConfigErr }
-			},
-			wantErr: chainConfigErr,
-		},
 		{name: "undecodable transaction", block: blockWith(tmtypes.Txs{[]byte("not-an-rlp-tx")}, validTime), wantErrContains: "decode transaction at block 4 index 0"},
 		{name: "receipt read error", block: blockWith(tmtypes.Txs{raw}, validTime), store: failingReceipts, wantErr: receiptErr, wantErrContains: "read transaction receipt at block 4 index 0"},
 	} {
@@ -975,9 +937,6 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 				return tc.block, nil
 			})
-			if tc.configure != nil {
-				tc.configure(backend)
-			}
 			store := tc.store
 			if store == nil {
 				store = evmonly.NewMemoryReceiptStore()
@@ -1010,7 +969,7 @@ func TestGetTransactionByBlockAndIndexEndToEnd(t *testing.T) {
 		return block, nil
 	}
 	backend.proxy = utils.None[*ethrpc.Client]()
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

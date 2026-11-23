@@ -9,12 +9,12 @@ import (
 )
 
 func testComponents() (*codec.LegacyAmino, sdk.Context, sdk.StoreKey, sdk.StoreKey, paramskeeper.Keeper) {
-	marshaler := seiapp.MakeEncodingConfig().Marshaler
+	encodingConfig := seiapp.MakeEncodingConfig()
 	legacyAmino := createTestCodec()
 	mkey := sdk.NewKVStoreKey("test")
 	tkey := sdk.NewTransientStoreKey("transient_test")
 	ctx := testutil.DefaultContext(mkey, tkey)
-	keeper := paramskeeper.NewKeeper(marshaler, legacyAmino, mkey, tkey)
+	keeper := paramskeeper.NewKeeper(encodingConfig.Marshaler, legacyAmino, mkey, tkey, encodingConfig.InterfaceRegistry)
 
 	return legacyAmino, ctx, mkey, tkey, keeper
 }

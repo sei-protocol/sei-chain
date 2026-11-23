@@ -975,7 +975,7 @@ func TestTxMempool_EvmMetadataCacheShortCircuitsAndReadmitsAfterFailedExecution(
 			require.Equal(t, 1, txmp.Size())
 
 			_, err = txmp.CheckTx(ctx, tc.worseTx)
-			require.Equal(t, ErrTxInCache, err)
+			require.ErrorIs(t, err, ErrTxInCache)
 			require.Equal(t, 1, txmp.Size())
 
 			txmp.Lock()
@@ -988,6 +988,55 @@ func TestTxMempool_EvmMetadataCacheShortCircuitsAndReadmitsAfterFailedExecution(
 
 			_, err = txmp.CheckTx(ctx, tc.worseTx)
 			require.NoError(t, err)
+			require.Equal(t, 1, txmp.Size())
+		})
+	}
+}
+
+func TestTxMempool_CheckTxRejectionReasons(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	betterTx := types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 10, 0))
+
+	for _, tc := range []struct {
+		name    string
+		resent  types.Tx
+		wantErr error
+	}{
+		{
+			name:    "same tx",
+			resent:  betterTx,
+			wantErr: types.ErrTxInMempool,
+		},
+		{
+			name:    "same nonce lower priority",
+			resent:  types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 9, 0)),
+			wantErr: types.ErrTxReplacementUnderpriced,
+		},
+		{
+			name:    "same nonce higher priority but too high required balance",
+			resent:  types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 20, 101)),
+			wantErr: types.ErrTxInsufficientFunds,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newEVMNonceApp()
+			app.setNonce(sender, 7)
+			app.setBalance(sender, 100)
+
+			cfg := TestConfig()
+			cfg.CacheSize = 100
+			txmp := setup(cfg, proxy.New(app), NopTxConstraintsFetcher)
+
+			_, err := txmp.CheckTx(ctx, betterTx)
+			require.NoError(t, err)
+			if !bytes.Equal(tc.resent, betterTx) {
+				_, err = txmp.CheckTx(ctx, tc.resent)
+				require.ErrorIs(t, err, errSameNonce)
+			}
+
+			_, err = txmp.CheckTx(ctx, tc.resent)
+			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, 1, txmp.Size())
 		})
 	}

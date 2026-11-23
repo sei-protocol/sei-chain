@@ -9,7 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 )
@@ -131,13 +132,15 @@ type Config struct {
 	// maximum number of active eth_newFilter and eth_newBlockFilter filters
 	MaxFilters uint64 `mapstructure:"max_filters"`
 
-	// maximum number of unpolled hashes retained by an eth_newBlockFilter filter
+	// maximum number of block hashes an eth_newBlockFilter filter holds unpolled (Autobahn) or
+	// block heights one poll covers (otherwise)
 	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
 
 	// checkTx timeout for sig verify
 	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
 
-	// max number of txs to pull from mempool
+	// maximum number of mempool txs, Cosmos txs included, that txpool_content reads; it
+	// returns only the EVM txs among them
 	MaxTxPoolTxs uint64 `mapstructure:"max_tx_pool_txs"`
 
 	// controls whether to have txns go through one by one
@@ -162,6 +165,10 @@ type Config struct {
 	// max number of blocks to query logs for
 	MaxBlocksForLog int64 `mapstructure:"max_blocks_for_log"`
 
+	// LargeLogQueryRPS is the node-wide rate, in queries per second, at which log
+	// queries over 100 blocks are admitted, shared by all clients. Zero disables the limit.
+	LargeLogQueryRPS int `mapstructure:"large_log_query_rps"`
+
 	// max number of calls allowed in an eth_estimateGasAfterCalls request
 	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
 
@@ -176,9 +183,6 @@ type Config struct {
 
 	// max number of concurrent logs subscriptions
 	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
-
-	// test api enables certain override apis for integration test situations
-	EnableTestAPI bool `mapstructure:"enable_test_api"`
 
 	// MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 	// Set to 0 for unlimited.
@@ -367,14 +371,14 @@ var DefaultConfig = Config{
 	EnableSimulation:             true,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
-	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
+	MaxLogBytes:                  logfilter.DefaultMaxLogBytes,
 	MaxBlocksForLog:              2000,
+	LargeLogQueryRPS:             30,
 	MaxEstimateGasCalls:          100,
 	MaxStateOverrideAccounts:     100,
 	MaxStateOverrideSlots:        1000,
 	MaxSubscriptionsNewHead:      10000,
 	MaxSubscriptionsLogs:         1000,
-	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
@@ -439,12 +443,12 @@ const (
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxLogBytes                  = "evm.max_log_bytes"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
+	flagLargeLogQueryRPS             = "evm.large_log_query_rps"
 	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
 	flagMaxStateOverrideAccounts     = "evm.max_state_override_accounts"
 	flagMaxStateOverrideSlots        = "evm.max_state_override_slots"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
 	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
-	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
@@ -603,6 +607,14 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagLargeLogQueryRPS); v != nil {
+		if cfg.LargeLogQueryRPS, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+		if cfg.LargeLogQueryRPS < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0, got %d", flagLargeLogQueryRPS, cfg.LargeLogQueryRPS)
+		}
+	}
 	if v := opts.Get(flagMaxEstimateGasCalls); v != nil {
 		if cfg.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
 			return cfg, err
@@ -625,11 +637,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxSubscriptionsLogs); v != nil {
 		if cfg.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
-			return cfg, err
-		}
-	}
-	if v := opts.Get(flagEnableTestAPI); v != nil {
-		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -856,40 +863,10 @@ func normalizeNativeTracerNames(flagName string, names []string) ([]string, erro
 	return out, nil
 }
 
-// ParseMethodTimeouts parses RPCMethodTimeouts' "method=duration" entries (for
-// example "eth_call=60s") into an exact-match map and a prefix-match map. An
-// entry whose method name ends in "*" (for example "debug_trace*=0") matches
-// every method starting with the text before "*", instead of one exact name,
-// and is returned in prefixes rather than exact. Returns an error naming the
-// malformed entry.
+// ParseMethodTimeouts parses RPCMethodTimeouts' "method=duration" entries into an exact-match
+// map and a prefix-match map, as ratelimiter.ParseMethodTimeouts does.
 func ParseMethodTimeouts(entries []string) (exact map[string]time.Duration, prefixes map[string]time.Duration, err error) {
-	exact = make(map[string]time.Duration, len(entries))
-	prefixes = make(map[string]time.Duration)
-	for _, entry := range entries {
-		method, raw, ok := strings.Cut(entry, "=")
-		if !ok || method == "" {
-			return nil, nil, fmt.Errorf("%q must be formatted as method=duration, for example eth_estimateGasAfterCalls=5m", entry)
-		}
-		d, err := cast.ToDurationE(raw)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%q: %w", entry, err)
-		}
-		if d < 0 {
-			return nil, nil, fmt.Errorf("%q duration must be >= 0 (0 disables the method deadline), got %s", entry, d)
-		}
-		if prefix, isWildcard := strings.CutSuffix(method, "*"); isWildcard {
-			if prefix == "" || strings.Contains(prefix, "*") {
-				return nil, nil, fmt.Errorf("%q: wildcard entry must have a single non-empty prefix before a trailing \"*\", for example debug_trace*", entry)
-			}
-			prefixes[prefix] = d
-			continue
-		}
-		if strings.Contains(method, "*") {
-			return nil, nil, fmt.Errorf("%q: \"*\" is only supported as a trailing wildcard, for example debug_trace*", entry)
-		}
-		exact[method] = d
-	}
-	return exact, prefixes, nil
+	return ratelimiter.ParseMethodTimeouts(entries)
 }
 
 // RateLimiterConfig builds the ratelimiter.Config used by EVM JSON-RPC admission.
@@ -1009,8 +986,9 @@ filter_timeout = "{{ .EVM.FilterTimeout }}"
 # filters cannot be added if there are too many active eth_newFilter and eth_newBlockFilter
 max_filters = {{ .EVM.MaxFilters }}
 
-# maximum number of unpolled hashes retained by an eth_newBlockFilter filter;
-# if a filter has more than this many unpolled hashes the filter will be invalidated and removed.
+# maximum number of block hashes an eth_newBlockFilter filter handles at once.
+# Under Autobahn a filter holding this many unpolled hashes is invalidated and removed;
+# otherwise one poll covers at most this many block heights and later polls cover the rest.
 max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
 
 # checkTx timeout for sig verify
@@ -1049,6 +1027,11 @@ max_log_bytes = {{ .EVM.MaxLogBytes }}
 
 # max number of blocks to query logs for
 max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
+
+# Node-wide rate, in queries per second, at which eth_getLogs, eth_getFilterLogs
+# and filter polls over 100 blocks are admitted, shared by all clients.
+# 0 disables the limit.
+large_log_query_rps = {{ .EVM.LargeLogQueryRPS }}
 
 # max number of calls allowed in an eth_estimateGasAfterCalls request
 max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}

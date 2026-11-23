@@ -11,8 +11,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/stretchr/testify/require"
 )
@@ -204,9 +207,12 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 	w, err := statewal.New(walCfg)
 	require.NoError(t, err)
 	for v := uint64(7); v <= 8; v++ {
-		require.NoError(t, w.Write(v, []*proto.NamedChangeSet{{
-			Name:      keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(byte(v)), v)}},
+		addr := addrN(byte(v))
+		//nolint:gosec // small test heights
+		account := vtype.NewAccountData().SetNonce(v).SetBlockHeight(int64(v))
+		require.NoError(t, w.Write(v, []mutation.Mutation{{
+			Key:      ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:]),
+			NewValue: account.Serialize(),
 		}}))
 	}
 	require.NoError(t, w.Flush())

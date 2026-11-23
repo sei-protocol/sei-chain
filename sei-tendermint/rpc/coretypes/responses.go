@@ -34,7 +34,7 @@ var (
 // when the caller has the active lower bound — e.g. CometBFT's
 // BlockStore.Base() in env.getHeight. Pass None when the caller only knows
 // the height was unavailable but not what the bound is — e.g. the Autobahn
-// path where data.GlobalBlock returns types.ErrPruned and the bound
+// path where data.SuperBlock returns types.ErrPruned and the bound
 // (BlockDB's prune watermark) is internal to the store.
 //
 // Centralizing this format means both paths produce identical error
@@ -144,6 +144,12 @@ type SyncInfo struct {
 	SnapshotChunksTotal int64         `json:"snapshot_chunks_total,string"`
 	BackFilledBlocks    int64         `json:"backfilled_blocks,string"`
 	BackFillBlocksTotal int64         `json:"backfill_blocks_total,string"`
+
+	// FreezeHeight is the first block height a freeze-mode node does not execute,
+	// or 0 when freeze mode is off.
+	FreezeHeight int64 `json:"freeze_height,omitempty,string"`
+	// Frozen reports whether a freeze-mode node has stopped at its freeze height.
+	Frozen bool `json:"frozen,omitempty"`
 }
 
 type ApplicationInfo struct {

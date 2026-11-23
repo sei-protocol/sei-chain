@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
+	evmonlycli "github.com/sei-protocol/sei-chain/giga/evmonly/client/cli"
+
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -42,7 +43,6 @@ import (
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -100,15 +100,7 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			// SEI_CONFIG_MANAGER is read once per PersistentPreRunE invocation
-			// (a clean two-way door). When PR2 adds the `seid config ...` subtree
-			// (which skips PersistentPreRunE), it must own single-read discipline
-			// so one process cannot select two different managers.
-			mgr, err := configmanager.Select(os.Getenv)
-			if err != nil {
-				return err
-			}
-			return mgr.Apply(cmd, customAppTemplate, customAppConfig)
+			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
 
@@ -129,11 +121,6 @@ func initRootCmd(
 	// extend debug command
 	debugCmd := debug.Cmd()
 
-	// One namespace for configuration. The existing command reads and writes client.toml; check reads the
-	// node's sei.toml and writes nothing.
-	configCmd := config.Cmd()
-	configCmd.AddCommand(configmanager.CheckCmd())
-
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
 		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
@@ -146,11 +133,9 @@ func initRootCmd(
 		),
 		genutilcli.ValidateGenesisCmd(app.ModuleBasics),
 		AddGenesisAccountCmd(app.DefaultNodeHome),
-		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
-		configCmd,
-		tools.ToolCmd(),
+		config.Cmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
 	)
@@ -177,6 +162,7 @@ func initRootCmd(
 		ReplayCmd(app.DefaultNodeHome),
 		BlocktestCmd(app.DefaultNodeHome),
 	)
+	evmonlycli.Route(rootCmd)
 }
 
 // queryCommand returns the sub-command to send queries to the app
@@ -350,8 +336,6 @@ func initAppConfig() (string, interface{}) {
 	//   own app.toml config,
 	// - if you set srvCfg.MinGasPrices non-empty, validators CAN tweak their
 	//   own app.toml to override, or use this default value.
-	//
-	// In simapp, we set the min gas prices to 0.
 	srvCfg.MinGasPrices = "0.01usei"
 	srvCfg.API.Enable = true
 
@@ -382,17 +366,6 @@ func initAppConfig() (string, interface{}) {
 		admin.ConfigTemplate +
 		cosmosmetrics.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
-###############################################################################
-###                        WASM Configuration (Auto-managed)                ###
-###############################################################################
-
-[wasm]
-# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = {{ .WASM.QueryGasLimit }}
-# This is the number of wasm vm instances we keep cached in memory for speed-up
-# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0
-
 ###############################################################################
 ###                     ETH Replay Configuration (Auto-managed)             ###
 ###############################################################################

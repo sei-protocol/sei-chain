@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -206,14 +206,14 @@ func TestSimulationStateAtResolvedHeightCarriesRequestContext(t *testing.T) {
 }
 
 type blockingReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	entered chan struct{}
 	release chan struct{}
 	ctxErr  chan error
 }
 
 type blockAfterFirstReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	entered chan struct{}
 	release chan struct{}
 	mu      sync.Mutex
@@ -342,7 +342,7 @@ func TestAdditionalReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T)
 		{
 			name: "block by number",
 			read: func(ctx context.Context, ctxProvider func(int64) sdk.Context, watermarks *evmrpc.WatermarkManager) error {
-				api := evmrpc.NewBlockAPI(&MockClient{}, EVMKeeper, ctxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{})
+				api := evmrpc.NewBlockAPI(&MockClient{}, EVMKeeper, ctxProvider, ctxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{})
 				_, err := api.GetBlockByNumber(ctx, rpc.BlockNumber(MockHeight8), false)
 				return err
 			},
@@ -350,7 +350,7 @@ func TestAdditionalReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T)
 		{
 			name: "block receipts",
 			read: func(ctx context.Context, ctxProvider func(int64) sdk.Context, watermarks *evmrpc.WatermarkManager) error {
-				api := evmrpc.NewBlockAPI(&MockClient{}, EVMKeeper, ctxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{})
+				api := evmrpc.NewBlockAPI(&MockClient{}, EVMKeeper, ctxProvider, ctxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{})
 				_, err := api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(MockHeight8)))
 				return err
 			},
@@ -375,7 +375,7 @@ func TestAdditionalReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T)
 					Watermarks:       watermarks,
 				})
 				blockHash := common.Hash{31: 1}
-				_, _, err := fetcher.GetLogsByFilters(ctx, filters.FilterCriteria{BlockHash: &blockHash}, 0)
+				_, _, err := fetcher.GetLogsByFilters(ctx, filters.FilterCriteria{BlockHash: &blockHash})
 				return err
 			},
 		},
@@ -429,7 +429,7 @@ func TestLogFilteringDoesNotReturnNonRequestWorkerErrors(t *testing.T) {
 	})
 	blockHash := common.Hash{31: 1}
 
-	logs, _, err := fetcher.GetLogsByFilters(t.Context(), filters.FilterCriteria{BlockHash: &blockHash}, 0)
+	logs, _, err := fetcher.GetLogsByFilters(t.Context(), filters.FilterCriteria{BlockHash: &blockHash})
 
 	require.NoError(t, err)
 	require.Empty(t, logs)

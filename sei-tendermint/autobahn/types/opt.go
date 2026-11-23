@@ -20,20 +20,12 @@ func ProposalOpt[P any, T interface{ Proposal() P }](mv utils.Option[T]) utils.O
 	return utils.None[P]()
 }
 
-// NextIndexOpt defaults to 0.
-func NextIndexOpt[T interface{ Index() RoadIndex }](mv utils.Option[T]) RoadIndex {
-	if v, ok := mv.Get(); ok {
-		return v.Index() + 1
-	}
-	return 0
-}
-
 // NextViewOpt defaults to {0,0}.
 func NextViewOpt[T interface{ View() View }](mv utils.Option[T]) View {
 	if v, ok := mv.Get(); ok {
 		return v.View().Next()
 	}
-	return View{Index: 0, Number: 0}
+	return View{Height: 0, Number: 0}
 }
 
 // LaneRangeOpt defaults to an empty initial range.
@@ -43,7 +35,7 @@ func LaneRangeOpt[T interface {
 	if v, ok := mv.Get(); ok {
 		return v.LaneRange(lane)
 	}
-	return NewLaneRange(lane, 0, utils.None[*BlockHeader]())
+	return NewLaneRange(lane, 0, utils.None[*LaneBlockHeader]())
 }
 
 // AppOpt defaults to None.

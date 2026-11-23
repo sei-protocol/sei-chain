@@ -3,18 +3,27 @@ package config
 import (
 	"encoding/json"
 	"math"
+	"math/big"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/holiman/uint256"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/stretchr/testify/require"
 )
 
 func TestURLJSONReencode(t *testing.T) {
 	want := URL{URL: &url.URL{
-		Scheme:   "https",
-		Host:     "example.com:8545",
+		Scheme:   "wss",
+		Host:     "example.com:8546",
 		Path:     "/rpc",
 		RawQuery: "foo=bar&baz=qux",
 	}}
@@ -28,22 +37,42 @@ func TestURLJSONReencode(t *testing.T) {
 	require.Equal(t, want.String(), got.String())
 }
 
-func TestURLUnmarshalRejectsNonHTTP(t *testing.T) {
-	var got URL
-	require.Error(t, json.Unmarshal([]byte(`"ws://example.com:8545"`), &got))
+func TestURLUnmarshalAcceptsWebSocket(t *testing.T) {
+	for _, raw := range []string{"ws://example.com:8546", "wss://example.com:8546"} {
+		var got URL
+		require.NoError(t, json.Unmarshal([]byte(`"`+raw+`"`), &got))
+		require.NotNil(t, got.URL)
+		require.Equal(t, raw, got.String())
+	}
+}
+
+func TestURLUnmarshalRejectsNonWebSocket(t *testing.T) {
+	for _, raw := range []string{`"http://example.com:8545"`, `"https://example.com:8545"`, `"file://localhost/rpc"`} {
+		var got URL
+		require.Error(t, json.Unmarshal([]byte(raw), &got))
+	}
 }
 
 func validAutobahnFileConfig() AutobahnFileConfig {
 	return AutobahnFileConfig{
-		Validators: []AutobahnValidator{{
-			EVMRPC: URL{URL: &url.URL{Scheme: "http", Host: "localhost:8545"}},
-		}},
+		Validators:     []AutobahnValidator{{}},
 		MaxTxsPerBlock: 1,
 		BlockInterval:  utils.Duration(time.Second),
 		DialInterval:   utils.Duration(time.Second),
+		EVMChainID:     713700,
 
 		PersistentStateDir: "autobahn",
 	}
+}
+
+func TestAutobahnFileConfig_EVMChainID(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_chain_id":713701}`), &fc))
+	require.Equal(t, uint64(713701), fc.EVMChainID)
+	require.NoError(t, fc.Validate())
+
+	fc.EVMChainID = 0
+	require.Error(t, fc.Validate())
 }
 
 func TestAutobahnFileConfig_ValidateMaxConcurrentCheckTx(t *testing.T) {
@@ -85,4 +114,148 @@ func TestAutobahnBlockDBConfig_LittBlockConfig(t *testing.T) {
 	require.Equal(t, wantRetention, cfg.RetentionTime)
 	require.Equal(t, wantGCPeriod, cfg.Litt.GCPeriod)
 	require.True(t, cfg.Litt.Fsync)
+}
+
+func governedAutobahnFileConfig() AutobahnFileConfig {
+	fc := validAutobahnFileConfig()
+	second := fc.Validators[0]
+	fc.Validators[0].EVMVoter = utils.Some(common.HexToAddress("0x01"))
+	second.EVMVoter = utils.Some(common.HexToAddress("0x02"))
+	fc.Validators = append(fc.Validators, second)
+	fc.EVMGovernance = utils.Some(EVMGovernance{Params: NewEVMGovernanceParams(gov.DefaultParams()), StartingProposalID: 7})
+	return fc
+}
+
+func TestAutobahnFileConfig_ValidateEVMGovernance(t *testing.T) {
+	valid := governedAutobahnFileConfig()
+	require.NoError(t, valid.Validate())
+	for name, edit := range map[string]func(*AutobahnFileConfig){
+		"voter without governance": func(fc *AutobahnFileConfig) { fc.EVMGovernance = utils.None[EVMGovernance]() },
+		"missing voter":            func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = utils.None[common.Address]() },
+		"zero voter":               func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = utils.Some(common.Address{}) },
+		"shared voter":             func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = fc.Validators[0].EVMVoter },
+		"invalid params": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.Params.VotingPeriod = 0
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"repeated applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{"v6.7", "v6.8", "v6.7"}
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"empty applied upgrade": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.AppliedUpgrades = []string{""}
+			fc.EVMGovernance = utils.Some(g)
+		},
+		"negative period": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.Params.MaxDepositPeriod = utils.Duration(-time.Hour)
+			fc.EVMGovernance = utils.Some(g)
+		},
+	} {
+		fc := governedAutobahnFileConfig()
+		edit(&fc)
+		require.Error(t, fc.Validate(), name)
+	}
+}
+
+func TestAutobahnFileConfig_EVMGovernanceJSON(t *testing.T) {
+	plain, err := json.Marshal(validAutobahnFileConfig())
+	require.NoError(t, err)
+	require.NotContains(t, string(plain), "evm_governance")
+	require.NotContains(t, string(plain), "evm_voter")
+
+	want := governedAutobahnFileConfig()
+	encoded, err := json.Marshal(want)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"starting_proposal_id":7`)
+	require.Contains(t, string(encoded), `"voting_period":"48h0m0s"`)
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal(encoded, &got))
+	require.NoError(t, got.Validate())
+	require.Equal(t, want.EVMGovernance, got.EVMGovernance)
+	require.Equal(t, want.Validators[1].EVMVoter, got.Validators[1].EVMVoter)
+}
+
+func TestEVMGovernanceParams_PeriodsAreDurationStrings(t *testing.T) {
+	var p EVMGovernanceParams
+	require.NoError(t, json.Unmarshal([]byte(`{"voting_period":"1.5h","expedited_voting_period":"90s","max_deposit_period":"2h"}`), &p))
+	require.Equal(t, 90*time.Minute, p.VotingPeriod.Duration())
+	require.Equal(t, 90*time.Second, p.ExpeditedVotingPeriod.Duration())
+	require.Equal(t, 2*time.Hour, p.MaxDepositPeriod.Duration())
+
+	require.Error(t, json.Unmarshal([]byte(`{"voting_period":172800000000000}`), &p), "a bare number is not a duration")
+
+	want := gov.DefaultParams()
+	got, err := NewEVMGovernanceParams(want).Gov()
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+func TestAutobahnFileConfig_EVMAllocJSON(t *testing.T) {
+	plain := validAutobahnFileConfig()
+	require.False(t, plain.EVMGenesisAlloc().IsPresent())
+	encoded, err := json.Marshal(plain)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "evm_alloc")
+
+	addr := common.HexToAddress("0xa1")
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":"0xde0b6b3a7640000"}}`), &got))
+	alloc, ok := got.EVMGenesisAlloc().Get()
+	require.True(t, ok)
+	require.Equal(t, map[common.Address]evmonly.GenesisAccount{addr: {Balance: uint256.NewInt(1_000_000_000_000_000_000)}}, alloc)
+
+	for _, balance := range []string{`"-0x1"`, `"0x1` + strings.Repeat("0", 64) + `"`, `1`} {
+		require.Error(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":`+balance+`}}`), &got), balance)
+	}
+}
+
+func TestAutobahnFileConfig_LocalEVMRPC(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	require.NoError(t, fc.Validate())
+	fc.EVMRPC = utils.Some(URL{URL: &url.URL{Scheme: "ws", Host: "local.example:8546"}})
+	require.NoError(t, fc.Validate())
+	encoded, err := json.Marshal(fc)
+	require.NoError(t, err)
+	var wire map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &wire))
+	require.Equal(t, `"ws://local.example:8546"`, string(wire["evmrpc"]))
+	fc.EVMRPC = utils.Some(URL{URL: &url.URL{Scheme: "http", Host: "local.example:8545"}})
+	require.Error(t, fc.Validate())
+}
+
+func TestAutobahnFileConfig_EVMAllocAccountObjects(t *testing.T) {
+	addr, contract := common.HexToAddress("0xa1"), common.HexToAddress("0xc0")
+	slot := common.BigToHash(big.NewInt(2))
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_alloc":{
+		"`+addr.Hex()+`":{"balance":"0x3e8"},
+		"`+contract.Hex()+`":{"nonce":"0x2","code":"0x6000f3","storage":{"`+slot.Hex()+`":"`+common.BigToHash(big.NewInt(1)).Hex()+`"}}
+	}}`), &got))
+	alloc, ok := got.EVMAlloc.Get()
+	require.True(t, ok)
+	require.Equal(t, map[common.Address]EVMGenesisAccount{
+		addr: {Balance: utils.Some(hexutil.U256(*uint256.NewInt(1_000)))},
+		contract: {
+			Nonce:   2,
+			Code:    []byte{0x60, 0x00, 0xf3},
+			Storage: map[common.Hash]common.Hash{slot: common.BigToHash(big.NewInt(1))},
+		},
+	}, alloc)
+	require.False(t, alloc[contract].Balance.IsPresent())
+
+	require.Error(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":{"balance":"0x1","privateKey":"0x01"}}}`), &got))
+}
+
+func TestAutobahnFileConfig_EVMAllocWritesAccountObjects(t *testing.T) {
+	addr := common.HexToAddress("0xa1")
+	var legacy AutobahnFileConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":"0x3e8"}}`), &legacy))
+
+	encoded, err := json.Marshal(legacy.EVMAlloc)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"`+strings.ToLower(addr.Hex())+`":{"balance":"0x3e8"}}`, string(encoded))
 }

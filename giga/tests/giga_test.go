@@ -1529,6 +1529,57 @@ func TestLastResultsHash_GigaVsGeth_ContractCall(t *testing.T) {
 	t.Logf("Contract call LastResultsHash verified identical: %X", gethHash)
 }
 
+// TestEVMTxResultData_OmitsReturnDataAndLogs verifies that on every executor path an
+// EVM tx's ExecTxResult.Data carries neither return data nor logs, while its receipt
+// still carries the logs.
+func TestEVMTxResultData_OmitsReturnDataAndLogs(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	deployer := utils.NewSigner()
+	caller := utils.NewSigner()
+	contractAddr := crypto.CreateAddress(deployer.EvmAddress, 0)
+
+	for _, mode := range []ExecutorMode{ModeV2withOCC, ModeGigaSequential, ModeGigaOCC} {
+		t.Run(mode.String(), func(t *testing.T) {
+			tCtx := NewGigaTestContext(t, accts, blockTime, 1, mode)
+			txs := CreateContractDeployTxs(t, tCtx, []EVMContractDeploy{
+				{Signer: deployer, Bytecode: simpleStorageBytecode, Nonce: 0},
+			}, tCtx.isGigaMode())
+			txs = append(txs, CreateContractCallTxs(t, tCtx, []EVMContractCall{
+				{Signer: caller, Contract: contractAddr, Data: encodeSetCall(big.NewInt(42)), Nonce: 0},
+				{Signer: caller, Contract: contractAddr, Data: encodeGetCall(), Nonce: 1},
+			}, tCtx.isGigaMode())...)
+			_, results, err := RunBlock(t, tCtx, txs)
+			require.NoError(t, err)
+			require.Len(t, results, 3)
+
+			responses := make([]*types.MsgEVMTransactionResponse, len(results))
+			for i, result := range results {
+				require.Equal(t, uint32(0), result.Code, "tx[%d] failed: %s", i, result.Log)
+				responses[i] = decodeEVMTxResponse(t, result.Data)
+				require.NotEmpty(t, responses[i].Hash, "tx[%d]", i)
+				require.Empty(t, responses[i].ReturnData, "tx[%d]", i)
+				require.Empty(t, responses[i].Logs, "tx[%d]", i)
+			}
+
+			setReceipt, err := tCtx.GetTransientReceipt(t, common.HexToHash(responses[1].Hash), 1)
+			require.NoError(t, err)
+			require.Len(t, setReceipt.Logs, 1)
+		})
+	}
+}
+
+// decodeEVMTxResponse decodes the MsgEVMTransactionResponse wrapped in an EVM tx's ExecTxResult.Data.
+func decodeEVMTxResponse(t *testing.T, data []byte) *types.MsgEVMTransactionResponse {
+	var msgData sdk.TxMsgData
+	require.NoError(t, msgData.Unmarshal(data))
+	require.Len(t, msgData.Data, 1)
+	var res types.MsgEVMTransactionResponse
+	require.NoError(t, res.Unmarshal(msgData.Data[0].Data))
+	return &res
+}
+
 // TestLastResultsHash_AllModes verifies LastResultsHash is identical across all executor modes
 func TestLastResultsHash_AllModes(t *testing.T) {
 	blockTime := time.Now()

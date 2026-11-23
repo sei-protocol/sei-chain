@@ -12,8 +12,8 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,7 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -65,8 +65,8 @@ const MockHeight100 = 100
 
 // pinReceiptVersions widens a store's queryable window to [1, latest]. These tests seed receipts
 // by other means, so nothing has advanced the markers a read is gated on.
-func pinReceiptVersions(store receipt.ReceiptStore, latest int64) error {
-	return receipt.PinVersions(store, 1, latest)
+func pinReceiptVersions(store receiptdb.ReceiptStore, latest int64) error {
+	return receiptdb.PinVersions(store, 1, latest)
 }
 
 // LatestCtxUpgradeName makes the test ctx look like a real chain that has
@@ -178,6 +178,11 @@ func mockLogCapBlock() *coretypes.ResultBlock {
 
 var NewHeadsCalled = make(chan struct{}, 1)
 
+// NewHeadsMockHeights are the heights of the NewBlockHeader events MockClient publishes, in order, each
+// time NewHeadsCalled fires: a block whose EVM transaction failed its ante handler beside a Cosmos transaction,
+// then a block with EVM transactions that log between Cosmos transactions.
+var NewHeadsMockHeights = []int64{MockHeight8, MockHeight2}
+
 // NotifierForTest backs the Autobahn-style WS server started on
 // TestNotifierWSPort. Tests publish to it via OnBlockCommitted to drive
 // eth_subscribe("newHeads") through the in-process notifier path.
@@ -190,8 +195,11 @@ var BlockFilterNotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
 
 type MockClient struct {
 	client.Client
-	latestOverride int64
+	latestOverride   int64
+	earliestOverride int64
 }
+
+var filterClient = &MockClient{}
 
 func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
@@ -249,7 +257,12 @@ func mockBlockHeader(height int64) tmtypes.Header {
 	}
 }
 
+// mockBlockMu serializes mockBlock, since encoding a fixture tx caches its bytes on the shared tx.
+var mockBlockMu sync.Mutex
+
 func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
+	mockBlockMu.Lock()
+	defer mockBlockMu.Unlock()
 	if height == MockHeight2 {
 		return &coretypes.ResultBlock{
 			BlockID: MockBlockIDMultiTx,
@@ -511,27 +524,32 @@ func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	if latest < 1 {
 		latest = 1
 	}
+	earliest := c.earliestOverride
+	if earliest <= 0 {
+		earliest = 1
+	}
 	return &coretypes.ResultStatus{
 		SyncInfo: coretypes.SyncInfo{
 			LatestBlockHeight:   latest,
-			EarliestBlockHeight: 1,
+			EarliestBlockHeight: earliest,
 		},
 	}, nil
 }
 
 func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
 	if query == "tm.event = 'NewBlockHeader'" {
-		resCh := make(chan coretypes.ResultEvent, 5)
+		resCh := make(chan coretypes.ResultEvent, len(NewHeadsMockHeights))
 		go func() {
-			<-NewHeadsCalled
-			for i := uint64(0); i < 5; i++ {
-				resCh <- coretypes.ResultEvent{
-					SubscriptionID: subscriber,
-					Query:          query,
-					Data:           *c.mockEventDataNewBlockHeader(i + 1),
-					Events:         c.mockEventDataNewBlockHeader(i + 1).ABCIEvents(),
+			for range NewHeadsCalled {
+				for _, height := range NewHeadsMockHeights {
+					resCh <- coretypes.ResultEvent{
+						SubscriptionID: subscriber,
+						Query:          query,
+						Data:           *c.mockEventDataNewBlockHeader(uint64(height)),
+						Events:         c.mockEventDataNewBlockHeader(uint64(height)).ABCIEvents(),
+					}
+					time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
 				}
-				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
 			}
 		}()
 		return resCh, nil
@@ -544,59 +562,8 @@ func (c *MockClient) Unsubscribe(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	if strings.Contains(req.Filter.Query, "tm.event = 'NewBlock'") {
-		var cursor int
-		var err error
-		if req.After != "" {
-			cursor, err = strconv.Atoi(req.After)
-			if err != nil {
-				panic("invalid cursor")
-			}
-		} else {
-			cursor = MockHeight8
-		}
-		resultBlock := c.mockBlock(int64(cursor))
-		data := tmtypes.EventDataNewBlock{
-			Block:   resultBlock.Block,
-			BlockID: tmtypes.BlockID{},
-		}
-		newCursor := strconv.FormatInt(int64(cursor)+1, 10)
-		return buildSingleResultEvent(data, false, newCursor, "event"), nil
-	} else {
-		panic("unknown query")
-	}
-}
-
 func (c *MockClient) Validators(ctx context.Context, height *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
 	return &coretypes.ResultValidators{}, nil
-}
-
-func buildSingleResultEvent(data interface{}, more bool, cursor string, event string) *coretypes.ResultEvents {
-	eventData, err := json.Marshal(data)
-	if err != nil {
-		panic(err)
-	}
-	wrappedData := evmrpc.EventItemDataWrapper{
-		Type:  "NewBlock",
-		Value: eventData,
-	}
-	bz, err := json.Marshal(wrappedData)
-	if err != nil {
-		panic(err)
-	}
-	return &coretypes.ResultEvents{
-		Items: []*coretypes.EventItem{
-			{
-				Cursor: cursor,
-				Event:  event,
-				Data:   bz,
-			},
-		},
-		More:   more,
-		Oldest: cursor,
-		Newest: cursor,
-	}
 }
 
 func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
@@ -683,6 +650,10 @@ func init() {
 		}
 		return Ctx.WithIsTracing(true)
 	}
+	// The log path runs against contexts without ConsensusParams, as in production.
+	logCtxProvider := func(height int64) sdk.Context {
+		return ctxProvider(height).WithConsensusParams(nil)
+	}
 	// Start good http server
 	goodConfig := evmrpcconfig.DefaultConfig
 	goodConfig.HTTPPort = TestPort
@@ -691,7 +662,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, filterClient, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil, false, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -703,7 +674,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil, false, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -725,6 +696,7 @@ func init() {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
+		logCtxProvider,
 		txConfigProvider,
 		"",
 		nil,
@@ -751,6 +723,7 @@ func init() {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
+		logCtxProvider,
 		txConfigProvider,
 		"",
 		nil,
@@ -765,7 +738,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil, false, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -777,7 +750,7 @@ func init() {
 	// Setup: Autobahn HTTP FilterAPI on its own notifier so parallel newHeads tests do not mix hashes.
 	notifierHTTPConfig := goodConfig
 	notifierHTTPConfig.HTTPPort = TestNotifierHTTPPort
-	notifierHTTPServer, err := evmrpc.NewEVMHTTPServer(notifierHTTPConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, true, BlockFilterNotifierForTest)
+	notifierHTTPServer, err := evmrpc.NewEVMHTTPServer(notifierHTTPConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil, true, BlockFilterNotifierForTest)
 	if err != nil {
 		panic(err)
 	}
@@ -787,7 +760,7 @@ func init() {
 	// Setup: Autobahn WS newHeads on NotifierForTest.
 	notifierWSConfig := goodConfig
 	notifierWSConfig.WSPort = TestNotifierWSPort
-	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierWSConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, true, NotifierForTest)
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierWSConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, logCtxProvider, txConfigProvider, "", nil, true, NotifierForTest)
 	if err != nil {
 		panic(err)
 	}

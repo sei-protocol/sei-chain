@@ -211,9 +211,10 @@ func (s *txStore) Clear() {
 }
 
 // Checks if tx should be immediately rejected.
-func (s *txStore) ShouldReject(txHash types.TxHash) bool {
+// Rejection returns why a tx with this hash must be rejected, or nil if it may be admitted.
+func (s *txStore) Rejection(txHash types.TxHash) error {
 	for inner := range s.inner.RLock() {
-		return inner.shouldReject(txHash)
+		return inner.rejection(txHash)
 	}
 	panic("unreachable")
 }
@@ -320,48 +321,48 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
-func (inner *txStoreInner) shouldReject(txHash types.TxHash) bool {
-	// Already in mempool => true
+func (inner *txStoreInner) rejection(txHash types.TxHash) error {
+	// Already in mempool => reject
 	if _, ok := inner.byHash[txHash]; ok {
-		return true
+		return types.ErrTxInMempool
 	}
-	// Not cached => false
+	// Not cached => admit
 	e, ok := inner.cache.Get(txHash)
 	if !ok {
-		return false
+		return nil
 	}
 	// empty entry means that tx is known to be invalid.
 	evm, ok := e.Get()
 	if !ok {
-		return true
+		return types.ErrTxInCache
 	}
-	// evm account not tracked => false
+	// evm account not tracked => admit
 	account, ok := inner.accounts[evm.address]
 	if !ok {
-		return false
+		return nil
 	}
-	// too old nonce => true
+	// too old nonce => reject
 	if evm.nonce < account.firstNonce {
-		return true
+		return types.ErrTxNonceTooLow
 	}
-	// no conflicting nonce => false
+	// no conflicting nonce => admit
 	old, ok := inner.byNonce[evmAddrNonce{evm.address, evm.nonce}]
 	if !ok {
-		return false
+		return nil
 	}
-	// better tx for this nonce in mempool => false
+	// better tx for this nonce in mempool => reject
 	oldEvm := old.evm.OrPanic("non-evm tx")
 	oldReady := oldEvm.nonce < account.nextNonce
 	// If the old tx is ready but the new tx is not, then reject the new tx.
 	if oldReady && account.balance.Cmp(&evm.requiredBalance) < 0 {
-		return true
+		return types.ErrTxInsufficientFunds
 	}
 	// If the old tx has >= priority, then reject new tx.
 	if old.priority >= evm.priority {
-		return true
+		return types.ErrTxReplacementUnderpriced
 	}
-	// otherwise => false
-	return false
+	// otherwise => admit
+	return nil
 }
 
 // account returns the tracked state of the evm account, fetching it from the app on first use.
@@ -445,7 +446,9 @@ func (s *txStore) remove(inner *txStoreInner, wtx *WrappedTx, state *txStoreStat
 	}
 }
 
-func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) error {
+// insert adds wtx to every index. isNew marks wtx as a fresh admission rather than
+// a re-insertion during compaction.
+func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, isNew bool) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
 	}
@@ -459,7 +462,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 			return errOldNonce
 		}
 		skipAccepted := utils.None[*WrappedTx]()
-		if recordAdded && evm.nonce == account.nextNonce {
+		if isNew && evm.nonce == account.nextNonce {
 			skipAccepted = utils.Some(wtx)
 		}
 		inner.cacheMetadata(wtx, &evm)
@@ -509,9 +512,6 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 	}
 	inner.byHash[wtx.Hash()] = wtx
 	inner.state.Store(state)
-	if recordAdded && wtx.evm.IsPresent() {
-		recordPendingNonceAdded()
-	}
 	return nil
 }
 
@@ -583,6 +583,9 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 			if _, ok := inner.byHash[wtx.Hash()]; !ok {
 				return errMempoolFull
 			}
+		}
+		if wtx.evm.IsPresent() {
+			recordPendingNonceAdded()
 		}
 		Global.CacheSizeAt().Set(int64(inner.cache.Size()))
 	}
@@ -701,16 +704,17 @@ func (s *txStore) Update(spec updateSpec) {
 		state := inner.state.Load()
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
-			if expired {
-				Global.ExpiredTxsAt().Add(1)
-			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
-			removedByExpiry := expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
+			// A tx removed for being executed or invalid is not attributed to expiry.
+			removedByExpiry := expired && !executed && !invalid && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
 			remove := invalid || executed || removedByExpiry
 			if remove {
-				if removedByExpiry && wtx.evm.IsPresent() {
-					recordPendingNonceExpired()
+				if removedByExpiry {
+					Global.ExpiredTxsAt().Add(1)
+					if wtx.evm.IsPresent() {
+						recordPendingNonceExpired()
+					}
 				}
 				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
 				// Executed txs invalidation was handled earlier.

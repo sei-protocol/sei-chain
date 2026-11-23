@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 func testConfig(dir string) *Config {
@@ -21,11 +23,11 @@ func openWAL(t *testing.T, cfg *Config) StateWAL {
 	return w
 }
 
-// writeBlock writes a single changeset for the block.
+// writeBlock writes a single mutation for the block.
 func writeBlock(t *testing.T, w StateWAL, block uint64) {
 	t.Helper()
-	cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
-	require.NoError(t, w.Write(block, cs))
+	mutations := []mutation.Mutation{makeMutation("bank", []byte{byte(block)}, []byte{byte(block)})}
+	require.NoError(t, w.Write(block, mutations))
 }
 
 // collectBlocks iterates the inclusive range [start, end] and returns the block number of each entry,
@@ -83,32 +85,6 @@ func TestWriteFlushReopenGetRange(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectBlocks(t, w2, 1, 5))
 }
 
-// TestWriteRejectsNilChangeset verifies that a nil changeset entry is rejected synchronously at the Write call
-// site rather than surfacing later from the serialization goroutine, and that the rejection neither bricks the
-// WAL nor advances the block-ordering state.
-func TestWriteRejectsNilChangeset(t *testing.T) {
-	w := openWAL(t, testConfig(t.TempDir()))
-	defer func() { require.NoError(t, w.Close()) }()
-
-	valid := makeChangeSet("evm", []byte("k"), []byte("v"))
-
-	// A nil entry is rejected synchronously at the call site, before Flush is ever reached.
-	err := w.Write(5, []*proto.NamedChangeSet{valid, nil})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "nil")
-
-	// The rejected write is a no-op: it neither bricked the WAL nor advanced the block-ordering state. Were the
-	// state advanced to block 5, this write to the unrelated block 3 would be rejected as non-contiguous.
-	require.NoError(t, w.Write(3, []*proto.NamedChangeSet{valid}))
-	require.NoError(t, w.Flush())
-
-	ok, start, end, err := w.GetStoredRange()
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(3), start)
-	require.Equal(t, uint64(3), end)
-}
-
 func TestContractViolations(t *testing.T) {
 	t.Run("block numbers may not decrease", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
@@ -146,8 +122,8 @@ func TestEmptyChangesetBlockIsStored(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	// A block with an empty changeset is still a real, stored block.
-	require.NoError(t, w.Write(1, []*proto.NamedChangeSet{}))
+	// A block with no mutations is still a real, stored block.
+	require.NoError(t, w.Write(1, []mutation.Mutation{}))
 	require.NoError(t, w.Flush())
 
 	ok, start, end, err := w.GetStoredRange()
@@ -162,9 +138,9 @@ func TestEmptyChangesetBlockIsStored(t *testing.T) {
 	ok, err = it.Next()
 	require.NoError(t, err)
 	require.True(t, ok)
-	blockNumber, changeset := it.Entry()
+	blockNumber, mutations := it.Entry()
 	require.Equal(t, uint64(1), blockNumber)
-	require.Empty(t, changeset)
+	require.Empty(t, mutations)
 }
 
 func TestPruneDropsOldBlocks(t *testing.T) {
@@ -289,4 +265,54 @@ func TestVerifyIntegrity(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
 	require.Error(t, VerifyIntegrity(cfg))
+}
+
+// TestWriteStoresMutationsInWriteOrder requires a block to read back with its mutations in the order written.
+func TestWriteStoresMutationsInWriteOrder(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+
+	written := []mutation.Mutation{
+		makeMutation("bank", []byte("c"), []byte("c")),
+		makeMutation("bank", []byte("a"), []byte("a")),
+		makeMutation("bank", []byte("d"), []byte("d")),
+		makeMutation("bank", []byte("b"), []byte("b")),
+	}
+	require.NoError(t, w.Write(1, written))
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1, 1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, stored := it.Entry()
+	require.Equal(t, written, stored)
+}
+
+// Once the request channel is full behind a blocked append, Write blocks until the append completes.
+func TestWriteBlocksWhileRequestBufferIsFull(t *testing.T) {
+	f := &fakeWAL{appendEntered: make(chan struct{}, 2), appendRelease: make(chan struct{})}
+	w, err := newStateWAL(f, 0)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	require.NoError(t, w.Write(1, nil)) // taken by the goroutine, which blocks in the append
+	<-f.appendEntered
+
+	written := make(chan error, 1)
+	go func() {
+		written <- w.Write(2, nil)
+	}()
+	select {
+	case err := <-written:
+		close(f.appendRelease)
+		t.Fatalf("Write returned while the request buffer was full: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(f.appendRelease)
+	require.NoError(t, <-written)
+	require.NoError(t, w.Flush())
 }

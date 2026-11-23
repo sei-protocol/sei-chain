@@ -5,22 +5,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
+	"runtime/debug"
 
-	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/sdk/trace"
+
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var logger = seilog.NewLogger("tendermint", "node")
@@ -80,52 +83,30 @@ func New(
 	if err := opts.giga.Validate(); err != nil {
 		return nil, fmt.Errorf("giga config: %w", err)
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
+	if conf.AutobahnConfigFile != "" {
+		applyExecutionRuntime(opts.giga.Execution)
+	}
+	genDoc, err := genesisDocument(conf, gen)
 	if err != nil {
 		return nil, err
 	}
-	storageManagerTransferred := false
-	defer func() {
-		if err == nil || storageManagerTransferred {
-			return
-		}
-		if manager, ok := storageManager.Get(); ok {
-			err = errors.Join(err, manager.Close())
-		}
-	}()
-	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
 	}
 
-	var genProvider genesisDocProvider
-	switch gen {
-	case nil:
-		genProvider = defaultGenesisDocProviderFunc(conf)
-	default:
-		genProvider = func() (*tmtypes.GenesisDoc, error) { return gen, nil }
-	}
-
 	switch conf.Mode {
 	case config.ModeFull, config.ModeValidator:
-		pval, err := privval.LoadOrGenFilePV(conf.PrivValidator.KeyFile(), conf.PrivValidator.StateFile())
-		if err != nil {
-			return nil, err
-		}
-		storageManagerTransferred = true
 		return makeNode(
 			ctx,
 			conf,
 			restartEvent,
-			pval,
 			nodeKey,
-			proxyApp,
-			genProvider,
+			app,
+			genDoc,
 			config.DefaultDBProvider,
 			tracerProviderOptions,
 			consensusPolicy,
-			storageManager,
 			nodeOptions...,
 		)
 	case config.ModeSeed:
@@ -133,7 +114,7 @@ func New(
 			conf,
 			config.DefaultDBProvider,
 			nodeKey,
-			genProvider,
+			genDoc,
 		)
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
@@ -156,93 +137,173 @@ func validateNodeSetupConfig(conf *config.Config) error {
 	if conf.AutobahnConfigFile != "" && conf.Mode == config.ModeSeed {
 		return errAutobahnSeed
 	}
-	if conf.MockApp && conf.AutobahnConfigFile == "" {
-		return fmt.Errorf("mock-app requires autobahn-config-file")
-	}
 	return nil
 }
 
-func prepareApplication(
+// genesisDocument returns the genesis document the node starts from. A nil
+// document is loaded from the config's genesis file. The result is validated.
+func genesisDocument(conf *config.Config, gen *tmtypes.GenesisDoc) (*tmtypes.GenesisDoc, error) {
+	if gen == nil {
+		loaded, err := tmtypes.GenesisDocFromFile(conf.GenesisFile())
+		if err != nil {
+			return nil, fmt.Errorf("load genesis document: %w", err)
+		}
+		gen = loaded
+	}
+	if err := gen.ValidateAndComplete(); err != nil {
+		return nil, fmt.Errorf("error in genesis doc: %w", err)
+	}
+	return gen, nil
+}
+
+// makeEVMApplication opens Autobahn storage and the epoch registry it holds, and constructs the EVM
+// application over both.
+// The caller owns the returned storage after construction succeeds.
+func makeEVMApplication(
 	ctx context.Context,
 	conf *config.Config,
-	app abci.Application,
 	giga gigaconfig.Config,
-) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
-	noStorage := utils.None[*bootstrap.GigaStorageManager]()
-	storage := noStorage
-	var committee *config.AutobahnFileConfig
-	if conf.AutobahnConfigFile != "" {
-		fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
-		if err != nil {
-			return nil, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
-		}
-		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage)
-		if err != nil {
-			return nil, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
-		}
-		storage = utils.Some(manager)
-		committee = fc
-	}
-	app, err := wrapApplication(conf, app, storage, committee, giga.Execution)
+	genDoc *tmtypes.GenesisDoc,
+) (_ abevm.Application, _ *bootstrap.GigaStorageManager, err error) {
+	committee, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
-		if manager, ok := storage.Get(); ok {
-			err = errors.Join(err, manager.Close())
+		return nil, nil, fmt.Errorf("load Autobahn committee: %w", err)
+	}
+	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, genDoc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open Autobahn storage: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, storage.Close())
 		}
-		return nil, noStorage, err
+	}()
+	validators, err := evmOnlyCommitteeWeights(committee)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
+	}
+	firstRoad, err := genesisFirstRoad(genDoc)
+	if err != nil {
+		return nil, nil, err
+	}
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, firstRoad, genesisEpochLength(genDoc), validators)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open epoch registry: %w", err)
+	}
+	customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, giga.Execution.UnsafeSkipUpgrades)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load EVM-only governance: %w", err)
+	}
+	logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
+	app, err := evmonlyapp.NewEVMOnlyApplication(
+		committee.EVMChainID,
+		validators,
+		storage,
+		epochs,
+		giga.Execution,
+		customPrecompiles,
+		evmOnlyGenesisAlloc(committee, genDoc),
+		utils.Some(conf.RootDir),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("restore EVM-only application: %w", err)
+	}
+	if conf.MockApp {
+		mockApp := NewMockApp(app)
+		mockApp.storage = utils.Some(storage)
+		mockApp.epochRegistry = epochs
+		return mockApp, storage, nil
 	}
 	return app, storage, nil
 }
 
-// wrapApplication returns the mock application when mock-app is set, the
-// Autobahn EVM-only application when Autobahn is configured, the FastCheckTx
-// wrapper when that flag is set, or the app that was passed in.
-func wrapApplication(
-	conf *config.Config,
-	app abci.Application,
-	storage utils.Option[*bootstrap.GigaStorageManager],
-	committee *config.AutobahnFileConfig,
-	execution gigaconfig.ExecutionConfig,
-) (abci.Application, error) {
-	if conf.MockApp {
-		return NewMockApp(app), nil
+// genesisFirstRoad returns the first road of epoch 0, which is the genesis initial height.
+func genesisFirstRoad(genDoc *tmtypes.GenesisDoc) (atypes.RoadHeight, error) {
+	first, ok := utils.SafeCast[atypes.RoadHeight](genDoc.InitialHeight)
+	if !ok || first < 1 {
+		return 0, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
 	}
-	if conf.AutobahnConfigFile != "" {
-		manager, ok := storage.Get()
-		if !ok {
-			return nil, errors.New("autobahn requires giga storage")
-		}
-		validators, err := evmOnlyValidatorUpdates(committee)
-		if err != nil {
-			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
-		}
-		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
-		prepared, err := evmonlyapp.NewEVMOnlyApplication(
-			config.AutobahnEVMOnlyChainID,
-			validators,
-			manager,
-			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
-			execution,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("restore EVM-only application: %w", err)
-		}
-		return prepared, nil
-	}
-	if conf.FastCheckTx {
-		return fastCheckTxApplication{Application: app}, nil
-	}
-	return app, nil
+	return first, nil
 }
 
-func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpdate, error) {
-	validators := make([]abci.ValidatorUpdate, len(fc.Validators))
-	for i, validator := range fc.Validators {
-		key, err := ed25519.PublicKeyFromBytes(validator.ValidatorKey.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("validator %d public key: %w", i, err)
+// genesisEpochLength returns the number of roads in each epoch genDoc configures.
+func genesisEpochLength(genDoc *tmtypes.GenesisDoc) atypes.RoadHeight {
+	return genDoc.Autobahn.Or(tmtypes.DefaultAutobahnParams()).EpochLength
+}
+
+// evmOnlyGenesisAlloc returns the committee's evm_alloc at the genesis initial height, or None when it
+// sets none.
+func evmOnlyGenesisAlloc(fc *config.AutobahnFileConfig, genDoc *tmtypes.GenesisDoc) utils.Option[evmonlyapp.GenesisAlloc] {
+	accounts, ok := fc.EVMGenesisAlloc().Get()
+	if !ok {
+		return utils.None[evmonlyapp.GenesisAlloc]()
+	}
+	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Accounts: accounts})
+}
+
+func evmOnlyCommitteeWeights(fc *config.AutobahnFileConfig) (abevm.CommitteeWeights, error) {
+	weights := make(abevm.CommitteeWeights, len(fc.Validators))
+	for _, validator := range fc.Validators {
+		if _, duplicate := weights[validator.ValidatorKey]; duplicate {
+			return nil, fmt.Errorf("duplicate public key %s", validator.ValidatorKey)
 		}
 		// BuildDataState assigns unit voting power to every configured Autobahn validator.
-		validators[i] = abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: 1}
+		weights[validator.ValidatorKey] = 1
 	}
-	return validators, nil
+	return weights, nil
+}
+
+// evmOnlyCustomPrecompiles returns the gov precompile registry when the
+// committee sets evm_governance, with each validator's evm_voter voting at that
+// validator's power, skipping upgrade plans at skipUpgradeHeights.
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators abevm.CommitteeWeights, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
+	governance, ok := fc.EVMGovernance.Get()
+	if !ok {
+		return utils.None[precompiles.Registry](), nil
+	}
+	electorate, err := evmOnlyGenesisElectorate(fc, validators)
+	if err != nil {
+		return utils.None[precompiles.Registry](), err
+	}
+	params, err := governance.Params.Gov()
+	if err != nil {
+		return utils.None[precompiles.Registry](), err
+	}
+	return utils.Some(evmonlyapp.NewGovRegistry(params, governance.StartingProposalID, electorate, evmonlyapp.GovUpgrades{
+		Applied:     governance.AppliedUpgrades,
+		SkipHeights: skipUpgradeHeights,
+	})), nil
+}
+
+func evmOnlyGenesisElectorate(fc *config.AutobahnFileConfig, weights abevm.CommitteeWeights) (gov.GenesisElectorate, error) {
+	electorate := make(gov.GenesisElectorate, len(fc.Validators))
+	for i, validator := range fc.Validators {
+		voter, ok := validator.EVMVoter.Get()
+		if !ok {
+			return nil, fmt.Errorf("validator %d is missing evm_voter", i)
+		}
+		weight, ok := weights[validator.ValidatorKey]
+		if !ok {
+			return nil, fmt.Errorf("validator %s has no committee weight", validator.ValidatorKey)
+		}
+		electorate[voter] = new(big.Int).SetUint64(weight)
+	}
+	return electorate, nil
+}
+
+// applyExecutionRuntime applies GCPercent when set, and caps the heap at 80% of the container
+// memory limit when one is present. Call only for Autobahn/Giga nodes.
+func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
+	if cfg.GCPercent <= 0 {
+		return
+	}
+	debug.SetGCPercent(cfg.GCPercent)
+	limit := containerMemoryLimit() / 10 * 8
+	// A limit the operator set through GOMEMLIMIT is only ever lowered, never raised.
+	if limit <= 0 || limit >= debug.SetMemoryLimit(-1) {
+		logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent)
+		return
+	}
+	debug.SetMemoryLimit(limit)
+	logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent, "memory_limit", limit)
 }

@@ -1,11 +1,19 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
 func TestInjectTelemetryChainID(t *testing.T) {
@@ -44,4 +52,109 @@ func TestInjectTelemetryChainID(t *testing.T) {
 
 		require.Equal(t, cfg.GlobalLabels, got.GlobalLabels)
 	})
+}
+
+func TestRemovedGRPCStartFlags(t *testing.T) {
+	cmd := &cobra.Command{Use: "start"}
+	addStartNodeFlags(cmd, t.TempDir())
+	require.NoError(t, cmd.ParseFlags([]string{
+		"--grpc.enable=false",
+		"--grpc.address=0.0.0.0:9090",
+		"--grpc-web.enable",
+		"--grpc-web.address=0.0.0.0:9091",
+	}))
+	// grpc-only meant "do not start Tendermint"; ignoring it would start a full node.
+	require.Error(t, cmd.ParseFlags([]string{"--grpc-only"}))
+}
+
+func TestConfigureIngressProfile(t *testing.T) {
+	ctx := NewDefaultContext()
+	ctx.Viper.Set(FlagIngress, true)
+
+	require.NoError(t, configureIngressProfile(ctx))
+	require.Equal(t, []string{"null"}, ctx.Config.TxIndex.Indexer)
+	require.False(t, ctx.Viper.GetBool("api.enable"))
+	require.True(t, ctx.Viper.GetBool("state-store.ss-enable"))
+	require.Equal(t, 1000, ctx.Viper.GetInt("state-store.ss-keep-recent"))
+	require.False(t, ctx.Viper.GetBool("state-store.ss-snapshot-enable"))
+	require.False(t, ctx.Viper.GetBool("state-commit.sc-enable-state-proof"))
+	require.Equal(t, uint(1000), ctx.Viper.GetUint("state-commit.sc-hash-logger-blocks-to-retain"))
+	require.Equal(t, 1, ctx.Viper.GetInt("state-commit.sc-snapshot-writer-limit"))
+	require.Equal(t, uint64(1000), ctx.Viper.GetUint64(FlagMinRetainBlocks))
+	require.Zero(t, ctx.Viper.GetUint64(FlagStateSyncSnapshotInterval))
+	require.True(t, ctx.Viper.GetBool("evm.http_enabled"))
+	require.True(t, ctx.Viper.GetBool("evm.ws_enabled"))
+	require.False(t, ctx.Viper.GetBool("evm.enable_simulation"))
+	require.False(t, ctx.Viper.GetBool("evm.trace_bake_enabled"))
+	require.Equal(t, uint32(16), ctx.Viper.GetUint32("wasm.memory_cache_size"))
+	require.False(t, ctx.Viper.GetBool("light_invariance.supply_enabled"))
+}
+
+func TestConfigureIngressProfileLeavesOtherNodesAlone(t *testing.T) {
+	ctx := NewDefaultContext()
+	indexer := ctx.Config.TxIndex.Indexer
+
+	require.NoError(t, configureIngressProfile(ctx))
+	require.Equal(t, indexer, ctx.Config.TxIndex.Indexer)
+	require.False(t, ctx.Viper.IsSet(FlagMinRetainBlocks))
+	require.False(t, ctx.Viper.IsSet("state-store.ss-enable"))
+}
+
+func TestConfigureIngressProfileRefusesOtherNodeShapes(t *testing.T) {
+	for name, shape := range map[string]func(*Context){
+		"validator": func(ctx *Context) { ctx.Config.Mode = tmcfg.ModeValidator },
+		"seed":      func(ctx *Context) { ctx.Config.Mode = tmcfg.ModeSeed },
+		"autobahn":  func(ctx *Context) { ctx.Config.AutobahnConfigFile = "autobahn.json" },
+		"frozen":    func(ctx *Context) { ctx.Viper.Set(FlagFreezeHeight, uint64(100)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := NewDefaultContext()
+			ctx.Viper.Set(FlagIngress, true)
+			shape(ctx)
+			require.ErrorContains(t, configureIngressProfile(ctx), "--"+FlagIngress)
+		})
+	}
+}
+
+func TestWarnIgnoredStateSyncTrustPeriod(t *testing.T) {
+	for name, tc := range map[string]struct {
+		chainID     string
+		trustPeriod string // config.toml value; empty leaves the key out
+		wantWarning bool
+	}{
+		"unset":                            {chainID: "pacific-1"},
+		"matches the chain's period":       {chainID: "pacific-1", trustPeriod: "112h"},
+		"old default on pacific-1":         {chainID: "pacific-1", trustPeriod: "168h0m0s", wantWarning: true},
+		"old default on an unlisted chain": {chainID: "sei", trustPeriod: "168h0m0s"},
+		"override on an unlisted chain":    {chainID: "sei", trustPeriod: "72h", wantWarning: true},
+		"not a duration":                   {chainID: "sei", trustPeriod: "one week", wantWarning: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configToml := "[statesync]\n"
+			if tc.trustPeriod != "" {
+				configToml += fmt.Sprintf("trust-period = %q\n", tc.trustPeriod)
+			}
+			v := viper.New()
+			v.SetConfigType("toml")
+			require.NoError(t, v.ReadConfig(strings.NewReader(configToml)))
+
+			logs := &bytes.Buffer{}
+			prev := logger
+			logger = slog.New(slog.NewJSONHandler(logs, nil))
+			t.Cleanup(func() { logger = prev })
+
+			warnIgnoredStateSyncTrustPeriod(v, tc.chainID)
+
+			if !tc.wantWarning {
+				require.Empty(t, logs.String())
+				return
+			}
+			var record map[string]any
+			require.NoError(t, json.Unmarshal(logs.Bytes(), &record))
+			require.Equal(t, slog.LevelWarn.String(), record[slog.LevelKey])
+			require.Equal(t, tc.chainID, record["chainID"])
+			require.Equal(t, tc.trustPeriod, record["configured"])
+			require.Equal(t, tmcfg.StateSyncTrustPeriod(tc.chainID).String(), record["trustPeriod"])
+		})
+	}
 }

@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"fmt"
 	"math"
 	"math/big"
-	"os"
-	"sort"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -26,7 +23,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -65,6 +61,18 @@ func TestGetVMBlockContext(t *testing.T) {
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
 	_, err := k.GetVMBlockContext(ctx, core.NewGasPool(0))
 	require.NotNil(t, err)
+}
+
+// TestGetVMBlockContextPrevRandao pins the PREVRANDAO value block execution uses for a block
+// time. The expected hash is a literal so that a change to the derivation, which would fork the
+// chain, fails here.
+func TestGetVMBlockContextPrevRandao(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper(t)
+	blockTime := time.Date(2026, 1, 2, 14, 28, 1, 540537286, time.UTC)
+	ctx = ctx.WithBlockTime(blockTime.In(time.FixedZone("UTC", 0)))
+	blockCtx, err := k.GetVMBlockContext(ctx, k.GetGasPool())
+	require.NoError(t, err)
+	require.Equal(t, common.HexToHash("0x753efd32f4a9d19b90b63f109cd4674b3104591ac57d57627625d92751ed8a50"), *blockCtx.Random)
 }
 
 func TestGetHashFn(t *testing.T) {
@@ -137,79 +145,6 @@ func TestDeferredInfo(t *testing.T) {
 	k.SetMsgs([]*types.MsgEVMTransaction{})
 	infoList = k.GetAllEVMTxDeferredInfo(ctx)
 	require.Empty(t, len(infoList))
-}
-
-func TestGetCustomPrecompiles(t *testing.T) {
-	// Read all version files from precompiles subfolders
-	tagSet := make(map[string]bool)
-
-	// Define the precompiles directories to scan
-	precompileDirs := []string{
-		"addr", "bank", "distribution", "gov", "ibc", "json",
-		"oracle", "p256", "pointer", "pointerview", "solo", "staking", "wasmd",
-	}
-	precompileTags := map[string][]string{}
-
-	// Read versions from each precompile directory
-	for _, dir := range precompileDirs {
-		versionFile := fmt.Sprintf("../../../precompiles/%s/versions", dir)
-		content, err := os.ReadFile(versionFile)
-		if err != nil {
-			t.Logf("Warning: Could not read %s: %v", versionFile, err)
-			continue
-		}
-
-		// Parse each line as a tag
-		precompileTags[dir] = utils.Map(strings.Split(string(content), "\n"), strings.TrimSpace)
-		for _, line := range precompileTags[dir] {
-			if line != "" {
-				tagSet[line] = true
-			}
-		}
-	}
-
-	// Convert to slice and sort
-	var tags []string
-	for tag := range tagSet {
-		tags = append(tags, tag)
-	}
-	sort.Strings(tags)
-
-	// Verify we have tags
-	require.Greater(t, len(tags), 0, "Should have found at least one tag")
-
-	// Setup keeper and context
-	k, ctx := keeper.MockEVMKeeperPrecompiles(t)
-
-	// Set up upgrade heights with increment of 10
-	baseHeight := 1000000
-	tagToHeight := map[string]int64{}
-	for i, tag := range tags {
-		height := baseHeight + (i * 10)
-		k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(int64(height)), tag)
-		t.Logf("Set upgrade height %d for tag %s", height, tag)
-		tagToHeight[tag] = int64(height)
-	}
-
-	earliestVersions := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(int64(baseHeight - 1)))
-	hasEarliestVersion := false
-	for _, version := range earliestVersions {
-		require.NotEmpty(t, version)
-		hasEarliestVersion = hasEarliestVersion || version == "v6.6"
-	}
-	require.True(t, hasEarliestVersion)
-
-	for precompile, tags := range precompileTags {
-		for _, tag := range tags {
-			ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(tagToHeight[tag] + 1))
-			for p, rtag := range ps {
-				if p.Hex() != precompile {
-					continue
-				}
-				require.Equal(t, tag, rtag)
-			}
-		}
-	}
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {

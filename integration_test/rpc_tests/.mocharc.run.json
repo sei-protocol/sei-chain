@@ -1,5 +1,5 @@
 {
-    "require": ["tsx"],
+    "require": ["tsx", "./utils/filterLifetime.ts"],
     "timeout": 600000,
     "exit": true,
     "reporter": "mochawesome",

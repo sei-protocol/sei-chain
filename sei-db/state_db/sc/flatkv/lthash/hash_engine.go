@@ -2,30 +2,23 @@ package lthash
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
 
 /*
 
-The HashEngine hashes using three pipelined phases:
+The HashEngine hashes using two pipelined phases:
 
--- Phase 1: Gather --
+-- Phase 1: Hash --
 
-In order to compute a lattice hash, for each key-value pair that changed in a block, we must know
-both the new value and the previous value. This phase is responsible for gathering these previous-new
-pairs.
+For each changed key-value pair in a block, we hash both the previous value and the new value. Both arrive
+with the block, as its mutations. This phase fans out to a large work pool, since individual leaf hashes can
+be computed independently.
 
--- Phase 2: Hash --
-
-For each changed key-value pair in a block, we hash both the previous value and the new value. This
-phase fans out to a large work pool, since individual leaf hashes can be computed independently.
-
--- Phase 3: Combine --
+-- Phase 2: Combine --
 
 In order to compute the final lattice hash, we need to "sum up" the individual leaf hashes. This operation
 is done one block at a time, since block N's hash is a function of block N-1's hash.
@@ -34,8 +27,11 @@ is done one block at a time, since block N's hash is a function of block N-1's h
 
 // Computes lattice hashes for flatKV. This utility has no recoverable errors.
 type HashEngine struct {
-	// gatherer reads each block's changed values and submits its leaf hashing to the pool.
-	gatherer *blockGatherer
+	// hasher fans each block's leaf hashing out across the pool.
+	hasher *leafHasher
+
+	// Blocks whose leaf hashing has been submitted, and flush requests, in the order they were scheduled.
+	combineJobChan chan any
 
 	// combiner sums each block's leaf hashes onto the block before it, and owns the running state.
 	combiner *hashCombiner
@@ -44,8 +40,7 @@ type HashEngine struct {
 	// longer reach.
 	ctx context.Context
 
-	// cancel stops the gatherer and the combiner where they stand. Called by Close once both are
-	// through, and by the store's own context.
+	// cancel stops the combiner where it stands. Called by Close, and by the store's own context.
 	cancel context.CancelFunc
 
 	// fatalErr latches the first failure. Nil until something fails.
@@ -85,39 +80,35 @@ func NewHashEngine(
 	}
 
 	ctx, cancel := context.WithCancel(parent)
-	he := &HashEngine{ctx: ctx, cancel: cancel}
-	he.gatherer = newBlockGatherer(
-		cfg, newLeafHasher(pool, moduleParser, cfg.ChunkSize), ctx, cancel, he.brick)
-	he.combiner = newHashCombiner(
-		dbNames, seed, he.gatherer.combineJobChan, ctx, cfg.HashChanSize, he.brick)
+	he := &HashEngine{
+		hasher:         newLeafHasher(pool, moduleParser, cfg.ChunkSize),
+		combineJobChan: make(chan any, cfg.CombineQueueSize),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+	he.combiner = newHashCombiner(dbNames, seed, he.combineJobChan, ctx, cfg.HashChanSize, he.brick)
 	return he, nil
 }
 
 // Schedule a block to be hashed.
-//
-// The engine takes its own reservation on both views and releases it once it has read them. The
-// caller keeps its own.
 func (he *HashEngine) ScheduleHash(
-	// This block's sealed view.
-	current *sview.StoreView,
-	// The preceding block's view, which is where each changed key's value before the block is read from.
-	previous *sview.StoreView,
+	// The height being hashed.
+	blockNumber int64,
+	// Everything the block changed, grouped by database. The engine reads it until the block's hash is published,
+	// so it must not be modified before then.
+	mutations []DatabaseMutations,
 ) error {
-	if current == nil || previous == nil {
-		return fmt.Errorf("schedule hash: current and previous views are both required")
+	if err := he.requireRunning(); err != nil {
+		return fmt.Errorf("schedule hash for block %d: %w", blockNumber, err)
 	}
-	request := &hashRequest{
-		blockNumber: current.BlockHeight(),
-		current:     current,
-		previous:    previous,
+	hashes, err := he.hasher.submit(mutations)
+	if err != nil {
+		// Reported on the stream as this block's hash, like any other failure to hash it.
+		err = fmt.Errorf("submit block %d: %w", blockNumber, err)
 	}
-	if err := request.reserve(); err != nil {
-		return fmt.Errorf("schedule hash for block %d: %w", request.blockNumber, err)
-	}
-	if err := he.enqueue(request); err != nil {
-		return errors.Join(
-			fmt.Errorf("schedule hash for block %d: %w", request.blockNumber, err),
-			request.release())
+	job := &submittedBlock{blockNumber: blockNumber, hashes: hashes, err: err}
+	if err := he.enqueue(job); err != nil {
+		return fmt.Errorf("schedule hash for block %d: %w", blockNumber, err)
 	}
 	return nil
 }
@@ -152,7 +143,6 @@ func (he *HashEngine) Flush() error {
 // Close stops the engine where it stands, abandoning the blocks it has not hashed.
 func (he *HashEngine) Close() error {
 	he.cancel()
-	he.gatherer.wg.Wait()
 	he.combiner.wg.Wait()
 
 	if err := he.errorIfBricked(); err != nil {
@@ -161,24 +151,28 @@ func (he *HashEngine) Close() error {
 	return nil
 }
 
-// enqueue puts a message on the gatherer's queue, blocking while it is full. Cleaning up after a message
-// it could not deliver belongs to the caller, which is the only one that knows whether the message owns
-// anything.
-func (he *HashEngine) enqueue(message any) error {
+// requireRunning reports why the engine cannot take more work, or nil if it can.
+func (he *HashEngine) requireRunning() error {
 	if err := he.errorIfBricked(); err != nil {
 		return fmt.Errorf("hash engine failed: %w", err)
 	}
+	if err := he.ctx.Err(); err != nil {
+		return fmt.Errorf("hash engine is stopping: %w", err)
+	}
+	return nil
+}
+
+// enqueue puts a message on the combiner's queue, blocking while it is full.
+func (he *HashEngine) enqueue(message any) error {
+	if err := he.requireRunning(); err != nil {
+		return err
+	}
 	select {
-	case he.gatherer.scheduledBlockChan <- message:
+	case he.combineJobChan <- message:
+		return nil
 	case <-he.ctx.Done():
 		return fmt.Errorf("hash engine is stopping: %w", he.ctx.Err())
 	}
-	if he.ctx.Err() != nil {
-		// The engine stopped around this send, so the gatherer's exit drain may already have run and
-		// nothing else will take the message off the queue.
-		he.gatherer.discardQueued()
-	}
-	return nil
 }
 
 // brick latches err as the engine's fatal error and stops it.

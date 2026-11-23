@@ -11,7 +11,9 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/littidx"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -28,7 +30,7 @@ func TestGetLogsLittIdxLogIndexMatchesReceipt(t *testing.T) {
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
 	cfg.AsyncWriteBuffer = 0
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := littidx.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -40,9 +42,9 @@ func TestGetLogsLittIdxLogIndexMatchesReceipt(t *testing.T) {
 		}
 		return &evmtypes.Log{Address: address.Hex(), Topics: hexTopics, Data: []byte{byte(index)}, Index: index}
 	}
-	stored := func(txIndex uint32, logs ...*evmtypes.Log) receipt.ReceiptRecord {
+	stored := func(txIndex uint32, logs ...*evmtypes.Log) receipttypes.ReceiptRecord {
 		hash := filterTxHash(height, txIndex)
-		return receipt.ReceiptRecord{TxHash: hash, Receipt: &evmtypes.Receipt{
+		return receipttypes.ReceiptRecord{TxHash: hash, Receipt: &evmtypes.Receipt{
 			TxHashHex:        hash.Hex(),
 			BlockNumber:      height,
 			TransactionIndex: txIndex,
@@ -50,7 +52,7 @@ func TestGetLogsLittIdxLogIndexMatchesReceipt(t *testing.T) {
 		}}
 	}
 	// tx0 emits one log, tx1 two and tx2 one, numbered 0..3 across the block.
-	records := []receipt.ReceiptRecord{
+	records := []receipttypes.ReceiptRecord{
 		stored(0, log(filterContractB, 0, filterTopicY)),
 		stored(1, log(filterContractA, 1, filterTopicX), log(filterContractA, 2, filterTopicY)),
 		stored(2, log(filterContractA, 3, filterTopicX)),

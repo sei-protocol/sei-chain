@@ -1,6 +1,7 @@
 package evmonly
 
 import (
+	"context"
 	"errors"
 	"math"
 	"math/big"
@@ -9,7 +10,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 )
 
 func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
@@ -140,4 +145,46 @@ func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
 	for _, record := range parallel {
 		require.NotEqual(t, core.ErrNonceTooHigh.Error(), record.Receipt.VmError)
 	}
+}
+
+// The receipt hash submitted for a block commits to the receipts of every transaction but the rejected ones.
+func TestExecutorSubmitsTheReceiptsOfNonceConsumingTransactions(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa6)
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+
+	type report struct {
+		blockHeight uint64
+		receiptHash apphash.ReceiptHash
+	}
+	reported := make(chan report, 1)
+	hasher, err := receipthash.NewReceiptHasher(t.Context(), receipthash.DefaultReceiptHasherConfig(),
+		func(_ context.Context, blockHeight uint64, receiptHash apphash.ReceiptHash) error {
+			reported <- report{blockHeight: blockHeight, receiptHash: receiptHash}
+			return nil
+		})
+	require.NoError(t, err)
+	executor := NewExecutor(Config{RejectUnappliableTxs: true}, withTestState(state))
+	executor.receiptHasher = hasher
+
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs: [][]byte{
+			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(5), nil),
+			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(9), nil),
+			signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(6), nil),
+		},
+	})
+	require.NoError(t, err)
+	defer result.Release()
+	require.NoError(t, hasher.Close())
+
+	require.True(t, result.Txs[1].Rejected)
+	want, err := receipthash.ComputeReceiptHash([]*ethtypes.Receipt{result.Receipts[0], result.Receipts[2]})
+	require.NoError(t, err)
+	require.Equal(t, report{blockHeight: 1, receiptHash: want}, <-reported)
 }

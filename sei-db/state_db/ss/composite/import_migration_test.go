@@ -42,7 +42,7 @@ func TestImport_MidMigrationSnapshotRestoresNonce(t *testing.T) {
 
 	// The stream must carry the nonce in memIAVL and the account row in FlatKV,
 	// or the restore below passes without exercising the conflict.
-	acctKey := ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr)
+	acctKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, addr)
 	var sawMemIAVLNonce, sawFlatKVAccount bool
 	for _, n := range nodes {
 		sawMemIAVLNonce = sawMemIAVLNonce || (n.StoreKey == keys.EVMStoreKey && bytes.Equal(n.Key, nonceKey))

@@ -34,9 +34,10 @@ func NewRateLimitGate(registry *ratelimiter.Registry, maxBodyBytes int64) *RateL
 	}
 }
 
-// CheckPOST parses body for JSON-RPC method names and applies per-IP rate limits.
-func (g *RateLimitGate) CheckPOST(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, err error) {
-	return g.CheckJSONRPC(ctx, ip, body)
+// CheckPOST applies per-IP rate limits to a JSON-RPC POST body and returns the
+// number of requests in it when it is a valid batch, or 0 otherwise.
+func (g *RateLimitGate) CheckPOST(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, batchLen int, err error) {
+	return g.CheckJSONRPCBatch(ctx, ip, body)
 }
 
 // CheckCatalog applies per-IP rate limits for browser catalog probes to /.

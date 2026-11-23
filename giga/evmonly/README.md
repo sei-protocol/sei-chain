@@ -15,9 +15,9 @@ The target execution model is based on the `sei-v3` executor:
 
 The current implementation executes raw RLP transactions with go-ethereum
 against an EVM-native state backend, then returns a changeset plus Ethereum
-receipts. Custom precompiles are still placeholders. The open work is to port
-them behind an EVM-native context that is visible to the executor's conflict
-tracking without reintroducing Cosmos keeper dependencies.
+receipts. Custom precompiles are being ported, one at a time, behind an
+EVM-native context that is visible to the executor's conflict tracking without
+reintroducing Cosmos keeper dependencies.
 
 ## Current implementation
 
@@ -37,7 +37,7 @@ The `evmonly` package currently provides:
   runtimes, with a concurrency-safe in-memory implementation for unit tests
 - a versioned `MemoryStore` giga implementation over an immutable `StateReader`
   for tests and load generation
-- fail-closed custom precompile placeholders
+- native custom precompiles run from a `precompiles.Registry`, starting with `gov`
 - a standalone load harness at `giga/evmonly/cmd/evmonly-loadtest` that feeds
   generated transfer blocks through the in-memory giga store
 
@@ -74,22 +74,19 @@ data: callers should pass the result of `PrepareBlock` unchanged, because
 
 The executor is always store-backed. `WithStorageManager(...)` selects the
 `bootstrap.GigaStorageManager` that provides both `giga.StateDB` and the ledger
-receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
-Unit tests can supply those dependencies independently. Execution fails closed
-if either store or the encoder is missing.
+receipt store. Unit tests can supply those dependencies independently.
+Execution fails closed if the state store is missing.
 For each block the executor opens a current `giga.StateView`, executes against
-its EVM-native read methods, converts the resulting `StateChangeSet`, and calls
+its EVM-native read methods, and passes the resulting `StateChangeSet` to
 `CommitStateChanges`. Execution and commit on an executor are serialized so
 blocks cannot share a stale snapshot or overlap commits; callers must still
 submit block heights in order. The snapshot stays open through the commit and
-is always closed afterward. An empty block still commits an encoded empty
-changeset so the store can advance its height. Stateless preparation can
+is always closed afterward. An empty block still commits an empty
+`StateChangeSet` so the store can advance its height. Stateless preparation can
 continue concurrently with store-backed execution.
 
-The encoder is explicit because `giga.StateDB` defines the protobuf commit
-transport but does not define an on-disk key layout. In particular, an encoder
-must preserve `StorageClears` as prefix clears rather than silently dropping
-persisted slots that were not read during execution. Encoding, state commit, or
+The store owns its on-disk key layout: `giga.StateDB` converts a
+`StateChangeSet` to the rows it writes. Block-encoder, state commit, or
 receipt-store failures release the block result and return an error without
 invoking `ResultSink`. Ethereum receipts are converted into
 `receipt.ReceiptRecord` values and persisted through the shared
@@ -114,7 +111,9 @@ The FlatKV encoder persists balance, nonce, code, and storage changes, and the
 executor reads them through the current Giga state view. EVM-only Autobahn load
 tests use `WithMissingAccountState(...)` to supply the initial funded state for
 synthetic accounts that have not appeared in FlatKV yet; after their first
-change, subsequent reads come from the persisted account row.
+change, subsequent reads come from the persisted account row. The fallback
+answers only for balance, nonce, and code: storage is always read from FlatKV,
+so a slot written at an address with no account row reads back.
 
 `MemoryStore` and `MemoryReceiptStore` are non-persistent unit-test doubles.
 `MemoryStore` wraps an immutable `StateReader`, retains committed values in
@@ -171,12 +170,10 @@ runtime-provided hash source in a later integration step.
 - `Balances`: final balance for each changed EVM address
 - `Nonces`: final nonce for each changed EVM address
 - `Code`: final bytecode updates or deletions
-- `StorageClears`: addresses whose persisted storage must be fully cleared
 - `Storage`: final storage slot updates or deletions
 
 The changeset should be deterministic and serializable by the runtime layer.
 The executor should not require `sdk.Context` or Cosmos stores to build it.
-State writers should apply `StorageClears` before per-slot `Storage` updates.
 
 `Receipts` are emitted in transaction order and should contain the Ethereum
 receipt fields needed by RPC and indexing: status, cumulative gas used, bloom,
@@ -200,9 +197,22 @@ state as contract storage owned by that precompile address. With no range reads
 and no side state, precompile reads and writes can then flow through ordinary
 `(address, slot)` storage tracking.
 
-Until that design is implemented, the `evmonly` executor accepts a custom
-precompile registry only as a fail-closed placeholder. Calls to registered
-custom precompile addresses return `ErrCustomPrecompilesOpen`.
+A registered `precompiles.Contract` runs against the calling EVM's StateDB, so
+its reads and writes are tracked, for OCC included, and reverted like any other
+call's. After its flat `RequiredGas`, each storage read it makes is charged as
+an EIP-2929 SLOAD. An address registered without a contract stays a fail-closed
+placeholder that returns `ErrCustomPrecompilesOpen`. Each precompile's storage
+follows the solc layout of its schema in `docs/giga-storage/`, read and written
+through `precompiles/solstorage`. `precompiles/gov` (0x1006) is the first
+implementation.
+
+A contract that implements `precompiles.EndBlocker` runs once at the end of
+every block, empty blocks included, after the block's transactions. The
+registry's `EndBlockers` lists them in run order, and a registered EndBlocker
+left off that list is a construction-time panic. End blockers run on a fresh
+StateDB over the transactions' changeset; their writes are merged into it,
+keeping each entry's prior value from before the block. An error fails the
+block.
 
 ## Block-STM execution
 

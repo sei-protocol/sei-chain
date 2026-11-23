@@ -18,22 +18,20 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
-	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta"
-	crgserver "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/server"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -41,11 +39,16 @@ const (
 	// Tendermint full-node start flags
 	flagAddress            = "address"
 	flagTransport          = "transport"
+	flagGRPCEnable         = "grpc.enable"
+	flagGRPCAddress        = "grpc.address"
+	flagGRPCWebEnable      = "grpc-web.enable"
+	flagGRPCWebAddress     = "grpc-web.address"
 	flagTraceStore         = "trace-store"
 	flagCPUProfile         = "cpu-profile"
 	FlagMinGasPrices       = "minimum-gas-prices"
 	FlagHaltHeight         = "halt-height"
 	FlagFreezeHeight       = "freeze-height"
+	FlagIngress            = "ingress"
 	FlagHaltTime           = "halt-time"
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
@@ -68,13 +71,6 @@ const (
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
 	FlagStateSyncSnapshotKeepRecent = "state-sync.snapshot-keep-recent"
 	FlagStateSyncSnapshotDir        = "state-sync.snapshot-directory"
-
-	// gRPC-related flags
-	flagGRPCOnly       = "grpc-only"
-	flagGRPCEnable     = "grpc.enable"
-	flagGRPCAddress    = "grpc.address"
-	flagGRPCWebEnable  = "grpc-web.enable"
-	flagGRPCWebAddress = "grpc-web.address"
 
 	// archival related flags
 	FlagArchivalVersion                = "archival-version"
@@ -107,12 +103,13 @@ will not be able to commit subsequent blocks.
 The '--freeze-height' flag puts a full node in read-only freeze mode. Query RPC remains available,
 but transaction and evidence submission, mempool gossip, and state sync are disabled from startup.
 Block sync and consensus stop before executing the configured height.
+The '--ingress' flag runs a full node that serves EVM traffic with a small memory and disk footprint.
+The EVM HTTP and WebSocket servers stay on; the REST API, the transaction index, state proofs and
+snapshot production are turned off. State, receipts and hash logs are kept for the last 1000 blocks,
+and blocks for the chain's evidence window. P2P and the mempool are unchanged. Bootstrap the node with
+state sync.
 For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
 which accepts a path for the resulting pprof file.
-The node may be started in a 'query only' mode where only the gRPC and JSON HTTP
-API services are enabled via the 'grpc-only' flag. In this mode, Tendermint is
-bypassed and can be used when legacy queries are needed after an on-chain upgrade
-is performed. Note, when enabled, gRPC will also be automatically enabled.
 `,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			serverCtx := GetServerContextFromCmd(cmd)
@@ -214,6 +211,7 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
 	cmd.Flags().Uint64(FlagHaltHeight, 0, "Block height at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Uint64(FlagFreezeHeight, 0, "Block height at which a full node stops executing while continuing to serve query RPC")
+	cmd.Flags().Bool(FlagIngress, false, "Run a full node that serves EVM traffic over the last 1000 blocks with a small memory and disk footprint; bootstrap it with state sync")
 	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
@@ -229,13 +227,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
 	cmd.Flags().Int(FlagConcurrencyWorkers, config.DefaultConcurrencyWorkers, "Number of workers to process concurrent transactions")
 
-	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
-	cmd.Flags().Bool(flagGRPCEnable, true, "Define if the gRPC server should be enabled")
-	cmd.Flags().String(flagGRPCAddress, config.DefaultGRPCAddress, "the gRPC server address to listen on")
-
-	cmd.Flags().Bool(flagGRPCWebEnable, true, "Define if the gRPC-Web server should be enabled. (Note: gRPC must also be enabled.)")
-	cmd.Flags().String(flagGRPCWebAddress, config.DefaultGRPCWebAddress, "The gRPC-Web server address to listen on")
-
 	cmd.Flags().Uint64(FlagStateSyncSnapshotInterval, 0, "State sync snapshot interval")
 	cmd.Flags().Uint32(FlagStateSyncSnapshotKeepRecent, 2, "State sync snapshot to keep")
 
@@ -249,6 +240,12 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
 	mustMarkDeprecated(cmd, flagAddress, "out-of-process ABCI has been removed; this flag is ignored")
 	mustMarkDeprecated(cmd, flagTransport, "out-of-process ABCI has been removed; this flag is ignored")
+
+	const grpcRemoved = "the gRPC and gRPC-Web servers have been removed; this flag is ignored"
+	mustMarkDeprecatedBool(cmd, flagGRPCEnable, grpcRemoved)
+	mustMarkDeprecated(cmd, flagGRPCAddress, grpcRemoved)
+	mustMarkDeprecatedBool(cmd, flagGRPCWebEnable, grpcRemoved)
+	mustMarkDeprecated(cmd, flagGRPCWebAddress, grpcRemoved)
 }
 
 func injectTelemetryChainID(cfg telemetry.Config, chainID string) telemetry.Config {
@@ -266,6 +263,13 @@ func injectTelemetryChainID(cfg telemetry.Config, chainID string) telemetry.Conf
 
 func mustMarkDeprecated(cmd *cobra.Command, name, message string) {
 	cmd.Flags().String(name, "", "")
+	if err := cmd.Flags().MarkDeprecated(name, message); err != nil {
+		panic(err)
+	}
+}
+
+func mustMarkDeprecatedBool(cmd *cobra.Command, name, message string) {
+	cmd.Flags().Bool(name, false, "")
 	if err := cmd.Flags().MarkDeprecated(name, message); err != nil {
 		panic(err)
 	}
@@ -306,6 +310,9 @@ func startInProcess(
 		return err
 	}
 
+	if err := configureIngressProfile(ctx); err != nil {
+		return err
+	}
 	config, err := config.GetConfig(ctx.Viper)
 	if err != nil {
 		return err
@@ -313,16 +320,15 @@ func startInProcess(
 	if err := config.ValidateFreeze(); err != nil {
 		return err
 	}
-	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
-	if gRPCOnly && config.FreezeHeight > 0 {
-		return errors.New("freeze-height cannot be used with grpc-only mode")
-	}
-
 	if err := config.ValidateBasic(ctx.Config); err != nil {
 		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
+	if ctx.Viper.GetBool("rosetta.enable") {
+		logger.Error("WARNING: rosetta.enable is set in app.toml, but seid no longer includes the Rosetta API server; the setting is ignored")
+	}
+	warnIgnoredStateSyncTrustPeriod(ctx.Viper, clientCtx.ChainID)
 	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
 	defer func() {
 		logger.Info("close any other open resource...")
@@ -343,65 +349,61 @@ func startInProcess(
 		}
 	}
 
-	if gRPCOnly {
-		logger.Info("starting node in gRPC only mode; Tendermint is disabled")
-		config.GRPC.Enable = true
-	} else {
-		logger.Info("starting node with ABCI Tendermint in-process")
-		var gen *tmtypes.GenesisDoc
-		if config.Genesis.StreamImport {
-			lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
-			for line := range lines {
-				genDoc, err := tmtypes.GenesisDocFromJSON([]byte(line))
-				if err != nil {
-					return err
-				}
-				if gen != nil {
-					return fmt.Errorf("error: multiple genesis docs found in stream")
-				}
-				gen = genDoc
-			}
-		}
-		gigaCfg := gigaconfig.DefaultConfig
-		if ctx.Config.AutobahnConfigFile != "" {
-			if gigaCfg, err = gigaconfig.ReadConfig(ctx.Viper); err != nil {
-				return fmt.Errorf("read [giga] config: %w", err)
-			}
-		}
-		tmNode, err := node.New(
-			goCtx,
-			ctx.Config,
-			restartEvent,
-			app,
-			gen,
-			tracerProviderOptions,
-			tmtypes.DefaultConsensusPolicy(),
-			node.WithFreezeHeight(config.FreezeHeight),
-			node.WithGigaConfig(gigaCfg),
-		)
-		if err != nil {
-			return fmt.Errorf("error creating node: %w", err)
-		}
-		if err := tmNode.Start(goCtx); err != nil {
-			return fmt.Errorf("error starting node: %w", err)
-		}
-		defer func() {
-			if tmNode.IsRunning() {
-				tmNode.Stop()
-			}
-		}()
-		// Add the tx service to the gRPC router. We only need to register this
-		// service if API or gRPC is enabled, and avoid doing so in the general
-		// case, because it spawns a new local tendermint RPC client.
-		if config.API.Enable || config.GRPC.Enable {
-			localClient, err := local.New(tmNode)
+	logger.Info("starting node with ABCI Tendermint in-process")
+	var gen *tmtypes.GenesisDoc
+	if config.Genesis.StreamImport {
+		lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
+		for line := range lines {
+			genDoc, err := tmtypes.GenesisDocFromJSON([]byte(line))
 			if err != nil {
 				return err
 			}
-			clientCtx = clientCtx.WithClient(localClient)
-			app.RegisterLocalServices(localClient, clientCtx.TxConfig)
+			if gen != nil {
+				return fmt.Errorf("error: multiple genesis docs found in stream")
+			}
+			gen = genDoc
 		}
 	}
+	gigaCfg := gigaconfig.DefaultConfig
+	if ctx.Config.AutobahnConfigFile != "" {
+		if gigaCfg, err = gigaconfig.ReadConfig(ctx.Viper); err != nil {
+			return fmt.Errorf("read [giga] config: %w", err)
+		}
+	}
+	tmNode, err := node.New(
+		goCtx,
+		ctx.Config,
+		restartEvent,
+		app,
+		gen,
+		tracerProviderOptions,
+		tmtypes.DefaultConsensusPolicy(),
+		node.WithFreezeHeight(config.FreezeHeight),
+		node.WithGigaConfig(gigaCfg),
+	)
+	if err != nil {
+		return fmt.Errorf("error creating node: %w", err)
+	}
+	if err := tmNode.Start(goCtx); err != nil {
+		return fmt.Errorf("error starting node: %w", err)
+	}
+	defer func() {
+		if tmNode.IsRunning() {
+			tmNode.Stop()
+		}
+	}()
+	// TODO: the config here is vague. RegisterLocalServices backs the REST API's
+	// tx and tendermint services but also starts the EVM JSON-RPC and admin
+	// servers, which have their own enable settings. Clean up the config so it
+	// is clear what api.enable controls. For now the behaviour is kept the same
+	// as before the gRPC server removal, when grpc.enable defaulted to true and
+	// local services started regardless of api.enable.
+	localClient, err := local.New(tmNode)
+	if err != nil {
+		return err
+	}
+	clientCtx = clientCtx.WithClient(localClient)
+	app.RegisterLocalServices(localClient, clientCtx.TxConfig)
 
 	if config.API.Enable {
 		var apiSrv *api.Server
@@ -425,72 +427,62 @@ func startInProcess(
 		}
 	}
 
-	if config.GRPC.Enable {
-		grpcSrv, rateLimitRegistry, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
-		if err != nil {
-			return err
-		}
-		defer grpcSrv.Stop()
-
-		if config.GRPCWeb.Enable {
-			grpcWebSrv, err := servergrpc.StartGRPCWeb(grpcSrv, rateLimitRegistry, config)
-			if err != nil {
-				logger.Error("failed to start grpc-web http server", "err", err)
-				return err
-			}
-			defer func() { _ = grpcWebSrv.Close() }()
-		}
-	}
-
-	// At this point it is safe to block the process if we're in gRPC only mode as
-	// we do not need to start Rosetta or handle any Tendermint related processes.
-	if gRPCOnly {
-		// wait for signal capture and gracefully return
-		return WaitForQuitSignals(goCtx, restartCh)
-	}
-
-	var rosettaSrv crgserver.Server
-	if config.Rosetta.Enable {
-		offlineMode := config.Rosetta.Offline
-
-		// If GRPC is not enabled rosetta cannot work in online mode, so it works in
-		// offline mode.
-		if !config.GRPC.Enable {
-			offlineMode = true
-		}
-
-		conf := &rosetta.Config{
-			Blockchain:        config.Rosetta.Blockchain,
-			Network:           config.Rosetta.Network,
-			TendermintRPC:     ctx.Config.RPC.ListenAddress,
-			GRPCEndpoint:      config.GRPC.Address,
-			Addr:              config.Rosetta.Address,
-			Retries:           config.Rosetta.Retries,
-			Offline:           offlineMode,
-			Codec:             clientCtx.Codec.(*codec.ProtoCodec),
-			InterfaceRegistry: clientCtx.InterfaceRegistry,
-		}
-
-		rosettaSrv, err = rosetta.ServerFromConfig(conf)
-		if err != nil {
-			return err
-		}
-
-		errCh := make(chan error)
-		go func() {
-			if err := rosettaSrv.Start(); err != nil {
-				errCh <- err
-			}
-		}()
-
-		select {
-		case err := <-errCh:
-			return err
-
-		case <-time.After(types.ServerStartTime): // assume server started successfully
-		}
-	}
-
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
+}
+
+// ingressLookbackBlocks is how many recent blocks of state, receipts and hash logs an ingress node keeps.
+const ingressLookbackBlocks = 1000
+
+// configureIngressProfile narrows a node started with --ingress to serving EVM traffic over the last
+// ingressLookbackBlocks blocks, overriding the settings that would serve deeper history, the REST API,
+// state proofs or snapshots to other nodes.
+func configureIngressProfile(ctx *Context) error {
+	if !ctx.Viper.GetBool(FlagIngress) {
+		return nil
+	}
+	if ctx.Config.Mode != tmcfg.ModeFull {
+		return fmt.Errorf("--%s requires Tendermint mode %q, got %q", FlagIngress, tmcfg.ModeFull, ctx.Config.Mode)
+	}
+	if ctx.Config.AutobahnConfigFile != "" {
+		return fmt.Errorf("--%s is not supported with Autobahn", FlagIngress)
+	}
+	if ctx.Viper.GetUint64(FlagFreezeHeight) > 0 {
+		return fmt.Errorf("--%s cannot be combined with --%s", FlagIngress, FlagFreezeHeight)
+	}
+
+	ctx.Config.TxIndex.Indexer = []string{"null"}
+	for key, value := range map[string]any{
+		"api.enable":                                   false,
+		"state-store.ss-enable":                        true,
+		"state-store.ss-keep-recent":                   ingressLookbackBlocks,
+		"state-store.ss-snapshot-enable":               false,
+		"state-commit.sc-enable-state-proof":           false,
+		"state-commit.sc-hash-logger-blocks-to-retain": uint(ingressLookbackBlocks),
+		// Each memIAVL tree being written holds three 128 MiB buffers; all trees share one write-rate limit.
+		"state-commit.sc-snapshot-writer-limit": 1,
+		FlagMinRetainBlocks:                     uint64(ingressLookbackBlocks),
+		FlagStateSyncSnapshotInterval:           uint64(0),
+		"evm.http_enabled":                      true,
+		"evm.ws_enabled":                        true,
+		"evm.enable_simulation":                 false,
+		"evm.trace_bake_enabled":                false,
+		"wasm.memory_cache_size":                uint32(16),
+		"light_invariance.supply_enabled":       false,
+	} {
+		ctx.Viper.Set(key, value)
+	}
+	return nil
+}
+
+// warnIgnoredStateSyncTrustPeriod logs a warning when v sets [statesync] trust-period to a
+// value other than the trust period state sync uses on chainID.
+func warnIgnoredStateSyncTrustPeriod(v *viper.Viper, chainID string) {
+	const key = "statesync.trust-period"
+	trustPeriod := tmcfg.StateSyncTrustPeriod(chainID)
+	if !v.IsSet(key) || v.GetDuration(key) == trustPeriod {
+		return
+	}
+	logger.Warn("statesync.trust-period is set in config.toml, but state sync uses the trust period built into seid for this chain; the setting is ignored and can be removed",
+		"chainID", chainID, "configured", v.GetString(key), "trustPeriod", trustPeriod.String())
 }

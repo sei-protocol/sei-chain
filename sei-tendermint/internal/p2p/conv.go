@@ -80,71 +80,100 @@ var nodePublicKeyConv = protoutils.Conv[NodePublicKey, *pb.NodePublicKey]{
 	Decode: func(p *pb.NodePublicKey) (NodePublicKey, error) {
 		k, err := ed25519.PublicKeyFromBytes(p.Ed25519)
 		if err != nil {
-			return NodePublicKey{}, fmt.Errorf("Ed25519: %w", err)
+			return NodePublicKey{}, fmt.Errorf("ed25519: %w", err)
 		}
 		return NodePublicKey(k), nil
 	},
 }
 
-// gigaHandshakeClaim is the Autobahn committee identity a validator advertises
-// on the giga handshake.
-type gigaHandshakeClaim struct {
-	utils.ReadOnly
-	Validator atypes.PublicKey
-	sig       ed25519.Signature
-	evmRPC    string
-}
-
-type handshakeSpec struct {
-	SelfAddr          utils.Option[NodeAddress]
-	PexAddrs          []NodeAddress
-	SeiGigaConnection bool
-}
-
 type handshakeMsg struct {
 	NodeAuth NodeChallengeSig
-	handshakeSpec
-	GigaClaim utils.Option[gigaHandshakeClaim]
+	SelfAddr utils.Option[NodeAddress]
+	PexAddrs []NodeAddress
+	Giga     utils.Option[gigaHandshake]
+}
+
+type gigaHandshake struct {
+	Validator utils.Option[validatorHandshake]
+}
+
+var gigaHandshakeConv = protoutils.Conv[gigaHandshake, *pb.GigaHandshake]{
+	Encode: func(m gigaHandshake) *pb.GigaHandshake {
+		return &pb.GigaHandshake{Validator: validatorHandshakeConv.EncodeOpt(m.Validator)}
+	},
+	Decode: func(p *pb.GigaHandshake) (gigaHandshake, error) {
+		validator, err := validatorHandshakeConv.DecodeOpt(p.Validator)
+		if err != nil {
+			return gigaHandshake{}, fmt.Errorf("validator: %w", err)
+		}
+		return gigaHandshake{Validator: validator}, nil
+	},
+}
+
+type validatorHandshake struct {
+	utils.ReadOnly
+	auth   *atypes.Signed[atypes.Challenge]
+	EVMRPC url.URL
+}
+
+var validatorHandshakeConv = protoutils.Conv[validatorHandshake, *pb.ValidatorHandshake]{
+	Encode: func(m validatorHandshake) *pb.ValidatorHandshake {
+		return &pb.ValidatorHandshake{
+			Auth:      atypes.SignedChallengeConv.Encode(m.auth),
+			EvmRpcUrl: new(m.EVMRPC.String()),
+		}
+	},
+	Decode: func(p *pb.ValidatorHandshake) (validatorHandshake, error) {
+		auth, err := atypes.SignedChallengeConv.DecodeReq(p.Auth)
+		if err != nil {
+			return validatorHandshake{}, fmt.Errorf("auth: %w", err)
+		}
+		if p.EvmRpcUrl == nil {
+			return validatorHandshake{}, fmt.Errorf("evm_rpc_url: missing")
+		}
+		endpoint, err := url.Parse(*p.EvmRpcUrl)
+		if err != nil {
+			return validatorHandshake{}, fmt.Errorf("evm_rpc_url: %w", err)
+		}
+		if err := utils.CheckRPCURL(*endpoint); err != nil {
+			return validatorHandshake{}, fmt.Errorf("evm_rpc_url: %w", err)
+		}
+		return validatorHandshake{auth: auth, EVMRPC: *endpoint}, nil
+	},
 }
 
 var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 	Encode: func(m *handshakeMsg) *pb.Handshake {
 		var selfAddr *string
 		if addr, ok := m.SelfAddr.Get(); ok {
-			selfAddr = utils.Alloc(addr.String())
+			selfAddr = new(addr.String())
 		}
 		pexAddrs := make([]string, len(m.PexAddrs))
 		for i, addr := range m.PexAddrs {
 			pexAddrs[i] = addr.String()
 		}
-		out := &pb.Handshake{
-			NodeAuthKey:       nodePublicKeyConv.Encode(m.NodeAuth.Key()),
-			NodeAuthSig:       m.NodeAuth.sig.Bytes(),
-			SelfAddr:          selfAddr,
-			PexAddrs:          pexAddrs,
-			SeiGigaConnection: m.SeiGigaConnection,
+		return &pb.Handshake{
+			NodeAuthKey: nodePublicKeyConv.Encode(m.NodeAuth.Key()),
+			NodeAuthSig: m.NodeAuth.sig.Bytes(),
+			SelfAddr:    selfAddr,
+			PexAddrs:    pexAddrs,
+			Giga:        gigaHandshakeConv.EncodeOpt(m.Giga),
 		}
-		if claim, ok := m.GigaClaim.Get(); ok {
-			out.ValidatorAuthKey = claim.Validator.Bytes()
-			out.ValidatorAuthSig = claim.sig.Bytes()
-			out.EvmRpc = utils.Alloc(claim.evmRPC)
-		}
-		return out
 	},
 	Decode: func(p *pb.Handshake) (*handshakeMsg, error) {
 		nodeAuthKey, err := nodePublicKeyConv.DecodeReq(p.NodeAuthKey)
 		if err != nil {
-			return nil, fmt.Errorf("NodeAuthKey: %w", err)
+			return nil, fmt.Errorf("node_auth_key: %w", err)
 		}
 		nodeAuthSig, err := ed25519.SignatureFromBytes(p.NodeAuthSig)
 		if err != nil {
-			return nil, fmt.Errorf("NodeAuthSig: %w", err)
+			return nil, fmt.Errorf("node_auth_sig: %w", err)
 		}
 		var selfAddr utils.Option[NodeAddress]
 		if p.SelfAddr != nil {
 			addr, err := ParseNodeAddress(*p.SelfAddr)
 			if err != nil {
-				return nil, fmt.Errorf("SelfAddr: %w", err)
+				return nil, fmt.Errorf("self_addr: %w", err)
 			}
 			selfAddr = utils.Some(addr)
 		}
@@ -152,52 +181,19 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 		for i, addrString := range p.PexAddrs {
 			addr, err := ParseNodeAddress(addrString)
 			if err != nil {
-				return nil, fmt.Errorf("PexAddrs[%v]: %w", i, err)
+				return nil, fmt.Errorf("pex_addrs[%v]: %w", i, err)
 			}
 			pexAddrs[i] = addr
 		}
-		claim, err := decodeGigaClaim(p)
+		giga, err := gigaHandshakeConv.DecodeOpt(p.Giga)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("giga: %w", err)
 		}
 		return &handshakeMsg{
 			NodeAuth: NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
-			handshakeSpec: handshakeSpec{
-				SelfAddr:          selfAddr,
-				PexAddrs:          pexAddrs,
-				SeiGigaConnection: p.SeiGigaConnection,
-			},
-			GigaClaim: claim,
+			SelfAddr: selfAddr,
+			PexAddrs: pexAddrs,
+			Giga:     giga,
 		}, nil
 	},
-}
-
-func decodeGigaClaim(p *pb.Handshake) (utils.Option[gigaHandshakeClaim], error) {
-	isValidator := p.ValidatorAuthKey != nil || p.ValidatorAuthSig != nil || p.EvmRpc != nil
-	if !isValidator {
-		return utils.None[gigaHandshakeClaim](), nil
-	}
-	if p.ValidatorAuthKey == nil || p.ValidatorAuthSig == nil || p.EvmRpc == nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("giga claim requires validator_auth_key, validator_auth_sig, and evm_rpc")
-	}
-	valKey, err := atypes.PublicKeyFromBytes(p.ValidatorAuthKey)
-	if err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("ValidatorAuthKey: %w", err)
-	}
-	valSig, err := ed25519.SignatureFromBytes(p.ValidatorAuthSig)
-	if err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("ValidatorAuthSig: %w", err)
-	}
-	u, err := url.Parse(*p.EvmRpc)
-	if err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
-	}
-	if err := utils.CheckHTTPURL(*u); err != nil {
-		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
-	}
-	return utils.Some(gigaHandshakeClaim{
-		Validator: valKey,
-		sig:       valSig,
-		evmRPC:    *p.EvmRpc,
-	}), nil
 }

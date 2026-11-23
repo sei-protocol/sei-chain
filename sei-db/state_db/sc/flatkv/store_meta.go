@@ -10,7 +10,6 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -59,140 +58,26 @@ func versionToBytes(v int64) []byte {
 	return b
 }
 
-// loadLocalMeta loads per-DB metadata by reading separate keys. A DB missing its version record is
+// loadLocalMeta loads per-DB metadata from the DB's _meta/ namespace. A DB missing its version record is
 // reported as one that has never been written, and rejected if it carries any other metadata.
 func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
-	meta := &LocalMeta{}
-
-	versionData, err := db.Get(ktype.MetaVersionKey)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			// Metadata is written as a set, so a DB missing its version must hold no metadata at
-			// all. Reporting one that holds some as never-written would hide a lost root behind a
-			// replay that cannot restore it: the hashes are maintained by unmixing the old value
-			// and mixing the new, so re-applying a block whose rows are already on disk cancels
-			// out and leaves those rows uncounted, silently changing the store root.
-			//
-			// Rebuilding the root here instead would mean a full scan of the DB, and unlike an
-			// import or an empty DB this path is not already making one.
-			if err := requireNoMetadata(db); err != nil {
-				return nil, err
-			}
-			return &LocalMeta{CommittedVersion: 0}, nil
-		}
-		return nil, fmt.Errorf("could not read meta version: %w", err)
-	}
-	meta.CommittedVersion, err = decodeVersion(ktype.MetaVersionKey, versionData)
-	if err != nil {
-		return nil, err
-	}
-
-	hashData, err := db.Get(ktype.MetaLtHashKey)
-	if err != nil && !errorutils.IsNotFound(err) {
-		return nil, fmt.Errorf("could not read meta hash: %w", err)
-	}
-	if err == nil && hashData != nil {
-		h, err := lthash.Unmarshal(hashData)
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal meta hash: %w", err)
-		}
-		meta.LtHash = h
-	}
-
-	moduleHashes, err := loadModuleLtHashes(db)
-	if err != nil {
-		return nil, err
-	}
-	meta.ModuleLtHashes = moduleHashes
-
-	moduleStats, err := loadModuleStats(db)
-	if err != nil {
-		return nil, err
-	}
-	meta.ModuleStats = moduleStats
-
-	return meta, nil
-}
-
-// requireNoMetadata returns an error if db holds any key in the _meta/ namespace.
-func requireNoMetadata(db types.KeyValueDB) error {
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: ktype.MetaKeyPrefixBytes,
 		UpperBound: ktype.PrefixEnd(ktype.MetaKeyPrefixBytes),
 	})
 	if err != nil {
-		return fmt.Errorf("open metadata iterator: %w", err)
+		return nil, fmt.Errorf("open metadata iterator: %w", err)
 	}
 	defer func() { _ = iter.Close() }()
 
-	if iter.Valid() {
-		return fmt.Errorf("flatkv: %s is absent but %s is present; this DB lost its version record, "+
-			"and no replay can rebuild the root it should have",
-			ktype.MetaVersionKey, iter.Key())
-	}
-	return iter.Error()
-}
-
-// loadModuleLtHashes reads every per-module LtHash key ("_meta/x:<module>/hash")
-// from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none, meaning it has never been written or holds no module's keys.
-func loadModuleLtHashes(db types.KeyValueDB) (map[string]*lthash.LtHash, error) {
-	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: ktype.ModuleLtHashPrefixBytes,
-		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open module lthash iterator: %w", err)
-	}
-	defer func() { _ = iter.Close() }()
-
-	out := make(map[string]*lthash.LtHash)
+	var decoder LocalMetaDecoder
 	for ; iter.Valid(); iter.Next() {
-		module, ok := ktype.ParseModuleLtHashKey(iter.Key())
-		if !ok {
-			continue
-		}
-		h, err := lthash.Unmarshal(iter.Value())
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal module %q meta hash: %w", module, err)
-		}
-		out[module] = h
+		decoder.Add(iter.Key(), iter.Value())
 	}
 	if err := iter.Error(); err != nil {
-		return nil, fmt.Errorf("iterate module lthash keys: %w", err)
+		return nil, fmt.Errorf("iterate metadata: %w", err)
 	}
-	return out, nil
-}
-
-// loadModuleStats reads every per-module stats key ("_meta/x:<module>/stats")
-// from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none, meaning it has never been written or holds no module's keys.
-func loadModuleStats(db types.KeyValueDB) (map[string]lthash.ModuleStats, error) {
-	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: ktype.ModuleLtHashPrefixBytes,
-		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open module stats iterator: %w", err)
-	}
-	defer func() { _ = iter.Close() }()
-
-	out := make(map[string]lthash.ModuleStats)
-	for ; iter.Valid(); iter.Next() {
-		module, ok := ktype.ParseModuleStatsKey(iter.Key())
-		if !ok {
-			continue
-		}
-		st, err := lthash.UnmarshalModuleStats(iter.Value())
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal module %q stats: %w", module, err)
-		}
-		out[module] = st
-	}
-	if err := iter.Error(); err != nil {
-		return nil, fmt.Errorf("iterate module stats keys: %w", err)
-	}
-	return out, nil
+	return decoder.Finish()
 }
 
 // writeLocalMetaToBatch writes per-DB metadata (version + per-DB root LtHash +
@@ -392,33 +277,8 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		}
 	}
 
-	if err := s.sealSeededVersion(seededVersion); err != nil {
-		return fmt.Errorf("flatkv: SetInitialVersion: seal seeded version: %w", err)
-	}
-
-	for _, dir := range dataDBDirs {
-		s.localMeta[dir] = &LocalMeta{
-			CommittedVersion: seededVersion,
-			LtHash:           s.loadedHashes.PerDB[dir].Clone(),
-			ModuleLtHashes:   cloneModuleHashes(s.loadedHashes.PerModule[dir]),
-			ModuleStats:      cloneModuleStats(s.loadedHashes.PerModuleStats[dir]),
-		}
-	}
-
-	s.committedVersion = seededVersion
-	s.loadedHashes.BlockNumber = seededVersion
-
-	// The engine must carry back what this established, or the first real block would be measured
-	// against different state than was persisted.
-	if err := s.restartHashing(); err != nil {
-		return fmt.Errorf("flatkv: SetInitialVersion: %w", err)
-	}
-
-	// The seal only stages the records; the view managers flush asynchronously. Wait for them so the seed is
-	// durable across a restart, as this method promises. For a non-genesis seed the snapshot below supplies
-	// the same barrier, but it does not run at genesis.
-	if err := s.flushLatestVersion(); err != nil {
-		return fmt.Errorf("flatkv: SetInitialVersion: flush seeded version: %w", err)
+	if err := s.persistLocalMetaAndReopen(uint64(seededVersion)); err != nil { //nolint:gosec // non-negative
+		return fmt.Errorf("flatkv: SetInitialVersion: seed version %d: %w", seededVersion, err)
 	}
 
 	if seededVersion > 0 {
@@ -491,10 +351,7 @@ func readCommittedVersion(dbDir string) (int64, error) {
 		}
 		return 0, fmt.Errorf("stat %q: %w", dbDir, err)
 	}
-	db, err := pebble.Open(dbDir, &pebble.Options{
-		ReadOnly:           true,
-		FormatMajorVersion: pebble.FormatVirtualSSTables,
-	})
+	db, err := openPebbleReadOnly(dbDir)
 	if err != nil {
 		// The directory can exist while the database in it does not: createWorkingDir makes an empty one
 		// for every data DB the snapshot it clones from does not have, and only the store's own open

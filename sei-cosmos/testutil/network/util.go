@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
-	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
 	srvtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -73,8 +72,8 @@ func startInProcess(cfg Config, val *Validator) error {
 	if val.RPCAddress != "" {
 		localClient, _ := local.New(tmNode)
 		val.RPCClient = localClient
-		// We'll need a RPC client if the validator exposes a gRPC or REST endpoint.
-		if val.APIAddress != "" || val.AppConfig.GRPC.Enable {
+		// We'll need a RPC client if the validator exposes a REST endpoint.
+		if val.APIAddress != "" {
 			val.ClientCtx = val.ClientCtx.WithClient(val.RPCClient)
 			app.RegisterLocalServices(localClient, val.ClientCtx.TxConfig)
 		}
@@ -101,22 +100,6 @@ func startInProcess(cfg Config, val *Validator) error {
 		val.api = apiSrv
 	}
 
-	if val.AppConfig.GRPC.Enable {
-		grpcSrv, rateLimitRegistry, err := servergrpc.StartGRPCServer(val.ClientCtx, app, val.AppConfig.GRPC)
-		if err != nil {
-			return err
-		}
-
-		val.grpc = grpcSrv
-
-		if val.AppConfig.GRPCWeb.Enable {
-			val.grpcWeb, err = servergrpc.StartGRPCWeb(grpcSrv, rateLimitRegistry, *val.AppConfig)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -126,7 +109,7 @@ func collectGenFiles(cfg Config, vals []*Validator, outputDir string) error {
 	for i := 0; i < cfg.NumValidators; i++ {
 		tmCfg := vals[i].Ctx.Config
 
-		nodeDir := filepath.Join(outputDir, vals[i].Moniker, "simd")
+		nodeDir := filepath.Join(outputDir, vals[i].Moniker, "seid")
 		gentxsDir := filepath.Join(outputDir, "gentxs")
 
 		tmCfg.Moniker = vals[i].Moniker

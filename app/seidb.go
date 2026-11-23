@@ -7,6 +7,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
@@ -28,6 +29,7 @@ const (
 	FlagSCHistoricalProofMaxInFlight = "state-commit.sc-historical-proof-max-inflight"
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
+	FlagSCEnableStateProof           = "state-commit.sc-enable-state-proof"
 	FlagSCSubspaceQueryMaxInFlight   = "state-commit.sc-subspace-query-max-inflight"
 	FlagSCSubspaceMaxPairs           = "state-commit.sc-subspace-max-pairs"
 	FlagSCSubspaceMaxBytes           = "state-commit.sc-subspace-max-bytes"
@@ -135,6 +137,10 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	if v := appOpts.Get(FlagSCFlatKVReadWriteMetrics); v != nil {
 		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
 	}
+	if cast.ToBool(appOpts.Get(server.FlagIngress)) {
+		scConfig.MemIAVLConfig.SnapshotKeepLatestOnly = true
+		scConfig.FlatKVConfig.ApplyLowFootprintProfile()
+	}
 
 	// sc-write-mode-enable-auto (default true) decides whether the node may run
 	// in auto. An ABSENT key keeps the default (true): nodes provisioned by
@@ -167,6 +173,9 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	}
 	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
 		scConfig.HistoricalProofBurst = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCEnableStateProof); v != nil {
+		scConfig.EnableStateProof = cast.ToBool(v)
 	}
 	if v := appOpts.Get(FlagSCSubspaceQueryMaxInFlight); v != nil {
 		scConfig.SubspaceQueryMaxInFlight = cast.ToInt(v)

@@ -30,11 +30,6 @@ func NewAppQC(votes []*Signed[*AppVote]) *AppQC {
 // Proposal .
 func (m *AppQC) Proposal() *AppProposal { return m.vote.Msg().Proposal() }
 
-// Next is the number of the next global block to finalize AppHash for.
-func (m *AppQC) Next() RoadIndex {
-	return m.Proposal().Next()
-}
-
 // Verify verifies the AppQC against the committee.
 func (m *AppQC) Verify(c *Committee) error {
 	return m.vote.verifyQC(c, c.AppQuorum(), m.sigs)
@@ -51,7 +46,7 @@ var AppQCConv = protoutils.Conv[*AppQC, *pb.AppQC]{
 	Decode: func(m *pb.AppQC) (*AppQC, error) {
 		vote, err := AppVoteConv.DecodeReq(m.Vote)
 		if err != nil {
-			return nil, fmt.Errorf("proposal: %w", err)
+			return nil, fmt.Errorf("vote: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {

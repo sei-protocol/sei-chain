@@ -1,0 +1,31 @@
+package gov_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	v2gov "github.com/sei-protocol/sei-chain/precompiles/gov"
+)
+
+// TestRequiredGasMatchesV2 pins RequiredGas to V2's flat cost for every method
+// V2 serves, pricing each submit method as V2's submitProposal.
+func TestRequiredGasMatchesV2(t *testing.T) {
+	args := make([]byte, 100)
+	for name, method := range gov.ABI.Methods {
+		input := append(append([]byte{}, method.ID...), args...)
+		v2Name := method.RawName
+		if strings.HasSuffix(v2Name, "Authorization") {
+			continue // V2 serves no authorization methods.
+		}
+		if strings.HasPrefix(v2Name, "submit") {
+			v2Name = "submitProposal"
+		}
+		want := pcommon.DefaultGasCost(args, v2gov.PrecompileExecutor{}.IsTransaction(v2Name))
+		require.Equal(t, want, gov.Precompile{}.RequiredGas(input), name)
+	}
+	require.Equal(t, pcommon.UnknownMethodCallGas, gov.Precompile{}.RequiredGas([]byte{1, 2, 3, 4}))
+}

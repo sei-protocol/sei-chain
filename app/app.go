@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -54,9 +55,6 @@ import (
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
-	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
-	authzmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -95,11 +93,12 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
-	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
+	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	"github.com/sei-protocol/sei-chain/app/upgrades/kvrepair"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -130,7 +129,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
-	evmconfig "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -140,25 +138,22 @@ import (
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
-	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
-
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	receiptpebble "github.com/sei-protocol/sei-chain/sei-db/receipt_db/pebble"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -193,7 +188,6 @@ var (
 	// and genesis verification.
 	ModuleBasics = module.NewBasicManager(
 		auth.AppModuleBasic{},
-		authzmodule.AppModuleBasic{},
 		genutil.AppModuleBasic{},
 		bank.AppModuleBasic{},
 		staking.AppModuleBasic{},
@@ -207,7 +201,6 @@ var (
 		evm.AppModuleBasic{},
 		wasm.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
-		tokenfactorymodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -221,7 +214,6 @@ var (
 		govtypes.ModuleName:            {authtypes.Burner},
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
-		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -230,7 +222,7 @@ var (
 	// retiredModuleAccounts are module accounts whose modules no longer exist
 	// but whose deterministic addresses stay blocked so funds cannot be sent
 	// to an account nothing can sign for.
-	retiredModuleAccounts = []string{"transfer"}
+	retiredModuleAccounts = []string{"transfer", retiredtokenfactory.ModuleName}
 
 	// kvStoreKeyNames is the canonical, in-order list of module KV store
 	// names mounted on the SeiDB / memiavl backend. It is the single source
@@ -239,13 +231,12 @@ var (
 	// in this package. Adding or removing an entry here MUST be matched in
 	// sei-db/common/keys/store_keys.go.
 	kvStoreKeyNames = []string{
-		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
+		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey,
 		evidencetypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
-		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	}
 
@@ -365,7 +356,6 @@ type App struct {
 
 	// keepers
 	AccountKeeper  authkeeper.AccountKeeper
-	AuthzKeeper    authzkeeper.Keeper
 	BankKeeper     bankkeeper.Keeper
 	GigaBankKeeper *gigabankkeeper.BaseKeeper
 	StakingKeeper  stakingkeeper.Keeper
@@ -381,8 +371,6 @@ type App struct {
 	GigaEvmKeeper  gigaevmkeeper.Keeper
 
 	EpochKeeper epochmodulekeeper.Keeper
-
-	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
 	BeginBlockKeepers legacyabci.BeginBlockKeepers
 	EndBlockKeepers   legacyabci.EndBlockKeepers
@@ -432,26 +420,24 @@ type App struct {
 
 	stateStore   seidb.StateStore
 	rootStore    *rootmulti.Store
-	receiptStore receipt.ReceiptStore
+	receiptStore receiptdb.ReceiptStore
 
 	forkInitializer func(sdk.Context)
 
-	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
-	// constructed in RegisterLocalServices so an embedding orchestrator (the
-	// in-process harness) can Stop() them at teardown. Nil when the respective
-	// listener is disabled. Production seid does not read these; its process exit
-	// reaps the listeners.
-	evmHTTPServer evmrpc.EVMServer
-	evmWSServer   evmrpc.EVMServer
-
 	txPrioritizer sdk.TxPrioritizer
-
-	benchmarkManager *benchmark.Manager
 
 	// GigaExecutorEnabled controls whether to use the Giga executor.
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+
+	doneUpgradesCache atomic.Pointer[doneUpgradesAtHeight]
+}
+
+// doneUpgradesAtHeight is the set of completed upgrades read from the check state at height.
+type doneUpgradesAtHeight struct {
+	height   int64
+	upgrades upgradekeeper.DoneUpgrades
 }
 
 type AppOption func(*App)
@@ -523,7 +509,7 @@ func New(
 	}
 	app.rootStore = rootStore
 
-	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
+	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey], interfaceRegistry)
 
 	// set the BaseApp's parameter store
 	bApp.SetParamStore(app.ParamsKeeper.Subspace(baseapp.Paramspace).WithKeyTable(paramskeeper.ConsensusParamsKeyTable()))
@@ -542,7 +528,6 @@ func New(
 	stakingKeeper := stakingkeeper.NewKeeper(
 		appCodec, keys[stakingtypes.StoreKey], app.AccountKeeper, app.BankKeeper, app.GetSubspace(stakingtypes.ModuleName),
 	)
-	app.AuthzKeeper = authzkeeper.NewKeeper(keys[authzkeeper.StoreKey], appCodec, app.MsgServiceRouter())
 	app.MintKeeper = mintkeeper.NewKeeper(
 		appCodec, keys[minttypes.StoreKey], app.GetSubspace(minttypes.ModuleName), &stakingKeeper,
 		app.AccountKeeper, app.BankKeeper, app.EpochKeeper, authtypes.FeeCollectorName,
@@ -584,22 +569,12 @@ func New(
 	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
 		app.MintKeeper.Hooks()))
 
-	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
-		appCodec,
-		app.keys[tokenfactorytypes.StoreKey],
-		app.GetSubspace(tokenfactorytypes.ModuleName),
-		app.AccountKeeper,
-		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
-		app.DistrKeeper,
-	)
-
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
 	wasmOpts = append(
 		wasmbinding.RegisterCustomPlugins(
 			&app.EpochKeeper,
-			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
 			app.MsgServiceRouter(),
 			app.BankKeeper,
@@ -619,7 +594,7 @@ func New(
 		app.StakingKeeper,
 		app.DistrKeeper,
 		app.MsgServiceRouter(),
-		app.GRPCQueryRouter(),
+		app.QueryServiceRouter(),
 		wasmDir,
 		wasmConfig,
 		supportedFeatures,
@@ -633,7 +608,7 @@ func New(
 	// A nil store is the seam tests inject their own through, and it is also what a disabled
 	// receipt store leaves behind: the EVM keeper reads nil as a node that keeps no receipts.
 	if app.receiptStore == nil && receiptConfig.Enable {
-		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
+		receiptStore, err := receiptpebble.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
@@ -788,8 +763,7 @@ func New(
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
 
 	if enableCustomEVMPrecompiles {
-		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
-		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
+		app.EvmKeeper.SetCustomPrecompiles(precompiles.GetCustomPrecompiles(app.GetPrecompileKeepers()))
 	}
 
 	// NOTE: Any module instantiated in the module manager that is later modified
@@ -813,8 +787,6 @@ func New(
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		epochModule,
-		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -862,8 +834,6 @@ func New(
 		minttypes.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
-		authz.ModuleName,
-		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,
@@ -871,7 +841,7 @@ func New(
 	)
 
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
-	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
+	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.QueryServiceRouter())
 	app.mm.RegisterServices(app.configurator)
 
 	app.RegisterUpgradeHandlers()
@@ -919,12 +889,6 @@ func New(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetMidBlocker(app.MidBlocker)
-
-	// benchmarkEnabled is enabled via build flag (make install-bench)
-	if benchmarkEnabled {
-		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitBenchmark(context.Background(), app.ChainID, evmChainID)
-	}
 
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
@@ -1048,7 +1012,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "1.1.1beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{tokenfactorytypes.StoreKey},
+			Added: []string{retiredtokenfactory.ModuleName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
@@ -1073,7 +1037,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "3.0.6" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{authzkeeper.StoreKey},
+			Added: []string{retiredauthz.ModuleName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
@@ -1108,9 +1072,9 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 
-	if upgradeInfo.Name == "v6.8" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if deleted, ok := deletedStoresByUpgrade[upgradeInfo.Name]; ok && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Deleted: v68DeletedStores,
+			Deleted: deleted,
 		}
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
@@ -1139,6 +1103,7 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
+	app.enableMigrateCosmos(ctx)
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
@@ -1155,9 +1120,6 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
-	// Start block processing timing (ends at FinalizeBlock)
-	app.StartBenchmarkBlockProcessing()
-
 	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
 	if err != nil {
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
@@ -1259,10 +1221,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		logger.Info("FinalizeBlock complete", "took-ms", duration/time.Millisecond)
-		// End block processing timing (started at ProcessProposal)
-		app.EndBenchmarkBlockProcessing()
-		// Process receipts for benchmark deployment tracking
-		app.ProcessBenchmarkReceipts(ctx)
 	}()
 
 	// Get all optimistic processing info atomically
@@ -2009,13 +1967,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 	// Build Data field to match standard executor format.
 	// Standard path wraps MsgEVMTransactionResponse in TxMsgData.
-	// This is critical for LastResultsHash to match.
+	// This is critical for LastResultsHash to match. Like the standard path, it
+	// leaves ReturnData and Logs unset.
 	evmResponse := &evmtypes.MsgEVMTransactionResponse{
-		GasUsed:    execResult.UsedGas,
-		VmError:    vmError,
-		ReturnData: execResult.ReturnData,
-		Hash:       ethTx.Hash().Hex(),
-		Logs:       evmtypes.NewLogsFromEth(stateDB.GetAllLogs()),
+		GasUsed: execResult.UsedGas,
+		VmError: vmError,
+		Hash:    ethTx.Hash().Hex(),
 	}
 	evmResponseBytes, marshalErr := evmResponse.Marshal()
 	if marshalErr != nil {
@@ -2395,7 +2352,7 @@ func (app *App) ModuleAccountAddrs() map[string]bool {
 	return modAccAddrs
 }
 
-// LegacyAmino returns SimApp's amino codec.
+// LegacyAmino returns the App's amino codec.
 //
 // NOTE: This is solely to be used for testing purposes as it may be desirable
 // for modules to register their own custom testing types.
@@ -2457,38 +2414,61 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	// Register legacy tx routes.
 	authrest.RegisterTxRoutes(clientCtx, apiSvr.Router)
 	// Register new tx routes from grpc-gateway.
-	authtx.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	authtx.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 	// Register new tendermint queries routes from grpc-gateway.
-	tmservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	tmservice.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
-	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	ModuleBasics.RegisterGatewayRoutes(clientCtx, apiSvr.GatewayRouter)
 
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
+	ctx := app.RPCContextProviderWithoutConsensusParams(i)
+	// Neither GetCheckCtx nor CreateQueryContext sets ConsensusParams (only
+	// the tx-execution path does, via getContextForTx), so without this,
+	// ctx.ConsensusParams() returns nil from any RPC handler. evmrpc/block.go's
+	// gasLimit and evmrpc/info.go's gas-used-ratio rely on it.
+	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+}
+
+// RPCContextProviderWithoutConsensusParams returns the context RPCContextProvider
+// returns for height i, with ConsensusParams left nil.
+func (app *App) RPCContextProviderWithoutConsensusParams(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
 		ctx := app.GetCheckCtx()
-		// Populate ConsensusParams on the RPC ctx. Neither GetCheckCtx nor
-		// CreateQueryContext sets it (only the tx-execution path does, via
-		// getContextForTx), so without this, ctx.ConsensusParams() returns
-		// nil from any RPC handler. evmrpc/block.go's gasLimit and
-		// evmrpc/info.go's gas-used-ratio rely on it.
-		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}
-	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
-	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
-	if closestUpgrade == "" && upgradeHeight == 0 {
-		closestUpgrade = LatestUpgrade
-	}
-	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
+	ctx = ctx.WithClosestUpgradeName(app.closestUpgradeName(app.GetCheckCtx(), i))
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+}
+
+// closestUpgradeName returns the name of the completed upgrade closest to height i in checkCtx's
+// state, or LatestUpgrade when no upgrade has completed.
+func (app *App) closestUpgradeName(checkCtx sdk.Context, i int64) string {
+	name, height := app.doneUpgrades(checkCtx).Closest(i)
+	if name == "" && height == 0 {
+		return LatestUpgrade
+	}
+	return name
+}
+
+// doneUpgrades returns the upgrades completed in checkCtx's state, reading them from the store only
+// when checkCtx is at a different height than the last read.
+func (app *App) doneUpgrades(checkCtx sdk.Context) upgradekeeper.DoneUpgrades {
+	// Upgrades complete only in committed blocks, so the set changes only with the check state's height.
+	height := checkCtx.BlockHeight()
+	if cached := app.doneUpgradesCache.Load(); cached != nil && cached.height == height {
+		return cached.upgrades
+	}
+	upgrades := app.UpgradeKeeper.GetDoneUpgrades(checkCtx)
+	app.doneUpgradesCache.Store(&doneUpgradesAtHeight{height: height, upgrades: upgrades})
+	return upgrades
 }
 
 // SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
@@ -2520,14 +2500,10 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 			return app.RPCContextProvider(i), func() {}
 		}
 		checkCtx := app.GetCheckCtx()
-		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
-		if closestUpgrade == "" && upgradeHeight == 0 {
-			closestUpgrade = LatestUpgrade
-		}
 		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
 			WithMinGasPrices(checkCtx.MinGasPrices()).
 			WithBlockHeight(i).
-			WithClosestUpgradeName(closestUpgrade).
+			WithClosestUpgradeName(app.closestUpgradeName(checkCtx, i)).
 			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 		return ctx, release
@@ -2536,8 +2512,8 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
 func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
-	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
+	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.QueryServiceRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig
@@ -2555,11 +2531,10 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	// Autobahn serves the node's EVM-only JSON-RPC. Cosmos evmrpc would bind
 	// the same 8545 once Initialized fires (mock-app forwards InitChain).
 	if app.evmRPCConfig.HTTPEnabled && !app.autobahnEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
-		app.evmHTTPServer = evmHTTPServer
 		go func() {
 			<-app.Initialized()
 			if err := evmHTTPServer.Start(); err != nil {
@@ -2569,11 +2544,10 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled && !app.autobahnEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, app.RPCContextProviderWithoutConsensusParams, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
 		}
-		app.evmWSServer = evmWSServer
 		go func() {
 			<-app.Initialized()
 			if err := evmWSServer.Start(); err != nil {
@@ -2686,8 +2660,8 @@ func GetMaccPerms() map[string][]string {
 }
 
 // initParamsKeeper init params keeper and its subspaces
-func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
-	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey)
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey, interfaceRegistry types.InterfaceRegistry) paramskeeper.Keeper {
+	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey, interfaceRegistry)
 
 	paramsKeeper.Subspace(authtypes.ModuleName)
 	paramsKeeper.Subspace(banktypes.ModuleName)
@@ -2699,7 +2673,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
-	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
 	paramsKeeper.Subspace(migration.SubspaceName).WithKeyTable(migration.ParamKeyTable())
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 

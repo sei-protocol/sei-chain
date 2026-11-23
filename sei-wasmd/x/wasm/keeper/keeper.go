@@ -17,6 +17,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
@@ -60,7 +61,6 @@ type WasmVMResponseHandler interface {
 	Handle(
 		ctx sdk.Context,
 		contractAddr sdk.AccAddress,
-		ibcPort string,
 		messages []wasmvmtypes.SubMsg,
 		origRspData []byte,
 		info wasmvmtypes.MessageInfo,
@@ -101,7 +101,7 @@ func NewKeeper(
 	stakingKeeper types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
 	router MessageRouter,
-	queryRouter GRPCQueryRouter,
+	queryRouter QueryServiceRouter,
 	homeDir string,
 	wasmConfig types.WasmConfig,
 	supportedFeatures string,
@@ -170,6 +170,25 @@ func (k Keeper) getInstantiateAccessConfig(ctx sdk.Context) types.AccessType {
 	var a types.AccessType
 	k.paramSpace.Get(ctx, types.ParamStoreKeyInstantiateAccess, &a)
 	return a
+}
+
+// msgExecuteContractDisabled reports whether governance has disabled MsgExecuteContract.
+func (k Keeper) msgExecuteContractDisabled(ctx sdk.Context) bool {
+	return k.getFlagParam(ctx, types.ParamStoreKeyMsgExecuteContractDisabled)
+}
+
+// contractExecutionDisabled reports whether governance has disabled running contracts.
+func (k Keeper) contractExecutionDisabled(ctx sdk.Context) bool {
+	return k.getFlagParam(ctx, types.ParamStoreKeyContractExecutionDisabled)
+}
+
+// getFlagParam returns the bool param stored under key, or false when it is not stored.
+func (k Keeper) getFlagParam(ctx sdk.Context, key []byte) bool {
+	var set bool
+	// Charges no gas and reads a missing key as false, so executions, including replays
+	// of blocks from before the param existed, keep their original gas and outcome.
+	k.paramSpace.GetIfExists(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), key, &set)
+	return set
 }
 
 // GetParams returns the total set of wasm parameters.
@@ -266,6 +285,9 @@ func (k Keeper) ImportCode(ctx sdk.Context, codeID uint64, codeInfo types.CodeIn
 }
 
 func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins, authZ AuthorizationPolicy) (sdk.AccAddress, []byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractInstantiateDuration(ctx.Context(), start) }()
 
@@ -349,7 +371,7 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 		sdk.NewAttribute(types.AttributeKeyCodeID, strconv.FormatUint(codeID, 10)),
 	))
 
-	data, err := k.handleContractResponse(ctx, contractAddress, contractInfo.IBCPortID, res.Messages, res.Attributes, res.Data, res.Events, info, codeInfo)
+	data, err := k.handleContractResponse(ctx, contractAddress, res.Messages, res.Attributes, res.Data, res.Events, info, codeInfo)
 	if err != nil {
 		return nil, nil, sdkerrors.Wrap(err, "dispatch")
 	}
@@ -359,6 +381,9 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 
 // Execute executes the contract instance
 func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractExecuteDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
@@ -394,7 +419,7 @@ func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 		sdk.NewAttribute(types.AttributeKeyContractAddr, contractAddress.String()),
 	))
 
-	data, err := k.handleContractResponse(ctx, contractAddress, contractInfo.IBCPortID, res.Messages, res.Attributes, res.Data, res.Events, info, codeInfo)
+	data, err := k.handleContractResponse(ctx, contractAddress, res.Messages, res.Attributes, res.Data, res.Events, info, codeInfo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "dispatch")
 	}
@@ -403,6 +428,9 @@ func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 }
 
 func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newCodeID uint64, msg []byte, authZ AuthorizationPolicy) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractMigrateDuration(ctx.Context(), start) }()
 	migrateSetupCosts := k.gasRegister.InstantiateContractCosts(k.IsPinnedCode(ctx, newCodeID), len(msg))
@@ -460,7 +488,7 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 		sdk.NewAttribute(types.AttributeKeyContractAddr, contractAddress.String()),
 	))
 
-	data, err := k.handleContractResponse(ctx, contractAddress, contractInfo.IBCPortID, res.Messages, res.Attributes, res.Data, res.Events, wasmvmtypes.MessageInfo{}, *newCodeInfo)
+	data, err := k.handleContractResponse(ctx, contractAddress, res.Messages, res.Attributes, res.Data, res.Events, wasmvmtypes.MessageInfo{}, *newCodeInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -472,6 +500,9 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 // another native Go module directly, or on-chain governance (if sudo proposals are enabled). Thus, the keeper doesn't
 // place any access controls on it, that is the responsibility or the app developer (who passes the wasm.Keeper in app.go)
 func (k Keeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractSudoDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
@@ -498,7 +529,7 @@ func (k Keeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte
 		sdk.NewAttribute(types.AttributeKeyContractAddr, contractAddress.String()),
 	))
 
-	data, err := k.handleContractResponse(ctx, contractAddress, contractInfo.IBCPortID, res.Messages, res.Attributes, res.Data, res.Events, wasmvmtypes.MessageInfo{}, codeInfo)
+	data, err := k.handleContractResponse(ctx, contractAddress, res.Messages, res.Attributes, res.Data, res.Events, wasmvmtypes.MessageInfo{}, codeInfo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "dispatch")
 	}
@@ -508,7 +539,7 @@ func (k Keeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte
 
 // reply is only called from keeper internal functions (dispatchSubmessages) after processing the submessage
 func (k Keeper) reply(ctx sdk.Context, contractAddress sdk.AccAddress, reply wasmvmtypes.Reply) ([]byte, error) {
-	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
+	_, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -533,7 +564,7 @@ func (k Keeper) reply(ctx sdk.Context, contractAddress sdk.AccAddress, reply was
 		sdk.NewAttribute(types.AttributeKeyContractAddr, contractAddress.String()),
 	))
 
-	data, err := k.handleContractResponse(ctx, contractAddress, contractInfo.IBCPortID, res.Messages, res.Attributes, res.Data, res.Events, wasmvmtypes.MessageInfo{}, codeInfo)
+	data, err := k.handleContractResponse(ctx, contractAddress, res.Messages, res.Attributes, res.Data, res.Events, wasmvmtypes.MessageInfo{}, codeInfo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "dispatch")
 	}
@@ -637,7 +668,6 @@ func (k Keeper) QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req
 func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
 	start := time.Now()
 	defer func() { recordContractQuerySmartDuration(ctx.Context(), start) }()
-	recordContractQuerySmartInvocation(contractAddr.String())
 
 	// checks and increase query stack size
 	ctx, err := checkAndIncreaseQueryStackSize(ctx, k.maxQueryStackSize)
@@ -667,7 +697,7 @@ func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []b
 		return nil, sdkerrors.Wrap(types.ErrQueryFailed, qErr.Error())
 	}
 
-	recordContractQuerySmartGasUsed(ctx.Context(), contractAddr.String(), gasUsed)
+	recordContractQuerySmartGasUsed(ctx.Context(), gasUsed)
 	return queryResult, nil
 }
 
@@ -953,7 +983,6 @@ func (k Keeper) setAccessConfig(ctx sdk.Context, codeID uint64, config types.Acc
 func (k *Keeper) handleContractResponse(
 	ctx sdk.Context,
 	contractAddr sdk.AccAddress,
-	ibcPort string,
 	msgs []wasmvmtypes.SubMsg,
 	attrs []wasmvmtypes.EventAttribute,
 	data []byte,
@@ -983,7 +1012,7 @@ func (k *Keeper) handleContractResponse(
 	if err != nil {
 		return nil, err
 	}
-	return k.wasmVMResponseHandler.Handle(ctx, contractAddr, ibcPort, msgs, data, info, codeInfo)
+	return k.wasmVMResponseHandler.Handle(ctx, contractAddr, msgs, data, info, codeInfo)
 }
 
 func (k Keeper) runtimeGasForContract(ctx sdk.Context) uint64 {
@@ -1198,7 +1227,7 @@ func (c BankCoinTransferrer) TransferCoins(parentCtx sdk.Context, fromAddr sdk.A
 }
 
 type msgDispatcher interface {
-	DispatchSubmessages(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error)
+	DispatchSubmessages(ctx sdk.Context, contractAddr sdk.AccAddress, msgs []wasmvmtypes.SubMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error)
 }
 
 // DefaultWasmVMContractResponseHandler default implementation that first dispatches submessage then normal messages.
@@ -1213,9 +1242,9 @@ func NewDefaultWasmVMContractResponseHandler(md msgDispatcher) *DefaultWasmVMCon
 }
 
 // Handle processes the data returned by a contract invocation.
-func (h DefaultWasmVMContractResponseHandler) Handle(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, messages []wasmvmtypes.SubMsg, origRspData []byte, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error) {
+func (h DefaultWasmVMContractResponseHandler) Handle(ctx sdk.Context, contractAddr sdk.AccAddress, messages []wasmvmtypes.SubMsg, origRspData []byte, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]byte, error) {
 	result := origRspData
-	switch rsp, err := h.md.DispatchSubmessages(ctx, contractAddr, ibcPort, messages, info, codeInfo); {
+	switch rsp, err := h.md.DispatchSubmessages(ctx, contractAddr, messages, info, codeInfo); {
 	case err != nil:
 		return nil, err
 	case rsp != nil:

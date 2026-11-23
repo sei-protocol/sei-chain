@@ -27,27 +27,25 @@ func NewCommitQC(votes []*Signed[*CommitVote]) *CommitQC {
 	return &CommitQC{vote: votes[0].hashed, sigs: sigs}
 }
 
-// Proposal .
-func (m *CommitQC) Proposal() *Proposal { return m.vote.Msg().proposal }
+// Header returns the committed road block header.
+func (m *CommitQC) Header() *RoadBlockHeader { return m.vote.Msg().Header() }
 
-// Index .
-func (m *CommitQC) Index() RoadIndex {
-	return m.Proposal().Index()
+// View returns the commit vote's consensus view.
+func (m *CommitQC) View() View { return m.vote.Msg().View() }
+
+// Height .
+func (m *CommitQC) Height() RoadHeight {
+	return m.vote.Msg().Header().Height()
 }
 
 // LaneRange returns the range of lane blocks.
 func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
-	return m.Proposal().LaneRange(lane)
-}
-
-// GlobalRange returns the finalized global block range.
-func (m *CommitQC) GlobalRange() GlobalRange {
-	return m.Proposal().GlobalRange()
+	return m.Header().LaneRange(lane)
 }
 
 // Verify verifies the CommitQC against the epoch.
 func (m *CommitQC) Verify(ep *Epoch) error {
-	if err := m.Proposal().Verify(ep); err != nil {
+	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
 	}
 	c := ep.Committee()
@@ -58,13 +56,14 @@ func (m *CommitQC) Verify(ep *Epoch) error {
 type FullCommitQC struct {
 	utils.ReadOnly
 	qc      *CommitQC
-	headers []*BlockHeader
+	headers []*LaneBlockHeader
 }
 
 // NewFullCommitQC constructs a new FullCommitQC.
-func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
-	if got, want := len(headers), int(qc.GlobalRange().Len()); got != want { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
-		panic(fmt.Sprintf("headers length %d != finalized blocks %d", got, want))
+func NewFullCommitQC(qc *CommitQC, headers []*LaneBlockHeader) *FullCommitQC {
+	if got, want := len(headers), int(qc.Header().NumBlocks()); got != want { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
+		//TODO(gprusak): why is it ok to panic here?
+		panic(fmt.Errorf("headers length %d != finalized blocks %d", got, want))
 	}
 	return &FullCommitQC{qc: qc, headers: headers}
 }
@@ -72,12 +71,15 @@ func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
 // QC CommitQC.
 func (m *FullCommitQC) QC() *CommitQC { return m.qc }
 
-// Headers of the blocks finalized by the QC.
-func (m *FullCommitQC) Headers() []*BlockHeader { return m.headers }
+// Header returns the committed road block header.
+func (m *FullCommitQC) Header() *RoadBlockHeader { return m.qc.Header() }
 
-// Index .
-func (m *FullCommitQC) Index() RoadIndex {
-	return m.qc.Index()
+// Headers of the blocks finalized by the QC.
+func (m *FullCommitQC) Headers() []*LaneBlockHeader { return m.headers }
+
+// Height .
+func (m *FullCommitQC) Height() RoadHeight {
+	return m.qc.Height()
 }
 
 // Verify verifies the FullCommitQC against the epoch.
@@ -86,7 +88,7 @@ func (m *FullCommitQC) Verify(ep *Epoch) error {
 		return fmt.Errorf("qC: %w", err)
 	}
 	n := uint64(0)
-	if want, got := int(m.qc.GlobalRange().Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
+	if want, got := int(m.Header().NumBlocks()), len(m.headers); want != got { //nolint:gosec // lane block count is bounded by the committee size and per-lane limit
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
 	for lane := range ep.Committee().Lanes().All() {
@@ -110,14 +112,14 @@ func (m *FullCommitQC) Verify(ep *Epoch) error {
 var CommitQCConv = protoutils.Conv[*CommitQC, *pb.CommitQC]{
 	Encode: func(m *CommitQC) *pb.CommitQC {
 		return &pb.CommitQC{
-			Vote: CommitVoteConv.Encode(m.vote.Msg()),
-			Sigs: SignatureConv.EncodeSlice(m.sigs),
+			VoteV2: CommitVoteConv.Encode(m.vote.Msg()),
+			Sigs:   SignatureConv.EncodeSlice(m.sigs),
 		}
 	},
 	Decode: func(m *pb.CommitQC) (*CommitQC, error) {
-		vote, err := CommitVoteConv.DecodeReq(m.Vote)
+		vote, err := CommitVoteConv.DecodeReq(m.VoteV2)
 		if err != nil {
-			return nil, fmt.Errorf("vote: %w", err)
+			return nil, fmt.Errorf("vote_v2: %w", err)
 		}
 		sigs, err := SignatureConv.DecodeSlice(m.Sigs)
 		if err != nil {
@@ -131,18 +133,18 @@ var CommitQCConv = protoutils.Conv[*CommitQC, *pb.CommitQC]{
 var FullCommitQCConv = protoutils.Conv[*FullCommitQC, *pb.FullCommitQC]{
 	Encode: func(m *FullCommitQC) *pb.FullCommitQC {
 		return &pb.FullCommitQC{
-			Qc:      CommitQCConv.Encode(m.qc),
-			Headers: BlockHeaderConv.EncodeSlice(m.headers),
+			Qc:        CommitQCConv.Encode(m.qc),
+			HeadersV2: LaneBlockHeaderConv.EncodeSlice(m.headers),
 		}
 	},
 	Decode: func(m *pb.FullCommitQC) (*FullCommitQC, error) {
 		qc, err := CommitQCConv.DecodeReq(m.Qc)
 		if err != nil {
-			return nil, fmt.Errorf("qC: %w", err)
+			return nil, fmt.Errorf("qc: %w", err)
 		}
-		headers, err := BlockHeaderConv.DecodeSlice(m.Headers)
+		headers, err := LaneBlockHeaderConv.DecodeSlice(m.HeadersV2)
 		if err != nil {
-			return nil, fmt.Errorf("headers: %w", err)
+			return nil, fmt.Errorf("headers_v2: %w", err)
 		}
 		return &FullCommitQC{qc: qc, headers: headers}, nil
 	},

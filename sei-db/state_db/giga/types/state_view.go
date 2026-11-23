@@ -42,6 +42,24 @@ type StateView interface {
 	// account that exists with no code is not found, where GetCodeHash reports EmptyCodeHash.
 	Get(module string, key []byte) ([]byte, bool)
 
+	// GetRaw returns the bytes the store holds under a physical key, and whether the key was found. The
+	// bytes are the stored row as is, metadata included, and are not decoded.
+	//
+	// Some view implementations do not support this method and may panic.
+	GetRaw(
+		// The physical key: the module name, "/", then the key (including any key type prefixes).
+		key []byte,
+	) ([]byte, bool)
+
+	// BatchGetRaw returns, for each found physical key, the bytes the store holds under it, keyed by
+	// string(key). Keys that are not found are absent from the map. Values are as GetRaw() returns them.
+	//
+	// Some view implementations do not support this method and may panic.
+	BatchGetRaw(
+		// The physical keys to read, each in the form GetRaw() takes.
+		keys [][]byte,
+	) map[string][]byte
+
 	// Close releases the view's underlying ref counting.
 	// Caller is required to Close the view after using it.
 	// Not closing the view properly could lead to memory leak.

@@ -1,13 +1,17 @@
-// Package config defines the [giga] section of app.toml: the storage and execution settings a
-// Giga (Autobahn) node runs with.
+// Package config defines the [giga] section of app.toml: the storage, execution, EVM RPC and
+// state sync settings a Giga (Autobahn) node runs with.
 package config
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/cast"
+
+	"github.com/sei-protocol/sei-chain/ratelimiter"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 // AppOptions is the flat key-value view a section reader consumes. servertypes.AppOptions
@@ -27,6 +31,8 @@ const (
 type Config struct {
 	Storage   StorageConfig   `mapstructure:"storage"`
 	Execution ExecutionConfig `mapstructure:"execution"`
+	RPC       RPCConfig       `mapstructure:"rpc"`
+	StateSync StateSyncConfig `mapstructure:"state_sync"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -66,6 +72,157 @@ type ExecutionConfig struct {
 	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 	EvmWsPort int `mapstructure:"evm_ws_port"`
+	// GCPercent is the Go GC target Autobahn/Giga seid applies on start. The default is 400.
+	// 0 leaves the process default. A value above 100 trades memory for fewer collections; the
+	// process then caps the heap from the container limit when it has one. Non-Autobahn nodes
+	// never apply it.
+	GCPercent int `mapstructure:"gc_percent"`
+	// UnsafeSkipUpgrades are the blocks at which this node clears a due upgrade plan instead of
+	// applying it or halting. Each must be positive.
+	UnsafeSkipUpgrades []uint64 `mapstructure:"unsafe_skip_upgrades"`
+}
+
+// RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
+// value disables the limit it names, except where a field says otherwise.
+type RPCConfig struct {
+	// MaxSubscriptionsNewHead caps open eth_subscribe("newHeads") subscriptions across all
+	// connections.
+	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
+	// MaxSubscriptionsLogs caps open eth_subscribe("logs") subscriptions across all connections.
+	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
+	// MaxSubscriptionsPerConnection caps the open subscriptions of a single WebSocket connection.
+	MaxSubscriptionsPerConnection uint64 `mapstructure:"max_subscriptions_per_connection"`
+	// MaxRequestBodyBytes caps the size, in bytes, of one HTTP request body or WebSocket message.
+	// It must be positive.
+	MaxRequestBodyBytes int `mapstructure:"max_request_body_bytes"`
+	// MaxConcurrentRequestBytes caps the total size, in bytes, of WebSocket request frames read
+	// and processed concurrently. Values below MaxRequestBodyBytes act as MaxRequestBodyBytes.
+	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+	// WSAdmissionTimeout is how long a WebSocket connection waits for MaxConcurrentRequestBytes
+	// budget before it is closed; zero uses the go-ethereum default of 30s.
+	WSAdmissionTimeout time.Duration `mapstructure:"ws_admission_timeout"`
+	// BatchRequestLimit caps the number of requests in one JSON-RPC batch.
+	BatchRequestLimit int `mapstructure:"batch_request_limit"`
+	// BatchResponseMaxSize caps the total size, in bytes, of one JSON-RPC batch's responses.
+	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
+	// MaxWSConnections caps simultaneously open WebSocket connections.
+	MaxWSConnections int `mapstructure:"max_ws_connections"`
+	// MaxEstimateGasCalls caps the calls one eth_estimateGasAfterCalls request may apply.
+	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
+	// FilterTimeout is how long an eth_newFilter or eth_newBlockFilter filter lives without being
+	// polled.
+	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
+	// MaxFilters caps the installed eth_newFilter and eth_newBlockFilter filters.
+	MaxFilters uint64 `mapstructure:"max_filters"`
+	// MaxBlockFilterHashes caps the unpolled blocks an eth_newBlockFilter filter may fall behind
+	// by before it is removed.
+	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
+	// MaxConcurrentSendCalls caps eth_sendRawTransaction calls across HTTP and WebSocket.
+	// A call past the limit is refused immediately; zero disables transaction submission.
+	MaxConcurrentSendCalls int `mapstructure:"max_concurrent_send_calls"`
+	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
+	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
+	// TraceTimeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+	// accepted only when MethodTimeouts gives every method in traceMethods a positive deadline.
+	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
+	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
+	// transaction.
+	MaxTraceStructLogBytes int `mapstructure:"max_trace_struct_log_bytes"`
+	// MaxStateOverrideAccounts caps the accounts one call's state override may name.
+	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
+	// MaxStateOverrideSlots caps the storage slots one call's state override may set for an account.
+	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
+	// DefaultTimeout is the deadline applied to a method with no built-in deadline and no entry in
+	// MethodTimeouts.
+	DefaultTimeout time.Duration `mapstructure:"default_timeout"`
+	// MethodTimeouts sets deadlines for individual methods, over the built-in ones in
+	// defaultMethodTimeouts. Each entry is "method=duration", for example "eth_call=60s"; a method
+	// name ending in "*" matches every method with that prefix, and an exact name or the longest
+	// matching prefix wins, so only an entry with a built-in one's name or prefix replaces it. A
+	// duration of 0 applies no deadline to that method; eth_call, eth_estimateGas,
+	// eth_estimateGasAfterCalls and eth_createAccessList must keep a positive one.
+	MethodTimeouts []string `mapstructure:"method_timeouts"`
+}
+
+// defaultMethodTimeouts are the per-method deadlines a node applies to methods MethodTimeouts
+// does not name, in MethodTimeouts' format.
+var defaultMethodTimeouts = []string{
+	"eth_call=60s",
+	"eth_estimateGas=60s",
+	"eth_createAccessList=60s",
+	"eth_estimateGasAfterCalls=5m",
+	"debug_trace*=0",
+}
+
+// simulationMethods are the methods that execute EVM code against a state view for the caller.
+// Gas does not bound their wall-clock cost, so their method deadline must be positive.
+var simulationMethods = []string{
+	"eth_call",
+	"eth_estimateGas",
+	"eth_estimateGasAfterCalls",
+	"eth_createAccessList",
+}
+
+// traceMethods are the debug_trace* methods the node serves. Each re-executes EVM code, so it
+// must be bounded by TraceTimeout or a positive method deadline.
+var traceMethods = []string{
+	"debug_traceTransaction",
+	"debug_traceCall",
+	"debug_traceBlockByNumber",
+	"debug_traceBlockByHash",
+}
+
+// TraceMethods returns the debug_trace* methods the node serves, which trace_timeout or a positive
+// method deadline must bound.
+func TraceMethods() []string {
+	return slices.Clone(traceMethods)
+}
+
+// DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe, with
+// MethodTimeouts applied over the built-in deadlines.
+func (c RPCConfig) DeadlineConfig() (ratelimiter.DeadlineConfig, error) {
+	if c.DefaultTimeout < 0 {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: must be >= 0, got %s", FlagRPCDefaultTimeout, c.DefaultTimeout)
+	}
+	exact, prefixes, err := ratelimiter.ParseMethodTimeouts(defaultMethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("built-in method timeouts: %w", err)
+	}
+	configuredExact, configuredPrefixes, err := ratelimiter.ParseMethodTimeouts(c.MethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+	}
+	maps.Copy(exact, configuredExact)
+	maps.Copy(prefixes, configuredPrefixes)
+	return ratelimiter.DeadlineConfig{
+		Default:         c.DefaultTimeout,
+		Overrides:       exact,
+		PrefixOverrides: prefixes,
+	}, nil
+}
+
+// StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync, where
+// the giga state sync snapshots of its chain are, and whether it uploads them.
+type StateSyncConfig struct {
+	// Enabled runs a background task that writes a state sync proof file for each retained FlatKV
+	// checkpoint, and the snapshot upload when SnapshotUpload is set. It does not create checkpoints.
+	Enabled bool `mapstructure:"enabled"`
+
+	// SnapshotBucket is the S3 bucket of the giga state sync snapshots, which seid statesync import
+	// reads and the snapshot upload writes.
+	SnapshotBucket string `mapstructure:"snapshot_bucket"`
+
+	// SnapshotRegion is the AWS region of SnapshotBucket. Empty selects the region of the AWS SDK
+	// default configuration.
+	SnapshotRegion string `mapstructure:"snapshot_region"`
+
+	// SnapshotUpload uploads snapshots of the FlatKV checkpoints to SnapshotBucket. It needs Enabled
+	// and SnapshotBucket, and a node that is not a validator.
+	SnapshotUpload bool `mapstructure:"snapshot_upload"`
+
+	// SnapshotUploadInterval is the least time between two snapshot uploads of the chain to
+	// SnapshotBucket, by any node. 0 uploads each checkpoint.
+	SnapshotUploadInterval time.Duration `mapstructure:"snapshot_upload_interval"`
 }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
@@ -79,6 +236,35 @@ var DefaultConfig = Config{
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
+		GCPercent:           400,
+	},
+	// The same limits the v2 EVM RPC defaults to.
+	RPC: RPCConfig{
+		MaxSubscriptionsNewHead:       10_000,
+		MaxSubscriptionsLogs:          1000,
+		MaxSubscriptionsPerConnection: 100,
+		MaxRequestBodyBytes:           5 * 1024 * 1024,
+		MaxConcurrentRequestBytes:     128 * 1024 * 1024,
+		WSAdmissionTimeout:            30 * time.Second,
+		BatchRequestLimit:             100,
+		BatchResponseMaxSize:          25 * 1000 * 1000,
+		MaxWSConnections:              2000,
+		MaxEstimateGasCalls:           100,
+		FilterTimeout:                 120 * time.Second,
+		MaxFilters:                    1000,
+		MaxBlockFilterHashes:          1000,
+		MaxConcurrentTraceCalls:       10,
+		MaxConcurrentSendCalls:        4096,
+		TraceTimeout:                  30 * time.Second,
+		MaxTraceStructLogBytes:        32 * 1024 * 1024,
+		MaxStateOverrideAccounts:      100,
+		MaxStateOverrideSlots:         1000,
+		DefaultTimeout:                30 * time.Second,
+		MethodTimeouts:                slices.Clone(defaultMethodTimeouts),
+	},
+	StateSync: StateSyncConfig{
+		Enabled:                false,
+		SnapshotUploadInterval: time.Hour,
 	},
 }
 
@@ -98,19 +284,47 @@ func defaultStorageConfig() StorageConfig {
 
 // The keys this package's reader resolves.
 const (
-	FlagStorageMode                    = "giga.storage.mode"
-	FlagStorageReceipts                = "giga.storage.receipts"
-	FlagStorageRollbackWindow          = "giga.storage.rollback_window"
-	FlagStorageLookbackWindow          = "giga.storage.lookback_window"
-	FlagStoragePruneInterval           = "giga.storage.prune_interval"
-	FlagStorageCheckpointTimeInterval  = "giga.storage.checkpoint_time_interval"
-	FlagStorageCheckpointBlockInterval = "giga.storage.checkpoint_block_interval"
-	FlagExecutionMinGasPrice           = "giga.execution.min_gas_price"
-	FlagExecutionOCCWorkers            = "giga.execution.occ_workers"
-	FlagExecutionParseWorkers          = "giga.execution.parse_workers"
-	FlagExecutionBlockResultPoolSize   = "giga.execution.block_result_pool_size"
-	FlagExecutionEvmRpcPort            = "giga.execution.evm_rpc_port"
-	FlagExecutionEvmWsPort             = "giga.execution.evm_ws_port"
+	FlagStorageMode                      = "giga.storage.mode"
+	FlagStorageReceipts                  = "giga.storage.receipts"
+	FlagStorageRollbackWindow            = "giga.storage.rollback_window"
+	FlagStorageLookbackWindow            = "giga.storage.lookback_window"
+	FlagStoragePruneInterval             = "giga.storage.prune_interval"
+	FlagStorageCheckpointTimeInterval    = "giga.storage.checkpoint_time_interval"
+	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
+	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
+	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
+	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
+	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
+	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
+	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
+	FlagExecutionGCPercent               = "giga.execution.gc_percent"
+	FlagExecutionUnsafeSkipUpgrades      = "giga.execution.unsafe_skip_upgrades"
+	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
+	FlagRPCMaxSubscriptionsLogs          = "giga.rpc.max_subscriptions_logs"
+	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
+	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
+	FlagRPCMaxConcurrentRequestBytes     = "giga.rpc.max_concurrent_request_bytes"
+	FlagRPCWSAdmissionTimeout            = "giga.rpc.ws_admission_timeout"
+	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
+	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
+	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagRPCMaxEstimateGasCalls           = "giga.rpc.max_estimate_gas_calls"
+	FlagRPCFilterTimeout                 = "giga.rpc.filter_timeout"
+	FlagRPCMaxFilters                    = "giga.rpc.max_filters"
+	FlagRPCMaxBlockFilterHashes          = "giga.rpc.max_block_filter_hashes"
+	FlagRPCMaxConcurrentSendCalls        = "giga.rpc.max_concurrent_send_calls"
+	FlagRPCMaxConcurrentTraceCalls       = "giga.rpc.max_concurrent_trace_calls"
+	FlagRPCTraceTimeout                  = "giga.rpc.trace_timeout"
+	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
+	FlagRPCMaxStateOverrideAccounts      = "giga.rpc.max_state_override_accounts"
+	FlagRPCMaxStateOverrideSlots         = "giga.rpc.max_state_override_slots"
+	FlagRPCDefaultTimeout                = "giga.rpc.default_timeout"
+	FlagRPCMethodTimeouts                = "giga.rpc.method_timeouts"
+	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
+	FlagStateSyncSnapshotBucket          = "giga.state_sync.snapshot_bucket"
+	FlagStateSyncSnapshotRegion          = "giga.state_sync.snapshot_region"
+	FlagStateSyncSnapshotUpload          = "giga.state_sync.snapshot_upload"
+	FlagStateSyncSnapshotUploadInterval  = "giga.state_sync.snapshot_upload_interval"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -182,6 +396,146 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmWsPort, err)
 		}
 	}
+	if v := opts.Get(FlagExecutionGCPercent); v != nil {
+		if cfg.Execution.GCPercent, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionUnsafeSkipUpgrades); v != nil {
+		if cfg.Execution.UnsafeSkipUpgrades, err = skipUpgradeHeights(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionUnsafeSkipUpgrades, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
+		if cfg.RPC.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsNewHead, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxSubscriptionsLogs); v != nil {
+		if cfg.RPC.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsLogs, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxSubscriptionsPerConnection); v != nil {
+		if cfg.RPC.MaxSubscriptionsPerConnection, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsPerConnection, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxRequestBodyBytes); v != nil {
+		if cfg.RPC.MaxRequestBodyBytes, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxRequestBodyBytes, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxConcurrentRequestBytes); v != nil {
+		if cfg.RPC.MaxConcurrentRequestBytes, err = cast.ToInt64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentRequestBytes, err)
+		}
+	}
+	if v := opts.Get(FlagRPCWSAdmissionTimeout); v != nil {
+		if cfg.RPC.WSAdmissionTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCWSAdmissionTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCBatchRequestLimit); v != nil {
+		if cfg.RPC.BatchRequestLimit, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCBatchRequestLimit, err)
+		}
+	}
+	if v := opts.Get(FlagRPCBatchResponseMaxSize); v != nil {
+		if cfg.RPC.BatchResponseMaxSize, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCBatchResponseMaxSize, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxWSConnections); v != nil {
+		if cfg.RPC.MaxWSConnections, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxEstimateGasCalls); v != nil {
+		if cfg.RPC.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxEstimateGasCalls, err)
+		}
+	}
+	if v := opts.Get(FlagRPCFilterTimeout); v != nil {
+		if cfg.RPC.FilterTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCFilterTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxFilters); v != nil {
+		if cfg.RPC.MaxFilters, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxFilters, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxBlockFilterHashes); v != nil {
+		if cfg.RPC.MaxBlockFilterHashes, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxBlockFilterHashes, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxConcurrentSendCalls); v != nil {
+		if cfg.RPC.MaxConcurrentSendCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentSendCalls, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxConcurrentTraceCalls); v != nil {
+		if cfg.RPC.MaxConcurrentTraceCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentTraceCalls, err)
+		}
+	}
+	if v := opts.Get(FlagRPCTraceTimeout); v != nil {
+		if cfg.RPC.TraceTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCTraceTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxTraceStructLogBytes); v != nil {
+		if cfg.RPC.MaxTraceStructLogBytes, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxTraceStructLogBytes, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxStateOverrideAccounts); v != nil {
+		if cfg.RPC.MaxStateOverrideAccounts, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideAccounts, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxStateOverrideSlots); v != nil {
+		if cfg.RPC.MaxStateOverrideSlots, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideSlots, err)
+		}
+	}
+	if v := opts.Get(FlagRPCDefaultTimeout); v != nil {
+		if cfg.RPC.DefaultTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCDefaultTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMethodTimeouts); v != nil {
+		if cfg.RPC.MethodTimeouts, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncEnabled); v != nil {
+		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotBucket); v != nil {
+		if cfg.StateSync.SnapshotBucket, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotBucket, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotRegion); v != nil {
+		if cfg.StateSync.SnapshotRegion, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotRegion, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotUpload); v != nil {
+		if cfg.StateSync.SnapshotUpload, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUpload, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotUploadInterval); v != nil {
+		if cfg.StateSync.SnapshotUploadInterval, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUploadInterval, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -214,6 +568,12 @@ func (c Config) Validate() error {
 	if c.Execution.ParseWorkers < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionParseWorkers, c.Execution.ParseWorkers)
 	}
+	if c.Execution.GCPercent < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
+	}
+	if slices.Contains(c.Execution.UnsafeSkipUpgrades, 0) {
+		return fmt.Errorf("%s: heights must be positive, got 0", FlagExecutionUnsafeSkipUpgrades)
+	}
 	if c.Execution.BlockResultPoolSize < 1 {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
 			c.Execution.BlockResultPoolSize)
@@ -228,7 +588,62 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%s: must differ from %s, both are %d", FlagExecutionEvmWsPort, FlagExecutionEvmRpcPort,
 			c.Execution.EvmWsPort)
 	}
-	return nil
+	if c.RPC.MaxRequestBodyBytes < 1 {
+		return fmt.Errorf("%s: must be positive, got %d", FlagRPCMaxRequestBodyBytes, c.RPC.MaxRequestBodyBytes)
+	}
+	if c.RPC.MaxConcurrentRequestBytes < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentRequestBytes, c.RPC.MaxConcurrentRequestBytes)
+	}
+	if c.RPC.WSAdmissionTimeout < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCWSAdmissionTimeout, c.RPC.WSAdmissionTimeout)
+	}
+	if c.RPC.BatchRequestLimit < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCBatchRequestLimit, c.RPC.BatchRequestLimit)
+	}
+	if c.RPC.BatchResponseMaxSize < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCBatchResponseMaxSize, c.RPC.BatchResponseMaxSize)
+	}
+	if c.RPC.MaxWSConnections < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
+	if c.RPC.MaxEstimateGasCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxEstimateGasCalls, c.RPC.MaxEstimateGasCalls)
+	}
+	if c.RPC.FilterTimeout < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCFilterTimeout, c.RPC.FilterTimeout)
+	}
+	if c.RPC.MaxConcurrentSendCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentSendCalls, c.RPC.MaxConcurrentSendCalls)
+	}
+	if c.RPC.MaxConcurrentTraceCalls < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentTraceCalls, c.RPC.MaxConcurrentTraceCalls)
+	}
+	if c.RPC.TraceTimeout < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCTraceTimeout, c.RPC.TraceTimeout)
+	}
+	if c.RPC.MaxTraceStructLogBytes < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxTraceStructLogBytes, c.RPC.MaxTraceStructLogBytes)
+	}
+	if c.RPC.MaxStateOverrideAccounts < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideAccounts, c.RPC.MaxStateOverrideAccounts)
+	}
+	if c.RPC.MaxStateOverrideSlots < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
+	}
+	if c.StateSync.SnapshotUpload && !c.StateSync.Enabled {
+		return fmt.Errorf("%s: needs %s = true", FlagStateSyncSnapshotUpload, FlagStateSyncEnabled)
+	}
+	if c.StateSync.SnapshotUpload && c.StateSync.SnapshotBucket == "" {
+		return fmt.Errorf("%s: needs %s", FlagStateSyncSnapshotUpload, FlagStateSyncSnapshotBucket)
+	}
+	if c.StateSync.SnapshotUploadInterval < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagStateSyncSnapshotUploadInterval, c.StateSync.SnapshotUploadInterval)
+	}
+	deadlines, err := c.RPC.DeadlineConfig()
+	if err != nil {
+		return err
+	}
+	return requireSimulationDeadlines(deadlines, c.RPC.TraceTimeout)
 }
 
 // ConfigTemplate is the TOML template for the [giga] section of app.toml.
@@ -237,7 +652,7 @@ const ConfigTemplate = `
 ###                          Giga Node Configuration                        ###
 ###############################################################################
 
-# Storage and execution settings of a Giga (Autobahn) node. Committee and consensus
+# Storage, execution, EVM RPC and state sync settings of a Giga (Autobahn) node. Committee and consensus
 # settings stay in the file named by autobahn-config-file in config.toml.
 
 [giga.storage]
@@ -286,4 +701,167 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
+
+# gc_percent is the Go GC target Autobahn/Giga seid applies on start. The default is 400 for
+# every Autobahn deploy; 0 leaves the process default. Non-Autobahn nodes ignore it.
+gc_percent = {{ .Giga.Execution.GCPercent }}
+
+# unsafe_skip_upgrades lists the blocks, each positive, at which this node clears a due upgrade
+# plan instead of applying it or halting. To get past a halt, list the height in
+# data/upgrade-info.json, the block the node halted at. V2's --unsafe-skip-upgrades flag has no
+# effect on this node. Skipping is this node's choice and changes its state: the chain gets past
+# the block only when validators with 2/3 of the voting power skip it, and a node replaying
+# through a skipped block needs the same entry.
+unsafe_skip_upgrades = [{{ range $i, $h := .Giga.Execution.UnsafeSkipUpgrades }}{{ if $i }}, {{ end }}{{ $h }}{{ end }}]
+
+[giga.rpc]
+# Limits the EVM-only JSON-RPC server enforces. Zero disables a limit unless noted otherwise.
+
+# max_subscriptions_new_head caps open eth_subscribe("newHeads") subscriptions across all
+# connections.
+max_subscriptions_new_head = {{ .Giga.RPC.MaxSubscriptionsNewHead }}
+
+# max_subscriptions_logs caps open eth_subscribe("logs") subscriptions across all connections.
+max_subscriptions_logs = {{ .Giga.RPC.MaxSubscriptionsLogs }}
+
+# max_subscriptions_per_connection caps the open subscriptions of a single WebSocket connection.
+max_subscriptions_per_connection = {{ .Giga.RPC.MaxSubscriptionsPerConnection }}
+
+# max_request_body_bytes caps the size, in bytes, of one HTTP request body or WebSocket message.
+# It must be positive.
+max_request_body_bytes = {{ .Giga.RPC.MaxRequestBodyBytes }}
+
+# max_concurrent_request_bytes caps the total size, in bytes, of WebSocket request frames read
+# and processed concurrently. Values below max_request_body_bytes act as max_request_body_bytes.
+max_concurrent_request_bytes = {{ .Giga.RPC.MaxConcurrentRequestBytes }}
+
+# ws_admission_timeout is how long a WebSocket connection waits for max_concurrent_request_bytes
+# budget before it is closed; 0 uses the go-ethereum default of 30s.
+ws_admission_timeout = "{{ .Giga.RPC.WSAdmissionTimeout }}"
+
+# batch_request_limit caps the number of requests in one JSON-RPC batch.
+batch_request_limit = {{ .Giga.RPC.BatchRequestLimit }}
+
+# batch_response_max_size caps the total size, in bytes, of one JSON-RPC batch's responses.
+batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
+
+# max_ws_connections caps simultaneously open WebSocket connections.
+max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+# max_estimate_gas_calls caps the calls one eth_estimateGasAfterCalls request may apply.
+max_estimate_gas_calls = {{ .Giga.RPC.MaxEstimateGasCalls }}
+
+# filter_timeout is how long an eth_newFilter or eth_newBlockFilter filter lives without being
+# polled.
+filter_timeout = "{{ .Giga.RPC.FilterTimeout }}"
+
+# max_filters caps the installed eth_newFilter and eth_newBlockFilter filters.
+max_filters = {{ .Giga.RPC.MaxFilters }}
+
+# max_block_filter_hashes caps the unpolled blocks an eth_newBlockFilter filter may fall behind
+# by before it is removed.
+max_block_filter_hashes = {{ .Giga.RPC.MaxBlockFilterHashes }}
+
+# Maximum concurrent eth_sendRawTransaction calls across HTTP and WebSocket.
+# Excess calls are refused immediately. Set to 0 to disable transaction submission.
+max_concurrent_send_calls = {{ .Giga.RPC.MaxConcurrentSendCalls }}
+
+# max_concurrent_trace_calls caps debug_trace* calls running at once; a call past it is refused.
+max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}
+
+# trace_timeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+# accepted only when method_timeouts gives every debug_trace* method a positive deadline.
+trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
+
+# max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
+# transaction.
+max_trace_struct_log_bytes = {{ .Giga.RPC.MaxTraceStructLogBytes }}
+
+# max_state_override_accounts caps the accounts one call's state override may name.
+max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
+
+# max_state_override_slots caps the storage slots one call's state override may set for an account.
+max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
+
+# default_timeout is the deadline applied, on both HTTP and WebSocket, to a method with no
+# built-in deadline and no entry in method_timeouts. Set to 0 to disable.
+default_timeout = "{{ .Giga.RPC.DefaultTimeout }}"
+
+# method_timeouts sets deadlines for individual methods. Each entry is "method=duration",
+# e.g. "eth_call=60s". A method name ending in "*" (e.g. "debug_trace*=0") matches every method
+# with that prefix; an exact name or the longest matching prefix wins. A duration of 0 applies
+# no deadline to that method. debug_trace* methods are also bounded by trace_timeout.
+# The default entries are built in, so removing one from this list does not remove it. To change
+# one, give an entry with the same method name or prefix, e.g. "eth_call=1s"; a broader wildcard
+# such as "eth_*=1s" does not change it.
+# eth_call, eth_estimateGas, eth_estimateGasAfterCalls and eth_createAccessList must keep a
+# positive deadline.
+method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{ end }}"{{ $e }}"{{ end }}]
+
+[giga.state_sync]
+# These keys are for giga state sync from snapshots of FlatKV checkpoints. They are not the
+# Tendermint state sync snapshots of the [state-sync] section.
+# enabled runs a background task that writes a state sync proof file for each retained FlatKV
+# checkpoint, and the snapshot upload below when snapshot_upload = true. It does not create
+# checkpoints.
+enabled = {{ .Giga.StateSync.Enabled }}
+# snapshot_bucket is the S3 bucket of the giga state sync snapshots of this chain:
+# giga-state-sync/<chain-id>/<height>.tar, with the height in 20 digits, and
+# giga-state-sync/<chain-id>/latest.txt, which holds the newest height. seid statesync import and
+# seid statesync check read it. The AWS credentials come from the AWS SDK default chain.
+snapshot_bucket = "{{ .Giga.StateSync.SnapshotBucket }}"
+# snapshot_region is the AWS region of snapshot_bucket. Empty uses the region of the AWS SDK
+# default configuration.
+snapshot_region = "{{ .Giga.StateSync.SnapshotRegion }}"
+# snapshot_upload uploads a snapshot of the newest checkpoint that has a state sync proof file to
+# snapshot_bucket, and then writes its height to latest.txt. It needs enabled = true and
+# snapshot_bucket, and a validator refuses to start with it. Many nodes of one chain can set it: a
+# node uploads only while it holds the upload claim of the chain in the bucket, and no node
+# replaces a snapshot or moves latest.txt back.
+snapshot_upload = {{ .Giga.StateSync.SnapshotUpload }}
+# snapshot_upload_interval is the least time between two snapshot uploads of this chain, measured
+# from the last write of latest.txt by any node. 0 uploads each checkpoint.
+snapshot_upload_interval = "{{ .Giga.StateSync.SnapshotUploadInterval }}"
 `
+
+// requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one
+// of simulationMethods without a positive deadline in deadlines, or one of traceMethods with
+// neither a positive deadline in deadlines nor a positive traceTimeout.
+func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig, traceTimeout time.Duration) error {
+	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
+	for _, method := range simulationMethods {
+		if enforcer.Deadline(method) == 0 {
+			return fmt.Errorf("%s: %s must have a positive deadline, from %s or an entry here",
+				FlagRPCMethodTimeouts, method, FlagRPCDefaultTimeout)
+		}
+	}
+	if traceTimeout > 0 {
+		return nil
+	}
+	for _, method := range traceMethods {
+		if enforcer.Deadline(method) == 0 {
+			return fmt.Errorf("%s: must be positive unless %s gives %s a positive deadline",
+				FlagRPCTraceTimeout, FlagRPCMethodTimeouts, method)
+		}
+	}
+	return nil
+}
+
+// skipUpgradeHeights casts v to a list of heights, rejecting a negative one.
+func skipUpgradeHeights(v interface{}) ([]uint64, error) {
+	ints, err := cast.ToIntSliceE(v)
+	if err != nil {
+		return nil, err
+	}
+	if len(ints) == 0 {
+		return nil, nil
+	}
+	heights := make([]uint64, len(ints))
+	for i, h := range ints {
+		if h < 0 {
+			return nil, fmt.Errorf("height %d is negative", h)
+		}
+		heights[i] = uint64(h)
+	}
+	return heights, nil
+}

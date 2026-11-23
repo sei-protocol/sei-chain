@@ -40,9 +40,9 @@ message MsgInternalEVMCall {
 message MsgInternalEVMCallResponse {}
 
 message MsgInternalEVMDelegateCall {
+  reserved 2;
+  reserved "codeHash";
   string sender = 1;
-  // buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
-  bytes codeHash = 2;
   string to = 3;
   bytes data = 4;
   // buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.

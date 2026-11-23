@@ -16,8 +16,10 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -436,27 +438,29 @@ func (f *fakeReceiptStore) SetEarliestVersion(version int64) error {
 }
 
 func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
-	return nil, errors.New("not found")
+	return nil, receiptdb.ErrNotFound
 }
 
 func (f *fakeReceiptStore) GetReceiptFromStore(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
-	return nil, errors.New("not found")
+	return nil, receiptdb.ErrNotFound
 }
 
-func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) error {
+func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipttypes.ReceiptRecord) error {
 	return nil
 }
 
-func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *receipt.LogBudget) ([]*ethtypes.Log, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+func (f *fakeReceiptStore) Flush() error { return nil }
+
+func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *logfilter.LogBudget) ([]*ethtypes.Log, error) {
+	return nil, receiptdb.ErrRangeQueryNotSupported
 }
 
-func (f *fakeReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
-	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+func (f *fakeReceiptStore) GetBlockStats(sdk.Context, uint64) (receipttypes.BlockStats, error) {
+	return receipttypes.BlockStats{}, receiptdb.ErrBlockStatsNotSupported
 }
 
-func (f *fakeReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+func (f *fakeReceiptStore) IterateReceipts(uint64) (receiptdb.ReceiptIterator, error) {
+	return nil, receiptdb.ErrRangeQueryNotSupported
 }
 
 func (f *fakeReceiptStore) Close() error { return nil }

@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethcore "github.com/ethereum/go-ethereum/core"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -37,30 +37,36 @@ func TestBroadcastTxCommitWithoutAutobahnUsesMempool(t *testing.T) {
 	require.False(t, errors.Is(err, ErrBroadcastTxCommitUnsupported))
 }
 
+func TestEvmPendingNonceFollowsMempool(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+
+	t.Run("fullnode", func(t *testing.T) {
+		env := newAutobahnFullnodeEnv(t)
+		_, ok := env.EvmPendingNonce(address).Get()
+		require.False(t, ok)
+	})
+
+	t.Run("validator", func(t *testing.T) {
+		env := newAutobahnBroadcastEnv(t)
+		giga, ok := env.gigaRouter().Get()
+		require.True(t, ok)
+		mp, ok := giga.Mempool().Get()
+		require.True(t, ok)
+		got, ok := env.EvmPendingNonce(address).Get()
+		require.True(t, ok)
+		require.Equal(t, mp.EvmNextPendingNonce(address), got)
+	})
+}
+
 func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	env := &Environment{App: proxy.New(abci.BaseApplication{})}
+	env := &Environment{App: utils.Some(proxy.New(abci.BaseApplication{}))}
 
 	// Test: the EVM RPC accessors Environment exposes to giga/evmonly/rpc.
 	nonce := env.EvmTransactionCount(address)
 	height := env.EvmBlockNumber()
-	chainID := env.EvmChainID()
-	_, chainConfigErr := env.EvmChainConfig()
-	_, gasLimitErr := env.EvmGasLimit()
-	_, callErr := env.EvmCall(t.Context(), &ethcore.Message{})
-	_, baseFeeErr := env.EvmBaseFee()
-	_, codeErr := env.EvmCode(address)
-	_, _, estimateGasErr := env.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0)
 
-	// Verify: nonce/height/chain-id hit Application; the rest error because
-	// BaseApplication implements none of those optional interfaces.
+	// Verify: nonce and height hit the ABCI application.
 	require.Equal(t, uint64(0), nonce)
 	require.Equal(t, uint64(0), height)
-	require.Equal(t, uint64(0), chainID)
-	require.Error(t, chainConfigErr)
-	require.Error(t, gasLimitErr)
-	require.Error(t, callErr)
-	require.Error(t, baseFeeErr)
-	require.Error(t, codeErr)
-	require.Error(t, estimateGasErr)
 }

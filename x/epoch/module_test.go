@@ -46,7 +46,7 @@ func TestRoutesAddition(t *testing.T) {
 	)
 
 	mux := runtime.NewServeMux()
-	appModule.RegisterGRPCGatewayRoutes(client.Context{}, mux)
+	appModule.RegisterGatewayRoutes(client.Context{}, mux)
 
 	require.NotNil(t, appModule)
 }

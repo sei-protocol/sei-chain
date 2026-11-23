@@ -40,8 +40,8 @@ func (s *KeeperTestHelper) Setup() {
 	s.App = app.Setup(s.T(), false, false, false)
 	s.Ctx = s.App.NewContext(false, tmtypes.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
 	s.QueryHelper = &baseapp.QueryServiceTestHelper{
-		GRPCQueryRouter: s.App.GRPCQueryRouter(),
-		Ctx:             s.Ctx,
+		QueryServiceRouter: s.App.QueryServiceRouter(),
+		Ctx:                s.Ctx,
 	}
 
 	s.TestAccs = CreateRandomAccounts(3)
@@ -108,11 +108,6 @@ func (s *KeeperTestHelper) SetupValidator(bondStatus stakingtypes.BondStatus) sd
 	s.App.SlashingKeeper.SetValidatorSigningInfo(s.Ctx, consAddr, signingInfo)
 
 	return valAddr
-}
-
-// SetupTokenFactory sets up a token module account for the TokenFactoryKeeper.
-func (s *KeeperTestHelper) SetupTokenFactory() {
-	s.App.TokenFactoryKeeper.CreateModuleAccount(s.Ctx)
 }
 
 // EndBlock ends the block.

@@ -15,7 +15,7 @@ import (
 // # What We Persist
 //
 // All fields are persisted atomically in a single A/B file pair (inner_a.pb/inner_b.pb):
-//   - Index: current view RoadIndex used to validate the WAL against ConsensusSpec
+//   - Height: current view RoadHeight used to validate the WAL against ConsensusSpec
 //   - PrepareQC: needed for timeoutVote on restart
 //   - TimeoutQC: justified entering the current view number
 //   - CommitVote, PrepareVote, TimeoutVote: this node's votes for the current view
@@ -59,9 +59,9 @@ import (
 //   - TimeoutQC: YES — rebroadcast via myTimeoutQC watch
 //   - CommitQC: NO — used locally for view justification but not rebroadcast.
 //     The tip comes from avail's ConsensusSpec, and avail serves CommitQCs on
-//     StreamCommitQCs. The WAL stores only Index.
+//     StreamCommitQCs. The WAL stores only Height.
 type persistedInner struct {
-	Index     types.RoadIndex
+	Height    types.RoadHeight
 	PrepareQC utils.Option[*types.PrepareQC]
 	TimeoutQC utils.Option[*types.TimeoutQC]
 
@@ -76,13 +76,13 @@ type persistedInner struct {
 // PrepareVote, and TimeoutVote must be this node's.
 func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) error {
 	ep := spec.Epoch
-	// TimeoutQC index must equal NextIndexOpt(CommitQC) (i.e., CommitQC.Index+1, or 0 if missing).
+	// TimeoutQC index must equal ConsensusSpec.Height().
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {
-		tqcIndex := tqc.View().Index
-		expectedIndex := spec.Index()
-		if tqcIndex != expectedIndex {
-			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
+		tqcHeight := tqc.View().Height
+		expectedHeight := spec.Height()
+		if tqcHeight != expectedHeight {
+			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcHeight, expectedHeight)
 		}
 		if err := tqc.Verify(ep, spec.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
@@ -106,19 +106,19 @@ func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) 
 
 	// PrepareQC is required when CommitVote is present (CommitVote requires PrepareQC justification).
 	if pqc, ok := p.PrepareQC.Get(); ok {
-		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(ep)); err != nil {
+		if err := checkViewAndSig("PrepareQC", pqc.View(), pqc.Verify(ep)); err != nil {
 			return err
 		}
 	} else if p.CommitVote.IsPresent() {
 		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
 	}
 	if v, ok := p.CommitVote.Get(); ok {
-		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
+		if err := checkViewAndSig("CommitVote", v.Msg().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.PrepareVote.Get(); ok {
-		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
+		if err := checkViewAndSig("PrepareVote", v.Msg().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
@@ -148,9 +148,9 @@ func verifyLocalTimeoutVote(self types.PublicKey, v *types.FullTimeoutVote, ep *
 var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	Encode: func(m *persistedInner) *pb.PersistedInner {
 		p := &pb.PersistedInner{}
-		if m.Index != 0 {
-			v := uint64(m.Index)
-			p.Index = &v
+		if m.Height != 0 {
+			v := uint64(m.Height)
+			p.Height = &v
 		}
 		if v, ok := m.PrepareQC.Get(); ok {
 			p.PrepareQc = types.PrepareQCConv.Encode(v)
@@ -159,10 +159,10 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 			p.TimeoutQc = types.TimeoutQCConv.Encode(v)
 		}
 		if v, ok := m.CommitVote.Get(); ok {
-			p.CommitVoteV2 = types.SignedCommitVoteConv.Encode(v)
+			p.CommitVoteV3 = types.SignedCommitVoteConv.Encode(v)
 		}
 		if v, ok := m.PrepareVote.Get(); ok {
-			p.PrepareVoteV2 = types.SignedPrepareVoteConv.Encode(v)
+			p.PrepareVoteV3 = types.SignedPrepareVoteConv.Encode(v)
 		}
 		if v, ok := m.TimeoutVote.Get(); ok {
 			p.TimeoutVote = types.FullTimeoutVoteConv.Encode(v)
@@ -171,8 +171,8 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	},
 	Decode: func(p *pb.PersistedInner) (*persistedInner, error) {
 		m := &persistedInner{}
-		if p.Index != nil {
-			m.Index = types.RoadIndex(*p.Index)
+		if p.Height != nil {
+			m.Height = types.RoadHeight(*p.Height)
 		}
 		if p.PrepareQc != nil {
 			v, err := types.PrepareQCConv.Decode(p.PrepareQc)
@@ -188,17 +188,17 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 			}
 			m.TimeoutQC = utils.Some(v)
 		}
-		if p.CommitVoteV2 != nil {
-			v, err := types.SignedCommitVoteConv.Decode(p.CommitVoteV2)
+		if p.CommitVoteV3 != nil {
+			v, err := types.SignedCommitVoteConv.Decode(p.CommitVoteV3)
 			if err != nil {
-				return nil, fmt.Errorf("commit_vote: %w", err)
+				return nil, fmt.Errorf("commit_vote_v3: %w", err)
 			}
 			m.CommitVote = utils.Some(v)
 		}
-		if p.PrepareVoteV2 != nil {
-			v, err := types.SignedPrepareVoteConv.Decode(p.PrepareVoteV2)
+		if p.PrepareVoteV3 != nil {
+			v, err := types.SignedPrepareVoteConv.Decode(p.PrepareVoteV3)
 			if err != nil {
-				return nil, fmt.Errorf("prepare_vote: %w", err)
+				return nil, fmt.Errorf("prepare_vote_v3: %w", err)
 			}
 			m.PrepareVote = utils.Some(v)
 		}

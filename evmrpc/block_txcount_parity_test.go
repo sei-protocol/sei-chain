@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -132,7 +134,7 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 
 	tm := &parityTxCountTMClient{block: block}
 	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore())
-	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
+	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
 	rpcCount, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(parityTestHeight))
 	require.NoError(t, err)
 	require.NotNil(t, rpcCount)
@@ -160,4 +162,37 @@ func countDecodeOnlyEvmTxs(txs tmtypes.Txs, dec sdk.TxDecoder) int {
 		n++
 	}
 	return n
+}
+
+// GetBlockByNumber reads block.gasLimit from the one context it loads consensus params for.
+func TestGetBlockByNumberLoadsConsensusParamsOnce(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithBlockHeight(parityTestHeight).WithConsensusParams(nil)
+	require.NoError(t, k.MockReceipt(ctx, common.HexToHash("0x01"), &types.Receipt{BlockNumber: uint64(parityTestHeight)})) //nolint:gosec
+	block := &coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header:     mockBlockHeader(parityTestHeight),
+			LastCommit: &tmtypes.Commit{Height: parityTestHeight - 1},
+		},
+	}
+	ctxProvider := func(h int64) sdk.Context {
+		if h == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(h)
+	}
+	var gasLimitCtxHeights []int64
+	gasLimitCtxProvider := func(h int64) sdk.Context {
+		gasLimitCtxHeights = append(gasLimitCtxHeights, h)
+		return ctxProvider(h).WithConsensusParams(&types2.ConsensusParams{Block: &types2.BlockParams{MaxGas: 12345}})
+	}
+	tm := &parityTxCountTMClient{block: block}
+	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore())
+	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, gasLimitCtxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, wm, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+
+	res, err := api.GetBlockByNumber(t.Context(), rpc.BlockNumber(parityTestHeight), false)
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(12345), res["gasLimit"])
+	require.Equal(t, []int64{parityTestHeight}, gasLimitCtxHeights)
 }

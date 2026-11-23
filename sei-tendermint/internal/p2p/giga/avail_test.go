@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -31,11 +33,11 @@ func TestAvailClientServer(t *testing.T) {
 	require.True(t, totalWeight >= committee.CommitQuorum())
 	t.Logf("Committee with %d nodes, running %d", len(keys), len(activeKeys))
 	for _, key := range activeKeys {
-		nodes = append(nodes, env.AddNode(key))
+		nodes = append(nodes, env.AddNode(t, key))
 	}
 
 	totalBlocks := 3 * avail.BlocksPerLane
-	firstBlock := nodes[0].data.Registry().FirstBlock()
+	firstBlock := nodes[0].data.Anchor().Load().Epochs[0].RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Log("Spawn network.")
 		s.SpawnBg(func() error { return env.Run(ctx) })
@@ -51,10 +53,11 @@ func TestAvailClientServer(t *testing.T) {
 		// checks a corrupt genesis tip strands the lane (PushBlock drops forever).
 		// After an honest tip, corrupt PushBlocks are stale or parent-mismatch drops.
 		t.Log("Spawn task sending corrupted data of node 0 to node 2.")
-		corrupt := newTestNode(registry, &consensus.Config{
+		corrupt := newTestNode(t, registry, &consensus.Config{
 			Key:             activeKeys[0],
 			ViewTimeout:     defaultViewTimeout,
 			ProposalTimeout: time.Hour,
+			MaxRate:         rate.Inf,
 		})
 		corruptAvail := corrupt.consensus.Avail()
 		a2 := nodes[2].consensus.Avail()
@@ -72,10 +75,9 @@ func TestAvailClientServer(t *testing.T) {
 				if err != nil {
 					return utils.IgnoreCancel(fmt.Errorf("corrupt.ProduceLocalBlock(%d): %w", n, err))
 				}
-				// PushBlock may drop (stale / parent-hash mismatch); that is fine.
-				if err := a2.PushBlock(ctx, b); err != nil {
-					return utils.IgnoreCancel(fmt.Errorf("a2.PushBlock(%d): %w", n, err))
-				}
+				// These proposals are deliberately corrupt. Stale blocks may be
+				// dropped and parent mismatches may return an error.
+				_ = a2.PushBlock(ctx, b)
 			}
 			return nil
 		})
@@ -99,22 +101,26 @@ func TestAvailClientServer(t *testing.T) {
 			})
 		}
 		t.Logf("Await sequenced blocks")
-		for offset := range types.GlobalBlockNumber(totalBlocks * len(nodes)) {
-			n := firstBlock + offset
-			want, err := nodes[0].data.GlobalBlock(ctx, n)
+		for n, finalized := firstBlock, 0; finalized < totalBlocks*len(nodes); n++ {
+			qc, err := nodes[0].data.QC(ctx, n)
+			if err != nil {
+				return err
+			}
+			finalized += len(qc.Headers())
+			want, err := nodes[0].data.SuperBlock(ctx, n)
 			if err != nil {
 				return err
 			}
 			h := types.GenAppHash(rng)
 			for _, node := range nodes {
-				got, err := node.data.GlobalBlock(ctx, n)
+				got, err := node.data.SuperBlock(ctx, n)
 				if err != nil {
 					return err
 				}
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
-				if err := node.data.PushAppHash(ctx, n, h, nil); err != nil {
+				if err := node.data.PushAppHash(ctx, n, h); err != nil {
 					return fmt.Errorf("node.data.PushAppHash(): %w", err)
 				}
 			}

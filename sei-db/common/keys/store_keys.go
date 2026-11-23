@@ -11,7 +11,6 @@ import "fmt"
 // of them would break existing state.
 const (
 	AuthStoreKey         = "acc"          // sei-cosmos/x/auth/types.StoreKey
-	AuthzStoreKey        = "authz"        // sei-cosmos/x/authz/keeper.StoreKey
 	BankStoreKey         = "bank"         // sei-cosmos/x/bank/types.StoreKey
 	StakingStoreKey      = "staking"      // sei-cosmos/x/staking/types.StoreKey
 	MintStoreKey         = "mint"         // x/mint/types.StoreKey
@@ -20,12 +19,10 @@ const (
 	GovStoreKey          = "gov"          // sei-cosmos/x/gov/types.StoreKey
 	ParamsStoreKey       = "params"       // sei-cosmos/x/params/types.StoreKey
 	UpgradeStoreKey      = "upgrade"      // sei-cosmos/x/upgrade/types.StoreKey
-	FeegrantStoreKey     = "feegrant"     // retained for historical state access
 	EvidenceStoreKey     = "evidence"     // sei-cosmos/x/evidence/types.StoreKey
 	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey
 	EpochStoreKey        = "epoch"        // x/epoch/types.StoreKey
-	TokenfactoryStoreKey = "tokenfactory" // x/tokenfactory/types.StoreKey
 )
 
 // MemIAVLStoreKeys is the canonical list of module KV store keys that are
@@ -34,7 +31,6 @@ const (
 // app/app.go). Keep this list in sync with that call site.
 var MemIAVLStoreKeys = []string{
 	AuthStoreKey,
-	AuthzStoreKey,
 	BankStoreKey,
 	StakingStoreKey,
 	MintStoreKey,
@@ -43,12 +39,10 @@ var MemIAVLStoreKeys = []string{
 	GovStoreKey,
 	ParamsStoreKey,
 	UpgradeStoreKey,
-	FeegrantStoreKey,
 	EvidenceStoreKey,
 	EVMStoreKey,
 	WasmStoreKey,
 	EpochStoreKey,
-	TokenfactoryStoreKey,
 }
 
 // memIAVLStoreKeySet is MemIAVLStoreKeys materialized as a set for O(1)

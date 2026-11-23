@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -64,6 +65,15 @@ func TestAccounts(t *testing.T) {
 	require.Nil(t, err)
 	accounts, _ := api.Accounts(t.Context())
 	require.Equal(t, 1, len(accounts))
+}
+
+func TestAccountsWithoutKeys(t *testing.T) {
+	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
+	accounts, err := api.Accounts(t.Context())
+	require.NoError(t, err)
+	bz, err := json.Marshal(accounts)
+	require.NoError(t, err)
+	require.JSONEq(t, `[]`, string(bz))
 }
 
 func TestCoinbase(t *testing.T) {

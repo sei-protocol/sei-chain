@@ -29,22 +29,22 @@ type commitQCState struct {
 	appended uint64
 }
 
-// persistCommitQC schedules a CommitQC for the WAL under its own road index. The QC is not durable
+// persistCommitQC schedules a CommitQC for the WAL under its own road height. The QC is not durable
 // until flush returns. Caller must hold the lock.
 // Duplicates (idx < next) are silently ignored for idempotent startup.
 // Gaps (idx > next) return an error.
 func (s *commitQCState) persist(qc *types.CommitQC) error {
-	idx := qc.Index()
-	if idx < s.persisted.Next {
+	height := qc.Height()
+	if height < s.persisted.Next {
 		return nil
 	}
-	if idx > s.persisted.Next {
-		return fmt.Errorf("commitqc %d out of sequence (next=%d)", idx, s.persisted.Next)
+	if height > s.persisted.Next {
+		return fmt.Errorf("commitqc %d out of sequence (next=%d)", height, s.persisted.Next)
 	}
 	if w, ok := s.wal.Get(); ok {
 		addMetricsRecords(walCommitQCs, stageAsked, 1)
-		if err := w.Append(uint64(idx), qc); err != nil {
-			return fmt.Errorf("persist commitqc %d: %w", idx, err)
+		if err := w.Append(uint64(height), qc); err != nil {
+			return fmt.Errorf("persist commitqc %d: %w", height, err)
 		}
 		s.unflushed = true
 		s.appended++
@@ -73,23 +73,23 @@ func (s *commitQCState) flush() error {
 //
 // Pruning is lazy, so entries below idx may remain on disk until the file holding them falls entirely
 // below the threshold. Caller must hold the lock.
-func (s *commitQCState) deleteBefore(idx types.RoadIndex) error {
-	if idx <= s.persisted.First {
+func (s *commitQCState) deleteBefore(height types.RoadHeight) error {
+	if height <= s.persisted.First {
 		return nil
 	}
 	if w, ok := s.wal.Get(); ok {
-		if err := w.PruneBefore(uint64(idx)); err != nil {
-			return fmt.Errorf("prune commitqc WAL before %d: %w", idx, err)
+		if err := w.PruneBefore(uint64(height)); err != nil {
+			return fmt.Errorf("prune commitqc WAL before %d: %w", height, err)
 		}
 	}
-	s.persisted.First = idx
+	s.persisted.First = height
 	s.persisted.Next = max(s.persisted.First, s.persisted.Next)
 	return nil
 }
 
 // CommitQCPersister manages CommitQC persistence using a WAL.
-// Each QC is stored under its own RoadIndex, so no mapping between append order
-// and RoadIndex is needed.
+// Each QC is stored under its own RoadHeight, so no mapping between append order
+// and RoadHeight is needed.
 // When wal is None, all disk I/O is skipped but cursor tracking still works.
 type CommitQCPersister struct {
 	state utils.Mutex[*commitQCState]
@@ -130,16 +130,16 @@ func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []
 	}
 	if len(loaded) > 0 {
 		s.persisted = types.RoadRange{
-			First: loaded[0].Index(),
-			Next:  loaded[len(loaded)-1].Index() + 1,
+			First: loaded[0].Height(),
+			Next:  loaded[len(loaded)-1].Height() + 1,
 		}
 	}
 	return &CommitQCPersister{state: utils.NewMutex(s)}, loaded, nil
 }
 
-// LoadNext returns the road index of the first CommitQC that has not been
+// LoadNext returns the road height of the first CommitQC that has not been
 // persisted (exclusive upper bound of what's on disk).
-func (cp *CommitQCPersister) Next() types.RoadIndex {
+func (cp *CommitQCPersister) Next() types.RoadHeight {
 	for s := range cp.state.Lock() {
 		return s.persisted.Next
 	}
@@ -155,7 +155,7 @@ func (cp *CommitQCPersister) Next() types.RoadIndex {
 //
 // The lock is held for the entire prune-then-append sequence, so callers
 // need not coordinate ordering.
-func (cp *CommitQCPersister) PruneAndPersist(deleteBefore types.RoadIndex, commitQCs []*types.CommitQC) error {
+func (cp *CommitQCPersister) PruneAndPersist(deleteBefore types.RoadHeight, commitQCs []*types.CommitQC) error {
 	for s := range cp.state.Lock() {
 		if err := s.deleteBefore(deleteBefore); err != nil {
 			return err
@@ -190,7 +190,7 @@ func (cp *CommitQCPersister) Close() error {
 
 // loadAllCommitQCs reads the WAL and returns the QCs that are still live.
 //
-// QCs stranded below a lazy prune are discarded: a gap in the stored road indices marks where pruning
+// QCs stranded below a lazy prune are discarded: a gap in the stored road heights marks where pruning
 // has already logically removed everything before it.
 func loadAllCommitQCs(s *commitQCState) ([]*types.CommitQC, error) {
 	w, ok := s.wal.Get()

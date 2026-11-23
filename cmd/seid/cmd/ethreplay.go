@@ -6,7 +6,6 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
-	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 
@@ -41,8 +40,6 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 			home := serverCtx.Viper.GetString(flags.FlagHome)
 
 			cache := store.NewCommitKVStoreCacheManager()
-			wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
-			wasmGasRegisterConfig.GasMultiplier = 21_000_000
 			a := app.New(
 				nil,
 				nil,
@@ -55,13 +52,7 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				app.MakeEncodingConfig(),
 				wasm.EnableAllProposals,
 				serverCtx.Viper,
-				[]wasm.Option{
-					wasmkeeper.WithGasRegister(
-						wasmkeeper.NewWasmGasRegister(
-							wasmGasRegisterConfig,
-						),
-					),
-				},
+				app.EmptyWasmOpts,
 				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.PruneEverything),
 				baseapp.SetMinGasPrices(cast.ToString(serverCtx.Viper.Get(server.FlagMinGasPrices))),

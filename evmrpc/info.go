@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -91,7 +91,9 @@ func (i *InfoAPI) Accounts(ctx context.Context) (result []common.Address, return
 	if err != nil {
 		return []common.Address{}, err
 	}
-	for addr := range getAddressPrivKeyMap(kb) {
+	keys := getAddressPrivKeyMap(kb)
+	result = make([]common.Address, 0, len(keys))
+	for addr := range keys {
 		result = append(result, common.HexToAddress(addr))
 	}
 	return result, nil
@@ -202,7 +204,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	}
 
 	if lastBlockNumber < earliestHeight {
-		return nil, errors.New("requested last block is before earliest available height")
+		return nil, fmt.Errorf("requested last block %d is before earliest available height %d", lastBlockNumber, earliestHeight)
 	}
 
 	if uint64(lastBlockNumber-earliestHeight) < uint64(blockCount) { //nolint:gosec
@@ -237,7 +239,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 				if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
 					return nil, ctxErr
 				}
-				if errors.Is(err, receipt.ErrNotConfigured) {
+				if errors.Is(err, receiptdb.ErrNotConfigured) {
 					return nil, err
 				}
 				// If we can't calculate the ratio, use 0.0 as fallback
@@ -393,7 +395,7 @@ func (i *InfoAPI) getRewards(ctx context.Context, block *coretypes.ResultBlock, 
 			// okay to get from latest since receipt is immutable
 			rcpt, err := i.keeper.GetReceipt(ctxProvider(LatestCtxHeight), ethtx.Hash())
 			if err != nil {
-				if errors.Is(err, receipt.ErrNotConfigured) {
+				if errors.Is(err, receiptdb.ErrNotConfigured) {
 					return nil, err
 				}
 				if ctxErr := ctx.Err(); ctxErr != nil {
@@ -513,7 +515,7 @@ func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
 }
 
 func (i *InfoAPI) earliestBlockWatermark(ctx context.Context) (int64, error) {
-	return i.watermarks.EarliestHeight(ctx)
+	return i.watermarks.EarliestReceiptHeight(ctx)
 }
 
 // Following go-ethereum implementation

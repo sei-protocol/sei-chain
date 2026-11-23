@@ -48,10 +48,12 @@ func TestOverlayServesPendingChangesOverTheView(t *testing.T) {
 		storage:  map[storageChangeKey]common.Hash{{address: addr, key: slot}: common.HexToHash("0x1")},
 	}
 	overlay := newPendingOverlay(base, &StateChangeSet{
-		Balances: []BalanceChange{{Address: addr, Balance: big.NewInt(99)}},
-		Nonces:   []NonceChange{{Address: addr, Nonce: 99}},
-		Code:     []CodeChange{{Address: addr, Code: []byte{0x99}}},
-		Storage:  []StorageChange{{Address: addr, Key: slot, Value: common.HexToHash("0x99")}},
+		Accounts: []AccountChange{{
+			Address: addr,
+			Account: AccountState{Balance: big.NewInt(99), Nonce: 99, Code: []byte{0x99}},
+			Prior:   AccountState{Balance: big.NewInt(1), Nonce: 1, Code: []byte{0x01}},
+		}},
+		Storage: []StorageChange{{Address: addr, Key: slot, Value: common.HexToHash("0x99")}},
 	})
 
 	require.Equal(t, big.NewInt(99), overlay.GetBalance(addr))
@@ -77,90 +79,140 @@ func TestOverlayReportsADeletedSlotAsUnsetRatherThanFallingThrough(t *testing.T)
 	require.Equal(t, common.Hash{}, overlay.GetState(addr, slot))
 }
 
-func TestOverlayReportsAWipedAccountsSlotsAsUnset(t *testing.T) {
-	addr := common.HexToAddress("0x1")
-	kept := common.HexToAddress("0x2")
-	slot := common.HexToHash("0xaa")
-	base := fixedStateReader{
-		storage: map[storageChangeKey]common.Hash{
-			{address: addr, key: slot}: common.HexToHash("0x1"),
-			{address: kept, key: slot}: common.HexToHash("0x2"),
-		},
-	}
-
-	overlay := newPendingOverlay(base, &StateChangeSet{StorageClears: []common.Address{addr}})
-	require.Equal(t, common.Hash{}, overlay.GetState(addr, slot), "a wiped account's slot must not read through")
-	require.Equal(t, common.HexToHash("0x2"), overlay.GetState(kept, slot))
-}
-
-// A block that writes several slots and then clears the account's storage must hand the overlay,
-// and the store, only the clear plus what was written after it.
-func TestMergedClearDropsTheWritesBeforeIt(t *testing.T) {
-	addr := common.HexToAddress("0x1")
-	a, b, c := common.HexToHash("0xa"), common.HexToHash("0xb"), common.HexToHash("0xc")
-	base := NewMemoryState()
-	base.SetState(addr, a, common.HexToHash("0x1"))
-
-	state := newBlockSTMState(base)
-	state.apply(occTxExecution{changeSet: StateChangeSet{Storage: []StorageChange{
-		{Address: addr, Key: a, Value: common.HexToHash("0x11")},
-		{Address: addr, Key: b, Value: common.HexToHash("0x12")},
-		{Address: addr, Key: c, Value: common.HexToHash("0x13")},
-	}}})
-	state.apply(occTxExecution{changeSet: StateChangeSet{StorageClears: []common.Address{addr}}})
-	state.apply(occTxExecution{changeSet: StateChangeSet{Storage: []StorageChange{
-		{Address: addr, Key: b, Value: common.HexToHash("0x22")},
-	}}})
-
-	changes := state.ChangeSet()
-	require.Equal(t, []common.Address{addr}, changes.StorageClears)
-	require.Equal(t, []StorageChange{{Address: addr, Key: b, Value: common.HexToHash("0x22")}}, changes.Storage,
-		"a slot written before the clear must not survive it")
-}
-
-// Reading through an overlay that holds a clear and a later write, only the later write shows: every
-// other slot reads as unset, including slots the view beneath still holds.
-func TestOverlayServesOnlyTheWritesAfterAClear(t *testing.T) {
-	addr := common.HexToAddress("0x1")
-	a, b, c := common.HexToHash("0xa"), common.HexToHash("0xb"), common.HexToHash("0xc")
-	base := fixedStateReader{storage: map[storageChangeKey]common.Hash{
-		{address: addr, key: a}: common.HexToHash("0x1"),
-		{address: addr, key: b}: common.HexToHash("0x2"),
-		{address: addr, key: c}: common.HexToHash("0x3"),
-	}}
-
-	overlay := newPendingOverlay(base, &StateChangeSet{
-		StorageClears: []common.Address{addr},
-		Storage:       []StorageChange{{Address: addr, Key: b, Value: common.HexToHash("0x22")}},
-	})
-	require.Equal(t, common.Hash{}, overlay.GetState(addr, a))
-	require.Equal(t, common.HexToHash("0x22"), overlay.GetState(addr, b))
-	require.Equal(t, common.Hash{}, overlay.GetState(addr, c))
-}
-
 func TestOverlayReportsDeletedCodeAsAbsent(t *testing.T) {
 	addr := common.HexToAddress("0x1")
 	base := fixedStateReader{code: map[common.Address][]byte{addr: {0x01}}}
 
 	overlay := newPendingOverlay(base, &StateChangeSet{
-		Code: []CodeChange{{Address: addr, Delete: true}},
+		Accounts: []AccountChange{{Address: addr, Prior: AccountState{Code: []byte{0x01}}}},
 	})
 	require.Nil(t, overlay.GetCode(addr))
 }
 
-// A changeset is cloned because the block result it came from returns to a pool and is reset.
-func TestCloneSurvivesTheBlockResultBeingReused(t *testing.T) {
-	addr := common.HexToAddress("0x1")
-	original := &StateChangeSet{
-		Balances: []BalanceChange{{Address: addr, Balance: big.NewInt(5)}},
-		Code:     []CodeChange{{Address: addr, Code: []byte{0x01}}},
+func TestPendingIndexOverlaysNothingWhenThereIsNothingPending(t *testing.T) {
+	base := fixedStateReader{}
+	var none *pendingIndex
+	require.Equal(t, StateReader(base), none.overlay(base))
+	require.Equal(t, StateReader(base), newPendingIndex(&StateChangeSet{}).overlay(base))
+}
+
+// fundedStore is a view over stored account rows whose GetBalance answers a missing
+// row with a funded fallback, as the EVM-only app's missing-account state does.
+type fundedStore struct {
+	fixedStateReader
+	rows   map[common.Address]*big.Int
+	funded *big.Int
+}
+
+func (r fundedStore) GetBalance(addr common.Address) *big.Int {
+	if balance, ok := r.rows[addr]; ok {
+		return new(big.Int).Set(balance)
 	}
-	clone := original.clone()
+	return new(big.Int).Set(r.funded)
+}
 
-	original.Balances[0].Balance.SetInt64(999)
-	original.Code[0].Code[0] = 0xff
-	original.Balances = original.Balances[:0]
+func (r fundedStore) StoredBalance(addr common.Address) *big.Int {
+	if balance, ok := r.rows[addr]; ok {
+		return new(big.Int).Set(balance)
+	}
+	return new(big.Int)
+}
 
-	require.Equal(t, big.NewInt(5), clone.Balances[0].Balance)
-	require.Equal(t, []byte{0x01}, clone.Code[0].Code)
+// createdWithoutValue is a block that creates a contract at addr and sends it nothing,
+// so its recorded balance is whatever the fallback answered.
+func createdWithoutValue(addr common.Address, funded *big.Int) *StateChangeSet {
+	return &StateChangeSet{
+		Accounts: []AccountChange{{
+			Address: addr,
+			Account: AccountState{Balance: new(big.Int).Set(funded), Nonce: 1, Code: []byte{0x60}},
+			Prior:   AccountState{Balance: new(big.Int).Set(funded)},
+		}},
+	}
+}
+
+func TestPipelineOverlayServesTheStoredBalanceTheBlockLeftUnchanged(t *testing.T) {
+	addr := common.HexToAddress("0x1")
+	funded := new(big.Int).Lsh(big.NewInt(1), 200)
+	for name, base := range map[string]fundedStore{
+		"commit pending": {funded: funded},
+		"commit landed":  {rows: map[common.Address]*big.Int{addr: new(big.Int)}, funded: funded},
+	} {
+		t.Run(name, func(t *testing.T) {
+			overlay := newPendingIndex(createdWithoutValue(addr, funded)).overlay(base)
+			require.Equal(t, 0, overlay.GetBalance(addr).Sign())
+			require.Equal(t, uint64(1), overlay.GetNonce(addr))
+			require.Equal(t, []byte{0x60}, overlay.GetCode(addr))
+			account, _, ok := overlay.(baseAccountReader).ReadAccount(addr)
+			require.True(t, ok)
+			require.Equal(t, 0, account.Balance.Sign())
+			require.Equal(t, uint64(1), account.Nonce)
+		})
+	}
+}
+
+func TestPipelineOverlayServesABalanceTheBlockWrote(t *testing.T) {
+	addr := common.HexToAddress("0x1")
+	funded := new(big.Int).Lsh(big.NewInt(1), 200)
+	spent := new(big.Int).Sub(new(big.Int).Set(funded), big.NewInt(21_000))
+	overlay := newPendingIndex(&StateChangeSet{
+		Accounts: []AccountChange{{
+			Address: addr,
+			Account: AccountState{Balance: spent, Nonce: 1},
+			Prior:   AccountState{Balance: new(big.Int).Set(funded)},
+		}},
+	}).overlay(fundedStore{funded: funded})
+
+	require.Equal(t, spent, overlay.GetBalance(addr))
+	account, _, ok := overlay.(baseAccountReader).ReadAccount(addr)
+	require.True(t, ok)
+	require.Equal(t, spent, account.Balance)
+}
+
+// An overlay of the block's own changes serves what the block's transactions saw.
+func TestBlockOverlayServesTheRecordedBalance(t *testing.T) {
+	addr := common.HexToAddress("0x1")
+	funded := new(big.Int).Lsh(big.NewInt(1), 200)
+	overlay := newPendingOverlay(fundedStore{funded: funded}, createdWithoutValue(addr, funded))
+	require.Equal(t, funded, overlay.GetBalance(addr))
+}
+
+// A block overlay stacked on the pipeline overlay reads the previous block's accounts as it
+// would once that commit has landed.
+func TestBlockOverlayOnThePipelineOverlayMatchesTheLandedCommit(t *testing.T) {
+	created := common.HexToAddress("0x1")
+	other := common.HexToAddress("0x2")
+	funded := new(big.Int).Lsh(big.NewInt(1), 200)
+	thisBlock := &StateChangeSet{Storage: []StorageChange{{Address: other, Key: common.HexToHash("0xaa"), Value: common.HexToHash("0x1")}}}
+
+	pending := newPendingOverlay(newPendingIndex(createdWithoutValue(created, funded)).overlay(fundedStore{funded: funded}), thisBlock)
+	landed := newPendingOverlay(fundedStore{rows: map[common.Address]*big.Int{created: new(big.Int)}, funded: funded}, thisBlock)
+	require.Equal(t, 0, pending.GetBalance(created).Sign())
+	require.Equal(t, landed.GetBalance(created), pending.GetBalance(created))
+}
+
+func TestPendingIndexServesTheSameStateAsADirectOverlay(t *testing.T) {
+	addr := common.HexToAddress("0x1")
+	slot := common.HexToHash("0xaa")
+	deleted := common.HexToHash("0xbb")
+	base := fixedStateReader{
+		balances: map[common.Address]*big.Int{addr: big.NewInt(1)},
+		storage: map[storageChangeKey]common.Hash{
+			{address: addr, key: slot}:    common.HexToHash("0x1"),
+			{address: addr, key: deleted}: common.HexToHash("0x2"),
+		},
+	}
+	changes := &StateChangeSet{
+		Accounts: []AccountChange{{Address: addr, Account: AccountState{Balance: big.NewInt(99), Nonce: 5}}},
+		Storage: []StorageChange{
+			{Address: addr, Key: slot, Value: common.HexToHash("0x99")},
+			{Address: addr, Key: deleted, Delete: true},
+		},
+	}
+
+	direct := newPendingOverlay(base, changes)
+	indexed := newPendingIndex(changes).overlay(base)
+	require.Equal(t, direct.GetBalance(addr), indexed.GetBalance(addr))
+	require.Equal(t, direct.GetNonce(addr), indexed.GetNonce(addr))
+	require.Equal(t, direct.GetState(addr, slot), indexed.GetState(addr, slot))
+	require.Equal(t, direct.GetState(addr, deleted), indexed.GetState(addr, deleted))
 }

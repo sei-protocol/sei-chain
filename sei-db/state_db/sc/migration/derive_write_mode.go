@@ -10,9 +10,8 @@ import (
 // migrationTargetVersions maps each migration mode to the migration
 // version its completion persists via MigrationVersionKey.
 var migrationTargetVersions = map[types.WriteMode]uint64{
-	types.MigrateEVM:        Version1_MigrateEVM,
-	types.MigrateAllButBank: Version2_MigrateAllButBank,
-	types.MigrateBank:       Version3_FlatKVOnly,
+	types.MigrateEVM:    Version1_MigrateEVM,
+	types.MigrateCosmos: Version2_FlatKVOnly,
 }
 
 // IsModeComplete reports whether the given write mode has finished its
@@ -79,18 +78,13 @@ func DeriveWriteMode(flatKV gigatypes.LiveStateStore) (types.WriteMode, error) {
 		return types.MemiavlOnly, nil
 	case Version1_MigrateEVM:
 		if inFlight {
-			return types.MigrateAllButBank, nil
+			return types.MigrateCosmos, nil
 		}
 		return types.EVMMigrated, nil
-	case Version2_MigrateAllButBank:
-		if inFlight {
-			return types.MigrateBank, nil
-		}
-		return types.AllMigratedButBank, nil
-	case Version3_FlatKVOnly:
+	case Version2_FlatKVOnly:
 		if inFlight {
 			// The completion block deletes the boundary atomically with the
-			// final version bump, so a boundary at version 3 is corrupt state.
+			// final version bump, so a boundary at version 2 is corrupt state.
 			return "", fmt.Errorf(
 				"corrupt migration metadata: migration version %d with an in-flight boundary %q",
 				version, boundary.String())

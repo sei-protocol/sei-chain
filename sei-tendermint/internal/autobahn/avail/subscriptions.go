@@ -10,8 +10,9 @@ import (
 )
 
 // SubscribeLaneProposals binds lane for this node's validator key.
-// Recv returns ErrLaneClosed after that lane's maps are dropped.
-func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) *LaneProposalsRecv {
+// Recv yields proposals only after persistence and returns ErrLaneClosed after
+// that lane's maps are dropped.
+func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.LaneHeight) *LaneProposalsRecv {
 	if lane.Validator != s.key.Public() {
 		panic(fmt.Sprintf("SubscribeLaneProposals: lane validator %v != local %v", lane.Validator, s.key.Public()))
 	}
@@ -21,35 +22,39 @@ func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumbe
 type LaneProposalsRecv struct {
 	state *State
 	lane  types.LaneID
-	next  types.BlockNumber
+	next  types.LaneHeight
 }
 
 func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.LaneProposal], error) {
-	for {
-		b, err := r.state.Block(ctx, r.lane, r.next)
-		if err != nil {
-			if errors.Is(err, types.ErrPruned) {
-				for inner := range r.state.inner.Lock() {
-					if _, ok := inner.blocks[r.lane]; !ok {
-						return nil, ErrLaneClosed
-					}
+	for inner, ctrl := range r.state.inner.Lock() {
+		for {
+			ls, ok := inner.lanes[r.lane]
+			if !ok {
+				if inner.anchor.Epochs[1].IsClosed(r.lane) {
+					return nil, ErrLaneClosed
 				}
-				r.next += 1
-				continue
+			} else {
+				r.next = max(r.next, ls.blocks.first)
+				if r.next < min(ls.blocks.next, ls.nextBlockToPersist) {
+					b := ls.blocks.q[r.next]
+					r.next++
+					return b, nil
+				}
 			}
-			return nil, fmt.Errorf("x.avail.Block(): %w", err)
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
+			}
 		}
-		r.next += 1
-		return b, nil
 	}
+	panic("unreachable")
 }
 
 // WaitForNextLane waits until the applied committee has a LaneID for pk.
 // If exclude is Some, also requires the LaneID to differ (e.g. after the
 // previous identity was closed and a new LaneID allocated).
 func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude utils.Option[types.LaneID]) (types.LaneID, error) {
-	ep, err := s.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
-		got, ok := ep.Committee().Lane(pk).Get()
+	spec, err := s.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool {
+		got, ok := spec.Epoch.Committee().Lane(pk).Get()
 		if !ok {
 			return false
 		}
@@ -61,28 +66,62 @@ func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude
 	if err != nil {
 		return types.LaneID{}, err
 	}
-	return ep.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
+	return spec.Epoch.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
 }
 
+// SubscribeLaneVotes replays the retained previous epoch once, then follows the applied epoch.
+// We need it to replay previous epoch, so that FullCommitQC can be constructed by all validators.
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
-	return &LaneVotesRecv{s, map[types.LaneID]types.BlockNumber{}}
+	for inner := range s.inner.Lock() {
+		return &LaneVotesRecv{
+			state: s,
+			epoch: inner.anchor.Epochs[0],
+			next:  map[types.LaneID]types.LaneHeight{},
+		}
+	}
+	panic("unreachable")
 }
 
+// Iterates over all valid LaneVotes of the local validator.
 type LaneVotesRecv struct {
 	state *State
-	next  map[types.LaneID]types.BlockNumber
+	epoch *types.Epoch
+	next  map[types.LaneID]types.LaneHeight
 }
 
 func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.LaneVote], error) {
-	var batch []*types.BlockHeader
+	var batch []*types.LaneVote
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
-			for lane, bq := range inner.blocks {
-				upperBound := min(bq.next, inner.nextBlockToPersist[lane])
-				for i := max(bq.first, r.next[lane]); i < upperBound; i++ {
-					batch = append(batch, bq.q[i].Msg().Block().Header())
+			applied := inner.applied()
+			for _, epoch := range inner.anchor.Epochs {
+				ei := epoch.EpochIndex()
+				// Vote only up to applied epoch.
+				if ei > applied.EpochIndex() {
+					break
 				}
-				r.next[lane] = upperBound
+				// Skip epochs below cursor.
+				if ei < r.epoch.EpochIndex() {
+					continue
+				}
+				// Move cursor if needed.
+				if ei > r.epoch.EpochIndex() {
+					r.epoch = epoch
+					clear(r.next)
+				}
+				// Skip epoch if we are not in committee.
+				if !r.epoch.Committee().HasReplica(r.state.key.Public()) {
+					continue
+				}
+				// Collect new votes.
+				for lane := range r.epoch.Committee().Lanes().All() {
+					ls := inner.lanes[lane]
+					upperBound := min(ls.blocks.next, ls.nextBlockToPersist)
+					for i := max(ls.blocks.first, r.next[lane]); i < upperBound; i++ {
+						batch = append(batch, types.NewLaneVote(r.epoch.EpochIndex(), ls.blocks.q[i].Msg().Block().Header()))
+					}
+					r.next[lane] = upperBound
+				}
 			}
 			if len(batch) > 0 {
 				break
@@ -95,15 +134,15 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	// TODO(gprusak): we sign the votes per VotesRecv instance, which is suboptimal.
 	// We should sign votes as soon as blocks arrive and cache them (in PushBlock and ProduceBlock).
 	votes := make([]*types.Signed[*types.LaneVote], len(batch))
-	for i, h := range batch {
-		votes[i] = types.Sign(r.state.key, types.NewLaneVote(h))
+	for i, vote := range batch {
+		votes[i] = r.state.key.Sign(vote)
 	}
 	return votes, nil
 }
 
 type AppVotesRecv struct {
 	state *State
-	next  types.GlobalBlockNumber
+	next  types.RoadHeight
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
@@ -120,7 +159,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 			}
 			return nil, err
 		}
-		r.next = vote.Proposal().GlobalRange().Next
-		return types.Sign(r.state.key, vote), nil
+		r.next = vote.Proposal().Height() + 1
+		return r.state.key.Sign(vote), nil
 	}
 }

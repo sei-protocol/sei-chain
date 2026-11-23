@@ -10,6 +10,13 @@ import (
 
 var _ types.Importer = (*SnapshotImporter)(nil)
 
+// emptyImportPermitter allows an importer to publish no module trees. A FlatKV section is the only
+// stream-level signal for this permission; the final AppHash check rejects a dual-backend snapshot
+// whose Cosmos sections are missing.
+type emptyImportPermitter interface {
+	AllowEmpty()
+}
+
 type SnapshotImporter struct {
 	cosmosImporter types.Importer
 	flatkvImporter types.Importer
@@ -54,7 +61,13 @@ func (si *SnapshotImporter) AddModule(name string) error {
 					"(restoring a flatkv-bearing snapshot onto a memiavl-only configuration?)",
 				name)
 		}
-		return si.flatkvImporter.AddModule(name)
+		if err := si.flatkvImporter.AddModule(name); err != nil {
+			return err
+		}
+		if cosmosImporter, ok := si.cosmosImporter.(emptyImportPermitter); ok {
+			cosmosImporter.AllowEmpty()
+		}
+		return nil
 	} else if si.cosmosImporter != nil {
 		return si.cosmosImporter.AddModule(name)
 	}

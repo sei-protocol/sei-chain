@@ -5,76 +5,94 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"math/big"
 	"net/netip"
 	"net/url"
 	"slices"
 	"testing"
+	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type shaHash = [sha256.Size]byte
 
+// testAppBlock records block inputs without process-local transaction caches.
+type testAppBlock struct {
+	Height atypes.RoadHeight
+	Time   time.Time
+	Hash   common.Hash
+	Txs    [][]byte
+}
+
 type testAppState struct {
-	Init       utils.Option[*abci.RequestInitChain]
-	Validators []abci.ValidatorUpdate
-	Blocks     []*abci.RequestFinalizeBlock
+	Init       utils.Option[abevm.InitConfig]
+	Validators abevm.CommitteeWeights
+	Blocks     []testAppBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
-	// Committed tracks whether FinalizeBlock is allowed.
-	// Set to true by InitChain (so FinalizeBlock can follow without Commit,
-	// matching the CometBFT handshaker flow) and by Commit.
-	// Cleared by FinalizeBlock.
-	Committed bool
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
-	return utils.OrPanic1(json.Marshal(&abci.ValidatorUpdate{
-		PubKey: crypto.PubKeyToProto(ed25519.TestSecretKey(utils.GenBytes(rng, 32)).Public()),
-		Power:  rng.Int63(),
-	}))
+	weights := abevm.CommitteeWeights{atypes.GenSecretKey(rng).Public(): rng.Uint64() >> 1}
+	return utils.OrPanic1(json.Marshal(weights))
 }
 
 type testApp struct {
-	abci.BaseApplication
+	abevm.Application
 	state utils.Watch[*testAppState]
 }
 
-func newTestApp() *testApp {
-	return &testApp{state: utils.NewWatch(&testAppState{
-		Txs: map[shaHash]bool{},
-	})}
+func newTestApp(genesis []byte) *testApp {
+	var weights abevm.CommitteeWeights
+	utils.OrPanic(json.Unmarshal(genesis, &weights))
+	return &testApp{
+		state: utils.NewWatch(&testAppState{
+			Txs: map[shaHash]bool{}, Validators: weights, AppHash: sha256.Sum256(genesis),
+		}),
+	}
 }
 
-func (a *testApp) GetValidators() []abci.ValidatorUpdate {
+func (a *testApp) EvmChainID() uint64 { return 1 }
+
+func (a *testApp) EvmNonce(common.Address) uint64 { return 0 }
+
+// EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
+func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
+
+func (a *testApp) GetValidators() abevm.CommitteeWeights {
 	for state := range a.state.Lock() {
-		return slices.Clone(state.Validators)
+		return maps.Clone(state.Validators)
 	}
 	panic("unreachable")
 }
 
-func (a *testApp) Info() *abci.ResponseInfo {
+func (a *testApp) Info() *abevm.ResponseInfo {
 	for state := range a.state.Lock() {
 		init, ok := state.Init.Get()
 		if !ok {
-			return &abci.ResponseInfo{}
+			return &abevm.ResponseInfo{}
 		}
 		if len(state.Blocks) == 0 {
-			// Match the real SDK: InitChain without Commit leaves LastBlockHeight=0.
-			return &abci.ResponseInfo{
+			// Initialization alone leaves LastBlockHeight=0.
+			return &abevm.ResponseInfo{
 				LastBlockHeight:  0,
 				LastBlockAppHash: slices.Clone(state.AppHash[:]),
 			}
 		}
-		return &abci.ResponseInfo{
-			LastBlockHeight:  init.InitialHeight + int64(len(state.Blocks)) - 1,
+		return &abevm.ResponseInfo{
+			LastBlockHeight:  int64(init.InitialHeight) + int64(len(state.Blocks)) - 1,
 			LastBlockAppHash: slices.Clone(state.AppHash[:]),
 		}
 	}
@@ -87,83 +105,62 @@ func (a *testApp) LastBlockHeight() int64 {
 		if !ok || len(state.Blocks) == 0 {
 			return 0
 		}
-		return init.InitialHeight + int64(len(state.Blocks)) - 1
+		return int64(init.InitialHeight) + int64(len(state.Blocks)) - 1
 	}
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
-	return &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:         abci.CodeTypeOK,
-			GasWanted:    1,
-			GasEstimated: 1,
-		},
-	}
+func (a *testApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
+	return abevm.AdmittedTx{GasEstimated: 1}, nil
 }
 
-func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *testApp) InitChain(req abevm.InitConfig) error {
 	for state, ctrl := range a.state.Lock() {
 		if state.Init.IsPresent() {
-			return nil, fmt.Errorf("chain already initialized")
+			return fmt.Errorf("chain already initialized")
 		}
 		if req.InitialHeight < 1 {
-			return nil, fmt.Errorf("InitialHeight = %v, want >=1", req.InitialHeight)
-		}
-		var val abci.ValidatorUpdate
-		if err := json.Unmarshal(req.AppStateBytes, &val); err != nil {
-			return nil, fmt.Errorf("proto.Unmarshal(): %w", err)
+			return fmt.Errorf("InitialHeight = %v, want >=1", req.InitialHeight)
 		}
 		state.Init = utils.Some(req)
-		state.AppHash = sha256.Sum256(req.AppStateBytes)
-		state.Validators = utils.Slice(val)
-		state.Committed = true
 		ctrl.Updated()
-		return &abci.ResponseInitChain{
-			AppHash:    slices.Clone(state.AppHash[:]),
-			Validators: slices.Clone(state.Validators),
-		}, nil
+		return nil
 	}
 	panic("unreachable")
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *testApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
 	for state, ctrl := range a.state.Lock() {
-		if !state.Committed {
-			return nil, fmt.Errorf("FinalizeBlock before Commit")
-		}
 		init, ok := state.Init.Get()
 		if !ok {
-			return nil, fmt.Errorf("app not initialized")
+			return abevm.FinalizeBlockResp{}, fmt.Errorf("app not initialized")
 		}
-		state.Blocks = append(state.Blocks, req)
-		state.AppHash = sha256.Sum256(slices.Concat(req.Hash, state.AppHash[:]))
+		txs := make([][]byte, len(req.Txs))
+		for i, tx := range req.Txs {
+			txs[i] = utils.OrPanic1(tx.MarshalBinary())
+		}
+		state.Blocks = append(state.Blocks, testAppBlock{Height: req.Height, Time: req.Time, Hash: req.Hash, Txs: txs})
+		state.AppHash = sha256.Sum256(slices.Concat(req.Hash[:], state.AppHash[:]))
 		for _, tx := range req.Txs {
-			state.Txs[sha256.Sum256(tx)] = true
+			state.Txs[sha256.Sum256(utils.OrPanic1(tx.MarshalBinary()))] = true
 		}
-		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
-		state.Committed = false
+		logger.Info("FinalizeBlock", "n", req.Height-init.InitialHeight)
 		ctrl.Updated()
-		return &abci.ResponseFinalizeBlock{
-			AppHash:   slices.Clone(state.AppHash[:]),
-			TxResults: slices.Repeat([]*abci.ExecTxResult{{Code: abci.CodeTypeOK}}, len(req.Txs)),
-		}, nil
+		return abevm.FinalizeBlockResp{}, nil
 	}
 	panic("unreachable")
 }
 
-func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
+// WaitForBlocks waits until the app has finalized at least count blocks and
+// reports how many it had finalized at that moment.
+func (a *testApp) WaitForBlocks(ctx context.Context, count int) (int, error) {
 	for state, ctrl := range a.state.Lock() {
-		if state.Committed {
-			return nil, fmt.Errorf("double commit")
+		if err := ctrl.WaitUntil(ctx, func() bool { return len(state.Blocks) >= count }); err != nil {
+			return 0, err
 		}
-		state.Committed = true
-		ctrl.Updated()
+		return len(state.Blocks), nil
 	}
-	return &abci.ResponseCommit{
-		// Don't prune anything.
-		RetainHeight: 0,
-	}, nil
+	panic("unreachable")
 }
 
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
@@ -180,9 +177,8 @@ func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
 func (a *testApp) Snapshot() testAppState {
 	for state := range a.state.Lock() {
 		s := *state
-		// Txs is derived and Committed is not deterministic.
+		// Txs is derived.
 		s.Txs = nil
-		s.Committed = false
 		return s
 	}
 	panic("unreachable")
@@ -195,58 +191,66 @@ type testNodeCfg struct {
 }
 
 func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
-	// EVMRPC must be present for NewGigaRouter to accept the config on
-	// either path; the URL value is unused by the tests in this file.
 	return GigaNodeAddr{
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
-		EVMRPC:   *utils.OrPanic1(url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))),
 	}
 }
 
-// TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where runExecute
-// calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
-// deliverState set up by InitChain, followed by Commit.
-func TestInitChainCommitThenFinalize(t *testing.T) {
+// TestInitChainThenFinalize verifies initialization followed by finalization at InitialHeight.
+func TestInitChainThenFinalize(t *testing.T) {
 	rng := utils.TestRng()
-	app := newTestApp()
+	appState := testAppStateJSON(rng)
+	app := newTestApp(appState)
 	ctx := t.Context()
 
 	initialHeight := rng.Int63n(100000) + 1
-	appState := testAppStateJSON(rng)
 
 	// InitChain
-	_, err := app.InitChain(&abci.RequestInitChain{
-		InitialHeight: initialHeight,
-		AppStateBytes: appState,
-	})
+	err := app.InitChain(abevm.InitConfig{
+		InitialHeight: atypes.RoadHeight(initialHeight)})
 	require.NoError(t, err)
-
-	// No Commit after InitChain — the SDK expects FinalizeBlock at InitialHeight
-	// using the deliverState set up by InitChain.
 
 	// Verify app reports correct height after InitChain (no blocks yet)
 	info := app.Info()
 	require.Equal(t, int64(0), info.LastBlockHeight,
-		"testApp should report 0 after InitChain with no committed blocks (matches real SDK)")
+		"testApp should report 0 after InitChain with no finalized blocks")
 
-	// FinalizeBlock should succeed — deliverState was set up by InitChain
+	// FinalizeBlock should succeed after InitChain
 	blockHash := sha256.Sum256([]byte("test-block"))
-	_, err = app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-		Hash: blockHash[:],
-		Header: (&types.Header{
-			Height: initialHeight,
-		}).ToProto(),
-	})
-	require.NoError(t, err)
-
-	// Second Commit should succeed
-	_, err = app.Commit(ctx)
+	_, err = app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
+		Hash:   common.BytesToHash(blockHash[:]),
+		Height: atypes.RoadHeight(initialHeight)})
 	require.NoError(t, err)
 
 	// Verify height advanced
 	info = app.Info()
 	require.Equal(t, initialHeight, info.LastBlockHeight,
 		"testApp should report InitialHeight after 1 block")
+}
+
+// newTestExecutor returns an executor of cfg's app over the blocks store makes
+// durable.
+func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store, signer *abevm.Signer) *execution.Executor {
+	return execution.New(&execution.Config{
+		GenDoc:         cfg.GenDoc,
+		App:            cfg.App,
+		AppHashBuilder: cfg.AppHashBuilder,
+		BlockStore:     store,
+		Signer:         signer,
+	})
+}
+
+func testGigaConsensusParams() *tmtypes.ConsensusParams {
+	params := tmtypes.DefaultConsensusParams()
+	params.Block.MaxGas = 30_000_000
+	return params
+}
+
+func newTestSigner(chainID uint64, workers int) *abevm.Signer {
+	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
+}
+
+func testEVMRPCURL() url.URL {
+	return url.URL{Scheme: "ws", Host: "127.0.0.1:1"}
 }

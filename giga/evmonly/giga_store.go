@@ -5,48 +5,33 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
-var (
-	errMissingStateStore            = errors.New("executor requires a state store")
-	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
-	errBlockEncoderUsedEVMStoreKey  = errors.New("block changeset encoder may not write the EVM state changeset")
-)
+var errMissingStateStore = errors.New("executor requires a state store")
 
 var _ StateReader = gigaSnapshotStateReader{}
 
-// NamedChangeSetEncoder converts an executor-native state result into the on-disk changesets
-// understood by a giga store. It must treat the input as immutable, and its output must not alias
-// the input, since the commit outlives the pooled block result. It may read the store only to
-// expand storage clears: other encoding overlaps the previous block's in-flight commit.
-type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
-
-// BlockChangeSetEncoder contributes named changesets that are committed in the
+// BlockChangeSetEncoder contributes non-EVM writes that are committed in the
 // same CommitStateChanges call as the block's EVM state changes, so they are
 // durable, rolled back and replayed together with that state. It is called
 // after execution with the block's context and result, which it must treat as
-// immutable. Changesets under keys.EVMStoreKey are reserved for the state encoder.
+// immutable. A write to the EVM module fails the commit.
 //
-// As with NamedChangeSetEncoder, what it returns must not alias the result: the commit outlives
-// the block.
-type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error)
+// What it returns must not alias the result, since the commit outlives the block.
+type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
 	if stateStore == nil {
 		return nil, errMissingStateStore
-	}
-	if e.changeSetEncoder == nil {
-		return nil, errMissingNamedChangeSetEncoder
 	}
 	if req.Context.Number > maxGigaStoreBlockNumber {
 		return nil, fmt.Errorf("giga store block number %d exceeds int64", req.Context.Number)
@@ -84,7 +69,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, pending)
+	source = pending.overlay(source)
 
 	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -105,32 +90,20 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// Encoding that reads the store has to see a store holding every earlier block and none of
 	// this one, so the previous commit lands first. Encoding that reads only this block's own
 	// changes runs while that commit is still going, and waits below instead.
-	settleBeforeEncoding := e.encodingReadsTheStore(&result.ChangeSet)
+	settleBeforeEncoding := e.encodingReadsTheStore()
 	if settleBeforeEncoding {
 		e.blockPhases.SetPhase(phaseAwaitCommit)
 		if err := e.awaitPipelineCommit(); err != nil {
 			return nil, err
 		}
 	}
-	e.blockPhases.SetPhase(phaseEncodeChangesets)
-	changesets, err := e.changeSetEncoder(result.ChangeSet)
-	if err != nil {
-		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
-	}
+	var misc []gigatypes.MiscChange
 	if e.blockChangeSetEncoder != nil {
-		extra, err := e.blockChangeSetEncoder(req.Context, result)
+		e.blockPhases.SetPhase(phaseEncodeChangesets)
+		misc, err = e.blockChangeSetEncoder(req.Context, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
 		}
-		// An EVM-keyed changeset here would be written into account, storage and code
-		// state as part of the block, diverging the app hash from the committed state.
-		for _, cs := range extra {
-			if cs != nil && cs.Name == keys.EVMStoreKey {
-				return nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
-					cs.Name, req.Context.Number, errBlockEncoderUsedEVMStoreKey)
-			}
-		}
-		changesets = append(changesets, extra...)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -146,6 +119,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 		}
 	}
+	if receiptHasher := e.receiptHasher; receiptHasher != nil {
+		e.blockPhases.SetPhase(phaseSubmitReceiptHash)
+		if err := receiptHasher.Submit(ctx, req.Context.Number, nonceConsumingReceipts(result)); err != nil {
+			return nil, fmt.Errorf("submit receipts to be hashed for block %d: %w", req.Context.Number, err)
+		}
+	}
 	// One commit is in flight at a time, so the previous one lands before this block starts its
 	// own. It has had this block's whole execution to run, so it rarely still holds.
 	if !settleBeforeEncoding {
@@ -155,22 +134,21 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseCommitState)
-	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
+	if err := e.startPipelineCommit(blockNumber, misc, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
 	return result, nil
 }
 
-// encodingReadsTheStore reports whether encoding this block's changesets reads the store as well as
+// encodingReadsTheStore reports whether encoding a block's changesets reads the store as well as
 // the block's own changes, which decides whether encoding may overlap the previous block's commit.
 //
-// Expanding a storage clear iterates the live store to find the slots to delete, so a block that
-// clears one must not be encoded against a store mid-commit. A block encoder is caller-supplied and
-// free to read whatever it likes, so one is assumed to read the store unless it was registered as
-// store-independent: assuming otherwise would surrender the receipt-stage slack on every block.
-func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
-	return len(changes.StorageClears) > 0 || (e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore)
+// A block encoder is caller-supplied and free to read whatever it likes, so one is assumed to read
+// the store unless it was registered as store-independent: assuming otherwise would surrender the
+// receipt-stage slack on every block.
+func (e *Executor) encodingReadsTheStore() bool {
+	return e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
@@ -190,12 +168,12 @@ func (e *Executor) AwaitCommits() error {
 	return e.awaitPipelineCommit()
 }
 
-// pipelinePending returns the changes of a block whose commit has not been waited on yet, or nil
-// when the store is caught up.
-func (e *Executor) pipelinePending() *StateChangeSet {
+// pipelinePending returns the indexed changes of a block whose commit has not been waited on yet, or
+// nil when the store is caught up.
+func (e *Executor) pipelinePending() *pendingIndex {
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
-	return e.pipelineChanges
+	return e.pipelineIndex
 }
 
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
@@ -223,7 +201,7 @@ func (e *Executor) awaitPipelineCommit() error {
 				e.pipelineFailure = fmt.Errorf("commit state changes: %w", e.pipelineErr)
 			}
 			e.pipelineDone = nil
-			e.pipelineChanges = nil
+			e.pipelineIndex = nil
 			e.pipelineErr = nil
 		}
 		e.pipelineMu.Unlock()
@@ -239,29 +217,35 @@ func (e *Executor) awaitPipelineCommit() error {
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
-func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
+func (e *Executor) startPipelineCommit(blockNumber int64, misc []gigatypes.MiscChange, changes *StateChangeSet) error {
+	// A produced set is never modified, so the commit shares its arrays with the block result rather
+	// than copying them. Clipped so the misc writes cannot land in capacity the result still holds.
+	pending := &StateChangeSet{
+		Accounts: changes.Accounts,
+		Storage:  changes.Storage,
+		Misc:     append(slices.Clip(changes.Misc), misc...),
+	}
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
 		if err := e.awaitPipelineCommit(); err != nil {
 			return err
 		}
-		return e.stateStore.CommitStateChanges(blockNumber, changesets)
+		return e.stateStore.CommitStateChanges(blockNumber, pending)
 	}
-	pending := changes.clone()
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
 	if failure := e.pipelineFailure; failure != nil {
 		e.pipelineMu.Unlock()
 		return failure
 	}
-	e.pipelineChanges = pending
+	e.pipelineIndex = newPendingIndex(pending)
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
 
 	go func() {
-		err := e.stateStore.CommitStateChanges(blockNumber, changesets)
+		err := e.stateStore.CommitStateChanges(blockNumber, pending)
 		e.pipelineMu.Lock()
 		e.pipelineErr = err
 		e.pipelineMu.Unlock()
@@ -303,15 +287,15 @@ func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
 	return cloneBytes(code)
 }
 
-// ReadAccount returns addr's balance, nonce and code in one row read, and fetches code only for an
-// account that has some. It declines an account the snapshot lacks when missingState must answer
-// for it. Satisfies baseAccountReader.
-func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (baseAccount, bool) {
+// ReadAccount returns addr's balance, nonce, code and stored code hash in one row read, and fetches
+// code only for an account that has some. It declines an account the snapshot lacks when
+// missingState must answer for it. Satisfies baseAccountReader.
+func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
 	row, exists := r.snapshot.ReadAccount(addr)
 	if !exists {
-		return baseAccount{}, r.missingState == nil
+		return AccountState{}, common.Hash{}, r.missingState == nil
 	}
-	account := baseAccount{
+	account := AccountState{
 		Balance: new(big.Int).SetBytes(row.Balance[:]),
 		Nonce:   row.Nonce,
 	}
@@ -319,18 +303,23 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (baseAccount, 
 	if row.CodeHash != gigatypes.EmptyCodeHash {
 		account.Code = cloneBytes(r.snapshot.GetCode(addr))
 	}
-	return account, true
+	return account, row.CodeHash, true
 }
 
+// GetState reads addr's slot from the snapshot, whether or not addr has an account there.
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
-	if r.useMissingState(addr) {
-		return r.missingState.GetState(addr, key)
-	}
 	return r.snapshot.GetStorage(addr, key)
 }
 
-// useMissingState reports whether addr must be served from missingState: a
-// fallback is configured and the snapshot holds no account for addr.
+// StoredBalance returns addr's balance in the snapshot, 0 when it has no account row.
+func (r gigaSnapshotStateReader) StoredBalance(addr common.Address) *big.Int {
+	balance := r.snapshot.GetBalance(addr)
+	return new(big.Int).SetBytes(balance[:])
+}
+
+// useMissingState reports whether addr's balance, nonce and code must be served
+// from missingState: a fallback is configured and the snapshot holds no account
+// for addr.
 func (r gigaSnapshotStateReader) useMissingState(addr common.Address) bool {
 	return r.missingState != nil && !r.snapshot.AccountExists(addr)
 }

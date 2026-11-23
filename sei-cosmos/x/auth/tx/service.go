@@ -10,7 +10,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
 	gogogrpc "github.com/gogo/protobuf/grpc"
-	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -106,18 +105,6 @@ func (s txServer) Simulate(ctx context.Context, req *txtypes.SimulateRequest) (*
 	}
 
 	txBytes := req.TxBytes
-	if txBytes == nil && req.Tx != nil {
-		// This block is for backwards-compatibility.
-		// We used to support passing a `Tx` in req. But if we do that, sig
-		// verification might not pass, because the .Marshal() below might not
-		// be the same marshaling done by the client.
-		var err error
-		txBytes, err = proto.Marshal(req.Tx)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid tx; %v", err)
-		}
-	}
-
 	if txBytes == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "empty txBytes is not allowed")
 	}
@@ -254,7 +241,7 @@ func (s txServer) BroadcastTx(ctx context.Context, req *txtypes.BroadcastTxReque
 	return client.TxServiceBroadcast(ctx, s.node, req)
 }
 
-// RegisterTxService registers the tx service on the gRPC router.
+// RegisterTxService registers the tx service on the query service router.
 func RegisterTxService(
 	qrt gogogrpc.Server,
 	node client.LocalClient,
@@ -265,9 +252,9 @@ func RegisterTxService(
 	txtypes.RegisterServiceServer(qrt, NewTxServer(node, txConfig, simulateFn, interfaceRegistry))
 }
 
-// RegisterGRPCGatewayRoutes mounts the tx service's GRPC-gateway routes on the
+// RegisterGatewayRoutes mounts the tx service's GRPC-gateway routes on the
 // given Mux.
-func RegisterGRPCGatewayRoutes(clientConn gogogrpc.ClientConn, mux *runtime.ServeMux) {
+func RegisterGatewayRoutes(clientConn gogogrpc.ClientConn, mux *runtime.ServeMux) {
 	_ = txtypes.RegisterServiceHandlerClient(context.Background(), mux, txtypes.NewServiceClient(clientConn))
 }
 

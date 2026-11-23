@@ -332,8 +332,9 @@ func copyFile(src, dst string) error {
 	return out.Sync()
 }
 
-// atomicRemoveDir renames the directory to a trash name then removes it,
-// preventing half-deleted snapshots on crash.
+// atomicRemoveDir removes path by renaming it to a trash name and then deleting the trash, so path is
+// either whole or absent, after a crash and to a concurrent reader. HardLinkSnapshot depends on this to
+// refuse a snapshot that is being pruned.
 func atomicRemoveDir(path string) error {
 	trashPath := path + removingSuffix
 	_ = os.RemoveAll(trashPath)
@@ -849,13 +850,6 @@ func requireReplayable(landsOn, target, earliestReplayableBlock int64) error {
 // API and so that the store opens once, already on the version it will replay from. The databases under
 // dir must be closed, which is what makes it safe to run before the store is constructed.
 func RewindClosedStoreTo(dir string, target int64) (landed int64, err error) {
-	if target < 1 {
-		// Left to run, this would land on the initial snapshot and then delete every snapshot above it,
-		// which is the whole set.
-		return 0, fmt.Errorf("rewind target %d is invalid: version 0 means no state, so there is nothing "+
-			"to rewind to", target)
-	}
-
 	baseVersion, err := seekSnapshot(dir, target)
 	if err != nil {
 		return 0, fmt.Errorf("seek snapshot at or below version %d: %w", target, err)

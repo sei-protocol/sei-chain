@@ -46,7 +46,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		return ctx, sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := evmtypes.IntrinsicGas(etx)
+	intrGas, err := evmtypes.IntrinsicGas(etx, evmtypes.EthereumRules(ctx.BlockTime().Unix()))
 	if err != nil {
 		return ctx, err
 	}

@@ -473,15 +473,50 @@ func (store dbStore) saveFinalizeBlockResponses(height int64, finalizeBlockRespo
 
 	finalizeBlockResponses.TxResults = dtxs
 
-	bz, err := finalizeBlockResponses.Marshal()
+	stored := storedFinalizeBlockResponses(finalizeBlockResponses, maxStoredFinalizeBlockResponsesBytes)
+	bz, err := stored.Marshal()
 	if err != nil {
 		return err
+	}
+	if stored != finalizeBlockResponses {
+		logger.Error("FinalizeBlock response too large to store in full; stored without events and logs",
+			"height", height, "storedSize", len(bz), "maxSize", maxStoredFinalizeBlockResponsesBytes)
 	}
 	if len(bz) == 0 {
 		return ErrNoFinalizeBlockResponsesForHeight{height}
 	}
 
 	return store.db.SetSync(finalizeBlockResponsesKey(height), bz)
+}
+
+// maxStoredFinalizeBlockResponsesBytes is the largest serialized FinalizeBlock
+// response stored in full.
+const maxStoredFinalizeBlockResponsesBytes = 1 << 30
+
+// storedFinalizeBlockResponses returns res, or a copy of res without block and
+// transaction events and logs when res serializes to more than maxBytes.
+func storedFinalizeBlockResponses(res *abci.ResponseFinalizeBlock, maxBytes int) *abci.ResponseFinalizeBlock {
+	// Size, unlike Marshal, does not allocate the oversized encoding.
+	if res.Size() <= maxBytes {
+		return res
+	}
+	return withoutEventsAndLogs(res)
+}
+
+// withoutEventsAndLogs returns a copy of res without block and transaction
+// events and without transaction logs and infos.
+func withoutEventsAndLogs(res *abci.ResponseFinalizeBlock) *abci.ResponseFinalizeBlock {
+	reduced := *res
+	reduced.Events = nil
+	reduced.TxResults = make([]*abci.ExecTxResult, len(res.TxResults))
+	for i, txResult := range res.TxResults {
+		reducedTxResult := *txResult
+		reducedTxResult.Events = nil
+		reducedTxResult.Log = ""
+		reducedTxResult.Info = ""
+		reduced.TxResults[i] = &reducedTxResult
+	}
+	return &reduced
 }
 
 // SaveValidatorSets is used to save the validator set over multiple heights.

@@ -59,16 +59,6 @@ func TestDistributionModule(t *testing.T) {
 	runner.RunFile(t, "../distribution_module/rewards.yaml")
 }
 
-func TestTokenFactoryModule(t *testing.T) {
-	runner.RunFile(t, "../tokenfactory_module/create_tokenfactory_test.yaml")
-}
-
-func TestAuthzModule(t *testing.T) {
-	runner.RunFile(t, "../authz_module/send_authorization_test.yaml")
-	runner.RunFile(t, "../authz_module/staking_authorization_test.yaml")
-	runner.RunFile(t, "../authz_module/generic_authorization_test.yaml")
-}
-
 // TestWasmModuleCore runs delegation, admin, and withdraw tests after a fresh contract deploy.
 // In CI a second deploy follows before TestWasmModuleEmergencyWithdraw, because the withdraw
 // test mutates contract state that the emergency-withdraw test depends on.
@@ -91,7 +81,7 @@ func TestSeiDBFlatKV(t *testing.T) {
 }
 
 // TestSeiDBStateStore runs state-store iteration tests.
-// In CI wasm contracts and tokenfactory denoms are deployed as a prerequisite.
+// In CI wasm contracts are deployed as a prerequisite.
 func TestSeiDBStateStore(t *testing.T) {
 	runner.RunFile(t, "../seidb/state_store_test.yaml")
 }

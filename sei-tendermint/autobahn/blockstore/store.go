@@ -1,416 +1,636 @@
-// Package blockstore implements types.BlockStore, the durable backing store for
-// the consensus state machine, over any sei-db block database.
+// Package blockstore provides LittDB-backed storage for Autobahn consensus.
 package blockstore
 
 import (
+	"context"
+	"encoding/binary"
 	"fmt"
 	"slices"
-	"sync"
+	"sync/atomic"
+	"time"
 
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/seilog"
 )
 
-var _ types.BlockStore = (*Store)(nil)
+// tableName is the single table holding every record kind, despite the name.
+//
+// It is persisted layout rather than just an identifier: littdb stores a table's data at
+// <root>/<tableName>/segments, so changing it makes New open a fresh empty table and leaves
+// data under the old name unreachable.
+const tableName = "blocks"
 
-// Store implements the consensus block store contract on top of any
-// blocktypes.BlockDB. It owns what the storage layer is deliberately ignorant
-// of: the value codec, the write-ordering contract, the recovery suffix, and the
-// retention policy the storage garbage collector drives.
+var logger = seilog.NewLogger("tendermint", "autobahn", "blockstore")
+
+// Store is the durable backing store for the consensus state machine. It persists complete
+// CommitQC groups, indexed by RoadHeight and road block header hash, and execution records.
+// All methods are safe for concurrent use.
+//
+// Writes are visible immediately. Flush makes all previously completed writes
+// durable. A crash can lose an unflushed suffix, but surviving records have no
+// gaps: a CommitQC and all its lane blocks survive together, and application
+// records never survive without their preceding QC group and app records.
+//
+// Each write stream must advance by one RoadHeight. At each road, WriteBlock must
+// precede WriteAppProposal, which must precede WriteAppQC. Rejected writes store
+// nothing. Reads below First return ErrPruned; absent records at or above First
+// return None. Hash lookups return None for unknown or pruned SuperBlocks.
 type Store struct {
-	db blocktypes.BlockDB
-
-	// status is the explicit write-order/recovery suffix cursor (see the
-	// types.BlockStore contract). None means the store is empty. Guarded by mu.
-	mu     sync.Mutex
-	status utils.Option[types.SuffixRange]
+	status utils.Watch[*storeStatus]
+	first  atomic.Uint64
+	db     littdb.DB
+	table  littdb.Table
 }
 
-// New returns a block store backed by db, recovering its write cursors from the
-// records already in db. The store takes ownership of db: Close closes it. New
-// does not close db when it returns an error.
-func New(db blocktypes.BlockDB) (*Store, error) {
-	s := &Store{db: db}
-	suffix, err := s.ReadSuffix()
-	if err != nil {
-		return nil, fmt.Errorf("ReadSuffix(): %w", err)
+// storeStatus is the store's write cursors and the road blocks they cover.
+type storeStatus struct {
+	suffix utils.Option[SuffixRange]
+	// blocks holds the road blocks of roads [suffix.First, suffix.NextBlock).
+	blocks map[types.RoadHeight]*types.RoadBlock
+	// nextDurable is the lowest road whose block is not durable yet.
+	nextDurable types.RoadHeight
+}
+
+// SuffixRange contains the road cursors restored by startup recovery.
+// First <= NextAppQC <= NextAppProposal <= NextBlock.
+type SuffixRange struct {
+	// First is the latest AppQC's road, or the first retained QC's road if no AppQC exists.
+	First types.RoadHeight
+	// NextAppQC is the next road awaiting a persisted AppQC.
+	NextAppQC types.RoadHeight
+	// NextAppProposal is the next road awaiting a persisted AppProposal.
+	NextAppProposal types.RoadHeight
+	// NextBlock is the next road awaiting a persisted block.
+	NextBlock types.RoadHeight
+}
+
+// Suffix is a recovery snapshot of retained blocks, application proposals, and application QCs.
+type Suffix struct {
+	// Ranges of elements in the suffix.
+	// None if the BlockStore is empty.
+	Status utils.Option[SuffixRange]
+	// Elements which constitute the suffix.
+	Blocks       []*types.RoadBlock
+	AppProposals []*types.AppProposal
+	AppQCs       []*types.AppQC
+}
+
+// New opens a consensus block store and restores its retention floor and write cursors.
+func New(config *Config) (*Store, error) {
+	start := time.Now()
+	logger.Info("Opening the block store")
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("config.Validate(): %w", err)
 	}
-	s.status = suffix.Status
-	Global.pruneWatermarkAt().Set(utils.Clamp[int64](db.GetPruneWatermark()))
+	db, err := littbuilder.NewDB(config.Litt)
+	if err != nil {
+		return nil, fmt.Errorf("littbuilder.NewDB(): %w", err)
+	}
+
+	s := &Store{db: db, status: utils.NewWatch(&storeStatus{blocks: map[types.RoadHeight]*types.RoadBlock{}})}
+	Global.pruneWatermarkAt().Set(0)
+
+	// Every record kind lives in one table with a single write shard. The store
+	// relies on LittDB's single-shard in-write-order crash atomicity (after a
+	// crash the surviving writes form a contiguous prefix of the write order,
+	// never a gapped subset), which is the durability guarantee the
+	// Store contract promises its caller. It also backs
+	// write-order recovery scans. ShardingFactor > 1, or splitting the kinds
+	// across several tables, would void this.
+	tableConfig := littdb.DefaultTableConfig(tableName)
+	tableConfig.TTL = config.RetentionTime
+	tableConfig.GCFilter = s.gcFilter
+	tableConfig.ShardingFactor = 1 // DO NOT CHANGE!!
+	table, err := db.BuildTable(tableConfig)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("db.BuildTable(): %w", err)
+	}
+	s.table = table
+	first, err := s.recoverWatermark()
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("s.recoverWatermark(): %w", err)
+	}
+	suffix, err := s.readSuffix()
+	if err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("s.readSuffix(): %w", err)
+	}
+	if err := s.restore(first, suffix); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("s.restore(%v): %w", first, err)
+	}
+	logger.Info("Opened the block store", "elapsed", time.Since(start))
 	return s, nil
 }
 
-func (s *Store) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	// A covering QC must already be written. Since QCs are contiguous and blocks
-	// strictly ascending, n is covered iff n < status.NextQC. This guard also fixes
-	// the QC-before-block write order: the covering QC's write has already issued
-	// under this mutex, so on a crash a surviving block implies a surviving FullCommitQC.
-	if !ok || n >= status.NextQC {
-		return fmt.Errorf("block number %d not covered by any written QC: %w", n, types.ErrBlockMissingQC)
-	}
-	if n != status.NextBlock {
-		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
-			n, status.NextBlock-1, types.ErrBlockOutOfOrder)
-	}
-
-	hash := blk.Header().Hash()
-	if err := s.db.PutBlock(uint64(n), hash.Bytes(), encodeBlock(n, blk)); err != nil {
-		return fmt.Errorf("failed to put block %d: %w", n, err)
-	}
-	status.NextBlock = n + 1
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *Store) WriteQC(qc *types.FullCommitQC) error {
-	gr := qc.QC().GlobalRange()
-	if gr.Len() == 0 {
-		return fmt.Errorf("QC at %d covers no blocks: %w", gr.First, types.ErrQCNonContiguous)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	if ok && status.NextQC != gr.First {
-		return fmt.Errorf("QC starts at %d, expected %d: %w",
-			gr.First, status.NextQC, types.ErrQCNonContiguous)
-	}
-
-	if err := s.db.PutRecord(blocktypes.KindQC, uint64(gr.First), uint64(gr.Next), encodeQC(qc)); err != nil {
-		return fmt.Errorf("failed to put QC [%d,%d): %w", gr.First, gr.Next, err)
-	}
-
-	if !ok {
-		// The first QC may start anywhere its caller allows, and nothing below it will ever
-		// be written. Record where coverage begins so Iterator can clamp to it without
-		// discovering it by scanning; a reopen re-derives the same value.
-		status = types.SuffixRange{
-			First:           gr.First,
-			NextAppQC:       gr.First,
-			NextAppProposal: gr.First,
-			NextBlock:       gr.First,
-			NextQC:          gr.Next,
-		}
-	} else {
-		status.NextQC = gr.Next
-	}
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *Store) WriteAppQC(appQC *types.AppQC) error {
-	gr := appQC.Proposal().GlobalRange()
-	if gr.Len() == 0 {
-		return fmt.Errorf("AppQC at %d covers no blocks: %w", gr.First, types.ErrAppQCNonContiguous)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	if !ok {
-		return fmt.Errorf("AppQC [%d,%d) has no matching QC: %w", gr.First, gr.Next, types.ErrAppQCMissingQC)
-	}
-	if status.NextAppQC != gr.First {
-		return fmt.Errorf("AppQC starts at %d, expected %d: %w",
-			gr.First, status.NextAppQC, types.ErrAppQCNonContiguous)
-	}
-	if gr.Next > status.NextAppProposal {
-		return fmt.Errorf("AppQC [%d,%d) is not covered by written AppProposals: %w", gr.First, gr.Next, types.ErrAppQCMissingQC)
-	}
-
-	if err := s.db.PutRecord(blocktypes.KindAppQC, uint64(gr.First), uint64(gr.Next), encodeAppQC(appQC)); err != nil {
-		return fmt.Errorf("failed to put AppQC [%d,%d): %w", gr.First, gr.Next, err)
-	}
-	status.NextAppQC = gr.Next
-	status.First = status.NextAppQC - 1
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
-	gr := appProposal.GlobalRange()
-	if gr.Len() == 0 {
-		return fmt.Errorf("AppProposal at %d covers no blocks: %w", gr.First, types.ErrAppProposalNonContiguous)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	if !ok {
-		return fmt.Errorf("AppProposal [%d,%d) has no matching QC: %w", gr.First, gr.Next, types.ErrAppProposalMissingQC)
-	}
-	if status.NextAppProposal != gr.First {
-		return fmt.Errorf("AppProposal starts at %d, expected %d: %w",
-			gr.First, status.NextAppProposal, types.ErrAppProposalNonContiguous)
-	}
-	if gr.Next > status.NextBlock {
-		return fmt.Errorf("AppProposal [%d,%d) is not covered by written blocks: %w", gr.First, gr.Next, types.ErrAppProposalMissingQC)
-	}
-
-	if err := s.db.PutRecord(
-		blocktypes.KindAppProposal, uint64(gr.First), uint64(gr.Next), encodeAppProposal(appProposal),
-	); err != nil {
-		return fmt.Errorf("failed to put AppProposal [%d,%d): %w", gr.First, gr.Next, err)
-	}
-	status.NextAppProposal = gr.Next
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *Store) PruneBefore(blockHeight types.GlobalBlockNumber) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	status, ok := s.status.Get()
-	if !ok {
-		// Ignore prune requests if we've not got any data yet. Simplifies several edge cases
-		// and is technically a legal implementation of the contract in the godocs.
-		return nil
-	}
-
-	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
-	blockHeight, err := s.clampPruneBoundary(min(blockHeight, status.First))
+// recoverWatermark restores the floor from the oldest surviving SuperBlock.
+// A non-empty store without a SuperBlock cannot supply a recovery anchor.
+func (s *Store) recoverWatermark() (types.RoadHeight, error) {
+	it, err := s.table.Iterator(false)
 	if err != nil {
-		return err
-	}
-
-	// SetPruneWatermark only ever raises the floor, so a request that lands at or
-	// below where it already sits is a no-op.
-	s.db.SetPruneWatermark(uint64(blockHeight))
-	Global.pruneWatermarkAt().Set(utils.Clamp[int64](s.db.GetPruneWatermark()))
-	return nil
-}
-
-func (s *Store) First() types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(s.db.GetPruneWatermark())
-}
-
-func (s *Store) Flush() error {
-	if err := s.db.Flush(); err != nil {
-		return fmt.Errorf("failed to flush block db: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) Status() utils.Option[types.SuffixRange] {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.status
-}
-
-// ReadSuffix reads the materialized startup-recovery suffix.
-func (s *Store) ReadSuffix() (types.Suffix, error) {
-	// Suffix is computed under lock, so that GC cannot malform it:
-	// locked => no new data can be appended => watermark doesn't move => GC doesn't consume data of the suffix.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	it, err := s.db.Scan(true)
-	if err != nil {
-		return types.Suffix{}, fmt.Errorf("failed to open suffix iterator: %w", err)
+		return 0, fmt.Errorf("s.table.Iterator(false): %w", err)
 	}
 	defer func() { _ = it.Close() }()
-	var suffix types.Suffix
-	var status types.SuffixRange
-	var oldestQC *types.FullCommitQC
-	var gotBlock, gotQC, gotAppProposal, gotAppQC bool
-	for !gotAppQC || !gotQC || status.NextAppQC <= oldestQC.QC().GlobalRange().Next {
+	empty := true
+	for {
 		ok, err := it.Next()
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to advance suffix iterator: %w", err)
+			return 0, fmt.Errorf("it.Next(): %w", err)
 		}
 		if !ok {
 			break
 		}
-		value, err := it.Value()
+		key, isPrimary, err := it.GetKey()
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to read suffix value: %w", err)
+			return 0, fmt.Errorf("it.GetKey(): %w", err)
 		}
-		switch it.Kind() {
-		case blocktypes.KindBlock:
-			n, block, err := decodeBlock(value)
+		if !isPrimary {
+			continue
+		}
+		recordKey, err := decodeLedgerKey(key)
+		if err != nil {
+			return 0, fmt.Errorf("decodeLedgerKey(): %w", err)
+		}
+		empty = false
+		switch recordKey.kind {
+		case kindBlock:
+			key, err := recordKey.decodeBlock()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix block: %w", err)
+				return 0, fmt.Errorf("recordKey.decodeBlock(): %w", err)
 			}
-			if !gotBlock {
-				status.NextBlock = n + 1
-				gotBlock = true
+			return key.Height, nil
+		case kindAppQC:
+			if _, err := recordKey.decodeAppQC(); err != nil {
+				return 0, fmt.Errorf("recordKey.decodeAppQC(): %w", err)
 			}
-			suffix.Blocks = append(suffix.Blocks, types.SuffixBlock{Number: n, Block: block})
-		case blocktypes.KindAppQC:
-			appQC, err := decodeAppQC(value)
+		case kindAppProp:
+			if _, err := recordKey.decodeAppProposal(); err != nil {
+				return 0, fmt.Errorf("recordKey.decodeAppProposal(): %w", err)
+			}
+		default:
+			return 0, fmt.Errorf("invalid primary ledger key %x", key)
+		}
+	}
+	if !empty {
+		return 0, fmt.Errorf("corrupt store: no SuperBlock in non-empty store")
+	}
+	return 0, nil
+}
+
+// getRecord reads the serialized payload at key.
+func (s *Store) getRecord(key ledgerKey) ([]byte, bool, error) {
+	value, exists, err := s.table.Get(key.bytes())
+	if err != nil {
+		return nil, false, fmt.Errorf("s.table.Get(%x): %w", key.bytes(), err)
+	}
+	return value, exists, nil
+}
+
+// readSuffix reads complete primary records from the latest AppQC onward.
+func (s *Store) readSuffix() (Suffix, error) {
+	it, err := s.table.Iterator(true)
+	if err != nil {
+		return Suffix{}, fmt.Errorf("s.table.Iterator(true): %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	var suffix Suffix
+
+	var first types.RoadHeight
+	gotAppQC := false
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			return Suffix{}, fmt.Errorf("it.Next(): %w", err)
+		}
+		if !ok {
+			break
+		}
+		rawKey, isPrimary, err := it.GetKey()
+		if err != nil {
+			return Suffix{}, fmt.Errorf("it.GetKey(): %w", err)
+		}
+		if !isPrimary {
+			continue
+		}
+		key, err := decodeLedgerKey(rawKey)
+		if err != nil {
+			return Suffix{}, fmt.Errorf("decodeLedgerKey(): %w", err)
+		}
+		var height types.RoadHeight
+		switch key.kind {
+		case kindBlock:
+			key, err := key.decodeBlock()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppQC: %w", err)
+				return Suffix{}, fmt.Errorf("key.decodeBlock(): %w", err)
 			}
-			gr := appQC.Proposal().GlobalRange()
+			height = key.Height
+		case kindAppQC:
+			key, err := key.decodeAppQC()
+			if err != nil {
+				return Suffix{}, fmt.Errorf("key.decodeAppQC(): %w", err)
+			}
+			height = key.Height
 			if !gotAppQC {
-				status.NextAppQC = gr.Next
-				status.First = gr.Next - 1
+				first = height
 				gotAppQC = true
 			}
-			suffix.AppQCs = append(suffix.AppQCs, appQC)
-		case blocktypes.KindAppProposal:
-			appProposal, err := decodeAppProposal(value)
+		case kindAppProp:
+			key, err := key.decodeAppProposal()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppProposal: %w", err)
+				return Suffix{}, fmt.Errorf("key.decodeAppProposal(): %w", err)
 			}
-			gr := appProposal.GlobalRange()
-			if !gotAppProposal {
-				status.NextAppProposal = gr.Next
-				gotAppProposal = true
-			}
-			suffix.AppProposals = append(suffix.AppProposals, appProposal)
-		case blocktypes.KindQC:
-			qc, err := decodeQC(value)
+			height = key.Height
+		default:
+			return Suffix{}, fmt.Errorf("invalid primary ledger key %x", key)
+		}
+		if !gotAppQC || height >= first {
+			value, err := it.GetValue()
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
+				return Suffix{}, fmt.Errorf("it.GetValue(): %w", err)
 			}
-			gr := qc.QC().GlobalRange()
-			if !gotQC {
-				status.NextQC = gr.Next
-				gotQC = true
+			switch key.kind {
+			case kindBlock:
+				block, err := decodeBlock(value)
+				if err != nil {
+					return Suffix{}, fmt.Errorf("decodeBlock(): %w", err)
+				}
+				suffix.Blocks = append(suffix.Blocks, block)
+			case kindAppQC:
+				qc, err := types.AppQCConv.Unmarshal(value)
+				if err != nil {
+					return Suffix{}, fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
+				}
+				if qc.Proposal().Height() != height {
+					return Suffix{}, types.ErrUnexpectedHeight
+				}
+				suffix.AppQCs = append(suffix.AppQCs, qc)
+			case kindAppProp:
+				proposal, err := types.AppProposalConv.Unmarshal(value)
+				if err != nil {
+					return Suffix{}, fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
+				}
+				if proposal.Height() != height {
+					return Suffix{}, types.ErrUnexpectedHeight
+				}
+				suffix.AppProposals = append(suffix.AppProposals, proposal)
 			}
-			oldestQC = qc
-			suffix.CommitQCs = append(suffix.CommitQCs, qc)
+		}
+		if gotAppQC && key.kind == kindBlock && height <= first {
+			break
 		}
 	}
-	if !gotQC {
-		// Empty db.
-		return types.Suffix{}, nil
-	}
-	// Set fields for missing resources.
-	first := oldestQC.QC().GlobalRange().First
-	status.NextQC = max(status.NextQC, first)
-	status.NextBlock = max(status.NextBlock, first)
-	status.NextAppProposal = max(status.NextAppProposal, first)
-	status.NextAppQC = max(status.NextAppQC, first)
-	status.First = max(status.First, first)
-	suffix.Status = utils.Some(status)
-
-	// Prune resources fully below status.First.
-	suffix.CommitQCs = slices.DeleteFunc(suffix.CommitQCs, func(qc *types.FullCommitQC) bool {
-		return qc.QC().GlobalRange().Next <= status.First
-	})
-	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block types.SuffixBlock) bool {
-		return block.Number < status.First
-	})
-	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(appProposal *types.AppProposal) bool {
-		return appProposal.GlobalRange().Next <= status.First
-	})
-	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(appQC *types.AppQC) bool {
-		return appQC.Proposal().GlobalRange().Next <= status.First
-	})
-	// Put resources in increasing order.
-	slices.Reverse(suffix.CommitQCs)
+	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block *types.RoadBlock) bool { return gotAppQC && block.QC().Height() < first })
+	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(qc *types.AppQC) bool { return gotAppQC && qc.Proposal().Height() < first })
+	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(proposal *types.AppProposal) bool { return gotAppQC && proposal.Height() < first })
 	slices.Reverse(suffix.Blocks)
-	slices.Reverse(suffix.AppProposals)
 	slices.Reverse(suffix.AppQCs)
+	slices.Reverse(suffix.AppProposals)
 	return suffix, nil
 }
 
-func (s *Store) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
-	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if uint64(n) < s.db.GetPruneWatermark() {
-		return utils.None[*types.Block](), types.ErrPruned
+// Flush makes all previously returned writes durable.
+func (s *Store) Flush() error {
+	// Every block below next was written before the flush, so the flush covers it.
+	next := s.nextBlock()
+	if err := s.table.Flush(); err != nil {
+		return fmt.Errorf("s.table.Flush(): %w", err)
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindBlock, uint64(n))
-	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("failed to read block: %w", err)
+	for status, ctrl := range s.status.Lock() {
+		status.nextDurable = max(status.nextDurable, next)
+		ctrl.Updated()
 	}
-	if !exists {
-		return utils.None[*types.Block](), nil
-	}
-	_, blk, err := decodeBlock(value)
-	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("failed to unmarshal block: %w", err)
-	}
-	return utils.Some(blk), nil
+	return nil
 }
 
-func (s *Store) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.BlockWithNumber], error) {
-	value, exists, err := s.db.GetBlockByHash(hash.Bytes())
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to read block: %w", err)
+// Close releases the underlying LittDB.
+func (s *Store) Close() error {
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("s.db.Close(): %w", err)
 	}
-	if !exists {
-		return utils.None[types.BlockWithNumber](), nil
-	}
-	n, blk, err := decodeBlock(value)
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to unmarshal block: %w", err)
-	}
-	// The number is not known until the block is resolved;
-	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if uint64(n) < s.db.GetPruneWatermark() {
-		return utils.None[types.BlockWithNumber](), nil
-	}
-	return utils.Some(types.BlockWithNumber{Block: blk, Number: n}), nil
+	return nil
 }
 
-func (s *Store) ReadQCByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.FullCommitQC], error) {
+func (s *Store) WriteBlock(block *types.RoadBlock) error {
+	height := block.QC().Height()
+
+	for status := range s.status.Lock() {
+		current, ok := status.suffix.Get()
+		if !ok {
+			current = SuffixRange{
+				First:           height,
+				NextBlock:       height,
+				NextAppQC:       height,
+				NextAppProposal: height,
+			}
+		}
+		if current.NextBlock != height {
+			return fmt.Errorf("block height %d, expected %d: %w", height, current.NextBlock, types.ErrUnexpectedHeight)
+		}
+		record := encodeBlock(block)
+		if err := s.table.Put(record.Key.bytes(), record.Value, record.Aliases...); err != nil {
+			return fmt.Errorf("s.table.Put(%x): %w", record.Key.bytes(), err)
+		}
+		if !ok {
+			// Reads below the first QC must return ErrPruned before and after reopening.
+			s.setPruneWatermark(height)
+		}
+		current.NextBlock = height + 1
+		status.suffix = utils.Some(current)
+		status.blocks[height] = block
+		return nil
+	}
+	panic("unreachable")
+}
+
+func (s *Store) WriteAppQC(appQC *types.AppQC) error {
+	height := appQC.Proposal().Height()
+	for status := range s.status.Lock() {
+		current, ok := status.suffix.Get()
+		if !ok || current.NextAppProposal <= height {
+			return fmt.Errorf("AppQC %d: %w", height, types.ErrMissingAppProposal)
+		}
+		if current.NextAppQC != height {
+			return fmt.Errorf("AppQC.Index() = %d, want %d: %w",
+				height, current.NextAppQC, types.ErrUnexpectedHeight)
+		}
+
+		record := encodeAppQC(appQC)
+		if err := s.table.Put(record.Key.bytes(), record.Value, record.Aliases...); err != nil {
+			return fmt.Errorf("s.table.Put(%x): %w", record.Key.bytes(), err)
+		}
+		// An AppQC follows the local AppProposal, which follows local execution,
+		// so execution needs no block below it.
+		for n := current.First; n < height; n++ {
+			delete(status.blocks, n)
+		}
+		current.First = height
+		current.NextAppQC = height + 1
+		status.suffix = utils.Some(current)
+		return nil
+	}
+	panic("unreachable")
+}
+
+func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
+	height := appProposal.Height()
+	if height == utils.Max[types.RoadHeight]() {
+		return fmt.Errorf("road height cannot advance: %w", types.ErrUnexpectedHeight)
+	}
+	for status := range s.status.Lock() {
+		current, ok := status.suffix.Get()
+		if !ok || current.NextBlock <= height {
+			return fmt.Errorf("AppProposal %d: %w", height, types.ErrMissingQC)
+		}
+		if current.NextAppProposal != height {
+			return fmt.Errorf("AppProposal.Index() = %v, want %v: %w",
+				height, current.NextAppProposal, types.ErrUnexpectedHeight)
+		}
+
+		record := encodeAppProposal(appProposal)
+		if err := s.table.Put(record.Key.bytes(), record.Value, record.Aliases...); err != nil {
+			return fmt.Errorf("s.table.Put(%x): %w", record.Key.bytes(), err)
+		}
+		current.NextAppProposal = height + 1
+		status.suffix = utils.Some(current)
+		return nil
+	}
+	panic("unreachable")
+}
+
+// ReadSuffix returns a validated recovery snapshot.
+func (s *Store) ReadSuffix() (Suffix, error) {
+	// Exclude writes and pruning until the snapshot is validated.
+	for range s.status.Lock() {
+		suffix, err := s.readSuffix()
+		if err != nil {
+			return Suffix{}, fmt.Errorf("s.readSuffix(): %w", err)
+		}
+		return validateSuffix(suffix)
+	}
+	panic("unreachable")
+}
+
+func (s *Store) ReadLaneBlock(pos types.LaneBlockPos) (utils.Option[*types.LaneBlock], error) {
+	if pos.Height < s.First() {
+		return utils.None[*types.LaneBlock](), types.ErrPruned
+	}
+	value, exists, err := s.getRecord((laneBlockKey{Height: pos.Height, Offset: pos.Offset}).encode())
+	if err != nil {
+		return utils.None[*types.LaneBlock](), fmt.Errorf("s.getRecord(): %w", err)
+	}
+	if !exists {
+		return utils.None[*types.LaneBlock](), nil
+	}
+	block, err := types.LaneBlockConv.Unmarshal(value)
+	if err != nil {
+		return utils.None[*types.LaneBlock](), fmt.Errorf("types.LaneBlockConv.Unmarshal(): %w", err)
+	}
+	return utils.Some(block), nil
+}
+
+func (s *Store) ReadBlock(n types.RoadHeight) (utils.Option[*types.RoadBlock], error) {
+	if n < s.First() {
+		return utils.None[*types.RoadBlock](), types.ErrPruned
+	}
+	value, exists, err := s.getRecord((blockKey{Height: n}).encode())
+	if err != nil {
+		return utils.None[*types.RoadBlock](), fmt.Errorf("s.getRecord(): %w", err)
+	}
+	if !exists {
+		return utils.None[*types.RoadBlock](), nil
+	}
+	block, err := decodeBlock(value)
+	if err != nil {
+		return utils.None[*types.RoadBlock](), fmt.Errorf("decodeBlock(): %w", err)
+	}
+	return utils.Some(block), nil
+}
+
+func (s *Store) ReadBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*types.RoadBlock], error) {
+	value, exists, err := s.getRecord((blockHashKey{Hash: hash}).encode())
+	if err != nil {
+		return utils.None[*types.RoadBlock](), fmt.Errorf("s.getRecord(): %w", err)
+	}
+	if !exists {
+		return utils.None[*types.RoadBlock](), nil
+	}
+	// Pruned hash lookups do not decode values that are no longer served.
+	if len(value) >= 8 && types.RoadHeight(binary.BigEndian.Uint64(value)) < s.First() {
+		return utils.None[*types.RoadBlock](), nil
+	}
+	block, err := decodeBlock(value)
+	if err != nil {
+		return utils.None[*types.RoadBlock](), fmt.Errorf("decodeBlock(): %w", err)
+	}
+	if block.QC().Height() < s.First() {
+		return utils.None[*types.RoadBlock](), nil
+	}
+	if block.Header().Hash() != hash {
+		return utils.None[*types.RoadBlock](), types.ErrQCBlocksMismatch
+	}
+	return utils.Some(block), nil
+}
+
+func (s *Store) ReadQC(n types.RoadHeight) (utils.Option[*types.FullCommitQC], error) {
 	// Below-watermark blocks are not served, so neither is their covering QC.
-	if uint64(n) < s.db.GetPruneWatermark() {
+	if n < s.First() {
 		return utils.None[*types.FullCommitQC](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindQC, uint64(n))
+	value, exists, err := s.getRecord((qcKey{Height: n}).encode())
 	if err != nil {
-		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to read QC: %w", err)
+		return utils.None[*types.FullCommitQC](), fmt.Errorf("s.getRecord(): %w", err)
 	}
 	if !exists {
 		return utils.None[*types.FullCommitQC](), nil
 	}
-	qc, err := decodeQC(value)
+	qc, err := types.FullCommitQCConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to unmarshal QC: %w", err)
+		return utils.None[*types.FullCommitQC](), fmt.Errorf("types.FullCommitQCConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(qc), nil
 }
 
-func (s *Store) ReadAppProposalByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.AppProposal], error) {
-	if uint64(n) < s.db.GetPruneWatermark() {
+func (s *Store) ReadAppProposal(n types.RoadHeight) (utils.Option[*types.AppProposal], error) {
+	if n < s.First() {
 		return utils.None[*types.AppProposal](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindAppProposal, uint64(n))
+	value, exists, err := s.getRecord((appProposalKey{Height: n}).encode())
 	if err != nil {
-		return utils.None[*types.AppProposal](), fmt.Errorf("failed to read AppProposal: %w", err)
+		return utils.None[*types.AppProposal](), fmt.Errorf("s.getRecord(): %w", err)
 	}
 	if !exists {
 		return utils.None[*types.AppProposal](), nil
 	}
-	appProposal, err := decodeAppProposal(value)
+	appProposal, err := types.AppProposalConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.AppProposal](), fmt.Errorf("failed to unmarshal AppProposal: %w", err)
+		return utils.None[*types.AppProposal](), fmt.Errorf("types.AppProposalConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(appProposal), nil
 }
 
-func (s *Store) ReadAppQCByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.AppQC], error) {
-	if uint64(n) < s.db.GetPruneWatermark() {
+func (s *Store) ReadAppQC(n types.RoadHeight) (utils.Option[*types.AppQC], error) {
+	if n < s.First() {
 		return utils.None[*types.AppQC](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindAppQC, uint64(n))
+	value, exists, err := s.getRecord((appQCKey{Height: n}).encode())
 	if err != nil {
-		return utils.None[*types.AppQC](), fmt.Errorf("failed to read AppQC: %w", err)
+		return utils.None[*types.AppQC](), fmt.Errorf("s.getRecord(): %w", err)
 	}
 	if !exists {
 		return utils.None[*types.AppQC](), nil
 	}
-	appQC, err := decodeAppQC(value)
+	appQC, err := types.AppQCConv.Unmarshal(value)
 	if err != nil {
-		return utils.None[*types.AppQC](), fmt.Errorf("failed to unmarshal AppQC: %w", err)
+		return utils.None[*types.AppQC](), fmt.Errorf("types.AppQCConv.Unmarshal(): %w", err)
 	}
 	return utils.Some(appQC), nil
 }
 
-func (s *Store) Close() error {
-	if err := s.db.Close(); err != nil {
-		return fmt.Errorf("failed to close block db: %w", err)
+// nextBlock returns the road of the next block to write, or 0 when the store is empty.
+func (s *Store) nextBlock() types.RoadHeight {
+	if current, ok := s.Status().Get(); ok {
+		return current.NextBlock
+	}
+	return 0
+}
+
+// WaitForBlock returns the block of road n, waiting until a Flush has made it
+// durable. It returns ErrPruned when n is below First.
+func (s *Store) WaitForBlock(ctx context.Context, n types.RoadHeight) (*types.RoadBlock, error) {
+	for status, ctrl := range s.status.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < status.nextDurable }); err != nil {
+			return nil, err
+		}
+		if n < s.First() {
+			return nil, types.ErrPruned
+		}
+		if block, ok := status.blocks[n]; ok {
+			return block, nil
+		}
+	}
+	stored, err := s.ReadBlock(n)
+	if err != nil {
+		return nil, fmt.Errorf("ReadBlock(%d): %w", n, err)
+	}
+	block, ok := stored.Get()
+	if !ok {
+		return nil, fmt.Errorf("block %d: %w", n, types.ErrNotFound)
+	}
+	return block, nil
+}
+
+func (s *Store) Status() utils.Option[SuffixRange] {
+	for status := range s.status.Lock() {
+		return status.suffix
+	}
+	panic("unreachable")
+}
+
+// restore initializes the cursors and floor from retained records.
+func (s *Store) restore(first types.RoadHeight, suffix Suffix) error {
+	suffix, err := validateSuffix(suffix)
+	if err != nil {
+		return err
+	}
+	for status := range s.status.Lock() {
+		status.suffix = suffix.Status
+		for _, block := range suffix.Blocks {
+			status.blocks[block.QC().Height()] = block
+		}
+		if current, ok := suffix.Status.Get(); ok {
+			status.nextDurable = current.NextBlock
+		}
+		s.first.Store(uint64(first))
+		Global.pruneWatermarkAt().Set(utils.Clamp[int64](first))
 	}
 	return nil
+}
+
+// validateSuffix checks that recovery streams are contiguous and have their prerequisites.
+func validateSuffix(suffix Suffix) (Suffix, error) {
+	if len(suffix.AppQCs) > 1 {
+		return Suffix{}, fmt.Errorf("too large suffix")
+	}
+	if len(suffix.Blocks) == 0 {
+		if len(suffix.AppQCs) > 0 || len(suffix.AppProposals) > 0 {
+			return Suffix{}, types.ErrMissingQC
+		}
+		suffix.Status = utils.None[SuffixRange]()
+		return suffix, nil
+	}
+	first := suffix.Blocks[0].QC().Height()
+	status := SuffixRange{First: first, NextBlock: first, NextAppProposal: first, NextAppQC: first}
+	for _, block := range suffix.Blocks {
+		if block.QC().Height() != status.NextBlock {
+			return Suffix{}, types.ErrUnexpectedHeight
+		}
+		status.NextBlock++
+	}
+	for _, proposal := range suffix.AppProposals {
+		if proposal.Height() >= status.NextBlock {
+			return Suffix{}, types.ErrMissingQC
+		}
+		if proposal.Height() != status.NextAppProposal {
+			return Suffix{}, types.ErrUnexpectedHeight
+		}
+		status.NextAppProposal++
+	}
+	for _, qc := range suffix.AppQCs {
+		height := qc.Proposal().Height()
+		if height >= status.NextAppProposal {
+			return Suffix{}, types.ErrMissingAppProposal
+		}
+		if height != status.NextAppQC {
+			return Suffix{}, types.ErrUnexpectedHeight
+		}
+		status.First = height
+		status.NextAppQC++
+	}
+	suffix.Status = utils.Some(status)
+	return suffix, nil
 }

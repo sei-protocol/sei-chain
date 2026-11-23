@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,8 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -27,7 +29,7 @@ func TestBlockNumber(t *testing.T) {
 
 func TestBlockNumberEndToEnd(t *testing.T) {
 	backend := &testBackend{blockNumber: func() uint64 { return 42 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -42,14 +44,14 @@ func TestBlockNumberEndToEnd(t *testing.T) {
 }
 
 func TestChainId(t *testing.T) {
-	backend := &testBackend{chainID: func() uint64 { return 713715 }}
+	backend := &testBackend{chainID: func() uint64 { return 713700 }}
 	api := &infoAPI{backend: backend}
-	require.Equal(t, (*hexutil.Big)(big.NewInt(713715)), api.ChainId(t.Context()))
+	require.Equal(t, (*hexutil.Big)(big.NewInt(713700)), api.ChainId(t.Context()))
 }
 
 func TestChainIdEndToEnd(t *testing.T) {
-	backend := &testBackend{chainID: func() uint64 { return 713715 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	backend := &testBackend{chainID: func() uint64 { return 713700 }}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -60,7 +62,7 @@ func TestChainIdEndToEnd(t *testing.T) {
 
 	var got hexutil.Big
 	require.NoError(t, client.CallContext(t.Context(), &got, "eth_chainId"))
-	require.Equal(t, *big.NewInt(713715), big.Int(got))
+	require.Equal(t, *big.NewInt(713700), big.Int(got))
 }
 
 func TestSyncing(t *testing.T) {
@@ -71,7 +73,7 @@ func TestSyncing(t *testing.T) {
 }
 
 func TestSyncingEndToEnd(t *testing.T) {
-	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -88,19 +90,52 @@ func TestSyncingEndToEnd(t *testing.T) {
 	require.Contains(t, err.Error(), "eth_syncing")
 }
 
+func TestBlobsAndProofsAreNotSupported(t *testing.T) {
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	for _, tc := range []struct {
+		method  string
+		params  []any
+		message string
+	}{
+		{method: "eth_blobBaseFee", message: "blobs not supported on this chain"},
+		{
+			method:  "eth_getProof",
+			params:  []any{common.Address{}, []string{}, "latest"},
+			message: "eth_getProof is not supported yet; please reach out to the Sei Labs if you need this endpoint",
+		},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			var got any
+			err := client.CallContext(t.Context(), &got, tc.method, tc.params...)
+			var rpcErr ethrpc.Error
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+			require.Equal(t, tc.message, err.Error())
+		})
+	}
+}
+
 func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	return &testBackend{
-		gasLimit:    func() (uint64, error) { return gasLimit, nil },
-		minGasPrice: func() (*big.Int, error) { return big.NewInt(minGasPrice), nil },
+		gasLimit:    func() uint64 { return gasLimit },
+		minGasPrice: func() *big.Int { return big.NewInt(minGasPrice) },
 	}
 }
 
 type uncachedMedianBlockStatsStore struct {
-	receipt.ReceiptStore
-	stats receipt.BlockStats
+	receiptdb.ReceiptStore
+	stats receipttypes.BlockStats
 }
 
-func (s uncachedMedianBlockStatsStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
+func (s uncachedMedianBlockStatsStore) GetBlockStats(sdk.Context, uint64) (receipttypes.BlockStats, error) {
 	return s.stats, nil
 }
 
@@ -116,10 +151,10 @@ func emptyBlockBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 
 // setBlockReceipt writes one block with a single reward-eligible tx, so its stored BlockStats has
 // GasUsed=gasUsed and every default percentile equal to reward.
-func setBlockReceipt(t *testing.T, store receipt.ReceiptStore, blockNumber, gasUsed uint64, reward int64) {
+func setBlockReceipt(t *testing.T, store receiptdb.ReceiptStore, blockNumber, gasUsed uint64, reward int64) {
 	t.Helper()
 	txHash := [32]byte{byte(blockNumber)}
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  txHash,
 		Receipt: &evmtypes.Receipt{TxHashHex: "0x", BlockNumber: blockNumber, GasUsed: gasUsed},
 		Reward:  big.NewInt(reward),
@@ -139,7 +174,7 @@ func TestGasPriceEscalatesWithCongestion(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	// gasLimit 1000, TotalGasUsed 900 -> 90% > the 80% congestion threshold -> median reward,
 	// which is above the floor here so the escalation is what's under test, not the floor clamp.
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(500)},
 	}))
 	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
@@ -155,7 +190,7 @@ func TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	// gasLimit 1000, TotalGasUsed 900 -> congested, but the one included tx's reward (50) is
 	// below the current floor (100).
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(50)},
 	}))
 	api := &infoAPI{backend: testInfoBackend(1000, 100), store: store}
@@ -171,7 +206,7 @@ func TestGasPriceCongestionNeverAnswersBelowTheMargin(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	// gasLimit 1000, TotalGasUsed 900 -> congested; the one included tx's reward (1000) equals
 	// the floor (1000), which is below the floor's own 10% margin (1100).
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(1000)},
 	}))
 	api := &infoAPI{backend: testInfoBackend(1000, 1000), store: store}
@@ -186,7 +221,7 @@ func TestGasPriceCongestionNeverAnswersBelowTheMargin(t *testing.T) {
 func TestGasPriceNotCongestedAtExactlyTheThreshold(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	// gasLimit 1000, TotalGasUsed 800 -> exactly 80%, not > the threshold.
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 800}, Reward: big.NewInt(500)},
 	}))
 	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
@@ -200,7 +235,7 @@ func TestGasPriceFallsBackWhenTheMedianIsntStored(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	// A congested block (90% > the 80% threshold) with no reward-eligible tx, so no percentile
 	// was ever computed for it: GasPrice must fall back rather than guess at one.
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}},
 	}))
 	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
@@ -213,12 +248,12 @@ func TestGasPriceFallsBackWhenTheMedianIsntStored(t *testing.T) {
 func TestMaxPriorityFeePerGas(t *testing.T) {
 	tests := []struct {
 		name    string
-		records []receipt.ReceiptRecord
+		records []receipttypes.ReceiptRecord
 		want    int64
 	}{
 		{
 			name: "not congested",
-			records: []receipt.ReceiptRecord{{
+			records: []receipttypes.ReceiptRecord{{
 				TxHash:  [32]byte{1},
 				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 800},
 				Reward:  big.NewInt(500),
@@ -227,7 +262,7 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 		},
 		{
 			name: "congested",
-			records: []receipt.ReceiptRecord{{
+			records: []receipttypes.ReceiptRecord{{
 				TxHash:  [32]byte{1},
 				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900},
 				Reward:  big.NewInt(500),
@@ -236,7 +271,7 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 		},
 		{
 			name: "congested without reward data",
-			records: []receipt.ReceiptRecord{{
+			records: []receipttypes.ReceiptRecord{{
 				TxHash:  [32]byte{1},
 				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900},
 			}},
@@ -259,7 +294,7 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 
 func TestMaxPriorityFeePerGasRecomputesUnstoredMedian(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  [32]byte{1},
 		Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900, EffectiveGasPrice: 500},
 		Reward:  big.NewInt(500),
@@ -268,9 +303,9 @@ func TestMaxPriorityFeePerGasRecomputesUnstoredMedian(t *testing.T) {
 		backend: testInfoBackend(1000, 1),
 		store: uncachedMedianBlockStatsStore{
 			ReceiptStore: store,
-			stats: receipt.BlockStats{
+			stats: receipttypes.BlockStats{
 				TotalGasUsed:      900,
-				RewardPercentiles: []receipt.RewardPercentile{{Percentile: 25, Reward: 500}},
+				RewardPercentiles: []receipttypes.RewardPercentile{{Percentile: 25, Reward: 500}},
 			},
 		},
 	}
@@ -366,6 +401,22 @@ func TestFeeHistoryZeroIsEarliest(t *testing.T) {
 	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
 }
 
+// TestFeeHistoryEarliestIsTheChainsFirstBlock verifies "earliest" on a chain starting above
+// block 1 resolves to its first block.
+func TestFeeHistoryEarliestIsTheChainsFirstBlock(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	for h := uint64(3); h <= 5; h++ {
+		setBlockReceipt(t, store, h, 10, 100)
+	}
+	backend := testInfoBackend(1000, 1)
+	backend.initialHeight = 3
+
+	api := &infoAPI{backend: backend, store: store}
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.EarliestBlockNumber, nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
+}
+
 // TestFeeHistoryRestartsAfterAGenuineInteriorHole verifies an interior ErrNotFound hole restarts
 // the accumulation instead of misattributing a later block's data.
 func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
@@ -426,8 +477,8 @@ func TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone(t *testing.T) {
 	}
 	api := &infoAPI{backend: backend, store: stubIteratingReceiptStore{
 		ReceiptStore: store,
-		iterate: func(uint64) (receipt.ReceiptIterator, error) {
-			return nil, receipt.ErrRangeQueryNotSupported
+		iterate: func(uint64) (receiptdb.ReceiptIterator, error) {
+			return nil, receiptdb.ErrRangeQueryNotSupported
 		},
 	}}
 
@@ -471,14 +522,14 @@ func TestFeeHistoryRecomputesViaIterateReceiptsWhenSupported(t *testing.T) {
 	baseStore := evmonly.NewMemoryReceiptStore()
 	tx, _ := testSignedTransaction(t)
 	receiptRecord := &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 999}
-	require.NoError(t, baseStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, baseStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  tx.Hash(),
 		Receipt: receiptRecord,
 		Reward:  big.NewInt(999),
 	}}))
 	store := stubIteratingReceiptStore{
 		ReceiptStore: baseStore,
-		iterate: func(uint64) (receipt.ReceiptIterator, error) {
+		iterate: func(uint64) (receiptdb.ReceiptIterator, error) {
 			return &fakeReceiptIterator{entries: []fakeReceiptEntry{
 				{blockNumber: 1, txHash: tx.Hash(), receipt: receiptRecord},
 			}}, nil
@@ -486,7 +537,7 @@ func TestFeeHistoryRecomputesViaIterateReceiptsWhenSupported(t *testing.T) {
 	}
 	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes.
+	// 33 is not in receiptmetrics.DefaultRewardPercentiles, so this recomputes.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
@@ -498,7 +549,7 @@ func TestFeeHistoryRecomputesViaIterateReceiptsWhenSupported(t *testing.T) {
 func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	tx, raw := testSignedTransaction(t)
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  tx.Hash(),
 		Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 999},
 		Reward:  big.NewInt(999),
@@ -509,7 +560,7 @@ func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {
 	}
 	api := &infoAPI{backend: backend, store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes from receipts.
+	// 33 is not in receiptmetrics.DefaultRewardPercentiles, so this recomputes from receipts.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
@@ -522,7 +573,7 @@ func TestFeeHistoryRecomputesWholeRowWhenOnePercentileIsUncached(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	tx1, raw1 := testSignedTransactionWithNonce(t, 0)
 	tx2, raw2 := testSignedTransactionWithNonce(t, 1)
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: tx1.Hash(), Receipt: &evmtypes.Receipt{TxHashHex: tx1.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 100}, Reward: big.NewInt(100)},
 		{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{TxHashHex: tx2.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 300}, Reward: big.NewInt(300)},
 	}))

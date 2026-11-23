@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -9,19 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -46,7 +45,6 @@ func makeValidator(valSeed, nodeSeed []byte, address string) config.AutobahnVali
 		ValidatorKey: valKey.Public(),
 		NodeKey:      nodeKey.Public(),
 		Address:      hp,
-		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("http://" + address))},
 	}
 }
 
@@ -62,20 +60,24 @@ func writeAutobahnConfig(t *testing.T, fc *config.AutobahnFileConfig) string {
 func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *config.AutobahnFileConfig {
 	return &config.AutobahnFileConfig{
 		Validators:         validators,
+		EVMRPC:             utils.Some(config.URL{URL: utils.OrPanic1(url.Parse("ws://localhost:8546"))}),
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
 		AllowEmptyBlocks:   false,
 		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		PersistentStateDir: t.TempDir(),
 		DialInterval:       utils.Duration(10 * time.Second),
+		EVMChainID:         713700,
 	}
 }
 
 // testGenesisMaxGas is the gas limit baked into the test genesis doc.
 const testGenesisMaxGas int64 = 50_000_000
 
-func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
-	app := kvstore.NewProxy()
+type setupEVMApp struct{ abevm.Application }
+
+func makeTestGigaDeps() (*abevm.Proxy, *types.GenesisDoc) {
+	app := abevm.NewProxy(setupEVMApp{})
 	genDoc := &types.GenesisDoc{
 		ChainID: "test-chain",
 		// Nontrivial InitialHeight so any future code that assumes the
@@ -84,7 +86,7 @@ func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
 		ConsensusParams: &types.ConsensusParams{
 			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
 		},
-		Autobahn: types.DefaultAutobahnParams(),
+		Autobahn: utils.Some(types.DefaultAutobahnParams()),
 	}
 	return app, genDoc
 }
@@ -163,19 +165,23 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 
 	fc := &config.AutobahnFileConfig{
 		Validators:         []config.AutobahnValidator{v1, v2, v3},
+		EVMRPC:             utils.Some(config.URL{URL: utils.OrPanic1(url.Parse("ws://localhost:8546"))}),
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
 		AllowEmptyBlocks:   true,
 		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		PersistentStateDir: "/tmp/autobahn-state",
 		DialInterval:       utils.Duration(5 * time.Second),
+		EVMChainID:         713700,
 	}
 	cfgFile := writeAutobahnConfig(t, fc)
 
 	nodeKey := makeTestNodeKey([]byte("node1-seed"))
 	valKey := makeTestValidatorKey([]byte("val1-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
-	genDoc.Autobahn.ViewTimeout = 3 * time.Second
+	params := types.DefaultAutobahnParams()
+	params.ViewTimeout = 3 * time.Second
+	genDoc.Autobahn = utils.Some(params)
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
@@ -364,52 +370,23 @@ func TestValidateNodeSetupConfigRejectsAutobahnSeed(t *testing.T) {
 	require.ErrorIs(t, err, errAutobahnSeed)
 }
 
-func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
-	app := abci.BaseApplication{}
+func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
-		BaseConfig:         config.BaseConfig{FastCheckTx: true},
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app, gigaconfig.DefaultConfig)
+	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.StateDB())
-	require.NotNil(t, manager.SC())
-	require.Nil(t, manager.SS())
+	require.Nil(t, manager.StateDB().UndoSS())
 	require.NotNil(t, manager.ReceiptDB())
-	require.Equal(t, "evmonly", prepared.Info().Data)
-	validators := prepared.GetValidators()
+	require.Equal(t, "evmonly", app.Info().Data)
+	validators := app.GetValidators()
 	require.Len(t, validators, 1)
-	require.Equal(t, int64(1), validators[0].Power)
-	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
-}
-
-func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
-	_, err := wrapApplication(
-		&config.Config{
-			BaseConfig:         config.BaseConfig{FastCheckTx: true},
-			AutobahnConfigFile: "/tmp/autobahn.json",
-		},
-		abci.BaseApplication{},
-		utils.None[*bootstrap.GigaStorageManager](),
-		nil,
-		gigaconfig.DefaultConfig.Execution,
-	)
-	require.Error(t, err)
-}
-
-func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {
-	app := abci.BaseApplication{}
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig)
-	require.NoError(t, err)
-	_, ok := storage.Get()
-	require.False(t, ok)
-	require.Equal(t, app, prepared)
+	require.Equal(t, uint64(1), validators[validator.ValidatorKey])
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this
@@ -480,4 +457,35 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
 		})
 	}
+}
+
+func (setupEVMApp) EvmChainID() uint64 { return 1 }
+
+func TestBuildGigaConfigLocalEVMRPC(t *testing.T) {
+	validator := makeValidator([]byte("local-rpc-validator"), []byte("local-rpc-node"), "localhost:26660")
+	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
+	fc.EVMRPC = utils.None[config.URL]()
+	cfgFile := writeAutobahnConfig(t, fc)
+	app, genDoc := makeTestGigaDeps()
+	fullnodeCfg, err := buildFullnodeGigaConfig(cfgFile, app, genDoc)
+	require.NoError(t, err)
+	require.False(t, fullnodeCfg.AllowLocalAddrs)
+	_, err = buildValidatorGigaConfig(cfgFile, makeTestNodeKey([]byte("local-rpc-node")),
+		makeTestValidatorKey([]byte("local-rpc-validator")), app, genDoc)
+	require.Error(t, err)
+
+	endpoint := config.URL{URL: utils.OrPanic1(url.Parse("wss://local.example:8546"))}
+	fc.EVMRPC = utils.Some(endpoint)
+	cfgFile = writeAutobahnConfig(t, fc)
+	cfg, err := buildValidatorGigaConfig(cfgFile, makeTestNodeKey([]byte("local-rpc-node")),
+		makeTestValidatorKey([]byte("local-rpc-validator")), app, genDoc)
+	require.NoError(t, err)
+	require.Equal(t, endpoint.String(), cfg.EVMRPC.String())
+	require.False(t, cfg.AllowLocalAddrs)
+}
+
+// storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still
+// running, and t.Context() is cancelled before the cleanup that closes it runs.
+func storageContext(t *testing.T) context.Context {
+	return context.WithoutCancel(t.Context())
 }

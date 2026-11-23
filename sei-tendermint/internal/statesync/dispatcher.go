@@ -53,7 +53,7 @@ func (d *Dispatcher) LightBlock(ctx context.Context, height int64, peer types.No
 	// clean up the call after a response is returned
 	defer func() {
 		for calls := range d.calls.Lock() {
-			if call, ok := calls[peer]; ok {
+			if call, ok := calls[peer]; ok && call == callCh {
 				delete(calls, peer)
 				close(call)
 			}
@@ -100,26 +100,45 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 // requestCh to respond with the respective light block. A nil response is used to
 // represent that the receiver of the request does not have a light block at that height.
 func (d *Dispatcher) Respond(ctx context.Context, lb *tmproto.LightBlock, peer types.NodeID) error {
-	for calls := range d.calls.Lock() {
-		// check that the response came from a request
-		answerCh, ok := calls[peer]
-		if !ok {
-			// this can also happen if the response came in after the timeout
-			return ErrUnsolicitedResponse
-		}
+	// check that the response came from a request
+	if !d.hasCall(peer) {
+		// this can also happen if the response came in after the timeout
+		return ErrUnsolicitedResponse
+	}
 
-		// If lb is nil we take that to mean that the peer didn't have the requested light
-		// block and thus pass on the nil to the caller.
-		if lb == nil {
-			return utils.Send(ctx, answerCh, nil)
-		}
-
-		block, err := types.LightBlockFromProto(lb)
-		if err != nil {
+	// If lb is nil we take that to mean that the peer didn't have the requested light
+	// block and thus pass on the nil to the caller.
+	var block *types.LightBlock
+	if lb != nil {
+		var err error
+		if block, err = types.LightBlockFromProto(lb); err != nil {
 			return err
 		}
+	}
 
-		return utils.Send(ctx, answerCh, block)
+	answerCh, ok := d.takeCall(peer)
+	if !ok {
+		return ErrUnsolicitedResponse
+	}
+	return utils.Send(ctx, answerCh, block)
+}
+
+// hasCall reports whether a call to peer is awaiting a response.
+func (d *Dispatcher) hasCall(peer types.NodeID) bool {
+	for calls := range d.calls.Lock() {
+		_, ok := calls[peer]
+		return ok
+	}
+	panic("unreachable")
+}
+
+// takeCall removes the pending call for peer and returns its answer channel,
+// so that each call receives at most one response.
+func (d *Dispatcher) takeCall(peer types.NodeID) (chan *types.LightBlock, bool) {
+	for calls := range d.calls.Lock() {
+		answerCh, ok := calls[peer]
+		delete(calls, peer)
+		return answerCh, ok
 	}
 	panic("unreachable")
 }

@@ -20,7 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -123,21 +123,23 @@ func initializeApp(
 ) (*app.App, *abci.ResponseFinalizeBlock) {
 	a := app.Setup(t, false, true, chainID == "pacific-1")
 	a.ChainID = chainID
+	header := tmproto.Header{
+		ChainID: chainID,
+		Height:  1,
+		Time:    time.Now(),
+	}
+	// The initializers write into the genesis block InitChain left open, before FinalizeBlock takes its hash.
+	ctx := a.GetContextForDeliverTx(nil).WithBlockHeader(header).WithBlockHeight(header.Height)
+	for _, i := range initializer {
+		i(ctx, a)
+	}
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Txs:  [][]byte{},
-		Hash: mockHash(1, 0),
-		Header: &tmproto.Header{
-			ChainID: chainID,
-			Height:  1,
-			Time:    time.Now(),
-		},
+		Txs:    [][]byte{},
+		Hash:   mockHash(1, 0),
+		Header: &header,
 	})
 	if err != nil {
 		panic(err)
-	}
-	ctx := a.GetContextForDeliverTx(nil)
-	for _, i := range initializer {
-		i(ctx, a)
 	}
 	_, _ = a.Commit(context.Background())
 	return a, res
@@ -202,6 +204,7 @@ func setupTestServer(
 		a.BaseApp,
 		a.TracerAnteHandler,
 		ctxProvider,
+		func(height int64) sdk.Context { return ctxProvider(height).WithConsensusParams(nil) },
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
 		a.GetStateStore(),
@@ -214,7 +217,7 @@ func setupTestServer(
 	settleCommittedBlocks(a, ctxProvider)
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		// These tests seed receipts by other means and would otherwise read against an unset window.
-		if err := receipt.PinVersions(store, 1, store.LatestVersion()); err != nil {
+		if err := receiptdb.PinVersions(store, 1, store.LatestVersion()); err != nil {
 			panic(err)
 		}
 	}

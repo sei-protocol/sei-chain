@@ -5,19 +5,20 @@ import (
 	"errors"
 	"fmt"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -25,28 +26,25 @@ var logger = seilog.NewLogger("db", "state-db", "giga")
 
 var _ gigatypes.StateDB = (*StateDB)(nil)
 
-// StateDB writes a committed block to the state WAL, the state commit store (SC) and the EVM state
-// store (SS), and serves current-block reads from SC.
-//
-// It opens all three stores, brings them onto one height, and closes them. SC and SS run without a WAL
-// of their own, so every block either of them replays is read from the WAL here.
+// StateDB writes a committed block to the state WAL, the live state DB and the historical state DB, serves
+// current-block reads from the live state DB, and serves past heights from the historical state DB.
 type StateDB struct {
-	// Where the state commit store and the state WAL live.
+	// Converts a committed block's changes into the mutations the live state DB and the state WAL take.
 	flatkvCfg *flatkvconfig.Config
-
-	// Where the EVM state store lives, and whether it is enabled at all.
-	ssCfg config.StateStoreConfig
 
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
 
+	// The hasher a committed block's mutations are submitted to.
+	budHasher bud.BUDHasher
+
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
 
-	// ss is nil when the EVM state store is disabled.
-	ss *evm.EVMStateStore
+	// undo is the historical state DB, nil when it is disabled.
+	undo *undo.Database
 
-	// The checkpoint schedule SC and SS take their snapshot boundaries from.
+	// The checkpoint schedule the live state DB takes its snapshot boundaries from.
 	checkpointer *controller.CheckpointScheduler
 
 	// Splits a commit into the three stores it writes. Driven only by CommitStateChanges, which
@@ -63,312 +61,185 @@ const commitPhaseTimerName = "giga_state_commit"
 // gigaMeterName is the OTel meter this package's instruments are created on.
 const gigaMeterName = "seidb_giga"
 
-// NewStateDB opens SC, SS and the state WAL from their configs and puts SC and SS on one checkpoint
-// schedule.
+// NewStateDB assembles a StateDB over stores that are already open, so that it commits the block after the WAL's
+// head. It errors unless the live state DB stands at that head, and attaches the historical state DB to the live
+// state DB's current block.
 //
-// Both stores are put on the WAL's head — replayed up to it, and rewound onto it when a lost WAL tail
-// left them above it — so the returned StateDB commits the block after it. NewStateDBWithRollback opens
-// them on an earlier height instead.
-//
-// The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
-// had already opened.
+// The returned StateDB owns the three stores and closes them on Close. A failed call leaves them with the caller.
 func NewStateDB(
-	ctx context.Context,
+	// Converts a committed block's changes into mutations.
 	flatkvCfg *flatkvconfig.Config,
-	ssCfg config.StateStoreConfig,
-	checkpointCfg config.CheckpointConfig,
-) (db *StateDB, retErr error) {
+	// Opened with no WAL of its own.
+	liveStateDB *flatkv.CommitStore,
+	// Nil when the historical state DB is disabled.
+	historicalStateDB *undo.Database,
+	wal statewal.StateWAL,
+	// The schedule liveStateDB takes its snapshot boundaries from, already set on it.
+	checkpointer *controller.CheckpointScheduler,
+	// The hasher each committed block's mutations are submitted to.
+	budHasher bud.BUDHasher,
+) (*StateDB, error) {
+	if err := requireLiveStateDBAtTheWALHead(liveStateDB, wal); err != nil {
+		return nil, err
+	}
+	if err := resumeUndoLogOverHeldState(liveStateDB, historicalStateDB); err != nil {
+		return nil, err
+	}
 	s := &StateDB{
-		flatkvCfg: flatkvCfg,
-		ssCfg:     stateStoreConfigFor(ssCfg),
+		flatkvCfg:    flatkvCfg,
+		wal:          wal,
+		budHasher:    budHasher,
+		sc:           liveStateDB,
+		undo:         historicalStateDB,
+		checkpointer: checkpointer,
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
 	s.closed = utils.MustClose(s, "giga state DB")
-	defer s.closeOnFailure(&retErr)
-
-	wal, err := s.storedWALRange()
-	if err != nil {
-		return nil, err
-	}
-	// Before either store opens, the rewinds it may run needing their files closed.
-	if err := s.discardStateAboveTheWAL(wal); err != nil {
-		return nil, err
-	}
-	if err := s.openSS(); err != nil {
-		return nil, err
-	}
-	if err := s.openSC(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.openWAL(); err != nil {
-		return nil, err
-	}
-	s.startCheckpointSchedule(checkpointCfg)
-
-	if err := s.catchUpToWAL(ctx); err != nil {
-		return nil, err
-	}
 	return s, nil
 }
 
-// stateStoreConfigFor is the config a StateDB opens SS with. It is settled here rather than at each
-// open because the rollback path opens the same databases through DiscardStateAbove. The changelog
-// is off: this StateDB's own state WAL is what catchUpTo replays into SS.
-func stateStoreConfigFor(cfg config.StateStoreConfig) config.StateStoreConfig {
-	cfg.DisableInternalWAL = true
-	return cfg
-}
-
-// NewStateDBWithRollback rolls SC, SS and the state WAL back to target and then opens them, so the
-// returned StateDB commits target+1. It cuts the WAL's tail to target and puts whichever of SC and SS
-// sits above target on its newest snapshot at or below it, all while the stores are closed, then opens
-// them the ordinary way and checks both landed on target.
-//
-// target must be positive, and a target the surviving snapshots and the WAL cannot span is refused. A
-// refusal leaves the WAL uncut, so no target this one could reach is lost, but one from SS comes back
-// with SC already rewound.
-func NewStateDBWithRollback(
-	ctx context.Context,
-	flatkvCfg *flatkvconfig.Config,
-	ssCfg config.StateStoreConfig,
-	checkpointCfg config.CheckpointConfig,
-	target int64,
-) (*StateDB, error) {
-	if target <= 0 {
-		// An empty WAL has a head of 0, which rewindTo reads as nothing to rewind, so without this a
-		// caller asking for a rollback would get a plain open instead.
-		return nil, fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is "+
-			"nothing to roll back to", target)
-	}
-
-	// rewindTo only moves files, so it needs no store open, only where they live.
-	offline := &StateDB{flatkvCfg: flatkvCfg, ssCfg: stateStoreConfigFor(ssCfg)}
-	if err := offline.rewindTo(target); err != nil {
-		return nil, err
-	}
-	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg)
+// requireLiveStateDBAtTheWALHead errors unless liveStateDB stands at the head of a WAL that holds blocks.
+func requireLiveStateDBAtTheWALHead(liveStateDB *flatkv.CommitStore, wal statewal.StateWAL) error {
+	stored, _, last, err := wal.GetStoredRange()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("read state WAL range: %w", err)
 	}
-	if err := db.matchHeight(target); err != nil {
-		return nil, errors.Join(fmt.Errorf("cannot roll back to %d: %w", target, err), db.Close())
-	}
-	return db, nil
-}
-
-// closeOnFailure closes the stores a failed open had reached, so a caller that gets an error holds no
-// store this StateDB left open. It is deferred against the constructor's named error.
-func (s *StateDB) closeOnFailure(retErr *error) {
-	if *retErr == nil {
-		return
-	}
-	if err := s.Close(); err != nil {
-		*retErr = errors.Join(*retErr, fmt.Errorf("close a partially opened state DB: %w", err))
-	}
-}
-
-// openWAL opens the state WAL this StateDB commits blocks to.
-func (s *StateDB) openWAL() error {
-	wal, err := flatkv.OpenStateWAL(s.flatkvCfg)
-	if err != nil {
-		return fmt.Errorf("open state WAL: %w", err)
-	}
-	s.wal = wal
-	return nil
-}
-
-// openSC opens SC with no WAL of its own, on the version its files hold: the working copy, or the
-// snapshot a rollback has just repointed it at. It replays nothing, so it comes up at or below the
-// WAL's head and catchUpTo carries it forward from there.
-func (s *StateDB) openSC(ctx context.Context) error {
-	sc, err := flatkv.NewCommitStore(ctx, s.flatkvCfg, nil)
-	if err != nil {
-		return fmt.Errorf("open state commit store: %w", err)
-	}
-	s.sc = sc
-	// Every readonly-* directory under the store is deleted, so this has to run before the process
-	// opens a read-only view of its own: after that, the ones a crashed process left are no longer
-	// the only ones there.
-	if err := s.sc.CleanupOrphanedReadOnlyDirs(); err != nil {
-		return fmt.Errorf("clean up orphaned state commit read-only dirs: %w", err)
-	}
-	if err := s.sc.LoadWorkingCopy(); err != nil {
-		return fmt.Errorf("load the state commit store: %w", err)
-	}
-	return nil
-}
-
-// openSS opens the EVM state store and its snapshot manager, leaving it nil when the store is disabled.
-func (s *StateDB) openSS() error {
-	if !s.ssCfg.Enable {
+	if !stored {
 		return nil
 	}
-	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
-	if err != nil {
-		return fmt.Errorf("open EVM state store: %w", err)
-	}
-	s.ss = ss
-	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), s.ssCfg, nil); err != nil {
-		return fmt.Errorf("start EVM state store snapshot manager: %w", err)
+	//nolint:gosec // live state DB versions are never negative
+	if version := uint64(liveStateDB.Version()); version != last {
+		return fmt.Errorf("the live state DB is at %d but the state WAL ends at %d; roll the live state DB "+
+			"back to align them", version, last)
 	}
 	return nil
 }
 
-// startCheckpointSchedule puts SC and SS on one snapshot cadence. It runs before either store is on a
-// height, so the blocks SC replays offer themselves to the schedule as live commits do.
-func (s *StateDB) startCheckpointSchedule(cfg config.CheckpointConfig) {
-	s.checkpointer = controller.NewCheckpointScheduler(cfg)
-	s.sc.SetCheckpointScheduler(s.checkpointer)
-	if s.ss != nil {
-		s.ss.SetCheckpointScheduler(s.checkpointer)
+// resumeUndoLogOverHeldState resumes historicalStateDB when liveStateDB holds a block. Over an empty live state DB
+// it refuses an undo log that holds blocks, and otherwise leaves the log for the first commit to resume.
+//
+// An empty live state DB may still be seeded to a later height, and seeding waits for it to flush, which a view
+// the undo log held over the empty store would block forever.
+func resumeUndoLogOverHeldState(liveStateDB *flatkv.CommitStore, historicalStateDB *undo.Database) error {
+	if liveStateDB.Version() != 0 {
+		return resumeUndoLog(liveStateDB, historicalStateDB)
 	}
-}
-
-// ssSnapshotRoot returns the directory SS keeps its snapshots in.
-func (s *StateDB) ssSnapshotRoot() string {
-	return utils.GetStateStoreSnapshotsSiblingPath(s.ssCfg.EVMDBDirectory)
-}
-
-// storedWALRange is the block range a state WAL holds on disk: the lowest and highest blocks in it,
-// both 0 when it holds none.
-type storedWALRange struct {
-	first, last int64
-}
-
-// walConfig returns the config that locates the state WAL on disk.
-func (s *StateDB) walConfig() *statewal.Config {
-	return flatkv.StateWALConfig(s.flatkvCfg.DataDir)
-}
-
-// storedWALRange reads the state WAL's block range from its directory. It takes that directory's
-// exclusive lock, so it is only for the window before the WAL opens; GetStoredRange on the open handle
-// answers the same question afterwards.
-func (s *StateDB) storedWALRange() (storedWALRange, error) {
-	stored, first, last, err := statewal.GetRange(s.walConfig())
-	if err != nil {
-		return storedWALRange{}, fmt.Errorf("read state WAL range: %w", err)
-	}
-	if !stored {
-		return storedWALRange{}, nil
-	}
-	//nolint:gosec // a block number never approaches the int64 ceiling
-	return storedWALRange{first: int64(first), last: int64(last)}, nil
-}
-
-// openWALRange reads the block range from the open WAL handle, which storedWALRange's directory lock
-// rules out reading once the WAL is open.
-func (s *StateDB) openWALRange() (storedWALRange, error) {
-	stored, first, last, err := s.wal.GetStoredRange()
-	if err != nil {
-		return storedWALRange{}, fmt.Errorf("read state WAL range: %w", err)
-	}
-	if !stored {
-		return storedWALRange{}, nil
-	}
-	//nolint:gosec // a block number never approaches the int64 ceiling
-	return storedWALRange{first: int64(first), last: int64(last)}, nil
-}
-
-// truncateWAL drops every WAL block above target so the next commit is target+1. A live WAL prunes only
-// from its start, so this cuts the tail through the directory, which requires that no WAL be open on it.
-func (s *StateDB) truncateWAL(target int64) error {
-	//nolint:gosec // target > 0 here, checked by NewStateDBWithRollback
-	if err := statewal.PruneAfter(s.walConfig(), uint64(target)); err != nil {
-		return fmt.Errorf("truncate state WAL to %d: %w", target, err)
+	if historicalStateDB != nil && historicalStateDB.GetLatestVersion() > 0 {
+		return fmt.Errorf("resume the historical state DB: it holds blocks up to %d, but the live state DB is "+
+			"empty", historicalStateDB.GetLatestVersion())
 	}
 	return nil
 }
 
-// Close closes SC, SS and the state WAL, reporting every failure rather than stopping at the first.
-// The WAL closes last, since SC replays through it.
+// resumeUndoLog binds historicalStateDB to liveStateDB's current block, which answers every read the log holds no
+// later record for, unless it is already bound. A log behind the live state DB stops serving the history below
+// the live state DB's height.
+func resumeUndoLog(liveStateDB *flatkv.CommitStore, historicalStateDB *undo.Database) error {
+	if historicalStateDB == nil || historicalStateDB.Resumed() {
+		return nil
+	}
+	if err := historicalStateDB.Resume(liveStateDB.Version(), liveStateDB.OpenView()); err != nil {
+		return fmt.Errorf("resume the historical state DB: %w", err)
+	}
+	return nil
+}
+
+// Close closes the live state DB, the historical state DB and the state WAL, reporting every failure rather than
+// stopping at the first.
 //
 // How long each of the three took is logged, since each drains its own write queue and waits on the
 // compactions behind it, and those dominate the time a shutdown takes.
 func (s *StateDB) Close() error {
 	s.closed.Close(s)
 	var errs error
-	var timer utils.CloseTimer
-	if s.ss != nil {
-		if err := timer.Close("ss", s.ss.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("close EVM state store: %w", err))
+	timer := utils.NewLoggingPhaseTimer(logger)
+	// Before the live state DB: the undo log holds a view of the live state DB's current block until it closes.
+	if s.undo != nil {
+		timer.SetPhase("ss")
+		if err := s.undo.Close(); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close the historical state DB: %w", err))
 		}
 	}
-	if s.sc != nil {
-		if err := timer.Close("sc", s.sc.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("close state commit store: %w", err))
-		}
+	timer.SetPhase("sc")
+	if err := s.sc.Close(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("close the live state DB: %w", err))
 	}
-	if s.wal != nil {
-		if err := timer.Close("wal", s.wal.Close); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
-		}
+	timer.SetPhase("wal")
+	if err := s.wal.Close(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 	}
-	logger.Info("Closed the state DB", timer.Fields()...)
+	timer.Log("Closed the state DB")
 	return errs
 }
 
 // SC returns the state commit store.
 func (s *StateDB) SC() *flatkv.CommitStore { return s.sc }
 
-// SS returns the EVM state store, or nil when it is disabled.
-func (s *StateDB) SS() *evm.EVMStateStore { return s.ss }
+// UndoSS returns the historical state DB, or nil when it is disabled.
+func (s *StateDB) UndoSS() *undo.Database { return s.undo }
 
-// WAL returns the state WAL. It is the one this StateDB opened, and is not replaced for the StateDB's
-// lifetime.
+// WAL returns the state WAL. It is not replaced for the StateDB's lifetime.
 func (s *StateDB) WAL() statewal.StateWAL { return s.wal }
 
-// CheckpointScheduler returns the schedule SC and SS take their snapshot boundaries from.
+// CheckpointScheduler returns the schedule the live state DB takes its snapshot boundaries from.
 func (s *StateDB) CheckpointScheduler() *controller.CheckpointScheduler { return s.checkpointer }
 
 // PrunableStores returns the opened stores that can join a prune cycle.
-func (s *StateDB) PrunableStores() []controller.PrunableStore {
-	stores := make([]controller.PrunableStore, 0, 3)
-	if s.sc != nil {
-		stores = append(stores, s.sc)
-	}
-	if s.wal != nil {
-		stores = append(stores, s.wal)
-	}
-	if s.ss != nil {
-		stores = append(stores, s.ss)
+func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
+	stores := []controllertypes.PrunableStore{s.sc, s.wal}
+	if s.undo != nil {
+		stores = append(stores, s.undo)
 	}
 	return stores
 }
 
-// CommitStateChanges writes a block to the state WAL, the state commit store and the EVM state store,
-// in that order. Callers must not run two commits at once.
-//
-// The time each of the three takes is published under commitPhaseTimerName, split by phase, which is
-// what makes a slow store on the commit path attributable to that store.
-func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
+// CommitStateChanges writes a block's state changes to the state WAL, submits them to the BUD hasher, commits
+// them to the live state DB, and queues them for the historical state DB. Commits must be made one at a time.
+// Returns an error if writing this block or an earlier one has failed.
+func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
 	if blockNum < 0 {
 		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
 		// future that the WAL has no way to recognize as a mistake.
 		return fmt.Errorf("commit block %d: block number must not be negative", blockNum)
 	}
-
+	// Before SC moves past the block the log resumes on.
+	if err := resumeUndoLog(s.sc, s.undo); err != nil {
+		return fmt.Errorf("commit block %d: %w", blockNum, err)
+	}
 	// Ends the phase in flight, so the gap until the next commit is not charged to the last store.
 	defer s.commitPhases.Reset()
 
+	s.commitPhases.SetPhase("convert_mutations")
+	// SC has not taken this block yet, so its view is of the block before.
+	prior := s.sc.OpenView()
+	mutations, err := flatkv.MutationsFromStateChangeSet(changes, uint64(blockNum), prior, s.flatkvCfg)
+	prior.Close()
+	if err != nil {
+		return fmt.Errorf("convert block %d to mutations: %w", blockNum, err)
+	}
+
 	// No need to flush WAL, since this WAL isn't used for crash recoverability safety (that's the BlockDB's job).
 	s.commitPhases.SetPhase("write_state_wal")
-	if err := s.wal.Write(uint64(blockNum), changeset); err != nil {
+	if err := s.wal.Write(uint64(blockNum), mutations); err != nil {
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
 	}
 
+	s.commitPhases.SetPhase("submit_bud_hash")
+	if err := s.budHasher.Submit(context.Background(), uint64(blockNum), mutations); err != nil {
+		return fmt.Errorf("submit block %d to the BUD hasher: %w", blockNum, err)
+	}
+
 	s.commitPhases.SetPhase("commit_sc")
-	if err := s.sc.CommitStateChanges(blockNum, changeset); err != nil {
+	if err := s.sc.CommitStateChanges(blockNum, mutations); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
 	}
-	// SS takes the block asynchronously and is not waited on: the WAL is written first, so a shutdown
-	// that loses the queue leaves SS behind the WAL, which is the gap catchUpTo replays on the next open.
-	// What is timed here is therefore the wait to hand the block over, not the write itself.
-	if s.ss != nil {
+	// The undo log takes SC's view along with the block. Opened before the next commit, it describes
+	// exactly this block, which is what the log answers reads from until a later block replaces it. It
+	// writes asynchronously and is not waited on, so what is timed here is the wait to hand the block over.
+	if s.undo != nil {
 		s.commitPhases.SetPhase("enqueue_ss")
-		if err := s.ss.CommitBlock(blockNum, changeset); err != nil {
-			return fmt.Errorf("commit block %d to the EVM state store: %w", blockNum, err)
-		}
+		s.undo.ApplyBlock(blockNum, changes, s.sc.OpenView())
 	}
 
 	return nil
@@ -378,11 +249,20 @@ func (s *StateDB) OpenView() gigatypes.StateView {
 	return s.sc.OpenView()
 }
 
-// OpenViewAt panics. Serving a past height requires the historical state DB, which is not wired into
-// StateDB.
+// OpenViewAt returns a view of the state after blockNum served from the historical state DB, and false
+// when it does not hold blockNum or is disabled.
+//
+// The view holds back the live state DB's flushes and the historical state DB's pruning until it is
+// closed, so it must be closed promptly.
 func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
-	panic(fmt.Sprintf(
-		"giga: OpenViewAt(%d) is not implemented: the historical state DB is not wired in", blockNum))
+	if s.undo == nil {
+		return nil, false
+	}
+	view, ok := s.undo.OpenView(blockNum)
+	if !ok {
+		return nil, false
+	}
+	return &historicalView{height: blockNum, read: view.Get, release: view.Close}, true
 }
 
 // RegisterHashListener forwards to the state commit store, which is the layer that hashes blocks and

@@ -16,7 +16,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
@@ -49,6 +48,7 @@ func NewEVMHTTPServer(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
+	logCtxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
@@ -114,7 +114,6 @@ func NewEVMHTTPServer(
 	cacheCreationMutex := &sync.Mutex{}
 	sendAPI := NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, autobahnEnabled), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
 
-	ctx := ctxProvider(LatestCtxHeight)
 	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
 	if len(traceCtxProviders) > 0 && traceCtxProviders[0] != nil {
 		traceCtxProvider = traceCtxProviders[0]
@@ -143,7 +142,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: EthNamespace,
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
+			Service:   NewBlockAPI(tmClient, k, logCtxProvider, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: EthNamespace,
@@ -174,9 +173,9 @@ func NewEVMHTTPServer(
 			Service: NewFilterAPI(
 				tmClient,
 				k,
-				ctxProvider,
+				logCtxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes, largeQueryRPS: config.LargeLogQueryRPS},
 				ConnectionTypeHTTP,
 				EthNamespace,
 				dbReadSemaphore,
@@ -203,16 +202,6 @@ func NewEVMHTTPServer(
 			Namespace: "debug",
 			Service:   debugAPI,
 		},
-	}
-	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
-	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
-		logger.Info("Enabling Test EVM APIs")
-		apis = append(apis, rpc.API{
-			Namespace: "test",
-			Service:   NewTestAPI(),
-		})
-	} else {
-		logger.Info("Disabling Test EVM APIs", "liveChainID", evmCfg.IsLiveChainID(ctx), "enableTestAPI", config.EnableTestAPI)
 	}
 
 	httpConfig := HTTPConfig{
@@ -254,6 +243,7 @@ func NewEVMWebSocketServer(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
+	logCtxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
@@ -309,7 +299,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: EthNamespace,
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
+			Service:   NewBlockAPI(tmClient, k, logCtxProvider, ctxProvider, txConfigProvider, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: EthNamespace,
@@ -340,14 +330,14 @@ func NewEVMWebSocketServer(
 			Service: NewSubscriptionAPI(tmClient, k, ctxProvider, &LogFetcher{
 				tmClient:           tmClient,
 				k:                  k,
-				ctxProvider:        ctxProvider,
+				ctxProvider:        logCtxProvider,
 				txConfigProvider:   txConfigProvider,
 				dbReadSemaphore:    dbReadSemaphore,
 				globalBlockCache:   globalBlockCache,
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes}, ConnectionTypeWS, blockHeaderNotifier),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes, largeQueryRPS: config.LargeLogQueryRPS}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",

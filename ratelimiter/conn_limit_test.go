@@ -47,7 +47,7 @@ func requireClosedByServer(t *testing.T, conn net.Conn) {
 func TestConnLimitListenerCapsConnectionsPerIP(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	ln := ConnLimitListener(raw, PlaneGRPC, 2)
+	ln := ConnLimitListener(raw, PlaneCometBFT, 2)
 	t.Cleanup(func() { _ = ln.Close() })
 	accepted := acceptedConns(t, ln)
 
@@ -75,7 +75,7 @@ func TestConnLimitListenerCapsConnectionsPerIP(t *testing.T) {
 func TestConnLimitListenerDoubleCloseReturnsOneSlot(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	ln := ConnLimitListener(raw, PlaneGRPC, 1)
+	ln := ConnLimitListener(raw, PlaneCometBFT, 1)
 	t.Cleanup(func() { _ = ln.Close() })
 	accepted := acceptedConns(t, ln)
 
@@ -101,8 +101,8 @@ func TestConnLimitListenerDisabledReturnsInner(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = raw.Close() })
 
-	require.Same(t, raw, ConnLimitListener(raw, PlaneGRPC, 0))
-	require.Same(t, raw, ConnLimitListener(raw, PlaneGRPC, -1))
+	require.Same(t, raw, ConnLimitListener(raw, PlaneCometBFT, 0))
+	require.Same(t, raw, ConnLimitListener(raw, PlaneCometBFT, -1))
 }
 
 // TestConnLimitListenerAcceptStopsOnListenerError pins that a closed listener
@@ -110,7 +110,7 @@ func TestConnLimitListenerDisabledReturnsInner(t *testing.T) {
 func TestConnLimitListenerAcceptStopsOnListenerError(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	ln := ConnLimitListener(raw, PlaneGRPC, 1)
+	ln := ConnLimitListener(raw, PlaneCometBFT, 1)
 	require.NoError(t, ln.Close())
 
 	_, err = ln.Accept()

@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"math/big"
 
+	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gmath "github.com/ethereum/go-ethereum/common/math"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -20,10 +23,6 @@ import (
 // maxFeeHistoryBlockCount caps a single eth_feeHistory request, matching
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
-
-// earliestCommittedHeight is the lowest block height of an unpruned receipt store: a fixed 1, not a
-// runtime read — wrong for an Autobahn-migrated shard (see autobahn/types.Epoch.FirstBlock).
-const earliestCommittedHeight = int64(1)
 
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the admission floor up for
 // eth_gasPrice's suggestion.
@@ -34,7 +33,7 @@ const (
 
 type infoAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 }
 
 // BlockNumber returns the height of the most recently committed block.
@@ -54,6 +53,11 @@ func (api *infoAPI) Syncing(_ context.Context) (any, error) {
 	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
+// BlobBaseFee implements eth_blobBaseFee, matching v2: Sei supports no blobs.
+func (*infoAPI) BlobBaseFee(context.Context) (*hexutil.Big, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+}
+
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
 // congested-chain reward, matching v2's eth_gasPrice.
 const gasPriceCongestionThresholdPercent = 80
@@ -67,10 +71,7 @@ const defaultPriorityFeePerGas = 1_000_000_000
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
 // admission floor, or the latest congested block's median reward when that's higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
-	floor, err := api.backend.EvmMinGasPrice()
-	if err != nil {
-		return nil, err
-	}
+	floor := api.backend.EvmMinGasPrice()
 	margin := suggestedGasPrice(floor)
 	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
 		return (*hexutil.Big)(reward), nil
@@ -85,8 +86,8 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	if current <= 0 {
 		return nil, false
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil || gasLimit == 0 {
+	gasLimit := api.backend.EvmGasLimit()
+	if gasLimit == 0 {
 		return nil, false
 	}
 	stats, err := api.store.GetBlockStats(receiptContext(ctx), uint64(current)) //nolint:gosec // G115: current is positive here.
@@ -109,10 +110,7 @@ func (api *infoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, err
 	if current <= 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
 	if gasLimit == 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
@@ -168,72 +166,53 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	}
 
 	// gasLimit is applied to every block in the range, not looked up per height.
-	gasLimit, err := api.backend.EvmGasLimit()
-	if err != nil {
-		return nil, err
-	}
+	gasLimit := api.backend.EvmGasLimit()
 
 	return api.walkFeeHistoryRange(ctx, end, int64(blockCount), gasLimit, rewardPercentiles)
-}
-
-// earliestRetainedHeight returns the lowest block height store retains.
-func earliestRetainedHeight(store receiptpkg.ReceiptStore) int64 {
-	if store == nil {
-		return earliestCommittedHeight
-	}
-	// EarliestVersion is 0 until something has pruned the store, in which case
-	// earliestCommittedHeight (this deployment's genesis) is the true earliest.
-	return max(earliestCommittedHeight, store.EarliestVersion())
-}
-
-// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
-func normalizeEarliest(number ethrpc.BlockNumber) ethrpc.BlockNumber {
-	if number == 0 {
-		return ethrpc.EarliestBlockNumber
-	}
-	return number
 }
 
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
 func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error) {
 	current := api.store.LatestVersion()
-	switch normalizeEarliest(lastBlock) {
-	case ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.LatestBlockNumber, ethrpc.PendingBlockNumber:
+	kind, err := classifyBlockNumber(lastBlock)
+	if err != nil {
+		return 0, err
+	}
+	switch kind {
+	case headBlock:
 		if current <= 0 {
 			return 0, errors.New("no committed block available for fee history")
 		}
 		return current, nil
-	case ethrpc.EarliestBlockNumber:
-		return earliestRetainedHeight(api.store), nil
-	default:
-		if lastBlock < 0 {
-			return 0, fmt.Errorf("requested last block %d is not available", lastBlock)
-		}
-		if int64(lastBlock) > current {
-			return 0, fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current)
-		}
-		return int64(lastBlock), nil
+	case earliestBlock:
+		return earliestRetainedHeight(api.backend, api.store), nil
 	}
+	if int64(lastBlock) > current {
+		return 0, fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current)
+	}
+	return int64(lastBlock), nil
 }
 
 // walkFeeHistoryRange collects gasUsedRatio, baseFee, and reward entries for the blockCount
-// blocks ending at end, oldest first, skipping heights below 1 or pruned below the retention floor.
+// blocks ending at end, oldest first, skipping heights before the chain's first block or pruned
+// below the retention floor.
 func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	result := &FeeHistoryResult{GasUsedRatio: []float64{}}
 	// lastGoodResult is the most recent contiguous run completed before a hole, returned if
 	// nothing follows the hole.
 	var lastGoodResult *FeeHistoryResult
 	start := end - blockCount + 1
+	first := firstBlockHeight(api.backend)
 	for height := start; height <= end; height++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if height < 1 {
+		if height < first {
 			continue
 		}
 		stats, err := api.blockStatsForHeight(ctx, height, rewardPercentiles)
 		if err != nil {
-			if errors.Is(err, receiptpkg.ErrNotFound) {
+			if errors.Is(err, receiptdb.ErrNotFound) {
 				if result.OldestBlock != nil {
 					// A hole after rows are emitted restarts the accumulation, keeping the
 					// result a contiguous run.
@@ -281,20 +260,20 @@ func gasUsedRatio(totalGasUsed, gasLimit uint64) float64 {
 
 // blockStatsForHeight answers height's BlockStats: cached when it covers every requested
 // percentile, otherwise recomputed from receipts (including on ErrBlockStatsNotSupported).
-func (api *infoAPI) blockStatsForHeight(ctx context.Context, height int64, rewardPercentiles []float64) (receiptpkg.BlockStats, error) {
+func (api *infoAPI) blockStatsForHeight(ctx context.Context, height int64, rewardPercentiles []float64) (receipttypes.BlockStats, error) {
 	stats, err := api.store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
 	switch {
 	case err == nil && coversRewardPercentiles(stats, rewardPercentiles):
 		return stats, nil
-	case err != nil && !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported):
-		return receiptpkg.BlockStats{}, err
+	case err != nil && !errors.Is(err, receiptdb.ErrBlockStatsNotSupported):
+		return receipttypes.BlockStats{}, err
 	}
 	return api.recomputeBlockStats(ctx, height, rewardPercentiles)
 }
 
 // coversRewardPercentiles reports whether stats alone answers every one of rewardPercentiles: a
 // block with no reward-eligible receipts always does, at zero.
-func coversRewardPercentiles(stats receiptpkg.BlockStats, rewardPercentiles []float64) bool {
+func coversRewardPercentiles(stats receipttypes.BlockStats, rewardPercentiles []float64) bool {
 	if len(rewardPercentiles) == 0 || len(stats.RewardPercentiles) == 0 {
 		return true
 	}
@@ -307,21 +286,21 @@ func coversRewardPercentiles(stats receiptpkg.BlockStats, rewardPercentiles []fl
 }
 
 // recomputeBlockStats answers height's BlockStats by reading its receipts directly and running
-// receiptpkg.ComputeBlockStats over exactly rewardPercentiles.
-func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewardPercentiles []float64) (receiptpkg.BlockStats, error) {
+// receiptmetrics.ComputeBlockStats over exactly rewardPercentiles.
+func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewardPercentiles []float64) (receipttypes.BlockStats, error) {
 	records, err := api.receiptRecordsForHeight(ctx, height)
 	if err != nil {
-		return receiptpkg.BlockStats{}, err
+		return receipttypes.BlockStats{}, err
 	}
-	return receiptpkg.ComputeBlockStats(records, rewardPercentiles), nil
+	return receiptmetrics.ComputeBlockStats(records, rewardPercentiles), nil
 }
 
 // receiptRecordsForHeight answers height's receipts via IterateReceipts when the store supports
 // it — each one already scoped to height by the iterator's own BlockNumber, not trusted from a
 // tx-hash lookup — falling back to decoding the block and fetching receipts by hash otherwise.
-func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) ([]receiptpkg.ReceiptRecord, error) {
+func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) ([]receipttypes.ReceiptRecord, error) {
 	records, err := receiptRecordsFromIterator(ctx, api.store, height)
-	if !errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+	if !errors.Is(err, receiptdb.ErrRangeQueryNotSupported) {
 		return records, err
 	}
 	blockHeight := coretypes.Int64(height)
@@ -335,15 +314,25 @@ func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) (
 	return receiptRecordsFromBlock(ctx, api.store, block)
 }
 
+// blockReceiptRecords returns the receipts stored for block, in transaction
+// index order.
+func blockReceiptRecords(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) ([]receipttypes.ReceiptRecord, error) {
+	records, err := receiptRecordsFromIterator(ctx, store, block.Block.Height)
+	if errors.Is(err, receiptdb.ErrRangeQueryNotSupported) {
+		return receiptRecordsFromBlock(ctx, store, block)
+	}
+	return records, err
+}
+
 // receiptRecordsFromIterator answers height's receipts by walking IterateReceipts from height,
 // stopping at the first receipt belonging to a later block (or immediately, for an empty block).
-func receiptRecordsFromIterator(ctx context.Context, store receiptpkg.ReceiptStore, height int64) ([]receiptpkg.ReceiptRecord, error) {
+func receiptRecordsFromIterator(ctx context.Context, store receiptdb.ReceiptStore, height int64) ([]receipttypes.ReceiptRecord, error) {
 	it, err := store.IterateReceipts(uint64(height)) //nolint:gosec // G115: height is positive here.
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = it.Close() }()
-	var records []receiptpkg.ReceiptRecord
+	var records []receipttypes.ReceiptRecord
 	for {
 		ok, err := it.Next()
 		if err != nil {
@@ -362,9 +351,9 @@ func receiptRecordsFromIterator(ctx context.Context, store receiptpkg.ReceiptSto
 
 // receiptRecordsFromBlock answers block's receipts by decoding its body and fetching each
 // transaction's receipt by hash, for a store whose IterateReceipts is unsupported.
-func receiptRecordsFromBlock(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) ([]receiptpkg.ReceiptRecord, error) {
+func receiptRecordsFromBlock(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) ([]receipttypes.ReceiptRecord, error) {
 	height := block.Block.Height
-	records := make([]receiptpkg.ReceiptRecord, 0, len(block.Block.Txs))
+	records := make([]receipttypes.ReceiptRecord, 0, len(block.Block.Txs))
 	for i, txbz := range block.Block.Txs {
 		tx, err := decodeBlockTx(txbz, height, i)
 		if err != nil {
@@ -386,18 +375,18 @@ func receiptRecordsFromBlock(ctx context.Context, store receiptpkg.ReceiptStore,
 }
 
 // receiptRecordFor builds the ReceiptRecord ComputeBlockStats expects from a stored receipt.
-func receiptRecordFor(hash common.Hash, stored *evmtypes.Receipt) receiptpkg.ReceiptRecord {
+func receiptRecordFor(hash common.Hash, stored *evmtypes.Receipt) receipttypes.ReceiptRecord {
 	var reward *big.Int
 	if stored.EffectiveGasPrice != 0 {
 		// giga's base fee is always zero, so the priority fee is the raw effective gas price.
 		reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
 	}
-	return receiptpkg.ReceiptRecord{TxHash: hash, Receipt: stored, Reward: reward}
+	return receipttypes.ReceiptRecord{TxHash: hash, Receipt: stored, Reward: reward}
 }
 
 // rewardRow formats stats into the reward row eth_feeHistory returns for rewardPercentiles. stats
 // must already cover every requested percentile (see blockStatsForHeight).
-func rewardRow(stats receiptpkg.BlockStats, rewardPercentiles []float64) []*hexutil.Big {
+func rewardRow(stats receipttypes.BlockStats, rewardPercentiles []float64) []*hexutil.Big {
 	row := make([]*hexutil.Big, len(rewardPercentiles))
 	for i, p := range rewardPercentiles {
 		reward, _ := stats.RewardAt(p)

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,6 +22,10 @@ import (
 )
 
 const UnknownMethodCallGas uint64 = 3000
+
+// MaxPrecompileErrorLength is the longest precompile error message, in bytes, that
+// HandlePrecompileError records on the StateDB.
+const MaxPrecompileErrorLength = 1024
 
 type Contexter interface {
 	Ctx() sdk.Context
@@ -92,10 +98,25 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 func HandlePrecompileError(err error, evm *vm.EVM, operation string) {
 	if err != nil {
 		if sdb := state.GetDBImpl(evm.StateDB); sdb != nil {
-			sdb.SetPrecompileError(err)
+			sdb.SetPrecompileError(truncateError(err))
 		}
 		metrics.IncrementErrorMetrics(operation, err)
 	}
+}
+
+// truncateError returns err when its message is at most MaxPrecompileErrorLength bytes, and
+// otherwise a new error whose message is a copy of err's, cut on a UTF-8 boundary to fit. The new
+// error does not wrap err and shares no memory with err's message.
+func truncateError(err error) error {
+	msg := err.Error()
+	if len(msg) <= MaxPrecompileErrorLength {
+		return err
+	}
+	cut := MaxPrecompileErrorLength
+	for cut > 0 && !utf8.RuneStart(msg[cut]) {
+		cut--
+	}
+	return errors.New(strings.Clone(msg[:cut]))
 }
 
 func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method, []interface{}, error) {
@@ -162,7 +183,6 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 		}
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
-			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
 			err = vm.ErrExecutionReverted
 		}
 	}()

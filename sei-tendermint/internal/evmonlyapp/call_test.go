@@ -1,19 +1,23 @@
 package evmonlyapp
 
 import (
+	"bytes"
 	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/export"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // storeCode returns runtime bytecode that unconditionally SSTOREs value at
@@ -83,19 +87,14 @@ func TestEVMOnlyApplicationEvmCallReadsCommittedContractCode(t *testing.T) {
 	runtime := storeCode(slot, value)
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
-	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
-		Txs:  [][]byte{deployRaw},
-		Hash: crypto.Keccak256([]byte("block-1")),
-		Header: &tmproto.Header{
-			Height: 1,
-			Time:   time.Unix(1_700_000_001, 0),
-		},
-	})
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{deployRaw})),
+		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
+		Height: 1,
+		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
-	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contractAddr))
+	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contractAddr), abevm.CallOverrides{})
 
 	require.NoError(t, err)
 	require.False(t, result.Failed())
@@ -111,16 +110,11 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	runtime := storeCode(slot, writtenValue)
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 
-	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
-		Txs:  [][]byte{deployRaw},
-		Hash: crypto.Keccak256([]byte("block-1")),
-		Header: &tmproto.Header{
-			Height: 1,
-			Time:   time.Unix(1_700_000_001, 0),
-		},
-	})
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{deployRaw})),
+		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
+		Height: 1,
+		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
 	before := evmApp.storage.StateDB().OpenView()
@@ -128,7 +122,7 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	before.Close()
 	require.Equal(t, common.Hash{}, beforeValue)
 
-	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contractAddr))
+	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contractAddr), abevm.CallOverrides{})
 	require.NoError(t, err)
 	require.False(t, result.Failed())
 
@@ -137,22 +131,24 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	require.Equal(t, common.Hash{}, after.GetStorage(contractAddr, slot))
 }
 
-func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
+func TestEVMOnlyApplicationEvmCallAfterFinalization(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)
+	deploy, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(blockInfoCode), 300_000)
 
-	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
-		Hash: crypto.Keccak256([]byte("block-1")),
-		Header: &tmproto.Header{
-			Height: 1,
-			Time:   time.Unix(1_700_000_001, 0),
-		},
-	})
+	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{deploy})),
+		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
+		Height: 1,
+		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
-	_, err = evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil))
+	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contract), abevm.CallOverrides{})
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.NoError(t, result.Err)
+	want := append(common.BigToHash(big.NewInt(1)).Bytes(), common.BigToHash(big.NewInt(1_700_000_001)).Bytes()...)
+	require.Equal(t, want, result.Return())
 }
 
 func TestEVMOnlyApplicationExposesChainMetadata(t *testing.T) {
@@ -173,11 +169,145 @@ func TestEVMOnlyApplicationExposesChainMetadata(t *testing.T) {
 	require.Equal(t, uint64(30_000_000), gasLimit)
 }
 
+// blockInfoCode is runtime bytecode that returns NUMBER and TIMESTAMP as two 32-byte words.
+var blockInfoCode = []byte{
+	0x43, 0x60, 0x00, 0x52, // NUMBER, PUSH1 0, MSTORE
+	0x42, 0x60, 0x20, 0x52, // TIMESTAMP, PUSH1 32, MSTORE
+	0x60, 0x40, 0x60, 0x00, 0xf3, // PUSH1 64, PUSH1 0, RETURN
+}
+
+// A call or gas estimate at a past block runs against the state after that block, in the context it
+// executed at; a state the node does not hold is refused.
+func TestEVMOnlyApplicationExecutesAgainstAPastBlock(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+	deployRaw, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(blockInfoCode), 300_000)
+	first := evmOnlyTestBlock(app, 1)
+	second := evmOnlyTestBlock(app, 2, deployRaw)
+	finalizeEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, second)
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
+	// The undo log applies blocks behind the commit; until it has, their history is not held.
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+
+	for _, tc := range []struct {
+		name       string
+		header     abevm.BlockRef
+		wantReturn []byte
+		wantCode   bool
+	}{
+		{name: "before the deploy", header: traceTestHeader(1, common.Hash{})},
+		{
+			name:       "the deploy block",
+			header:     traceTestHeader(2, first.Hash),
+			wantReturn: append(common.BigToHash(big.NewInt(2)).Bytes(), common.BigToHash(big.NewInt(1_700_000_002)).Bytes()...),
+			wantCode:   true,
+		},
+		{
+			name:       "after the deploy",
+			header:     traceTestHeader(3, second.Hash),
+			wantReturn: append(common.BigToHash(big.NewInt(3)).Bytes(), common.BigToHash(big.NewInt(1_700_000_003)).Bytes()...),
+			wantCode:   true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := app.EvmCallAt(t.Context(), callMessage(sender, &contract), tc.header, abevm.CallOverrides{})
+			require.NoError(t, err)
+			require.NoError(t, result.Err)
+			require.Equal(t, tc.wantReturn, result.Return())
+
+			estimate, _, err := app.EvmEstimateGasAt(t.Context(), callMessage(sender, &contract), 0, tc.header, abevm.CallOverrides{})
+			require.NoError(t, err)
+			// Only a call that runs code costs more than a plain transfer.
+			require.Equal(t, tc.wantCode, estimate > params.TxGas)
+		})
+	}
+
+	t.Run("a state the node does not hold", func(t *testing.T) {
+		_, err := app.EvmCallAt(t.Context(), callMessage(sender, &contract), traceTestHeader(9, common.Hash{}), abevm.CallOverrides{})
+		require.Error(t, err)
+		_, _, err = app.EvmEstimateGasAt(t.Context(), callMessage(sender, &contract), 0, traceTestHeader(9, common.Hash{}), abevm.CallOverrides{})
+		require.Error(t, err)
+	})
+}
+
+// A call or gas estimate, at the latest block or a past one, runs with the overrides it is given.
+func TestEVMOnlyApplicationAppliesCallOverrides(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+	first := evmOnlyTestBlock(app, 1)
+	finalizeEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	code := hexutil.Bytes(blockInfoCode)
+	overrides := abevm.CallOverrides{
+		State: export.StateOverride{contract: {Code: &code}},
+		Block: utils.Some(export.BlockOverrides{Number: (*hexutil.Big)(big.NewInt(0x1234))}),
+	}
+	wantNumber := common.BigToHash(big.NewInt(0x1234)).Bytes()
+
+	for _, tc := range []struct {
+		name     string
+		call     func() (*ethcore.ExecutionResult, error)
+		estimate func() (uint64, []byte, error)
+	}{
+		{
+			name: "latest",
+			call: func() (*ethcore.ExecutionResult, error) {
+				return app.EvmCall(t.Context(), callMessage(common.Address{}, &contract), overrides)
+			},
+			estimate: func() (uint64, []byte, error) {
+				return app.EvmEstimateGas(t.Context(), callMessage(common.Address{}, &contract), 0, overrides)
+			},
+		},
+		{
+			name: "past block",
+			call: func() (*ethcore.ExecutionResult, error) {
+				return app.EvmCallAt(t.Context(), callMessage(common.Address{}, &contract), traceTestHeader(1, common.Hash{}), overrides)
+			},
+			estimate: func() (uint64, []byte, error) {
+				return app.EvmEstimateGasAt(t.Context(), callMessage(common.Address{}, &contract), 0, traceTestHeader(1, common.Hash{}), overrides)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := tc.call()
+			require.NoError(t, err)
+			require.NoError(t, result.Err)
+			// The code returns NUMBER and TIMESTAMP.
+			require.True(t, bytes.HasPrefix(result.Return(), wantNumber))
+
+			estimate, _, err := tc.estimate()
+			require.NoError(t, err)
+			// The contract exists only in the override, so only the override makes the call run code.
+			require.True(t, estimate > params.TxGas)
+		})
+	}
+}
+
+// A validator keeps no history, so it executes only against the latest block's state.
+func TestEVMOnlyApplicationValidatorExecutesOnlyAgainstTheLatestBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	first := evmOnlyTestBlock(app, 1)
+	finalizeEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
+	to := common.Address{1}
+
+	_, err := app.EvmCallAt(t.Context(), callMessage(common.Address{}, &to), traceTestHeader(2, first.Hash), abevm.CallOverrides{})
+	require.NoError(t, err)
+	_, _, err = app.EvmEstimateGasAt(t.Context(), callMessage(common.Address{}, &to), 0, traceTestHeader(2, first.Hash), abevm.CallOverrides{})
+	require.NoError(t, err)
+
+	_, err = app.EvmCallAt(t.Context(), callMessage(common.Address{}, &to), traceTestHeader(1, common.Hash{}), abevm.CallOverrides{})
+	require.Error(t, err)
+	_, _, err = app.EvmEstimateGasAt(t.Context(), callMessage(common.Address{}, &to), 0, traceTestHeader(1, common.Hash{}), abevm.CallOverrides{})
+	require.Error(t, err)
+}
+
 func TestEVMOnlyApplicationEvmCallRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 	evmApp := app.(*evmOnlyApplication)
 
-	_, err := evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil))
+	_, err := evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil), abevm.CallOverrides{})
 
 	require.Error(t, err)
 }

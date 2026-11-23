@@ -57,14 +57,14 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		allowed, rejectMethod, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
+		allowed, rejectMethod, batchLen, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
 		if checkErr != nil {
 			writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
 			return
 		}
 		if !allowed {
 			logger.Debug("rate limit rejected JSON-RPC request", "ip", ip, "method", rejectMethod, "plane", m.gate.Plane())
-			writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
+			writeJSONRPCBatchTooManyRequests(w, body, batchLen)
 			return
 		}
 
@@ -94,7 +94,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, ip string, body []byte, status int, code rpctypes.ErrorCode, msg string) {
 	if m.gate.ChargeAdmissionRejection(ctx, ip) {
-		writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
+		writeJSONRPCTooManyRequests(w, body)
 		return
 	}
 	writeJSONRPCErrorWithStatus(w, body, status, code, "%s", msg)

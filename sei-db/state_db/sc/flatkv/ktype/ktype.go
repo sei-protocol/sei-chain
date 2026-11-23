@@ -29,7 +29,7 @@ type Slot [SlotLen]byte
 
 // StorageKey returns the stripped storageDB key for (addr, slot).
 // Key format: addr(20) || slot(32) = 52 bytes.
-// This is NOT the physical DB key; callers must wrap with EVMPhysicalKey.
+// This is NOT the physical DB key; callers must wrap with BuildPhysicalEVMKey.
 func StorageKey(addr Address, slot Slot) []byte {
 	key := make([]byte, AddressLen+SlotLen)
 	copy(key[:AddressLen], addr[:])
@@ -55,10 +55,10 @@ func StorageKey(addr Address, slot Slot) []byte {
 //	EVMKeyMisc    (orig)  miscDB   "evm/" + original_key  OR  "module/" + cosmos_key
 const EVMKeyAccount = keys.EVMKeyNonce
 
-// ModulePhysicalKey returns "moduleName/" + key.
+// BuildPhysicalKey returns "moduleName/" + key.
 // All four data DBs (account, code, storage, misc) use this format so keys
 // remain unique and LtHash-stable when DBs are merged in the future.
-func ModulePhysicalKey(moduleName string, key []byte) []byte {
+func BuildPhysicalKey(moduleName string, key []byte) []byte {
 	n := len(moduleName)
 	result := make([]byte, n+1+len(key))
 	copy(result, moduleName)
@@ -67,12 +67,19 @@ func ModulePhysicalKey(moduleName string, key []byte) []byte {
 	return result
 }
 
-// AppendModulePhysicalKey appends the physical key ModulePhysicalKey would build for moduleName
-// and key to dst and returns the extended slice.
-func AppendModulePhysicalKey(dst []byte, moduleName string, key []byte) []byte {
-	dst = append(dst, moduleName...)
-	dst = append(dst, '/')
-	return append(dst, key...)
+// WritePhysicalKeyToBuffer writes the key BuildPhysicalKey() returns into buf, overwriting buf's contents and reusing
+// its capacity, and returns it.
+func WritePhysicalKeyToBuffer(
+	// The buffer to write into. May be nil.
+	buf []byte,
+	// The module name that prefixes the key.
+	moduleName string,
+	// The bytes that follow "moduleName/".
+	key []byte,
+) []byte {
+	buf = append(buf[:0], moduleName...)
+	buf = append(buf, '/')
+	return append(buf, key...)
 }
 
 // StripModulePrefix splits a module-prefixed physical key into its module name
@@ -85,11 +92,11 @@ func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byt
 	return string(physicalKey[:idx]), physicalKey[idx+1:], nil
 }
 
-// EVMPhysicalKey returns the physical DB key for an EVM key kind.
+// BuildPhysicalEVMKey returns the physical DB key for an EVM key kind.
 // Format: "evm/" + type_prefix_byte + stripped_key.
 // For account keys (nonce, codehash, balance), canonicalizes to EVMKeyAccount
 // (0x0a) because these fields are merged into one physical row.
-func EVMPhysicalKey(kind keys.EVMKeyKind, strippedKey []byte) []byte {
+func BuildPhysicalEVMKey(kind keys.EVMKeyKind, strippedKey []byte) []byte {
 	if kind == keys.EVMKeyCodeHash || kind == keys.EVMKeyBalance {
 		kind = EVMKeyAccount
 	}
@@ -106,10 +113,10 @@ func EVMPhysicalKey(kind keys.EVMKeyKind, strippedKey []byte) []byte {
 	return result
 }
 
-// StripEVMPhysicalKey extracts the EVM key kind and stripped key from a
-// physical DB key. This is the inverse of EVMPhysicalKey for export paths.
+// StripPhysicalEVMKey extracts the EVM key kind and stripped key from a
+// physical DB key. This is the inverse of BuildPhysicalEVMKey for export paths.
 // For account keys the returned kind is EVMKeyAccount (keys.EVMKeyNonce).
-func StripEVMPhysicalKey(physicalKey []byte) (kind keys.EVMKeyKind, strippedKey []byte, err error) {
+func StripPhysicalEVMKey(physicalKey []byte) (kind keys.EVMKeyKind, strippedKey []byte, err error) {
 	_, innerKey, err := StripModulePrefix(physicalKey)
 	if err != nil {
 		return keys.EVMKeyEmpty, nil, fmt.Errorf("strip EVM physical key: %w", err)
@@ -136,9 +143,16 @@ func PrefixEnd(prefix []byte) []byte {
 	return nil
 }
 
-// AppendEVMPhysicalKey appends the physical key EVMPhysicalKey would build for kind and strippedKey
-// to dst and returns the extended slice.
-func AppendEVMPhysicalKey(dst []byte, kind keys.EVMKeyKind, strippedKey []byte) []byte {
+// WritePhysicalEVMKeyToBuffer writes the key BuildPhysicalEVMKey() returns into buf, overwriting buf's contents and
+// reusing its capacity, and returns it. Returns nil for a kind with no prefix byte.
+func WritePhysicalEVMKeyToBuffer(
+	// The buffer to write into. May be nil.
+	buf []byte,
+	// The kind of row the key addresses. A code hash or balance kind addresses the account row.
+	kind keys.EVMKeyKind,
+	// The key with its kind prefix byte removed, such as an address, or an address followed by a slot.
+	strippedKey []byte,
+) []byte {
 	if kind == keys.EVMKeyCodeHash || kind == keys.EVMKeyBalance {
 		kind = EVMKeyAccount
 	}
@@ -146,7 +160,34 @@ func AppendEVMPhysicalKey(dst []byte, kind keys.EVMKeyKind, strippedKey []byte) 
 	if !ok {
 		return nil
 	}
-	dst = append(dst, keys.EVMStoreKey...)
-	dst = append(dst, '/', prefixByte)
-	return append(dst, strippedKey...)
+	buf = append(buf[:0], keys.EVMStoreKey...)
+	buf = append(buf, '/', prefixByte)
+	return append(buf, strippedKey...)
+}
+
+// ParseLogicalKey returns the kind of a logical key and the key with its kind prefix byte removed. A key in a non-EVM
+// module, or an EVM key of misc kind, is keys.EVMKeyMisc and is returned unchanged. Returns an error for an empty
+// module name or an empty EVM key.
+func ParseLogicalKey(
+	// The module the logical key belongs to, such as "evm" or "bank".
+	moduleName string,
+	// The key as the module addresses it. An EVM key begins with its kind prefix byte.
+	logicalKey []byte,
+) (kind keys.EVMKeyKind, strippedKey []byte, err error) {
+	if moduleName != keys.EVMStoreKey {
+		if moduleName == "" {
+			// An empty module name would fold into "/"+key and later persist as the per-module meta
+			// key "_meta/x:/hash", which ParseModuleLtHashKey rejects on reload, so a store that ever
+			// commits one becomes permanently unopenable. Module names are never empty in normal
+			// operation (Cosmos SDK's NewKVStoreKey panics on an empty name), so this only guards
+			// malformed input.
+			return keys.EVMKeyEmpty, nil, fmt.Errorf("empty module name")
+		}
+		return keys.EVMKeyMisc, logicalKey, nil
+	}
+	kind, strippedKey = keys.ParseEVMKey(logicalKey)
+	if kind == keys.EVMKeyEmpty {
+		return kind, nil, fmt.Errorf("empty EVM key")
+	}
+	return kind, strippedKey, nil
 }

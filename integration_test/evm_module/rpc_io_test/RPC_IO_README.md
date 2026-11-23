@@ -23,6 +23,8 @@ When the target is localhost, the script sends one EVM tx and deploys one contra
 
 Production `seid init` defaults remain the three-method allowlist (`sei_getSeiAddress`, `sei_getEVMAddress`, `sei_getCosmosTx`).
 
+**EVM-only chain:** When `eth_chainId` returns the EVM chain ID the local Docker cluster gives the Autobahn EVM-only chain (`713700`), the fixture directories and files in `evmOnlySkips` (`rpc_io_test.go`) are skipped, each with the reason the EVM-only chain does not run them.
+
 ### Comparing legacy vs giga (RPC parity)
 
 To check that **giga** behaves like **legacy** at the spec level (same methods return result vs error):
@@ -274,9 +276,9 @@ The summary table below records historical suite snapshots. The current legacy b
 
 ### Failed tests (0 on latest reference run)
 
-**Latest docker localnet + `evm_rpc_tests.sh`:** **0** failures (**eth parity + legacy batch gate (Mar 2026)**). Methods that Sei documents as unsupported still use **`not-supported.iox`** (and `eth_blobBaseFee/blobs-not-supported-error.iox`): those fixtures **expect** JSON-RPC **error** `-32000` (not `-32601`). See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
+**Latest docker localnet + `evm_rpc_tests.sh`:** **0** failures (**eth parity + legacy batch gate (Mar 2026)**). Methods that Sei documents as unsupported still use **`not-supported.iox`** (and `eth_blobBaseFee/blobs-not-supported-error.iox`): those fixtures **expect** JSON-RPC **error** `-32000` (not `-32601`).
 
-**Historical (pre–Mar 2026, after getLogs range fix):** 11 `eth_*` rows failed until RPC + fixture fixes (insufficient funds / parse error / `get-block-notfound` shape / `eth_getProof` store unwrap / tx-by-index on empty `latest` block). Details are archived in [FAILED_TEST_ANALYSIS.md](FAILED_TEST_ANALYSIS.md).
+**Historical (pre–Mar 2026, after getLogs range fix):** 11 `eth_*` rows failed until RPC + fixture fixes (insufficient funds / parse error / `get-block-notfound` shape / `eth_getProof` store unwrap / tx-by-index on empty `latest` block).
 
 
 ### Skipped tests (0)
@@ -302,7 +304,7 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 | **Skipped** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | **Pass rate** | 61.6% | 82.3% | ~90.4% | 91.2% | 92.5% | 93.1% | 100.0% | 100.0% |
 
-(1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)); representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + two `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml`. Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. (4) **eth_call fix (159)** = same docker localnet + script after EIP-1559 fixture updates (`call-callenv-options-eip1559.iox`, `create-al-contract-eip1559.iox`); reference **147 / 12 / 92.5%**. (5) **getLogs range fix (159)** = **`filter-error-future-block-range.io`** updated so `toBlock` stays beyond head on long-lived localnet; reference **148 / 11 / 93.1%** (`TestEVMRPCSpec`, Mar 2026). (6) **eth parity pass (Mar 2026)** = **159 / 0 / 100%** after `evmrpc` + fixture fixes (`eth_getBlockByNumber` null for future height, `eth_getProof` `findQueryableKVStore`, funded `from` / valid `params` / `__SEED__` for remaining `.iox`). (7) **eth parity + legacy batch gate (Mar 2026)** = **160 / 0 / 100%** after adding **`batch-nonobject-tail-gate.iox`** and `sei_legacy_http` batch fixes (PLT-227).
+(1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior; representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + two `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml`. Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. (4) **eth_call fix (159)** = same docker localnet + script after EIP-1559 fixture updates (`call-callenv-options-eip1559.iox`, `create-al-contract-eip1559.iox`); reference **147 / 12 / 92.5%**. (5) **getLogs range fix (159)** = **`filter-error-future-block-range.io`** updated so `toBlock` stays beyond head on long-lived localnet; reference **148 / 11 / 93.1%** (`TestEVMRPCSpec`, Mar 2026). (6) **eth parity pass (Mar 2026)** = **159 / 0 / 100%** after `evmrpc` + fixture fixes (`eth_getBlockByNumber` null for future height, `eth_getProof` `findQueryableKVStore`, funded `from` / valid `params` / `__SEED__` for remaining `.iox`). (7) **eth parity + legacy batch gate (Mar 2026)** = **160 / 0 / 100%** after adding **`batch-nonobject-tail-gate.iox`** and `sei_legacy_http` batch fixes (PLT-227).
 
 **Legacy `sei_*`:** All `sei_*` fixtures pass with expanded allowlist (including `sei_legacy_deprecation/*.iox` and filter lifecycle `.iox`). **All `eth_*` fixtures pass** on the **eth parity + legacy batch gate (Mar 2026)** reference run. **All `eth_getLogs` fixtures pass.**
 

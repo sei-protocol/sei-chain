@@ -5,12 +5,10 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
@@ -19,7 +17,6 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	"github.com/sei-protocol/sei-chain/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -30,8 +27,6 @@ type Keepers interface {
 	EVMK() EVMKeeper
 	AccountK() AccountKeeper
 	AuthQ() AuthQuerier
-	AuthzMS() AuthzMsgServer
-	AuthzQ() AuthzQuerier
 	WasmdK() WasmdKeeper
 	WasmdVK() WasmdViewKeeper
 	StakingK() StakingKeeper
@@ -59,8 +54,6 @@ func (ek *EmptyKeepers) BankQ() BankQuerier                { return nil }
 func (ek *EmptyKeepers) EVMK() EVMKeeper                   { return nil }
 func (ek *EmptyKeepers) AccountK() AccountKeeper           { return nil }
 func (ek *EmptyKeepers) AuthQ() AuthQuerier                { return nil }
-func (ek *EmptyKeepers) AuthzMS() AuthzMsgServer           { return nil }
-func (ek *EmptyKeepers) AuthzQ() AuthzQuerier              { return nil }
 func (ek *EmptyKeepers) WasmdK() WasmdKeeper               { return nil }
 func (ek *EmptyKeepers) WasmdVK() WasmdViewKeeper          { return nil }
 func (ek *EmptyKeepers) StakingK() StakingKeeper           { return nil }
@@ -97,12 +90,6 @@ type BankMsgServer interface {
 	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
 }
 
-type AuthzMsgServer interface {
-	Grant(goCtx context.Context, msg *authz.MsgGrant) (*authz.MsgGrantResponse, error)
-	Exec(goCtx context.Context, msg *authz.MsgExec) (*authz.MsgExecResponse, error)
-	Revoke(goCtx context.Context, msg *authz.MsgRevoke) (*authz.MsgRevokeResponse, error)
-}
-
 type SlashingMsgServer interface {
 	Unjail(goCtx context.Context, msg *slashingtypes.MsgUnjail) (*slashingtypes.MsgUnjailResponse, error)
 }
@@ -118,27 +105,11 @@ type EVMKeeper interface {
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
-	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
 	GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool)
-	SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error
 	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
-	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
 	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
-	SetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string, addr common.Address) error
 	GetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string) (addr common.Address, version uint16, exists bool)
 	SetCode(ctx sdk.Context, addr common.Address, code []byte)
-	UpsertERCNativePointer(
-		ctx sdk.Context, evm *vm.EVM, token string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
-	UpsertERCCW20Pointer(
-		ctx sdk.Context, evm *vm.EVM, cw20Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
-	UpsertERCCW721Pointer(
-		ctx sdk.Context, evm *vm.EVM, cw721Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
-	UpsertERCCW1155Pointer(
-		ctx sdk.Context, evm *vm.EVM, cw1155Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
 	GetEVMGasLimitFromCtx(ctx sdk.Context) uint64
 	GetCosmosGasLimitFromEVMGas(ctx sdk.Context, evmGas uint64) uint64
 }
@@ -220,12 +191,6 @@ type AuthQuerier interface {
 	Account(c context.Context, req *authtypes.QueryAccountRequest) (*authtypes.QueryAccountResponse, error)
 	Params(c context.Context, req *authtypes.QueryParamsRequest) (*authtypes.QueryParamsResponse, error)
 	NextAccountNumber(c context.Context, req *authtypes.QueryNextAccountNumberRequest) (*authtypes.QueryNextAccountNumberResponse, error)
-}
-
-type AuthzQuerier interface {
-	Grants(c context.Context, req *authz.QueryGrantsRequest) (*authz.QueryGrantsResponse, error)
-	GranterGrants(c context.Context, req *authz.QueryGranterGrantsRequest) (*authz.QueryGranterGrantsResponse, error)
-	GranteeGrants(c context.Context, req *authz.QueryGranteeGrantsRequest) (*authz.QueryGranteeGrantsResponse, error)
 }
 
 type GovQuerier interface {

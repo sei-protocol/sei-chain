@@ -20,7 +20,7 @@ COMMIT := $(shell git log -1 --format='%H')
 BUILDDIR ?= $(CURDIR)/build
 INVARIANT_CHECK_INTERVAL ?= $(INVARIANT_CHECK_INTERVAL:-0)
 # Pinned here so the lint targets and .github/workflows/golangci.yml cannot drift apart.
-GOLANGCI_LINT := GOTOOLCHAIN=$(shell ./scripts/go-toolchain.sh) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+GOLANGCI_LINT := GOTOOLCHAIN=$(shell ./scripts/go-toolchain.sh) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
 # Parent of the Go module cache. Derived from `go env GOMODCACHE` so that the
 # container/compose mounts (`$(GO_PKG_PATH)/mod`) follow a relocated GOMODCACHE
@@ -89,7 +89,6 @@ ldflags := $(strip $(ldflags))
 # BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)' -race
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 BUILD_FLAGS_MOCK_BALANCES := -tags "$(build_tags) mock_balances" -ldflags '$(ldflags)'
-BUILD_FLAGS_BENCHMARK := -tags "$(build_tags) benchmark mock_balances" -ldflags '$(ldflags)'
 
 #### Command List ####
 
@@ -100,9 +99,6 @@ install: go.sum
 
 install-mock-balances: go.sum
 		go install $(BUILD_FLAGS_MOCK_BALANCES) ./cmd/seid
-
-install-bench: go.sum
-		go install $(BUILD_FLAGS_BENCHMARK) ./cmd/seid
 
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
@@ -165,9 +161,6 @@ install-rocksdb: go.sum
 	go install $(BUILD_FLAGS) -tags "$(build_tags) rocksdbBackend" ./cmd/seid
 	@echo "seid installed with RocksDB backend support!"
 
-loadtest: go.sum
-		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
-
 go.sum: go.mod
 		@echo "--> Ensure dependencies have not been modified"
 		@go mod verify
@@ -217,10 +210,6 @@ build-verbose:
 clean:
 	rm -rf ./build
 .PHONY: clean
-
-build-loadtest:
-	go build -o build/loadtest ./loadtest/
-.PHONY: build-loadtest
 
 build-evmonly-loadtest:
 	mkdir -p ./build
@@ -339,10 +328,14 @@ run-rpc-node: build-rpc-node
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
+	-p 8555-8556:8545-8546 \
 	--platform $(DOCKER_PLATFORM) \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env AUTOBAHN=${AUTOBAHN} \
+	--env EVM_ALLOC \
+	--env EVM_PREINSTALLS \
+	--env EVM_GOVERNANCE_VOTING_PERIOD=${EVM_GOVERNANCE_VOTING_PERIOD} \
 	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
@@ -361,11 +354,15 @@ define RUN_RPC_NODE_SKIPBUILD
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
+	-p 8555-8556:8545-8546 \
 	--platform $(DOCKER_PLATFORM) \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env AUTOBAHN=${AUTOBAHN} \
+	--env EVM_ALLOC \
+	--env EVM_PREINSTALLS \
+	--env EVM_GOVERNANCE_VOTING_PERIOD=${EVM_GOVERNANCE_VOTING_PERIOD} \
 	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
@@ -386,7 +383,12 @@ run-rpc-node-skipbuild-ci: ensure-integration-ci-rpcnode-image
 # Wait for the localnode cluster to produce block 100 (the first snapshot-interval) before
 # starting the rpc node. Without this, SKIP_BUILD=true causes step1_configure_init.sh to
 # read a trust-height of ~10-20, find no snapshot during discovery-time, and crash.
+# An Autobahn RPC node serves no Tendermint RPC to wait on; it joins as an Autobahn full node and
+# syncs from genesis.
 run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
+ifeq ($(AUTOBAHN),true)
+	$(RUN_RPC_NODE_SKIPBUILD)
+else
 	@echo "Waiting for cluster to reach block 100 (first snapshot)..."
 	@# 192.168.10.10 is the node0 address defined in docker/localnet/; timeout after 15 × 20s = 5 min.
 	@n=0; until [ "$$(curl -sf http://192.168.10.10:26657/block | jq -r '.block.header.height // 0')" -ge 100 ] 2>/dev/null; do \
@@ -404,12 +406,14 @@ run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
+	-p 8555-8556:8545-8546 \
 	--platform $(DOCKER_PLATFORM) \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
+endif
 .PHONY: run-rpc-node-integration-ci
 
 kill-sei-node:
@@ -427,6 +431,7 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_OCC=$(GIGA_OCC) \
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
+	EVM_GOVERNANCE_VOTING_PERIOD=$(EVM_GOVERNANCE_VOTING_PERIOD) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
 	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
 	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
@@ -445,8 +450,7 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 			DETACH_FLAG=""; \
 		fi; \
 		$(CLUSTER_ENV_VARS) docker compose up $$DETACH_FLAG
-
-.PHONY: localnet-start
+.PHONY: docker-cluster-start
 
 # Use this to skip the seid build process
 docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
@@ -458,7 +462,7 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 			DETACH_FLAG=""; \
 		fi; \
 		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
-.PHONY: localnet-start
+.PHONY: docker-cluster-start-skipbuild
 
 # EVM RPC per-IP rate and burst for CI clusters, which drive node0 from a single IP.
 CI_EVM_IP_RATE_LIMIT_RPS ?= 300
@@ -484,7 +488,7 @@ docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
 # Stop 4-node docker containers
 docker-cluster-stop:
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
-.PHONY: localnet-stop
+.PHONY: docker-cluster-stop
 
 # Run the localnet with two non-validating archival nodes frozen before heights
 # 10 and 20, two live validators, and frozen-rpc-router published on port 8553.

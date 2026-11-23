@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
@@ -84,24 +85,23 @@ func newFinalizationManager(
 //
 // Blocks while the manager is too far behind.
 func (fm *FinalizationManager) Offer(
-	blockNumber int64,
-	// The block's sealed view, which this block's hashes are recorded onto.
-	blockView *sview.StoreView,
-	// The replay skip list: the height each database had already reached when replay started, or nil
-	// outside replay.
-	alreadyHave map[string]int64,
+	blockHeight uint64,
+	// The block's view of every store.
+	storeView *sview.StoreView,
+	// The views this block's hashes are recorded onto.
+	viewsToFinalize []view.View,
 ) error {
-	if err := blockView.Reserve(); err != nil {
-		return fmt.Errorf("reserve block %d for finalization: %w", blockNumber, err)
+	if err := storeView.Reserve(); err != nil {
+		return fmt.Errorf("reserve block %d for finalization: %w", blockHeight, err)
 	}
 	pending := &pendingFinalization{
-		blockNumber: blockNumber,
-		blockView:   blockView,
-		alreadyHave: alreadyHave,
+		blockHeight:     blockHeight,
+		storeView:       storeView,
+		viewsToFinalize: viewsToFinalize,
 	}
 	if err := fm.enqueue(pending); err != nil {
 		return errors.Join(
-			fmt.Errorf("offer block %d for finalization: %w", blockNumber, err),
+			fmt.Errorf("offer block %d for finalization: %w", blockHeight, err),
 			pending.release())
 	}
 	return nil
@@ -197,7 +197,7 @@ func (fm *FinalizationManager) discardQueued() {
 		select {
 		case message := <-fm.messageChan:
 			if pending, ok := message.(*pendingFinalization); ok {
-				pending.blockView.Abandon()
+				pending.storeView.Abandon()
 			}
 		default:
 			return
@@ -212,7 +212,7 @@ func (fm *FinalizationManager) handle(message any) bool {
 		stopped, err := fm.finalize(request)
 		if err != nil || stopped {
 			// The block is dropped: a stopping manager never records it, and a failure bricks this one.
-			request.blockView.Abandon()
+			request.storeView.Abandon()
 		}
 		if err != nil {
 			fm.brick(err)
@@ -247,23 +247,24 @@ func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped b
 		return true, nil
 	}
 	if hash.Error != nil {
-		return false, fmt.Errorf("hash block %d: %w", pending.blockNumber, hash.Error)
+		return false, fmt.Errorf("hash block %d: %w", pending.blockHeight, hash.Error)
 	}
-	if hash.BlockNumber != pending.blockNumber {
+	if uint64(hash.BlockNumber) != pending.blockHeight { //nolint:gosec // block heights are non-negative
 		return false, fmt.Errorf("finalization is out of step: holding block %d, hashed block %d",
-			pending.blockNumber, hash.BlockNumber)
+			pending.blockHeight, hash.BlockNumber)
 	}
 
-	for _, dbView := range pending.blockView.Views() {
-		if err := finalizeStore(dbView, pending.blockNumber, pending.alreadyHave, hash); err != nil {
-			return false, fmt.Errorf("finalize %s at block %d: %w", dbView.Name(), pending.blockNumber, err)
+	for _, viewToFinalize := range pending.viewsToFinalize {
+		if err := finalizeStore(viewToFinalize, pending.blockHeight, hash); err != nil {
+			return false, fmt.Errorf("finalize %s at block %d: %w",
+				viewToFinalize.Name(), pending.blockHeight, err)
 		}
 	}
 
 	// The reservation is only needed while the writes above happen. Released before the hash goes out
 	// so the databases resume flushing even while a listener is still working.
 	if err := pending.release(); err != nil {
-		return false, fmt.Errorf("release block %d after finalizing: %w", pending.blockNumber, err)
+		return false, fmt.Errorf("release block %d after finalizing: %w", pending.blockHeight, err)
 	}
 
 	fm.latest.Store(hash)

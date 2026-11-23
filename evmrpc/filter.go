@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/big"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -23,9 +25,9 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -49,8 +51,6 @@ const (
 	DefaultMaxFilters           = 1000
 	DefaultMaxBlockFilterHashes = 1000
 
-	// global request rate limit, only applies to queries > RPSLimitThreshold
-	GlobalRPSLimit    = 30
 	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
 
 	// rangeQueryWindowBlocks bounds how many blocks tryFilterLogsRange asks the
@@ -190,7 +190,7 @@ type logCollector interface {
 // pooledCollector for reused slice
 type pooledCollector struct {
 	logs   *[]*ethtypes.Log
-	budget *receipt.LogBudget
+	budget *logfilter.LogBudget
 }
 
 func (c *pooledCollector) Append(log *ethtypes.Log) error {
@@ -218,11 +218,14 @@ type filter struct {
 	lastAccess time.Time
 
 	// BlocksSubscription
-	blockCursor string
+	// blockCursor is the cursor blockHashesFrom takes: the first block height the filter's next
+	// poll returns, when no blockHeaderNotifier feeds blockHashes.
+	blockCursor int64
 	blockHashes []common.Hash
 
 	// LogsSubscription
-	lastToHeight int64
+	// logCursor is the cursor pollLogs takes: the first block height the filter's next poll scans.
+	logCursor int64
 }
 
 // Log slice pool to reduce allocations in batch processing
@@ -291,6 +294,7 @@ type FilterAPI struct {
 	shutdownCtx         context.Context
 	shutdownCancel      context.CancelFunc
 	globalRPSLimiter    *rate.Limiter
+	poolMetrics         *WorkerPoolMetrics // load admission sheds against
 	blockHeaderNotifier *BlockHeaderNotifier
 }
 
@@ -301,6 +305,7 @@ type FilterConfig struct {
 	maxBlock             int64
 	maxFilters           uint64
 	maxBlockFilterHashes uint64
+	largeQueryRPS        int
 }
 
 type EventItemDataWrapper struct {
@@ -330,7 +335,7 @@ func NewFilterAPI(
 		filterConfig.maxLog = DefaultMaxLogLimit
 	}
 	if filterConfig.maxLogBytes <= 0 {
-		filterConfig.maxLogBytes = receipt.DefaultMaxLogBytes
+		filterConfig.maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
 	if filterConfig.maxFilters == 0 {
 		filterConfig.maxFilters = DefaultMaxFilters
@@ -364,7 +369,8 @@ func NewFilterAPI(
 		connectionType:      connectionType,
 		shutdownCtx:         shutdownCtx,
 		shutdownCancel:      shutdownCancel,
-		globalRPSLimiter:    rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		globalRPSLimiter:    newLargeQueryLimiter(filterConfig.largeQueryRPS),
+		poolMetrics:         GetGlobalMetrics(),
 		blockHeaderNotifier: blockHeaderNotifier,
 	}
 	if blockHeaderNotifier != nil {
@@ -499,6 +505,28 @@ func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
 	}
 }
 
+// advanceFilterCursor moves a polling filter's cursor forward to cursor, and never back. Callers
+// apply it to the cursor a poll returns before they check the poll's error: a poll that fails on
+// blocks it cannot serve returns a cursor past them. Concurrent polls of one filter read the same
+// cursor and may return the same blocks; keeping the furthest cursor stops a slower poll from
+// delivering them yet again.
+func (a *FilterAPI) advanceFilterCursor(filterID ethrpc.ID, cursor int64) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+
+	f, exists := a.filters[filterID]
+	if !exists {
+		return
+	}
+	switch f.typ {
+	case BlocksSubscription:
+		f.blockCursor = max(f.blockCursor, cursor)
+	case LogsSubscription:
+		f.logCursor = max(f.logCursor, cursor)
+	}
+	a.filters[filterID] = f
+}
+
 const NewFilterMethod = "newFilter"
 
 func (a *FilterAPI) NewFilter(
@@ -510,14 +538,19 @@ func (a *FilterAPI) NewFilter(
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
+	cursor, err := a.logFetcher.pollStart(ctx, crit)
+	if err != nil {
+		return "", err
+	}
+
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
 	curFilterID, err := a.addFilter(filter{
-		typ:          LogsSubscription,
-		fc:           crit,
-		cancelFunc:   cancel,
-		lastAccess:   time.Now(),
-		lastToHeight: 0,
+		typ:        LogsSubscription,
+		fc:         crit,
+		cancelFunc: cancel,
+		lastAccess: time.Now(),
+		logCursor:  cursor,
 	})
 	if err != nil {
 		cancel()
@@ -534,13 +567,23 @@ func (a *FilterAPI) NewBlockFilter(
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
+	var start int64
+	if a.blockHeaderNotifier == nil {
+		earliest, _, head, err := a.logFetcher.watermarks.Watermarks(ctx)
+		if err != nil {
+			return "", err
+		}
+		// On a state-synced node the block store can begin above the safe latest height.
+		start = max(head+1, earliest)
+	}
+
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
 	curFilterID, err := a.addFilter(filter{
 		typ:         BlocksSubscription,
 		cancelFunc:  cancel,
 		lastAccess:  time.Now(),
-		blockCursor: "",
+		blockCursor: start,
 	})
 	if err != nil {
 		cancel()
@@ -589,45 +632,21 @@ func (a *FilterAPI) GetFilterChanges(
 		if a.blockHeaderNotifier != nil {
 			return a.takeBlockHashes(filterID)
 		}
-		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
+		hashes, cursor, err := a.blockHashesFrom(ctx, filter.blockCursor)
+		a.advanceFilterCursor(filterID, cursor)
 		if err != nil {
 			return nil, err
 		}
-
-		// Update filter with write lock
-		a.filtersMu.Lock()
-		if updatedFilter, exists := a.filters[filterID]; exists {
-			updatedFilter.blockCursor = cursor
-			a.filters[filterID] = updatedFilter
-		}
-		a.filtersMu.Unlock()
-
 		return hashes, nil
 	case LogsSubscription:
-		// filter by hash would have no updates if it has previously queried for this crit
-		if filter.fc.BlockHash != nil && filter.lastToHeight > 0 {
-			return result, nil
-		}
-		// filter with a ToBlock would have no updates if it has previously queried for this crit
-		if filter.fc.ToBlock != nil && filter.lastToHeight >= filter.fc.ToBlock.Int64() {
-			return result, nil
-		}
-		logs, lastToHeight, err := a.logFetcher.getLogsByFiltersWithBackoff(ctx, filter.fc, filter.lastToHeight)
+		logs, cursor, err := a.logFetcher.pollLogs(ctx, filter.fc, filter.logCursor, a.admitPoll)
+		a.advanceFilterCursor(filterID, cursor)
 		if err != nil {
 			return nil, err
 		}
 		if logs == nil {
 			logs = result
 		}
-
-		// Update filter with write lock
-		a.filtersMu.Lock()
-		if updatedFilter, exists := a.filters[filterID]; exists {
-			updatedFilter.lastToHeight = lastToHeight + 1
-			a.filters[filterID] = updatedFilter
-		}
-		a.filtersMu.Unlock()
-
 		return logs, nil
 	default:
 		return nil, errors.New("unknown filter type")
@@ -650,29 +669,30 @@ func (a *FilterAPI) GetFilterLogs(
 	filter, ok := a.filters[filterID]
 	a.filtersMu.RUnlock()
 
-	if !ok {
+	if !ok || filter.typ != LogsSubscription {
 		return nil, errors.New("filter does not exist")
 	}
 
 	// Update access time
 	a.updateFilterAccess(filterID)
 
-	logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
+	// Each call re-reads the filter's whole range, so it is admitted like an eth_getLogs query.
+	begin, end, err := a.logFetcher.queryBounds(ctx, filter.fc)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.admitLogQuery(end - begin + 1); err != nil {
+		return nil, err
+	}
+
+	// Read-only history query: the eth_getFilterChanges cursor is left untouched.
+	logs, _, err := a.logFetcher.logsInRange(ctx, filter.fc, begin, end)
 	if err != nil {
 		return nil, err
 	}
 	if logs == nil {
 		logs = []*ethtypes.Log{}
 	}
-
-	// Update filter with write lock
-	a.filtersMu.Lock()
-	if updatedFilter, exists := a.filters[filterID]; exists {
-		updatedFilter.lastToHeight = lastToHeight
-		a.filters[filterID] = updatedFilter
-	}
-	a.filtersMu.Unlock()
-
 	return logs, nil
 }
 
@@ -682,12 +702,7 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
-	earliest, latest, err := a.logFetcher.watermarks.ReceiptRange(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	begin, end, err := ComputeBlockBounds(latest, earliest, 0, crit)
+	begin, end, err := a.logFetcher.queryBounds(ctx, crit)
 	if err != nil {
 		return nil, err
 	}
@@ -699,39 +714,11 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		GetGlobalMetrics().RecordGetLogsRequest(blockRange, time.Since(startTime), startTime, err)
 	}()
 
-	// Use config value instead of hardcoded constant
-	if blockRange > a.filterConfig.maxBlock {
-		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
+	if err := a.admitLogQuery(blockRange); err != nil {
+		return nil, err
 	}
 
-	// Early rejection for pruned blocks - avoid wasting resources on blocks that don't exist
-	if earliest > 0 && begin < earliest {
-		return nil, fmt.Errorf("requested block range [%d, %d] includes pruned blocks, earliest available block is %d", begin, end, earliest)
-	}
-
-	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
-	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
-		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
-	}
-
-	// Backpressure: early rejection based on system load
-	m := GetGlobalMetrics()
-
-	// Check 1: Too many pending tasks (queue backlog)
-	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
-	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
-	if pending > maxPending {
-		return nil, fmt.Errorf("server too busy, rejecting new request (pending: %d, threshold: %d)", pending, maxPending)
-	}
-
-	// Check 2: I/O saturated (semaphore exhausted)
-	semInUse := m.DBSemaphoreAcquired.Load()
-	semCapacity := m.DBSemaphoreCapacity.Load()
-	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
-		return nil, fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
-	}
-
-	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
+	logs, _, err := a.logFetcher.logsInRange(ctx, crit, begin, end)
 	if err != nil {
 		return nil, err
 	}
@@ -744,42 +731,183 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	return logs, nil
 }
 
-// get block headers after a certain cursor. Can use an empty string cursor
-// to get the latest block header.
-func (a *FilterAPI) getBlockHeadersAfter(
-	ctx context.Context,
-	cursor string,
-) ([]common.Hash, string, error) {
-	q := NewBlockQueryBuilder()
-	builtQuery := q.Build()
-	hasMore := true
-	headers := []common.Hash{}
-	for hasMore {
-		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
-			Filter: &coretypes.EventFilter{Query: builtQuery},
-			After:  cursor,
-		})
-		if err != nil {
-			return nil, "", err
-		}
-		hasMore = res.More
-		cursor = res.Newest
+// admitLogQuery reports whether a client log query over blockRange blocks may run now.
+func (a *FilterAPI) admitLogQuery(blockRange int64) error {
+	return checkLogQueryAdmission(blockRange, a.filterConfig.maxBlock, a.globalRPSLimiter, a.poolMetrics)
+}
 
-		for _, item := range res.Items {
-			wrapper := EventItemDataWrapper{}
-			err := json.Unmarshal(item.Data, &wrapper)
-			if err != nil {
-				return nil, "", err
-			}
-			block := tmtypes.EventDataNewBlock{}
-			err = json.Unmarshal(wrapper.Value, &block)
-			if err != nil {
-				return nil, "", err
-			}
-			headers = append(headers, common.BytesToHash(block.Block.Hash()))
-		}
+// admitPoll returns how many of the blockRange blocks a log filter's poll may scan now.
+func (a *FilterAPI) admitPoll(blockRange int64) (allowed int64, err error) {
+	return checkPollAdmission(blockRange, a.filterConfig.maxBlock, a.globalRPSLimiter, a.poolMetrics)
+}
+
+// checkLogQueryAdmission reports whether a log query over blockRange blocks may run, against the
+// range cap, the large-query rate limiter, and the worker-queue and DB-semaphore load in m.
+func checkLogQueryAdmission(blockRange, maxBlock int64, limiter *rate.Limiter, m *WorkerPoolMetrics) error {
+	// First, so an over-range query cannot spend a token the valid queries need.
+	if err := checkBlockRange(blockRange, maxBlock); err != nil {
+		return err
 	}
-	return headers, cursor, nil
+	// Before the limiter, so a query refused under load does not spend a token.
+	if err := checkLoad(m); err != nil {
+		return err
+	}
+	if blockRange > RPSLimitThreshold && !limiter.Allow() {
+		return &errLogQueryRefused{msg: "log query rate limit exceeded for large queries, please try again later"}
+	}
+	return nil
+}
+
+// checkPollAdmission returns how many of blockRange blocks a filter poll may scan: all of them
+// with a large-query token, RPSLimitThreshold without one. It refuses the poll only under load, as
+// checkLogQueryAdmission does.
+func checkPollAdmission(blockRange, maxBlock int64, limiter *rate.Limiter, m *WorkerPoolMetrics) (allowed int64, err error) {
+	// A safeguard only: pollWindow already caps a poll at maxBlock.
+	if err := checkBlockRange(blockRange, maxBlock); err != nil {
+		return 0, err
+	}
+	if err := checkLoad(m); err != nil {
+		return 0, err
+	}
+	if blockRange > RPSLimitThreshold && !limiter.Allow() {
+		// Cut rather than refused, so a filter that has fallen behind keeps moving instead of
+		// waiting on tokens.
+		blockRange = RPSLimitThreshold
+	}
+	return blockRange, nil
+}
+
+// newLargeQueryLimiter returns the limiter admitting log queries over RPSLimitThreshold blocks at
+// rps per second with a burst of rps. A non-positive rps admits every query.
+func newLargeQueryLimiter(rps int) *rate.Limiter {
+	if rps <= 0 {
+		return rate.NewLimiter(rate.Inf, 0)
+	}
+	return rate.NewLimiter(rate.Limit(rps), rps)
+}
+
+// checkLoad refuses any log query while the worker queue or the DB read semaphore in m is 80% used.
+// It reads m without reserving capacity, so concurrent queries arriving together can all pass it;
+// the worker queue's capacity is the hard bound.
+func checkLoad(m *WorkerPoolMetrics) error {
+	pending := m.TasksSubmitted.Load() - m.TasksCompleted.Load()
+	maxPending := int64(float64(m.QueueCapacity.Load()) * 0.8) // 80% threshold
+	if pending > maxPending {
+		return &errLogQueryRefused{msg: "server too busy, rejecting new request, please try again later"}
+	}
+
+	semInUse := m.DBSemaphoreAcquired.Load()
+	semCapacity := m.DBSemaphoreCapacity.Load()
+	if semCapacity > 0 && float64(semInUse)/float64(semCapacity) >= 0.8 {
+		return &errLogQueryRefused{msg: "server I/O saturated, rejecting new request, please try again later"}
+	}
+	return nil
+}
+
+// errCodeLogQueryRefused is the JSON-RPC error code (-32005, limit exceeded) for a valid log query
+// the node declines to run now; it may succeed when retried.
+const errCodeLogQueryRefused = -32005
+
+// errLogQueryRefused is a log query shed by admission; the JSON-RPC layer maps it to
+// errCodeLogQueryRefused.
+type errLogQueryRefused struct {
+	msg string
+}
+
+func (e *errLogQueryRefused) Error() string {
+	return e.msg
+}
+
+func (e *errLogQueryRefused) ErrorCode() int {
+	return errCodeLogQueryRefused
+}
+
+// checkBlockRange rejects a query over more than maxBlock blocks.
+func checkBlockRange(blockRange, maxBlock int64) error {
+	if blockRange > maxBlock {
+		return fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, maxBlock)
+	}
+	return nil
+}
+
+// blockHashesFrom returns the hashes of the blocks from cursor on, oldest first, and the cursor the
+// next poll starts from, also when it returns an error. A poll covers at most maxBlockFilterHashes
+// heights up to the safe latest height, which must not exceed the block store's height. A cursor
+// below the earliest available block, found before or during the poll, fails it with an error
+// naming the pruned blocks, and the returned cursor is that block. It reads the CometBFT block
+// store, so it serves only nodes without a blockHeaderNotifier.
+func (a *FilterAPI) blockHashesFrom(ctx context.Context, cursor int64) ([]common.Hash, int64, error) {
+	earliest, _, head, err := a.logFetcher.watermarks.Watermarks(ctx)
+	if err != nil {
+		return nil, cursor, err
+	}
+	if cursor < earliest {
+		return nil, earliest, prunedBlocksError(cursor, earliest)
+	}
+	// #nosec G115 -- min with math.MaxInt32 fits the cap in an int64 with room for cursor+span-1 below
+	span := int64(min(a.filterConfig.maxBlockFilterHashes, math.MaxInt32))
+	to := min(head, cursor+span-1)
+	if to < cursor {
+		return []common.Hash{}, cursor, nil
+	}
+	hashes, err := a.blockHashesDescending(ctx, cursor, to)
+	if errors.Is(err, coretypes.ErrInvalidRequest) {
+		return a.prunedDuringPoll(ctx, cursor, err)
+	}
+	if err != nil {
+		return nil, cursor, err
+	}
+	slices.Reverse(hashes)
+	return hashes, to + 1, nil
+}
+
+// prunedDuringPoll returns the result of a poll from cursor whose block store read failed with
+// err. When pruning passed the cursor during the poll, it fails with an error naming the pruned
+// blocks and returns the earliest available block as the next cursor, as a poll that found them
+// pruned beforehand does; otherwise it returns err and leaves the cursor where it was.
+func (a *FilterAPI) prunedDuringPoll(ctx context.Context, cursor int64, err error) ([]common.Hash, int64, error) {
+	earliest, _, _, wmErr := a.logFetcher.watermarks.Watermarks(ctx)
+	if wmErr != nil || cursor >= earliest {
+		return nil, cursor, err
+	}
+	return nil, earliest, prunedBlocksError(cursor, earliest)
+}
+
+// prunedBlocksError reports that the blocks from cursor up to earliest were pruned before a block
+// filter read them.
+func prunedBlocksError(cursor, earliest int64) error {
+	return fmt.Errorf("blocks %d to %d were pruned before the filter read them", cursor, earliest-1)
+}
+
+// blockHashesDescending returns the hashes of the blocks the block store holds from height from to
+// height to, newest first. It pages through BlockchainInfo by the heights each page returns.
+func (a *FilterAPI) blockHashesDescending(ctx context.Context, from, to int64) ([]common.Hash, error) {
+	hashes := make([]common.Hash, 0, min(to-from+1, DefaultMaxBlockFilterHashes))
+	for hi := to; hi >= from; {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		res, err := a.tmClient.BlockchainInfo(ctx, from, hi)
+		if err != nil {
+			return nil, fmt.Errorf("fetching block headers %d to %d: %w", from, hi, err)
+		}
+		if len(res.BlockMetas) == 0 {
+			// The CometBFT block store has no holes between its base and height, so this guards
+			// another provider: the page below hi holds no block, and its size is the provider's
+			// to choose, so only hi is known to be missing.
+			hi--
+			continue
+		}
+		for _, meta := range res.BlockMetas {
+			hashes = append(hashes, common.BytesToHash(meta.BlockID.Hash))
+		}
+		lowest := res.BlockMetas[len(res.BlockMetas)-1].Header.Height
+		if lowest > hi || lowest < from {
+			return nil, fmt.Errorf("block headers %d to %d returned block %d", from, hi, lowest)
+		}
+		hi = lowest - 1
+	}
+	return hashes, nil
 }
 
 func (a *FilterAPI) UninstallFilter(
@@ -822,10 +950,10 @@ type LogFetcher struct {
 	watermarks               *WatermarkManager
 }
 
-// ComputeBlockBounds returns the effective block range within the available
-// bounds, taking incremental pagination into account. "earliest" and 0x0 mean
-// the earliest available block; other heights outside available history error.
-func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64, error) {
+// ComputeBlockBounds returns the block range crit requests, with tags such as latest
+// resolved to the height latest and "earliest" or 0x0 to earliest. It returns an error
+// rather than a truncated range when the range is inverted or reaches outside [earliest, latest].
+func ComputeBlockBounds(latest, earliest int64, crit filters.FilterCriteria) (int64, int64, error) {
 	begin := latest
 	end := latest
 
@@ -855,54 +983,72 @@ func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.Filte
 		return 0, 0, fmt.Errorf("requested toBlock %d is before earliest available block %d", end, earliest)
 	}
 
-	if lastToHeight > begin {
-		begin = lastToHeight
-	}
-
 	return begin, end, nil
 }
 
-func (f *LogFetcher) newLogBudget(limit int64) *receipt.LogBudget {
+func (f *LogFetcher) newLogBudget(limit int64) *logfilter.LogBudget {
 	maxLogBytes := f.filterConfig.maxLogBytes
 	if maxLogBytes <= 0 {
-		maxLogBytes = receipt.DefaultMaxLogBytes
+		maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
-	return receipt.NewLogBudget(limit, maxLogBytes)
+	return logfilter.NewLogBudget(limit, maxLogBytes)
 }
 
 // storeCandidateBudget caps estimated heap bytes while the litt store
 // materializes tag-index matches. Count is not capped here because raw store
 // matches can include logs dropped during eth normalization (synthetic /
 // non-EVM-visible receipts); the authoritative count+byte cap runs there.
-func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
+func (f *LogFetcher) storeCandidateBudget() *logfilter.LogBudget {
 	maxLogBytes := f.filterConfig.maxLogBytes
 	if maxLogBytes <= 0 {
-		maxLogBytes = receipt.DefaultMaxLogBytes
+		maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
-	return receipt.NewLogBudgetBytesOnly(maxLogBytes)
+	return logfilter.NewLogBudgetBytesOnly(maxLogBytes)
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+// withBounds returns crit fixed to the numeric range [begin, end]. A blockHash crit is returned
+// unchanged.
+func withBounds(crit filters.FilterCriteria, begin, end int64) filters.FilterCriteria {
+	if crit.BlockHash != nil {
+		return crit
+	}
+	crit.FromBlock = big.NewInt(begin)
+	crit.ToBlock = big.NewInt(end)
+	return crit
+}
+
+// queryBounds resolves crit's block range against the current head and earliest available block
+// (see ComputeBlockBounds).
+func (f *LogFetcher) queryBounds(ctx context.Context, crit filters.FilterCriteria) (begin, end int64, err error) {
+	blockEarliest, _, latest, err := f.watermarks.Watermarks(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	return ComputeBlockBounds(latest, f.watermarks.receiptEarliest(blockEarliest), crit)
+}
+
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, end int64, err error) {
+	// Before the bounds, so a node without a receipt store says so rather than failing on heights.
 	if err := requireReceiptStore(f.k); err != nil {
 		return nil, 0, err
 	}
-	earliest, latest, err := f.watermarks.ReceiptRange(ctx)
+	begin, end, err := f.queryBounds(ctx, crit)
 	if err != nil {
 		return nil, 0, err
 	}
-	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
-	if err != nil {
+	return f.logsInRange(ctx, crit, begin, end)
+}
+
+// logsInRange returns the logs crit matches in [begin, end], a range the caller resolved with
+// queryBounds, and the last block read.
+func (f *LogFetcher) logsInRange(ctx context.Context, crit filters.FilterCriteria, begin, end int64) (res []*ethtypes.Log, last int64, err error) {
+	if err := requireReceiptStore(f.k); err != nil {
 		return nil, 0, err
 	}
-	if begin > end {
-		return []*ethtypes.Log{}, end, nil
-	}
-
-	blockRange := end - begin + 1
-
-	// Use config value instead of hardcoded constant
-	if blockRange > f.filterConfig.maxBlock {
-		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
+	// Fixed to the resolved range, so the block-by-block fallback reads it even if the head moves.
+	crit = withBounds(crit, begin, end)
+	if err := checkBlockRange(end-begin+1, f.filterConfig.maxBlock); err != nil {
+		return nil, 0, err
 	}
 
 	// maxLog caps the number of matching logs a single query may return, for
@@ -920,8 +1066,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		// #nosec G115 -- begin and end are validated to be positive block heights above
 		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit, limit); rangeErr == nil {
 			return logs, end, nil
-		} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
-			// A real error (including receipt.ErrTooManyLogs) short-circuits;
+		} else if !errors.Is(rangeErr, receiptdb.ErrRangeQueryNotSupported) {
+			// A real error (including logfilter.ErrTooManyLogs) short-circuits;
 			// only "unsupported" falls through to the block-by-block path.
 			return nil, 0, rangeErr
 		}
@@ -929,7 +1075,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Fall back to block-by-block querying for backends that don't support range queries
 
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
-	blocks, end, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
+	blocks, end, err := f.fetchBlocksByCrit(ctx, crit, bloomIndexes)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -977,7 +1123,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
-		if budget.Tripped() {
+		if budget.Tripped() || ctx.Err() != nil {
 			break
 		}
 		blockBatch = append(blockBatch, block)
@@ -1000,7 +1146,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Process remaining blocks, unless the cap is already exceeded
-	if len(blockBatch) > 0 && !budget.Tripped() {
+	if len(blockBatch) > 0 && !budget.Tripped() && ctx.Err() == nil {
 		wg.Add(1)
 		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
@@ -1027,6 +1173,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	for range blocks {
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 	if budget.Tripped() {
 		return nil, 0, budget.Err()
 	}
@@ -1041,40 +1190,190 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	return res, end, err
 }
 
-// getLogsByFiltersWithBackoff wraps GetLogsByFilters for polling callers
-// (GetFilterChanges, the WS backfill loop): on cap overflow it halves the
-// window and retries so the cursor still advances instead of wedging forever.
-func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
-	narrowed := crit
+// pollStart returns the cursor a new log filter starts polling from: crit's fromBlock when it
+// is a number, and otherwise the block after the current head. A blockHash crit starts at 0. It
+// rejects a numeric fromBlock above 0 that is below the earliest available block, and a numeric
+// toBlock below the start.
+func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria) (int64, error) {
+	if crit.BlockHash != nil {
+		return 0, nil
+	}
+	head, err := f.latestHeight(ctx)
+	if err != nil {
+		return 0, err
+	}
+	start := head + 1
+	if isEarliestBound(crit.FromBlock) {
+		start = 0
+	} else if crit.FromBlock != nil && crit.FromBlock.Sign() >= 0 {
+		start = crit.FromBlock.Int64()
+		if err := f.ensureStartRetained(ctx, start); err != nil {
+			return 0, err
+		}
+	}
+	if crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && crit.ToBlock.Int64() < start {
+		return 0, fmt.Errorf("requested toBlock %d is before the filter's start block %d", crit.ToBlock.Int64(), start)
+	}
+	return start, nil
+}
+
+// ensureStartRetained rejects a filter start above 0 that is below the earliest available block.
+func (f *LogFetcher) ensureStartRetained(ctx context.Context, start int64) error {
+	if start == 0 {
+		return nil
+	}
+	earliest, err := f.earliestHeight(ctx)
+	if err != nil {
+		return err
+	}
+	if start < earliest {
+		return fmt.Errorf("requested fromBlock %d is before earliest available block %d", start, earliest)
+	}
+	return nil
+}
+
+// pollLogs returns the logs crit matches from cursor on, and the cursor the next poll starts
+// from, also when it returns an error. A poll scans from cursor up to the head, or to crit's
+// toBlock when it is a number below the head, and scans fewer blocks when that range exceeds the
+// block or log caps. A cursor of 0 scans from the earliest available block. A cursor above 0 that
+// is below that block fails the poll with an error naming the pruned blocks, and the returned
+// cursor is the earliest block. A block whose logs alone exceed the log caps fails the poll that
+// reaches it, and the returned cursor is past it. A blockHash crit's block is returned by the
+// poll at cursor 0. A non-nil admit is asked once per poll, before any block is read, how many of
+// the blocks due it may scan, between 1 and that number; the poll scans that many, and when admit
+// refuses, the poll fails without moving the cursor.
+func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, cursor int64, admit func(blockRange int64) (allowed int64, err error)) ([]*ethtypes.Log, int64, error) {
+	if logsExhausted(crit, cursor) {
+		return []*ethtypes.Log{}, cursor, nil
+	}
+	if crit.BlockHash != nil {
+		if admit != nil {
+			if _, err := admit(1); err != nil {
+				return nil, cursor, err
+			}
+		}
+		logs, _, err := f.GetLogsByFilters(ctx, crit)
+		if exceedsLogCaps(err) {
+			// Every later poll would fail on the block again, so the filter ends with the error.
+			return nil, cursor + 1, err
+		}
+		if err != nil {
+			return nil, cursor, err
+		}
+		return logs, cursor + 1, nil
+	}
+	head, err := f.latestHeight(ctx)
+	if err != nil {
+		return nil, cursor, err
+	}
+	// A failed poll returns cursor rather than start, so a filter from block 0 keeps following the
+	// earliest block instead of being pinned to the one this poll saw.
+	start := cursor
+	if earliest, err := f.earliestHeight(ctx); err == nil && cursor < earliest {
+		// Pruned blocks cannot be served on any later poll either, so the filter moves on to the
+		// earliest block. A filter from block 0 asked for whatever the node has, so only a filter
+		// that lost blocks it was due is told.
+		if cursor > 0 {
+			return nil, earliest, prunedLogsError(crit, cursor, earliest)
+		}
+		start = earliest
+	}
+	from, to, ok := pollWindow(crit.ToBlock, start, head, f.filterConfig.maxBlock)
+	if !ok {
+		return []*ethtypes.Log{}, start, nil
+	}
+	if admit != nil {
+		allowed, err := admit(to - from + 1)
+		if err != nil {
+			return nil, cursor, err
+		}
+		to = min(to, from+max(allowed, 1)-1)
+	}
+	logs, end, err := f.getLogsByFiltersWithBackoff(ctx, crit, from, to)
+	var oversized *oversizedBlockError
+	if errors.As(err, &oversized) {
+		// Every later poll would fail on the block again, so the filter moves on without it.
+		return nil, oversized.height + 1, err
+	}
+	if err != nil {
+		return nil, cursor, err
+	}
+	return logs, end + 1, nil
+}
+
+// pollWindow returns the block range a log filter's poll scans: from cursor to the head, or to
+// toBlock when it is a number below the head, and at most maxBlock blocks when maxBlock is
+// positive. ok is false when the range is empty.
+func pollWindow(toBlock *big.Int, cursor, head, maxBlock int64) (from, to int64, ok bool) {
+	to = head
+	if toBlock != nil && toBlock.Sign() >= 0 {
+		to = min(to, toBlock.Int64())
+	}
+	if cursor > to {
+		return 0, 0, false
+	}
+	if maxBlock > 0 && to-cursor >= maxBlock {
+		to = cursor + maxBlock - 1
+	}
+	return cursor, to, true
+}
+
+// logsExhausted reports whether no poll from cursor on can match a log for crit: cursor is past
+// its numeric toBlock, or its blockHash block has been polled. A toBlock tag such as latest
+// follows the head and is never passed.
+func logsExhausted(crit filters.FilterCriteria, cursor int64) bool {
+	if crit.BlockHash != nil {
+		return cursor > 0
+	}
+	return crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && cursor > crit.ToBlock.Int64()
+}
+
+// prunedLogsError reports the blocks from cursor up to earliest, or up to crit's numeric toBlock
+// when it is lower, whose logs were pruned before a filter polled them.
+func prunedLogsError(crit filters.FilterCriteria, cursor, earliest int64) error {
+	last := earliest - 1
+	if crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 {
+		last = min(last, crit.ToBlock.Int64())
+	}
+	return fmt.Errorf("logs of blocks %d to %d were pruned before the filter read them", cursor, last)
+}
+
+// exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
+func exceedsLogCaps(err error) bool {
+	return errors.Is(err, logfilter.ErrTooManyLogs) || errors.Is(err, logfilter.ErrTooManyLogBytes)
+}
+
+// oversizedBlockError reports a block whose logs matching a filter alone exceed the log caps.
+type oversizedBlockError struct {
+	height int64
+	err    error
+}
+
+func (e *oversizedBlockError) Error() string {
+	return fmt.Sprintf("logs of block %d skipped: %v", e.height, e.err)
+}
+
+func (e *oversizedBlockError) Unwrap() error { return e.err }
+
+// getLogsByFiltersWithBackoff returns the logs crit matches in the blocks from through to, and
+// the last height they cover. When those logs exceed the log caps it halves the range until they
+// fit, and fails with an oversizedBlockError when block from alone exceeds them.
+func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filters.FilterCriteria, from, to int64) ([]*ethtypes.Log, int64, error) {
+	window := crit
+	window.FromBlock = big.NewInt(from)
 	for {
-		logs, end, err := f.GetLogsByFilters(ctx, narrowed, lastToHeight)
+		window.ToBlock = big.NewInt(to)
+		logs, end, err := f.GetLogsByFilters(ctx, window)
 		if err == nil {
 			return logs, end, nil
 		}
-		if !errors.Is(err, receipt.ErrTooManyLogs) && !errors.Is(err, receipt.ErrTooManyLogBytes) {
+		if !exceedsLogCaps(err) {
 			return nil, 0, err
 		}
-
-		earliest, latest, rErr := f.watermarks.ReceiptRange(ctx)
-		if rErr != nil {
-			return nil, 0, rErr
+		if from == to {
+			return nil, 0, &oversizedBlockError{height: from, err: err}
 		}
-		begin, curEnd, boundsErr := ComputeBlockBounds(latest, earliest, lastToHeight, narrowed)
-		if boundsErr != nil {
-			return nil, 0, boundsErr
-		}
-		if curEnd <= begin {
-			// Even a single block overflows the cap; nothing left to narrow.
-			return nil, 0, err
-		}
-		mid := begin + (curEnd-begin)/2
-		if mid <= lastToHeight {
-			// Halving cannot exclude any block the cursor has not already passed.
-			return nil, 0, err
-		}
-
-		narrowed.FromBlock = big.NewInt(begin)
-		narrowed.ToBlock = big.NewInt(mid)
+		to = from + (to-from)/2
 	}
 }
 
@@ -1132,6 +1431,14 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log, limit int64) []*
 	return res
 }
 
+func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
+	return f.watermarks.LatestHeight(ctx)
+}
+
+func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
+	return f.watermarks.EarliestReceiptHeight(ctx)
+}
+
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
 // Returns ErrRangeQueryNotSupported if the backend doesn't support range queries.
 //
@@ -1142,7 +1449,7 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log, limit int64) []*
 func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
-		return nil, receipt.ErrNotConfigured
+		return nil, receiptdb.ErrNotConfigured
 	}
 
 	budget := f.newLogBudget(limit)
@@ -1205,7 +1512,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 // caches receipts in globalBlockCache) to build the filtered tx mapping, then
 // reconstructs logs from cached receipts — avoiding the double receipt fetch
 // that a full collectLogs rebuild would require.
-func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria, budget *receipt.LogBudget) ([]*ethtypes.Log, error) {
+func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria, budget *logfilter.LogBudget) ([]*ethtypes.Log, error) {
 	ctxProvider := withRequestContext(ctx, f.ctxProvider)
 	// Collect unique block numbers from range query results
 	blockSet := make(map[uint64]struct{})
@@ -1315,7 +1622,7 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 }
 
 // GetLogsForBlockPooled appends a block's matching logs to a pooled result slice.
-func (f *LogFetcher) GetLogsForBlockPooled(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log, budget *receipt.LogBudget) error {
+func (f *LogFetcher) GetLogsForBlockPooled(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log, budget *logfilter.LogBudget) error {
 	collector := &pooledCollector{logs: result, budget: budget}
 	return f.collectLogs(ctx, block, crit, collector)
 }
@@ -1354,7 +1661,7 @@ func (f *LogFetcher) collectLogs(goCtx context.Context, block *coretypes.ResultB
 			if ctxErr := goCtx.Err(); ctxErr != nil {
 				return ctxErr
 			}
-			if errors.Is(err, receipt.ErrNotConfigured) {
+			if errors.Is(err, receiptdb.ErrNotConfigured) {
 				return err
 			}
 			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
@@ -1403,7 +1710,7 @@ func MatchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
 }
 
 // Optimized fetchBlocksByCrit with batch processing
-func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
 	if crit.BlockHash != nil {
 		// Check for invalid zero hash
 		zeroHash := common.Hash{}
@@ -1414,12 +1721,18 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			return res, 0, nil
 		}
 
-		block, err := blockByHashRespectingWatermarks(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
+		block, err := blockByHashOrNullForJSONRPC(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
 		if err != nil {
+			return nil, 0, err
+		}
+		if block == nil {
 			// For non-existent blocks, return empty channel instead of error
 			res := make(chan *coretypes.ResultBlock)
 			close(res)
 			return res, 0, nil
+		}
+		if err := f.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
+			return nil, 0, err
 		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		res <- block
@@ -1429,17 +1742,16 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 	// Block range (including open-ended queries) is enforced by FilterAPI.GetLogs
 	// and GetLogsByFilters before this block-by-block fallback runs.
-	earliest, latest, err := f.watermarks.ReceiptRange(ctx)
+	// Read the watermarks once for the whole range: each read calls Tendermint Status, which is
+	// too costly to repeat for every block.
+	blockEarliest, _, latest, err := f.watermarks.Watermarks(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
+	available := blockWindow{earliest: blockEarliest, latest: latest}
+	begin, end, err := ComputeBlockBounds(latest, f.watermarks.receiptEarliest(blockEarliest), crit)
 	if err != nil {
 		return nil, 0, err
-	}
-
-	if begin > end {
-		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
@@ -1458,7 +1770,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		if err := runner.SubmitWithMetrics(func(start, endHeight int64) func() {
 			return func() {
 				defer wg.Done()
-				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
+				f.processBatch(ctx, available, start, endHeight, crit, bloomIndexes, res, errChan)
 			}
 		}(batchStart, batchEnd)); err != nil {
 			wg.Done()
@@ -1483,13 +1795,17 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if firstErr != nil {
 		return nil, 0, firstErr
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	return res, end, nil
 }
 
-// processBatch sends to res each block in [start, end] that crit can match, and reports on errChan
-// each block it cannot read. A panic is reported the same way and ends the batch.
-func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
+// processBatch sends to res each block in [start, end] that is within available and that crit can
+// match, and reports on errChan each block it cannot read. A panic is reported the same way and ends
+// the batch.
+func (f *LogFetcher) processBatch(ctx context.Context, available blockWindow, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
 	var height int64
 	defer func() {
 		if r := recover(); r != nil {
@@ -1498,6 +1814,10 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 	}()
 
 	for height = start; height <= end; height++ {
+		// Stop reading once the request is cancelled, e.g. by the RPC timeout.
+		if ctx.Err() != nil {
+			return
+		}
 		if height == 0 {
 			continue
 		}
@@ -1505,7 +1825,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		// check cache first, without holding the semaphore
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			if cachedEntry.Block != nil {
-				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				if err := available.ensureContains(cachedEntry.Block.Block.Height); err != nil {
 					continue
 				}
 			}
@@ -1514,7 +1834,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// Block cache miss, read the block from the store
-		block, ok, err := f.readUncachedBlock(ctx, height, crit, bloomIndexes)
+		block, ok, err := f.readUncachedBlock(ctx, available, height, crit, bloomIndexes)
 		if err != nil {
 			reportBatchError(errChan, fmt.Errorf("failed to fetch block at height %d: %w", height, err))
 			continue
@@ -1544,15 +1864,15 @@ func reportBatchError(errChan chan<- error, err error) {
 
 // readUncachedBlock reads the block at height under a DB-read slot and adds it to the block cache.
 // It returns ok=false, with no error, when the block's bloom rules out crit or when a copy another
-// worker cached meanwhile is outside the available range.
-func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (block *coretypes.ResultBlock, ok bool, err error) {
+// worker cached meanwhile is outside available.
+func (f *LogFetcher) readUncachedBlock(ctx context.Context, available blockWindow, height int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (block *coretypes.ResultBlock, ok bool, err error) {
 	release := f.acquireDBReadSlot()
 	defer release()
 
 	// Re-check cache after acquiring semaphore, in case another worker cached it.
 	if cachedEntry, found := f.globalBlockCache.Get(height); found {
 		if cachedEntry.Block != nil {
-			if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+			if err := available.ensureContains(cachedEntry.Block.Block.Height); err != nil {
 				return nil, false, nil
 			}
 		}
@@ -1581,7 +1901,10 @@ func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit f
 	}
 
 	// fetch block from network
-	block, err = blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+	if err := available.ensureContains(height); err != nil {
+		return nil, false, err
+	}
+	block, err = blockByNumberWithRetry(ctx, f.tmClient, &height, 1)
 	if err != nil {
 		return nil, false, err
 	}

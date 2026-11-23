@@ -14,11 +14,8 @@ const MetricsSubsystem = "internal_autobahn_avail"
 
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
-	// Road index of the highest observed commitQC.
-	commitRoadIndex prometheus.GaugeIntVec
-
-	// First global block number not covered by the highest observed CommitQC.
-	commitGlobalBlockNumber prometheus.GaugeIntVec
+	// Road height of the highest observed commitQC.
+	commitRoadHeight prometheus.GaugeIntVec `metrics_name:"commit_road_height"`
 
 	// Latency from proposal being constructed to commit being observed.
 	proposalToCommitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
@@ -36,6 +33,8 @@ type metrics struct {
 	laneQcs prometheus.CounterIntVec
 	// Lane votes newly stored.
 	laneVotesIngested prometheus.CounterIntVec
+	// Latency from a lane block's creation by its producer to its arrival on this node. It includes clock skew between the producer and this node.
+	laneBlockReceiveLatency prometheus.HistogramVec `metrics_buckets:"exp(0.001, 1.5, 30)"`
 }
 
 type observed[T any] struct {
@@ -44,7 +43,7 @@ type observed[T any] struct {
 }
 
 func newObserved[T any]() utils.Mutex[*utils.Option[observed[T]]] {
-	return utils.NewMutex(utils.Alloc(utils.None[observed[T]]()))
+	return utils.NewMutex(new(utils.None[observed[T]]()))
 }
 
 var observedCommitQC = newObserved[*types.CommitQC]()
@@ -54,19 +53,18 @@ func ObserveCommitQC(qc *types.CommitQC) {
 	now := time.Now()
 	for mLast := range observedCommitQC.Lock() {
 		if last, ok := mLast.Get(); ok {
-			if last.val.Index() >= qc.Index() {
+			if last.val.Height() >= qc.Height() {
 				return
 			}
 			// "timeouts" label is capped
 			timeouts := "inf"
-			if n := qc.Proposal().View().Number; n < 20 {
+			if n := qc.View().Number; n < 20 {
 				timeouts = strconv.FormatUint(uint64(n), 10)
 			}
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
-		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
-		Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
-		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
+		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Header().Timestamp()).Seconds())
+		Global.commitRoadHeightAt().Set(int64(qc.Height())) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
@@ -78,26 +76,27 @@ func ObserveProducedTxs(n int) {
 
 // Metrics are the avail instruments callers write directly.
 type Metrics struct {
-	CommitRoadIndex         *prometheus.GaugeInt
-	CommitGlobalBlockNumber *prometheus.GaugeInt
-	LaneCapacityWait        *prometheus.Histogram
-	LaneQCWait              *prometheus.Histogram
-	LaneCapacityInFlight    *prometheus.GaugeInt
-	LaneQCInFlight          *prometheus.GaugeInt
-	LaneQCs                 *prometheus.CounterInt
-	LaneVotesIngested       *prometheus.CounterInt
+	CommitRoadHeight     *prometheus.GaugeInt
+	LaneCapacityWait     *prometheus.Histogram
+	LaneQCWait           *prometheus.Histogram
+	LaneCapacityInFlight *prometheus.GaugeInt
+	LaneQCInFlight       *prometheus.GaugeInt
+	LaneQCs              *prometheus.CounterInt
+	LaneVotesIngested    *prometheus.CounterInt
+	// Latency from a lane block's creation to its arrival on this node.
+	LaneBlockReceive *prometheus.Histogram
 }
 
 // Get returns the avail instruments.
 func Get() *Metrics {
 	return &Metrics{
-		CommitRoadIndex:         Global.commitRoadIndexAt(),
-		CommitGlobalBlockNumber: Global.commitGlobalBlockNumberAt(),
-		LaneCapacityWait:        Global.laneCapacityWaitLatencyAt(),
-		LaneQCWait:              Global.laneQcWaitLatencyAt(),
-		LaneCapacityInFlight:    Global.inFlightAt("lane_capacity"),
-		LaneQCInFlight:          Global.inFlightAt("lane_qc"),
-		LaneQCs:                 Global.laneQcsAt(),
-		LaneVotesIngested:       Global.laneVotesIngestedAt(),
+		CommitRoadHeight:     Global.commitRoadHeightAt(),
+		LaneCapacityWait:     Global.laneCapacityWaitLatencyAt(),
+		LaneQCWait:           Global.laneQcWaitLatencyAt(),
+		LaneCapacityInFlight: Global.inFlightAt("lane_capacity"),
+		LaneQCInFlight:       Global.inFlightAt("lane_qc"),
+		LaneQCs:              Global.laneQcsAt(),
+		LaneVotesIngested:    Global.laneVotesIngestedAt(),
+		LaneBlockReceive:     Global.laneBlockReceiveLatencyAt(),
 	}
 }

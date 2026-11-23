@@ -6,6 +6,9 @@ package vtype
 //
 // VTypes should be well-behaved when nil, and it should be safe to call into them without checking for nil.
 // Nil VTypes should identify themselves as deletion operations with all zero values.
+//
+// Every VType's serialization must begin with a VersionLength-byte serialization version followed by the
+// BlockHeightLength-byte big-endian height of the block that wrote it, so that SplitValue() works on all of them.
 type VType interface {
 	// Serialize the value to a byte slice.
 	Serialize() []byte

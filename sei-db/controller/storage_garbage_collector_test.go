@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -113,8 +115,8 @@ func (m *mockStore) PruneSnapshots(blockNumber uint64) error {
 	return m.pruneErr
 }
 
-func prunableStores(list ...*mockStore) []PrunableStore {
-	result := make([]PrunableStore, len(list))
+func prunableStores(list ...*mockStore) []controllertypes.PrunableStore {
+	result := make([]controllertypes.PrunableStore, len(list))
 	for i, store := range list {
 		result[i] = store
 	}

@@ -115,7 +115,7 @@ func TestRng() Rng {
 }
 
 func TestRngFromSeed(seed int64) Rng {
-	return Rng{Alloc(NewMutex(rand.New(rand.NewSource(seed))))}
+	return Rng{new(NewMutex(rand.New(rand.NewSource(seed))))}
 }
 
 func GenBool(rng Rng) bool {
@@ -154,12 +154,12 @@ func GenBytes(rng Rng, n int) []byte {
 type GenF[T any] = func(rng Rng) T
 
 // GenSlice generates a slice of small random length.
-func GenSlice[T any](rng Rng, gen GenF[T]) []T {
-	return GenSliceN(rng, 2+rng.Intn(3), gen)
+func (rng Rng) GenSlice[T any](gen func(rng Rng) T) []T {
+	return rng.GenSliceN(2+rng.Intn(3), gen)
 }
 
 // GenSliceN generates a slice of n elements.
-func GenSliceN[T any](rng Rng, n int, gen GenF[T]) []T {
+func (rng Rng) GenSliceN[T any](n int, gen func(rng Rng) T) []T {
 	s := make([]T, n)
 	for i := range s {
 		s[i] = gen(rng)
@@ -168,12 +168,12 @@ func GenSliceN[T any](rng Rng, n int, gen GenF[T]) []T {
 }
 
 // GenMap generates a map of small random length.
-func GenMap[K comparable, V any](rng Rng, genK GenF[K], genV GenF[V]) map[K]V {
-	return GenMapN(rng, 2+rng.Intn(3), genK, genV)
+func (rng Rng) GenMap[K comparable, V any](genK func(rng Rng) K, genV func(rng Rng) V) map[K]V {
+	return rng.GenMapN(2+rng.Intn(3), genK, genV)
 }
 
 // GenMapN generates a map of n elements.
-func GenMapN[K comparable, V any](rng Rng, n int, genK GenF[K], genV GenF[V]) map[K]V {
+func (rng Rng) GenMapN[K comparable, V any](n int, genK func(rng Rng) K, genV func(rng Rng) V) map[K]V {
 	m := make(map[K]V, n)
 	for len(m) < n {
 		m[genK(rng)] = genV(rng)

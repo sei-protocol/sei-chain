@@ -8,7 +8,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
@@ -21,7 +22,7 @@ type BlockExecutor interface {
 // of ordered block execution.
 type PreparedBlockExecutor interface {
 	BlockExecutor
-	PrepareBlock(context.Context, BlockRequest) (PreparedBlock, error)
+	PrepareBlock(BlockRequest) (PreparedBlock, error)
 	ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
 }
 
@@ -39,21 +40,28 @@ type ResultSink interface {
 	StoreBlockResult(ctx context.Context, height uint64, result *BlockResult, release func()) error
 }
 
-// BlockRequest contains all consensus/runtime inputs needed to execute a block.
-// Txs must be raw Ethereum transaction RLP bytes. Senders, when non-empty, is
-// aligned with Txs and holds the sender of every transaction whose signature
-// the caller has already verified against the executor's chain ID; PrepareBlock
-// uses those instead of recovering them. Transactions whose slot is None are
-// recovered as usual.
+// BlockRequest contains raw transactions and their execution context.
 type BlockRequest struct {
 	Context BlockContext
 	Txs     [][]byte
-	Senders []utils.Option[common.Address]
 }
 
-// PreparedBlock contains decoded transactions with recovered senders. It is a
-// trusted executor-produced value: ExecutePreparedBlock assumes callers pass the
-// result of PrepareBlock unchanged and does not recover senders again.
+// DecodedBlock contains decoded transactions with verified senders for a block.
+type DecodedBlock struct {
+	context BlockContext
+	txs     []abevm.EvmTx
+}
+
+func (b DecodedBlock) prepared() PreparedBlock {
+	txs := make([]PreparedTx, len(b.txs))
+	for i, tx := range b.txs {
+		txs[i] = PreparedTx{Tx: tx.Transaction(), Sender: tx.Sender()}
+	}
+	return PreparedBlock{Context: b.context, Txs: txs}
+}
+
+// PreparedBlock contains transactions and verified senders ready for execution.
+// ExecutePreparedBlock trusts it unchanged and does not recover senders again.
 type PreparedBlock struct {
 	Context BlockContext
 	Txs     []PreparedTx
@@ -82,6 +90,8 @@ type BlockContext struct {
 
 // BlockResult is the executor output consumed by the new runtime boundary.
 type BlockResult struct {
+	// The block's state changes. Never modified once the block has executed, so a holder may keep it
+	// after the result is released.
 	ChangeSet StateChangeSet
 	Txs       []TxResult
 	Receipts  ethtypes.Receipts
@@ -144,39 +154,13 @@ type BlockResultPoolStats struct {
 	OverflowAllocations uint64
 }
 
-// StateChangeSet is the deterministic EVM-native state output for a block.
-// Values are post-block values, not deltas. Store-specific encoders must retain
-// StorageClears as prefix-clear operations and apply them before Storage.
-type StateChangeSet struct {
-	Balances      []BalanceChange
-	Nonces        []NonceChange
-	Code          []CodeChange
-	StorageClears []common.Address
-	Storage       []StorageChange
-}
-
-type BalanceChange struct {
-	Address common.Address
-	Balance *big.Int
-}
-
-type NonceChange struct {
-	Address common.Address
-	Nonce   uint64
-}
-
-type CodeChange struct {
-	Address common.Address
-	Code    []byte
-	Delete  bool
-}
-
-type StorageChange struct {
-	Address common.Address
-	Key     common.Hash
-	Value   common.Hash
-	Delete  bool
-}
+// StateChangeSet and its entry types are shared with the state store.
+type (
+	StateChangeSet = gigatypes.StateChangeSet
+	AccountState   = gigatypes.AccountState
+	AccountChange  = gigatypes.AccountChange
+	StorageChange  = gigatypes.StorageChange
+)
 
 // TxResult is the minimum per-transaction output needed for receipts, RPC, and
 // runtime result reporting.

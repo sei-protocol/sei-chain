@@ -2,15 +2,12 @@ package p2p
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -20,36 +17,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-var (
-	gigaValidatorHandshakeTag = utils.OrPanic1(ed25519.NewTag("SEI_GIGA_VALIDATOR_HANDSHAKE_V1"))
-	errMissingGigaClaim       = errors.New("missing validator_auth_key, validator_auth_sig, and evm_rpc")
-	errGigaClaimRequiresAddr  = errors.New("validator giga handshake requires SelfAddr")
-	errGigaClaimOnNonGiga     = errors.New("validator giga claim on non-giga connection")
-)
+// handshakeMsgMaxSize is the maximum encoded size accepted for a Handshake message.
+const handshakeMsgMaxSize = 1024 * 1024
 
-// handshakeOffer is the Autobahn committee identity this node claims on a giga handshake.
-type handshakeOffer struct {
-	ValidatorKey atypes.SecretKey
-	EVMRPC       url.URL
+var errMissingValidatorAuth = errors.New("missing validator_auth")
+
+func init() {
+	if m := (&pb.Handshake{}).MaxSize(); m > handshakeMsgMaxSize {
+		panic(fmt.Sprintf("*pb.Handshake.MaxSize() = %d exceeds handshakeMsgMaxSize %d", m, handshakeMsgMaxSize))
+	}
 }
 
-// gigaClaimSignBytes is the tagged payload for SEI_GIGA_VALIDATOR_HANDSHAKE_V1:
-// challenge || node_public_key || uvarint(len(self_addr)) || self_addr || uvarint(len(evm_rpc)) || evm_rpc.
-func gigaClaimSignBytes(
-	challenge conn.Challenge,
-	nodeKey NodePublicKey,
-	selfAddr NodeAddress,
-	evmRPC string,
-) []byte {
-	b := slices.Clone(challenge[:])
-	b = append(b, nodeKey.Bytes()...)
-	// Length-prefixed: without it, bytes could move across the address/URL
-	// boundary and two different claims would sign the same payload.
-	for _, s := range []string{selfAddr.String(), evmRPC} {
-		b = binary.AppendUvarint(b, uint64(len(s)))
-		b = append(b, s...)
-	}
-	return b
+// gigaHandshakeSpec configures the local Giga identity.
+type gigaHandshakeSpec struct {
+	ValidatorKey utils.Option[atypes.SecretKey]
+	EVMRPC       url.URL
 }
 
 type handshakedConn struct {
@@ -57,25 +39,19 @@ type handshakedConn struct {
 	msg  *handshakeMsg
 }
 
+type handshakeSpec struct {
+	NodeKey  NodeSecretKey
+	IsServer bool
+	SelfAddr utils.Option[NodeAddress]
+	PexAddrs []NodeAddress
+	Giga     utils.Option[gigaHandshakeSpec]
+}
+
 func handshake(
 	ctx context.Context,
 	c conn.Conn,
-	key NodeSecretKey,
 	spec handshakeSpec,
-	offer utils.Option[handshakeOffer],
 ) (*handshakedConn, error) {
-	// Checked before the connection so a local misconfiguration is reported as
-	// itself, rather than as whichever handshake step the abort trips first.
-	o, offering := offer.Get()
-	selfAddr, hasSelfAddr := spec.SelfAddr.Get()
-	if offering && !hasSelfAddr {
-		return nil, errGigaClaimRequiresAddr
-	}
-	if offering {
-		if err := utils.CheckHTTPURL(o.EVMRPC); err != nil {
-			return nil, fmt.Errorf("EvmRpc: %w", err)
-		}
-	}
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshakedConn, error) {
 		sc, err := conn.MakeSecretConnection(ctx, c)
 		if err != nil {
@@ -83,18 +59,22 @@ func handshake(
 		}
 		s.Spawn(func() error {
 			msg := &handshakeMsg{
-				NodeAuth:      key.SignChallenge(sc.Challenge()),
-				handshakeSpec: spec,
-			}
-			if offering {
-				msg.GigaClaim = utils.Some(gigaHandshakeClaim{
-					Validator: o.ValidatorKey.Public(),
-					sig: o.ValidatorKey.SignWithTag(
-						gigaValidatorHandshakeTag,
-						gigaClaimSignBytes(sc.Challenge(), key.Public(), selfAddr, o.EVMRPC.String()),
-					),
-					evmRPC: o.EVMRPC.String(),
-				})
+				NodeAuth: spec.NodeKey.SignChallenge(sc.Challenge()),
+				SelfAddr: spec.SelfAddr,
+				PexAddrs: spec.PexAddrs,
+				Giga: spec.Giga.Map(func(gs gigaHandshakeSpec) gigaHandshake {
+					return gigaHandshake{
+						Validator: gs.ValidatorKey.Map(func(key atypes.SecretKey) validatorHandshake {
+							return validatorHandshake{
+								auth: key.Sign(atypes.Challenge{
+									SessionKey: atypes.SessionKey(sc.Challenge()),
+									IsServer:   spec.IsServer,
+								}),
+								EVMRPC: gs.EVMRPC,
+							}
+						}),
+					}
+				}),
 			}
 			if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
 				return fmt.Errorf("conn.WriteSizedMsg(): %w", err)
@@ -104,7 +84,7 @@ func handshake(
 			}
 			return nil
 		})
-		msgBytes, err := conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize())) //nolint:gosec // MaxSize() returns a small positive constant
+		msgBytes, err := conn.ReadSizedMsg(ctx, sc, handshakeMsgMaxSize)
 		if err != nil {
 			return nil, fmt.Errorf("conn.ReadSizedMsg(): %w", err)
 		}
@@ -120,20 +100,14 @@ func handshake(
 				return nil, fmt.Errorf("handshakeMsg.SelfAddr.NodeID = %v, want %v", got, want)
 			}
 		}
-		if claim, ok := msg.GigaClaim.Get(); ok {
-			if !msg.SeiGigaConnection {
-				return nil, errGigaClaimOnNonGiga
-			}
-			selfAddr, ok := msg.SelfAddr.Get()
-			if !ok {
-				return nil, errGigaClaimRequiresAddr
-			}
-			if err := claim.Validator.VerifyWithTag(
-				gigaValidatorHandshakeTag,
-				gigaClaimSignBytes(sc.Challenge(), msg.NodeAuth.Key(), selfAddr, claim.evmRPC),
-				claim.sig,
-			); err != nil {
-				return nil, fmt.Errorf("handshakeMsg.GigaClaim: %w", err)
+		if giga, ok := msg.Giga.Get(); ok {
+			if validator, ok := giga.Validator.Get(); ok {
+				if validator.auth.Msg() != (atypes.Challenge{SessionKey: atypes.SessionKey(sc.Challenge()), IsServer: !spec.IsServer}) {
+					return nil, fmt.Errorf("handshakeMsg.auth: challenge mismatch")
+				}
+				if err := validator.auth.VerifySig(); err != nil {
+					return nil, fmt.Errorf("handshakeMsg.auth: %w", err)
+				}
 			}
 		}
 		if len(msg.PexAddrs) > MaxPexAddrs {

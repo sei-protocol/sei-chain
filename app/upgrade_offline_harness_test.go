@@ -65,9 +65,10 @@ type offlineUpgradeVestingAccount struct {
 
 // offlineUpgradeRetainedState identifies the state the source phase wrote: the
 // store keys of each retired module, the bank balances behind IBC escrow and
-// voucher denoms, and the accounts a post-upgrade transaction moves funds
-// between. TxSenderKey is a throwaway key generated for the fixture database,
-// which the target phase needs in order to sign as that account.
+// voucher denoms, the granter of an authz grant, and the accounts a post-upgrade
+// transaction signs with and sends to. TxSenderKey is a throwaway key generated
+// for the fixture database, which the target phase needs in order to sign as
+// that account.
 type offlineUpgradeRetainedState struct {
 	FeegrantGranter        string `json:"feegrant_granter"`
 	FeegrantGrantee        string `json:"feegrant_grantee"`
@@ -95,6 +96,7 @@ type offlineUpgradeRetainedState struct {
 	IBCProposalTitle       string `json:"ibc_proposal_title"`
 	IBCProposalDescription string `json:"ibc_proposal_description"`
 	UpgradedIBCStateKey    string `json:"upgraded_ibc_state_key"`
+	AuthzGranter           string `json:"authz_granter"`
 	TxSender               string `json:"tx_sender"`
 	TxSenderKey            string `json:"tx_sender_key"`
 	TxRecipient            string `json:"tx_recipient"`
@@ -112,14 +114,22 @@ func requireOfflineUpgradePhase(t *testing.T, want string) string {
 	return absolute
 }
 
-type offlineUpgradeChainIDOpts struct {
+// offlineUpgradeAppOpts are the app options every offline upgrade app opens with. State proofs are on
+// because requireOfflineUpgradeStoreProof proves a store is in the commitment set. An empty chainID
+// keeps the TestAppOpts chain ID.
+type offlineUpgradeAppOpts struct {
 	TestAppOpts
 	chainID string
 }
 
-func (o offlineUpgradeChainIDOpts) Get(s string) interface{} {
-	if s == "chain-id" {
+func (o offlineUpgradeAppOpts) Get(s string) interface{} {
+	if s == "chain-id" && o.chainID != "" {
 		return o.chainID
+	}
+	// A literal, not FlagSCEnableStateProof: this file is also compiled into the source release's
+	// worktree, which predates that constant.
+	if s == "state-commit.sc-enable-state-proof" {
+		return true
 	}
 	return o.TestAppOpts.Get(s)
 }
@@ -188,7 +198,7 @@ func openOfflineUpgradeSnapshotApp(t *testing.T, home, chainID string) *App {
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		offlineUpgradeChainIDOpts{chainID: chainID},
+		offlineUpgradeAppOpts{chainID: chainID},
 		EmptyWasmOpts,
 		options,
 	)
@@ -230,7 +240,7 @@ func openOfflineUpgradeApp(t *testing.T, root string, initialize bool) *App {
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{},
+		offlineUpgradeAppOpts{},
 		EmptyWasmOpts,
 		options,
 	)

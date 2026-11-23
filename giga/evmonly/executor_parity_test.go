@@ -842,12 +842,12 @@ func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.BlobBaseFee = big.NewInt(1)
 
-	prepared, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}).PrepareBlock(t.Context(), BlockRequest{
+	prepared, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}).PrepareBlock(BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
 
-	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 	require.Empty(t, prepared.Txs)
 }
 
@@ -916,7 +916,7 @@ func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, c
 		return nil, err
 	}
 	stateDB := newGethStateFromMemory(t, initial)
-	evm := vm.NewEVMWithCustomPrecompiles(buildBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
 	gasPool := core.NewGasPool(ctx.GasLimit)
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(ctx.Number), ctx.Time)

@@ -4,23 +4,65 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
-)
+	"github.com/ethereum/go-ethereum/params"
 
-// callTimeout bounds how long a Call may run before its EVM is cancelled,
-// matching evmrpc's simulation_evm_timeout default. A var, not a const, so
-// tests can shrink it rather than run for the full timeout.
-var callTimeout = 60 * time.Second
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+)
 
 // Call executes msg as a read-only EVM message call against the current
 // committed state and returns the execution result. It persists no state
 // change.
 func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Message) (*core.ExecutionResult, error) {
+	snapshot, err := e.OpenCurrentView(ctx, blockCtx)
+	if err != nil {
+		return nil, err
+	}
+	defer snapshot.Close()
+	return e.CallAt(ctx, snapshot, blockCtx, msg, abevm.CallOverrides{})
+}
+
+// CallAt executes msg as a read-only EVM message call against the state view
+// holds, with overrides applied, and returns the execution result. It persists
+// no state change.
+func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx))
+	if err != nil {
+		return nil, err
+	}
+
+	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
+	defer e.releaseStateDB(stateDB)
+
+	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.
+	evm := e.newEVM(evmCtx, stateDB, chainConfig, vm.Config{NoBaseFee: true})
+	if err := overrides.ApplyState(evm, stateDB); err != nil {
+		return nil, err
+	}
+	result, cancelled, err := applyMessage(ctx, evm, msg)
+	if cancelled {
+		return nil, fmt.Errorf("EVM-only call cancelled: %w", ctx.Err())
+	}
+	if stateErr := stateDB.Error(); stateErr != nil {
+		return nil, stateErr
+	}
+	return result, err
+}
+
+// OpenCurrentView opens the current committed state for a read-only execution
+// at blockCtx, once blockCtx and ctx are accepted. The caller closes it.
+func (e *Executor) OpenCurrentView(ctx context.Context, blockCtx BlockContext) (gigatypes.StateView, error) {
+	if err := validateBlockContext(e.chainConfig(blockCtx), blockCtx); err != nil {
 		return nil, err
 	}
 	if e.stateStore == nil {
@@ -29,38 +71,34 @@ func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Me
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
 	snapshot := e.stateStore.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
-	defer snapshot.Close()
+	return snapshot, nil
+}
 
-	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
-	defer e.releaseStateDB(stateDB)
-
-	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.
-	evm := vm.NewEVMWithCustomPrecompiles(buildBlockContext(blockCtx), stateDB, chainConfig, vm.Config{NoBaseFee: true}, customPrecompileMap(e.cfg.CustomPrecompiles))
+// newEVM returns an EVM that executes on stateDB in evmCtx under vmConfig, running the executor's
+// registered precompiles.
+func (e *Executor) newEVM(evmCtx vm.BlockContext, stateDB *nativeStateDB, chainConfig *params.ChainConfig, vmConfig vm.Config) *vm.EVM {
+	evm := vm.NewEVMWithCustomPrecompiles(evmCtx, stateDB, chainConfig, vmConfig, e.customContracts)
 	stateDB.SetEVM(evm)
+	return evm
+}
+
+// applyMessage executes msg on evm and returns its result. It reports whether ctx ended during the
+// execution, in which case the result is incomplete.
+func applyMessage(ctx context.Context, evm *vm.EVM, msg *core.Message) (*core.ExecutionResult, bool, error) {
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 
-	// core.ApplyMessage does not itself respect ctx, so bound it with a timer
-	// that cancels the EVM directly; gas pricing alone cannot cap wall-clock
-	// cost (e.g. modexp with adversarial inputs).
-	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+	// core.ApplyMessage does not itself respect ctx, so cancel the EVM directly.
+	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
-		<-callCtx.Done()
+		<-runCtx.Done()
 		evm.Cancel()
 	}()
 
-	gasPool := core.NewGasPool(msg.GasLimit)
-	result, err := core.ApplyMessage(evm, msg, gasPool)
-	if evm.Cancelled() {
-		return nil, fmt.Errorf("EVM-only call exceeded %s execution timeout", callTimeout)
-	}
-	if stateErr := stateDB.Error(); stateErr != nil {
-		return nil, stateErr
-	}
-	return result, err
+	result, err := core.ApplyMessage(evm, msg, core.NewGasPool(msg.GasLimit))
+	return result, evm.Cancelled(), err
 }

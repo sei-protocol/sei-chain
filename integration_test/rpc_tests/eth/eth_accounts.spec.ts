@@ -1,7 +1,6 @@
 import { expect } from 'chai';
-import { bothProviders, isReachable, rawSei, rawGeth, rawAccountless, expectJsonRpcError } from '../utils/chainUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { ADDRESS, ADDRESS_LOWER } from '../utils/format';
-import { Endpoints } from '../config/endpoints';
 
 describe('eth_accounts Tests', function () {
     this.timeout(60 * 1000);
@@ -51,18 +50,6 @@ describe('eth_accounts Tests', function () {
             for (const acct of [...seiAccounts, ...gethAccounts]) {
                 expect(acct, `account ${acct}`).to.match(ADDRESS_LOWER);
             }
-        });
-    });
-
-    describe('empty / null handling', () => {
-        it('a keyless node returns [] (empty array), never null', async function () {
-            if (!(await isReachable(Endpoints.accountless))) {
-                this.skip();
-            }
-            const body = await rawAccountless<string[]>('eth_accounts', []);
-            expect(body.error, JSON.stringify(body.error)).to.equal(undefined);
-            expect(body.result, 'keyless node must encode the empty set as []').to.deep.equal([]);
-            expect(body.result).to.not.equal(null);
         });
     });
 

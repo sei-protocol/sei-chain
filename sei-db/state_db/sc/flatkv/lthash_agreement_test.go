@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -223,7 +224,7 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 		}
 		for _, pair := range cs.Changeset.Pairs {
 			if cs.Name != keys.EVMStoreKey {
-				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
+				physKey := string(ktype.BuildPhysicalKey(cs.Name, pair.Key))
 				misc[physKey] = pair.Value
 				deleted[physKey] = pair.Delete
 				continue
@@ -233,13 +234,13 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 			require.NotEqual(t, keys.EVMKeyEmpty, kind, "model: empty EVM key in changeset")
 
 			if kind == keys.EVMKeyMisc {
-				physKey := string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
+				physKey := string(ktype.BuildPhysicalKey(keys.EVMStoreKey, pair.Key))
 				misc[physKey] = pair.Value
 				deleted[physKey] = pair.Delete
 				continue
 			}
 
-			physKey := string(ktype.EVMPhysicalKey(kind, stripped))
+			physKey := string(ktype.BuildPhysicalEVMKey(kind, stripped))
 			switch kind {
 			case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
 				edit := accountEdits[physKey]
@@ -416,9 +417,9 @@ func (m *stateModel) expect() *expectedState {
 	}
 	for _, dir := range dataDBDirs {
 		byKey := byDB[dir]
-		pairs := make([]lthash.KeyMutation, 0, len(byKey))
+		pairs := make([]mutation.Mutation, 0, len(byKey))
 		for physKey, value := range byKey {
-			pairs = append(pairs, lthash.KeyMutation{Key: []byte(physKey), Value: value})
+			pairs = append(pairs, mutation.Mutation{Key: []byte(physKey), NewValue: value})
 			out.rows[physKey] = value
 		}
 		root := lthash.ComputeLtHash(nil, pairs)

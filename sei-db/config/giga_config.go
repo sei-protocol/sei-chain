@@ -3,36 +3,48 @@ package config
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/bud"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 )
 
 // GigaStorageConfig composes the store configs a Giga node opens. It is not read from
 // app.toml; callers build it with DefaultGigaStorageConfig.
 type GigaStorageConfig struct {
-	HomePath         string
-	FlatKVConfig     *flatkvConfig.Config           // required
-	SSConfig         StateStoreConfig               // optional via Enable
-	ReceiptDBConfig  ReceiptStoreConfig             // optional via Enable
-	BlockDBConfig    *littblock.BlockDBConfig       // required
-	PruningConfig    *StorageGarbageCollectorConfig // required
-	CheckpointConfig CheckpointConfig
+	HomePath             string
+	FlatKVConfig         *flatkvConfig.Config           // required
+	SSConfig             StateStoreConfig               // optional via Enable
+	ReceiptDBConfig      ReceiptStoreConfig             // optional via Enable
+	BlockDBConfig        *blockstore.Config             // required
+	PruningConfig        *StorageGarbageCollectorConfig // required
+	CheckpointConfig     CheckpointConfig
+	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
+	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
+	BUDHasherConfig      *bud.BUDHasherConfig             // required
+	// The file present while a node holds these stores open. Empty disables it.
+	RunningMarkerPath string
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
 const gigaReceiptBackend = "littidx"
 
+// gigaFlatKVViewShards is the view shard count of the giga FlatKV account and storage databases.
+const gigaFlatKVViewShards = 64
+
 // DefaultGigaStorageConfig returns a config rooted at homePath:
 //
 //	data/state_commit/flatkv
-//	data/state_store/evm/{backend}
+//	data/state_store/evm/undolog
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
+//	data/ledger/app_hash
 //
 // SS is opened at EVMDBDirectory. Every store sets ExternalPruning so PruningConfig owns retention.
 func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
-	blockDBConfig, err := littblock.DefaultConfig(utils.GetBlockStorePath(homePath))
+	blockDBConfig, err := blockstore.DefaultConfig(utils.GetBlockStorePath(homePath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build block db config: %w", err)
 	}
@@ -40,25 +52,36 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	flatKV := flatkvConfig.DefaultConfig()
 	flatKV.DataDir = utils.GetFlatKVPath(homePath)
 	flatKV.ExternalPruning = true
+	flatKV.AccountStoreConfig.ShardCount = gigaFlatKVViewShards
+	flatKV.StorageStoreConfig.ShardCount = gigaFlatKVViewShards
 
 	ssConfig := DefaultStateStoreConfig()
+	ssConfig.Backend = PebbleDBUndoBackend
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
 	ssConfig.ExternalPruning = true
-	ssConfig.DisableInternalWAL = true
 
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
 	receiptConfig.ExternalPruning = true
 
+	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
+	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
+	appHashBuilderConfig.HashLogConfig.Path = utils.GetAppHashLogPath(homePath)
+	receiptHasherConfig := receipthash.DefaultReceiptHasherConfig()
+	budHasherConfig := bud.DefaultBUDHasherConfig()
+
 	return &GigaStorageConfig{
-		HomePath:         homePath,
-		FlatKVConfig:     flatKV,
-		SSConfig:         ssConfig,
-		ReceiptDBConfig:  receiptConfig,
-		BlockDBConfig:    blockDBConfig,
-		PruningConfig:    DefaultStorageGarbageCollectorConfig(),
-		CheckpointConfig: DefaultCheckpointConfig(),
+		HomePath:             homePath,
+		FlatKVConfig:         flatKV,
+		SSConfig:             ssConfig,
+		ReceiptDBConfig:      receiptConfig,
+		BlockDBConfig:        blockDBConfig,
+		PruningConfig:        DefaultStorageGarbageCollectorConfig(),
+		CheckpointConfig:     DefaultCheckpointConfig(),
+		AppHashBuilderConfig: &appHashBuilderConfig,
+		ReceiptHasherConfig:  &receiptHasherConfig,
+		BUDHasherConfig:      &budHasherConfig,
 	}, nil
 }
 
@@ -141,6 +164,25 @@ func (c *GigaStorageConfig) Validate() error {
 	}
 	if c.ReceiptDBConfig.Enable && !c.ReceiptDBConfig.ExternalPruning {
 		return fmt.Errorf("receipt store ExternalPruning must be true")
+	}
+
+	if c.AppHashBuilderConfig == nil {
+		return fmt.Errorf("app hash builder config is required")
+	}
+	if err := c.AppHashBuilderConfig.Validate(); err != nil {
+		return fmt.Errorf("app hash builder config is invalid: %w", err)
+	}
+	if c.ReceiptHasherConfig == nil {
+		return fmt.Errorf("receipt hasher config is required")
+	}
+	if err := c.ReceiptHasherConfig.Validate(); err != nil {
+		return fmt.Errorf("receipt hasher config is invalid: %w", err)
+	}
+	if c.BUDHasherConfig == nil {
+		return fmt.Errorf("BUD hasher config is required")
+	}
+	if err := c.BUDHasherConfig.Validate(); err != nil {
+		return fmt.Errorf("BUD hasher config is invalid: %w", err)
 	}
 
 	if !c.CheckpointConfig.Enabled() {

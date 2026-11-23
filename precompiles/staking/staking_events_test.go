@@ -473,7 +473,7 @@ func createEVMTx(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, privKey cry
 	return tx
 }
 
-func executeEVMTx(t *testing.T, testApp *app.App, ctx sdk.Context, tx *ethtypes.Transaction, privKey cryptotypes.PrivKey) *evmtypes.MsgEVMTransactionResponse {
+func executeEVMTx(t *testing.T, testApp *app.App, ctx sdk.Context, tx *ethtypes.Transaction, privKey cryptotypes.PrivKey) *evmtypes.Receipt {
 	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.NoError(t, err)
 
@@ -483,10 +483,12 @@ func executeEVMTx(t *testing.T, testApp *app.App, ctx sdk.Context, tx *ethtypes.
 	msgServer := evmkeeper.NewMsgServerImpl(&testApp.EvmKeeper)
 	ante.Preprocess(ctx, req, testApp.EvmKeeper.ChainID(ctx), false)
 
-	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NoError(t, err)
 
-	return res
+	receipt, err := testApp.EvmKeeper.GetTransientReceipt(ctx, tx.Hash(), uint64(ctx.TxIndex()))
+	require.NoError(t, err)
+	return receipt
 }
 
 // setupValidator is already defined in staking_test.go

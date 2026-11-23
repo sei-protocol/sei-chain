@@ -303,7 +303,7 @@ func (o *storageOverride) deepCopy() *storageOverride {
 type TemporaryState struct {
 	logs                  []*ethtypes.Log
 	transientStates       map[string]map[string]common.Hash
-	transientAccounts     map[string][]byte
+	transientAccounts     map[common.Address][]byte
 	transientModuleStates map[string][]byte
 	transientAccessLists  *accessList
 	storageOverrides      map[common.Address]*storageOverride
@@ -314,7 +314,7 @@ func NewTemporaryState() *TemporaryState {
 	return &TemporaryState{
 		logs:                  []*ethtypes.Log{},
 		transientStates:       make(map[string]map[string]common.Hash),
-		transientAccounts:     make(map[string][]byte),
+		transientAccounts:     make(map[common.Address][]byte),
 		transientModuleStates: make(map[string][]byte),
 		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
 		storageOverrides:      make(map[common.Address]*storageOverride),
@@ -333,7 +333,7 @@ func (ts *TemporaryState) DeepCopy() *TemporaryState {
 			res.transientStates[k][k2] = v2
 		}
 	}
-	res.transientAccounts = make(map[string][]byte, len(ts.transientAccounts))
+	res.transientAccounts = make(map[common.Address][]byte, len(ts.transientAccounts))
 	for k, v := range ts.transientAccounts {
 		res.transientAccounts[k] = v
 	}

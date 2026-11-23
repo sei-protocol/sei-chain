@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -161,6 +162,39 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		return err == nil && len(entries) == 5
 	}, 3*time.Second, 50*time.Millisecond, "prune should complete and leave exactly 5 entries")
 	// stopCh is closed by defer above
+}
+
+func TestRewriteSnapshotBackgroundKeepLatestOnly(t *testing.T) {
+	db, err := OpenDB(0, Options{
+		Config:          Config{SnapshotKeepLatestOnly: true},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	for _, changes := range ChangeSets {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test", Changeset: changes}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+		_ = db.RewriteSnapshotBackground()
+	}
+	require.Eventually(t, func() bool {
+		db.mtx.Lock()
+		defer db.mtx.Unlock()
+		_ = db.checkAsyncTasks()
+		return db.snapshotRewriteChan == nil
+	}, 3*time.Second, 50*time.Millisecond, "all snapshot rewrites should complete")
+
+	require.Eventually(t, func() bool {
+		snapshots := 0
+		err := traverseSnapshots(db.dir, true, func(int64) (bool, error) {
+			snapshots++
+			return false, nil
+		})
+		return err == nil && snapshots == 1
+	}, 3*time.Second, 50*time.Millisecond, "prune should leave only the latest snapshot")
 }
 
 // helper to commit one change to bump height
@@ -1070,6 +1104,72 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	if err != nil {
 		require.Equal(t, context.Canceled, err)
 	}
+}
+
+// TestCatchupReleasesTreeDeletedByUpgrade replays a changelog through an upgrade
+// that deletes a tree, and requires the deleted tree's background writer to have
+// stopped, its snapshot to be closed, and the multitree to hold no reference to it.
+func TestCatchupReleasesTreeDeletedByUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"drop", "keep"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	commit := func(names ...string) {
+		var changeSets []*proto.NamedChangeSet
+		for _, name := range names {
+			changeSets = append(changeSets, mockNameChangeSet(name, "key", strconv.FormatInt(db.Version(), 10))...)
+		}
+		require.NoError(t, db.ApplyChangeSets(changeSets))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	commit("drop", "keep")
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	// Replaying this version hands both trees a background writer.
+	commit("drop", "keep")
+	require.NoError(t, db.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: "drop", Delete: true}}))
+	commit("keep")
+
+	mtree, err := LoadMultiTree(context.Background(), filepath.Join(dir, "current"), Options{Dir: dir})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, mtree.Close()) })
+	dropped := mtree.TreeByName("drop")
+	require.NotNil(t, dropped)
+	snapshot := dropped.snapshot
+	require.NotNil(t, snapshot)
+
+	require.NoError(t, mtree.Catchup(context.Background(), db.GetWAL(), db.walIndexDelta, 0))
+
+	require.Equal(t, db.Version(), mtree.Version())
+	require.Nil(t, mtree.TreeByName("drop"))
+	require.Nil(t, dropped.pendingChanges, "the deleted tree's background writer is still running")
+	require.Zero(t, snapshot.refCount.Load(), "the deleted tree's snapshot is still mapped")
+	require.False(t, slices.ContainsFunc(mtree.trees[:cap(mtree.trees)], func(entry NamedTree) bool {
+		return entry.Tree == dropped
+	}), "the multitree still references the deleted tree")
+}
+
+// TestTreesUnaffectedByLaterUpgrades requires a slice returned by Trees to keep
+// its entries when a later upgrade deletes, renames and adds trees.
+func TestTreesUnaffectedByLaterUpgrades(t *testing.T) {
+	mtree := NewEmptyMultiTree(0)
+	t.Cleanup(func() { require.NoError(t, mtree.Close()) })
+	require.NoError(t, mtree.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: "a"}, {Name: "b"}, {Name: "c"}}))
+
+	held := mtree.Trees()
+	want := slices.Clone(held)
+	require.NoError(t, mtree.ApplyUpgrades([]*proto.TreeNameUpgrade{
+		{Name: "a", Delete: true},
+		{Name: "d", RenameFrom: "b"},
+		{Name: "e"},
+	}))
+
+	require.Equal(t, want, held)
 }
 
 func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {

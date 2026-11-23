@@ -21,13 +21,12 @@ import (
 )
 
 const (
-	fooDenom           = "foo"
-	barDenom           = "bar"
-	factoryDenomPrefix = "factory"
-	initialPower       = int64(100)
-	holder             = "holder"
-	multiPerm          = "multiple permissions account"
-	randomPerm         = "random permission"
+	fooDenom     = "foo"
+	barDenom     = "bar"
+	initialPower = int64(100)
+	holder       = "holder"
+	multiPerm    = "multiple permissions account"
+	randomPerm   = "random permission"
 )
 
 var (
@@ -44,10 +43,6 @@ var (
 
 func newFooCoin(amt int64) sdk.Coin {
 	return sdk.NewInt64Coin(fooDenom, amt)
-}
-
-func newFactoryFooCoin(address sdk.AccAddress, amt int64) sdk.Coin {
-	return sdk.NewInt64Coin(fmt.Sprintf("%s/%s/%s", factoryDenomPrefix, address, fooDenom), amt)
 }
 
 func newBarCoin(amt int64) sdk.Coin {
@@ -290,26 +285,6 @@ func (suite *IntegrationTestSuite) TestSendCoins() {
 	suite.Require().NoError(app.GigaBankKeeper.SendCoins(ctx, addr1, addr2, sendAmt))
 }
 
-func (suite *IntegrationTestSuite) TestSendCoinsWithAllowList() {
-	app, ctx := suite.app, suite.ctx
-	addr1 := sdk.AccAddress("addr1_______________")
-	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
-	app.AccountKeeper.SetAccount(ctx, acc1)
-	factoryCoin := newFactoryFooCoin(addr1, 100)
-	balances := sdk.NewCoins(factoryCoin, newBarCoin(50))
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr1, balances))
-
-	addr2 := sdk.AccAddress("addr2_______________")
-	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
-	app.AccountKeeper.SetAccount(ctx, acc2)
-
-	app.GigaBankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom,
-		types.AllowList{Addresses: []string{addr1.String(), addr2.String()}})
-
-	sendAmt := sdk.NewCoins(newFactoryFooCoin(addr1, 40), newBarCoin(25))
-	suite.Require().NoError(app.GigaBankKeeper.SendCoins(ctx, addr1, addr2, sendAmt))
-}
-
 func (suite *IntegrationTestSuite) TestSendCoinsModuleToAccount() {
 	// add module accounts to supply keeper
 	ctx := suite.ctx
@@ -434,180 +409,6 @@ func (suite *IntegrationTestSuite) TestSetDenomMetaData() {
 	suite.Require().Equal(metadata[1].GetDenomUnits()[1].GetDenom(), actualMetadata.GetDenomUnits()[1].GetDenom())
 	suite.Require().Equal(metadata[1].GetDenomUnits()[1].GetExponent(), actualMetadata.GetDenomUnits()[1].GetExponent())
 	suite.Require().Equal(metadata[1].GetDenomUnits()[1].GetAliases(), actualMetadata.GetDenomUnits()[1].GetAliases())
-}
-
-func (suite *IntegrationTestSuite) TestSetAllowList() {
-	app, ctx := suite.app, suite.ctx
-
-	allowList := types.AllowList{Addresses: []string{"addr1", "addr2"}}
-	ownerAddress := sdk.AccAddress("owner")
-	denom := "factory/" + ownerAddress.String() + "/Test"
-
-	app.GigaBankKeeper.SetDenomAllowList(ctx, denom, allowList)
-
-	actualAllowList := app.GigaBankKeeper.GetDenomAllowList(ctx, denom)
-	suite.Require().Equal(allowList, actualAllowList)
-}
-
-func (suite *IntegrationTestSuite) TestBaseKeeper_IsAllowedToSendCoins() {
-	type CoinToAllowList struct {
-		coin      sdk.Coin
-		allowList types.AllowList
-	}
-	type args struct {
-		addr             sdk.AccAddress
-		coinsToAllowList []CoinToAllowList
-	}
-	tests := []struct {
-		name      string
-		args      args
-		isAllowed bool
-	}{
-		{
-			name: "Allowed for for empty coins",
-			args: args{
-				addr: sdk.AccAddress{},
-				coinsToAllowList: []CoinToAllowList{
-					{coin: sdk.Coin{}},
-				},
-			},
-			isAllowed: true,
-		},
-		{
-			name: "allowed for to transfer with a non-factory coin",
-			args: args{
-				addr: sdk.AccAddress("from"),
-				coinsToAllowList: []CoinToAllowList{
-					{
-						coin: sdk.NewInt64Coin("test", 100),
-					},
-				},
-			},
-			isAllowed: true,
-		},
-		{
-			name: "allowed with a factory coin with no allow list",
-			args: args{
-				addr: sdk.AccAddress("from"),
-				coinsToAllowList: []CoinToAllowList{
-					{
-						coin: sdk.NewInt64Coin(
-							fmt.Sprintf("factory/%s/test", sdk.AccAddress("from")), 100),
-					},
-				},
-			},
-			isAllowed: true,
-		},
-		{
-			name: "allowed with a factory coin with empty allow list",
-			args: args{
-				addr: sdk.AccAddress("from"),
-				coinsToAllowList: []CoinToAllowList{
-					{
-						coin: sdk.NewInt64Coin(
-							fmt.Sprintf("factory/%s/test", sdk.AccAddress("from")), 100),
-						allowList: types.AllowList{},
-					},
-				},
-			},
-			isAllowed: true,
-		},
-		{
-			name: "not allowed to transfer coins for denom if not in allowlist",
-			args: args{
-				addr: sdk.AccAddress("from"),
-				coinsToAllowList: []CoinToAllowList{
-					{
-						coin: sdk.NewInt64Coin(fmt.Sprintf("factory/%s/test", sdk.AccAddress("from")), 100),
-						allowList: types.AllowList{
-							Addresses: []string{sdk.AccAddress("other").String()},
-						},
-					},
-				},
-			},
-			isAllowed: false,
-		},
-		{
-			name: "allowed to transfer for denom",
-			args: args{
-				addr: sdk.AccAddress("from"),
-				coinsToAllowList: []CoinToAllowList{
-					{
-						coin: sdk.NewInt64Coin(fmt.Sprintf("factory/%s/test", sdk.AccAddress("from")), 100),
-						allowList: types.AllowList{
-							Addresses: []string{sdk.AccAddress("from").String(), sdk.AccAddress("to").String()},
-						},
-					},
-				},
-			},
-			isAllowed: true,
-		},
-		{
-			name: "allowed for one coin but not allowed for another coin",
-			args: args{
-				addr: sdk.AccAddress("from"),
-				coinsToAllowList: []CoinToAllowList{
-					{
-						coin: sdk.NewInt64Coin(fmt.Sprintf("factory/%s/test", sdk.AccAddress("from")), 100),
-						allowList: types.AllowList{
-							Addresses: []string{sdk.AccAddress("from").String(), sdk.AccAddress("to").String()},
-						},
-					},
-					{
-						coin: sdk.NewInt64Coin(fmt.Sprintf("factory/%s/test2", sdk.AccAddress("from")), 100),
-						allowList: types.AllowList{
-							Addresses: []string{sdk.AccAddress("other").String(), sdk.AccAddress("yetanother").String()},
-						},
-					},
-				},
-			},
-			isAllowed: false,
-		},
-		{
-			name: "not allowed for first coin but allowed for another coin",
-			args: args{
-				addr: sdk.AccAddress("from"),
-				coinsToAllowList: []CoinToAllowList{
-					{
-						coin: sdk.NewInt64Coin(fmt.Sprintf("factory/%s/test", sdk.AccAddress("from")), 100),
-						allowList: types.AllowList{
-							Addresses: []string{sdk.AccAddress("other").String(), sdk.AccAddress("yetanother").String()},
-						},
-					},
-					{
-						coin: sdk.NewInt64Coin(fmt.Sprintf("factory/%s/test2", sdk.AccAddress("from")), 100),
-						allowList: types.AllowList{
-							Addresses: []string{sdk.AccAddress("from").String(), sdk.AccAddress("to").String()},
-						},
-					},
-				},
-			},
-			isAllowed: false,
-		},
-	}
-
-	for _, tt := range tests {
-		suite.Run(tt.name, func() {
-			app, ctx := suite.app, suite.ctx
-			coins := sdk.NewCoins()
-			for _, coinToAllowList := range tt.args.coinsToAllowList {
-				if coinToAllowList.coin.Denom != "" {
-					coins = coins.Add(coinToAllowList.coin)
-					if coinToAllowList.allowList.Addresses != nil {
-						app.GigaBankKeeper.SetDenomAllowList(ctx, coinToAllowList.coin.Denom, coinToAllowList.allowList)
-					}
-				}
-			}
-			denomToAllowedAddressesCache := make(map[string]keeper.AllowedAddresses)
-			isAllowed :=
-				app.GigaBankKeeper.IsInDenomAllowList(ctx, tt.args.addr, coins, denomToAllowedAddressesCache)
-
-			// Use suite.Require to assert the results
-			suite.Require().Equal(tt.isAllowed, isAllowed,
-				fmt.Errorf("IsInDenomAllowList() isAllowed = %v, want %v",
-					isAllowed, tt.isAllowed))
-		})
-	}
 }
 
 func (suite *IntegrationTestSuite) TestCanSendTo() {

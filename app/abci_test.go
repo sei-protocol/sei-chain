@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -192,6 +193,81 @@ func TestMigrationBatchSizeAppliedAtBlockStart(t *testing.T) {
 	got, ok := a.rootStore.GetMigrationBatchSize()
 	require.True(t, ok)
 	require.Equal(t, 640, got, "BeginBlock must apply a param already in state when the block starts")
+}
+
+// TestMigrateCosmosEnabledAtGenesis pins that a chain started from genesis on
+// this binary may start MigrateCosmos without a v6.8 upgrade record.
+func TestMigrateCosmosEnabledAtGenesis(t *testing.T) {
+	a := Setup(t, false, false, false)
+	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	require.True(t, ok)
+
+	var enabled bool
+	subspace.GetIfExists(a.GetContextForDeliverTx([]byte{}), migration.KeyMigrateCosmosEnabled, &enabled)
+	require.True(t, enabled, "InitChainer must enable MigrateCosmos")
+}
+
+// TestMigrateCosmosGate drives real blocks at the maximum rate and checks that
+// the store advances past the EVM migration only when MigrateCosmosEnabled is
+// set. With the gate open the store walks the whole chain: MigrateCosmos
+// completes within a block at this rate, and the next block's BeginBlock then
+// lands it in flatkv_only.
+func TestMigrateCosmosGate(t *testing.T) {
+	for _, tc := range []struct {
+		enabled  bool
+		wantMode sctypes.WriteMode
+	}{
+		{enabled: false, wantMode: sctypes.MigrateEVM},
+		{enabled: true, wantMode: sctypes.FlatKVOnly},
+	} {
+		t.Run(fmt.Sprintf("enabled=%v", tc.enabled), func(t *testing.T) {
+			a := Setup(t, false, false, false)
+			bg := context.Background()
+
+			subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+			require.True(t, ok)
+			ctx := a.GetContextForDeliverTx([]byte{})
+			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.MaxNumKeysToMigratePerBlock)
+			subspace.Set(ctx, migration.KeyMigrateCosmosEnabled, tc.enabled)
+
+			runBlock := func(height int64) {
+				_, err := a.FinalizeBlock(bg, &abci.RequestFinalizeBlock{
+					Header: &tmproto.Header{ChainID: "sei-test", Height: height, Time: time.Now()},
+				})
+				require.NoError(t, err)
+				_, err = a.Commit(bg)
+				require.NoError(t, err)
+			}
+			for height := int64(1); height <= 5; height++ {
+				runBlock(height)
+			}
+
+			mode, ok := a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, tc.wantMode, mode)
+			if tc.enabled {
+				return
+			}
+
+			// Opening the gate must start MigrateCosmos on the first block that
+			// reads it, which shows the EVM migration was already complete and
+			// only the closed gate held the store in migrate_evm. The write
+			// lands with block 6's commit, so block 7 is that first block.
+			subspace.Set(a.NewUncachedContext(false, tmproto.Header{}), migration.KeyMigrateCosmosEnabled, true)
+			runBlock(6)
+			runBlock(7)
+			mode, ok = a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.MigrateCosmos, mode)
+
+			// Block 7 completes MigrateCosmos; block 8's BeginBlock observes
+			// the persisted version and leaves the migration router.
+			runBlock(8)
+			mode, ok = a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.FlatKVOnly, mode)
+		})
+	}
 }
 
 func TestIBCStoreQueriesAreUnavailable(t *testing.T) {

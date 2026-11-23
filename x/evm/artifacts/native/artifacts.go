@@ -1,10 +1,8 @@
 package native
 
 import (
-	"bytes"
 	"embed"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -80,28 +78,4 @@ func setCachedBin(bin []byte) {
 	cacheMtx.Lock()
 	defer cacheMtx.Unlock()
 	cachedBin = bin
-}
-
-func IsCodeFromBin(code []byte) bool {
-	binLen := len(GetBin())
-	if len(code) < binLen {
-		return false
-	}
-	if !bytes.Equal(code[:binLen], GetBin()) {
-		return false
-	}
-	abi, err := NativeMetaData.GetAbi()
-	if err != nil {
-		fmt.Printf("error getting metadata ABI: %s\n", err)
-		return false
-	}
-	args, err := abi.Constructor.Inputs.Unpack(code[binLen:])
-	if err != nil || len(args) != 4 {
-		return false
-	}
-	_, isString1 := args[0].(string)
-	_, isString2 := args[1].(string)
-	_, isString3 := args[2].(string)
-	_, isUint8 := args[3].(uint8)
-	return isString1 && isString2 && isString3 && isUint8
 }

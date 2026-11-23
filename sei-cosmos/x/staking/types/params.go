@@ -26,9 +26,7 @@ const (
 	// Default maximum entries in a UBD/RED pair
 	DefaultMaxEntries uint32 = 7
 
-	// DefaultHistorical entries is 10000. Apps that don't use IBC can ignore this
-	// value by not adding the staking module to the application module manager's
-	// SetOrderBeginBlockers.
+	// DefaultHistoricalEntries is the default number of historical info entries the staking module keeps.
 	DefaultHistoricalEntries uint32 = 10000
 )
 

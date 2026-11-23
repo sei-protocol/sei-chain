@@ -26,6 +26,7 @@ func main() {
 		operations.PruneCmd(),
 		operations.DumpIAVLCmd(),
 		operations.DumpFlatKVCmd(),
+		operations.AuditFlatKVCmd(),
 		operations.StateSizeCmd(),
 		operations.MemiavlLatestVersionCmd(),
 		operations.ImportFlatKVFromMemiavlCmd(),

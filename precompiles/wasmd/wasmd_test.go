@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
@@ -221,6 +222,56 @@ func TestExecute(t *testing.T) {
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 	require.NotNil(t, statedb.GetPrecompileError())
+}
+
+// TestContractExecutionDisabled calls the precompile's execute, instantiate and query methods
+// with the wasm contractExecutionDisabled param on.
+func TestContractExecutionDisabled(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now()).WithIsEVM(true)
+	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
+	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	executor := p.GetExecutor().(*wasmd.PrecompileExecutor)
+	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
+	require.NoError(t, err)
+	codeID, err := wasmKeeper.Create(ctx, mockAddr, code, nil)
+	require.NoError(t, err)
+	contractAddr, _, err := wasmKeeper.Instantiate(ctx, codeID, mockAddr, mockAddr, []byte("{}"), "test", sdk.NewCoins())
+	require.NoError(t, err)
+	params := testApp.WasmKeeper.GetParams(ctx)
+	params.ContractExecutionDisabled = true
+	testApp.WasmKeeper.SetParams(ctx, params)
+	noCoins, err := sdk.NewCoins().MarshalJSON()
+	require.NoError(t, err)
+
+	call := func(methodID []byte, args ...interface{}) ([]byte, *state.DBImpl, error) {
+		method, err := p.ABI.MethodById(methodID)
+		require.NoError(t, err)
+		input, err := method.Inputs.Pack(args...)
+		require.NoError(t, err)
+		statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+		res, _, err := p.RunAndCalculateGas(&vm.EVM{StateDB: statedb}, mockEVMAddr, mockEVMAddr, append(methodID, input...), 1000000, nil, nil, false, false)
+		return res, statedb, err
+	}
+
+	_, statedb, err := call(executor.ExecuteID, contractAddr.String(), []byte(`{"echo":{"message":"test msg"}}`), noCoins)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	require.ErrorIs(t, statedb.GetPrecompileError(), wasmtypes.ErrContractExecutionDisabled)
+
+	_, statedb, err = call(executor.InstantiateID, codeID, mockAddr.String(), []byte("{}"), "test", noCoins)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	require.ErrorIs(t, statedb.GetPrecompileError(), wasmtypes.ErrContractExecutionDisabled)
+
+	res, _, err := call(executor.QueryID, contractAddr.String(), []byte(`{"info":{}}`))
+	require.NoError(t, err)
+	queryMethod, err := p.ABI.MethodById(executor.QueryID)
+	require.NoError(t, err)
+	outputs, err := queryMethod.Outputs.Unpack(res)
+	require.NoError(t, err)
+	require.Equal(t, `{"message":"query test"}`, string(outputs[0].([]byte)))
 }
 
 func TestQuery(t *testing.T) {

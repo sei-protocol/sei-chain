@@ -5,15 +5,20 @@ import (
 	"sort"
 	"sync"
 
+	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var _ receipt.ReceiptStore = (*MemoryReceiptStore)(nil)
+var _ receiptdb.ReceiptStore = (*MemoryReceiptStore)(nil)
 
 type memoryReceiptEntry struct {
 	blockNumber uint64
@@ -29,7 +34,7 @@ type MemoryReceiptStore struct {
 	earliestVersion int64
 	blocks          map[uint64]map[common.Hash]*evmtypes.Receipt
 	byTxHash        map[common.Hash]memoryReceiptEntry
-	blockStats      map[uint64]receipt.BlockStats
+	blockStats      map[uint64]receipttypes.BlockStats
 }
 
 // NewMemoryReceiptStore returns an empty MemoryReceiptStore.
@@ -37,7 +42,7 @@ func NewMemoryReceiptStore() *MemoryReceiptStore {
 	return &MemoryReceiptStore{
 		blocks:     make(map[uint64]map[common.Hash]*evmtypes.Receipt),
 		byTxHash:   make(map[common.Hash]memoryReceiptEntry),
-		blockStats: make(map[uint64]receipt.BlockStats),
+		blockStats: make(map[uint64]receipttypes.BlockStats),
 	}
 }
 
@@ -100,16 +105,21 @@ func (s *MemoryReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.
 	defer s.mu.RUnlock()
 	entry, ok := s.byTxHash[txHash]
 	if !ok {
-		return nil, receipt.ErrNotFound
+		return nil, receiptdb.ErrNotFound
 	}
 	if s.earliestVersion > 0 && entry.blockNumber < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
-		return nil, receipt.ErrNotFound
+		return nil, receiptdb.ErrNotFound
 	}
 	return cloneStoredReceipt(entry.receipt), nil
 }
 
+// Flush returns immediately, since every write lands before SetReceipts() returns.
+func (s *MemoryReceiptStore) Flush() error {
+	return nil
+}
+
 // SetReceipts stores caller-owned copies of receipt records.
-func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipttypes.ReceiptRecord) error {
 	if err := receiptContextError(ctx); err != nil {
 		return err
 	}
@@ -117,7 +127,7 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 		return fmt.Errorf("receipt block height must not be negative: %d", ctx.BlockHeight())
 	}
 
-	stored := make([]receipt.ReceiptRecord, 0, len(records))
+	stored := make([]receipttypes.ReceiptRecord, 0, len(records))
 	latestVersion := ctx.BlockHeight()
 	for _, record := range records {
 		if record.Receipt == nil {
@@ -129,7 +139,7 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 		if blockVersion := int64(record.Receipt.BlockNumber); blockVersion > latestVersion { //nolint:gosec // bounded above.
 			latestVersion = blockVersion
 		}
-		stored = append(stored, receipt.ReceiptRecord{
+		stored = append(stored, receipttypes.ReceiptRecord{
 			TxHash:       record.TxHash,
 			Receipt:      cloneStoredReceipt(record.Receipt),
 			Reward:       record.Reward,
@@ -144,50 +154,51 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 		return err
 	}
 	// Stats count only the records the store kept, as the on-disk stores do.
-	byBlock := make(map[uint64][]receipt.ReceiptRecord)
+	byBlock := make(map[uint64][]receipttypes.ReceiptRecord)
 	for _, record := range stored {
 		byBlock[record.Receipt.BlockNumber] = append(byBlock[record.Receipt.BlockNumber], record)
 	}
 	s.mu.Lock()
 	for blockNumber, blockRecords := range byBlock {
-		s.blockStats[blockNumber] = receipt.ComputeBlockStats(blockRecords, receipt.DefaultRewardPercentiles)
+		s.blockStats[blockNumber] = receiptmetrics.ComputeBlockStats(
+			blockRecords, receiptmetrics.DefaultRewardPercentiles)
 	}
 	if len(byBlock) == 0 && ctx.BlockHeight() > 0 {
 		// An empty block still executed; record it as a real, zero-stat block rather than leaving
 		// it unrecorded, which GetBlockStats would otherwise report as ErrBlockStatsNotSupported.
 		blockNumber := uint64(ctx.BlockHeight()) //nolint:gosec // guarded non-negative above
 		if _, exists := s.blockStats[blockNumber]; !exists {
-			s.blockStats[blockNumber] = receipt.BlockStats{}
+			s.blockStats[blockNumber] = receipttypes.BlockStats{}
 		}
 	}
 	s.mu.Unlock()
-	receipt.RecordReceiptsWritten(ctx.Context(), stored)
+	receiptmetrics.RecordReceiptsWritten(ctx.Context(), stored)
 	return nil
 }
 
 // GetBlockStats returns the aggregate stats recorded for blockNumber when its receipts were set.
-func (s *MemoryReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
+func (s *MemoryReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (receipttypes.BlockStats, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.earliestVersion > 0 && blockNumber < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
-		return receipt.BlockStats{}, receipt.ErrNotFound
+		return receipttypes.BlockStats{}, receiptdb.ErrNotFound
 	}
 	stats, ok := s.blockStats[blockNumber]
 	if !ok {
-		return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+		return receipttypes.BlockStats{}, receiptdb.ErrBlockStatsNotSupported
 	}
 	return stats, nil
 }
 
 // storeRecords installs a block's receipt records, advances the store version and
 // returns the records it kept.
-func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.ReceiptRecord, latestVersion int64) ([]receipt.ReceiptRecord, error) {
+func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipttypes.ReceiptRecord, latestVersion int64) ([]receipttypes.ReceiptRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := receiptContextError(ctx); err != nil {
 		return nil, err
 	}
-	stored, err := receipt.FilterExistingReceipts(stored, func(hash common.Hash) (bool, error) {
+	stored, err := utils.FilterExistingReceipts(stored, func(hash common.Hash) (bool, error) {
 		_, found := s.byTxHash[hash]
 		return found, nil
 	})
@@ -200,7 +211,7 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 			if len(s.blocks[previous.blockNumber]) == 0 {
 				delete(s.blocks, previous.blockNumber)
 				// A block a moved receipt vacates entirely gets a real, zero-stat entry.
-				s.blockStats[previous.blockNumber] = receipt.BlockStats{}
+				s.blockStats[previous.blockNumber] = receipttypes.BlockStats{}
 			} else {
 				// A block that still has other receipts after one moves away has its cached
 				// stats invalidated, not recomputed.
@@ -224,14 +235,14 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 }
 
 // FilterLogs returns the logs in [fromBlock, toBlock] matching crit, in block
-// then transaction order, converted and matched by the same receipt package
+// then transaction order, converted and matched by the same logfilter
 // code as the disk-backed stores: BlockHash is zero and Index carries the
 // block-wide first-log offset of its transaction on top of the stored index.
 func (s *MemoryReceiptStore) FilterLogs(
 	ctx sdk.Context,
 	fromBlock, toBlock uint64,
 	crit filters.FilterCriteria,
-	budget *receipt.LogBudget,
+	budget *logfilter.LogBudget,
 ) ([]*ethtypes.Log, error) {
 	if err := receiptContextError(ctx); err != nil {
 		return nil, err
@@ -264,8 +275,8 @@ func (s *MemoryReceiptStore) FilterLogs(
 		if err != nil {
 			return nil, err
 		}
-		for _, lg := range receipt.LogsForTx(stored, firstLogIndex) {
-			if !receipt.MatchLogForQuery(ctx.Context(), lg, crit) {
+		for _, lg := range logfilter.LogsForTx(stored, firstLogIndex) {
+			if !logfilter.MatchLogForQuery(ctx.Context(), lg, crit) {
 				continue
 			}
 			if err := budget.Reserve(lg); err != nil {
@@ -279,7 +290,7 @@ func (s *MemoryReceiptStore) FilterLogs(
 
 // IterateReceipts walks a snapshot of the retained receipts at or above
 // startBlock in block then transaction order.
-func (s *MemoryReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
+func (s *MemoryReceiptStore) IterateReceipts(startBlock uint64) (receiptdb.ReceiptIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.earliestVersion > 0 && startBlock < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.

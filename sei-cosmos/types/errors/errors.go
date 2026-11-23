@@ -162,6 +162,10 @@ var (
 	// ErrInvalidRecipient defines an error for sending to disallowed recipients in bank
 	ErrInvalidRecipient = Register(RootCodespace, 46, "invalid bank recipient")
 
+	// ErrMsgTypeDisabled defines an error for a transaction carrying a message whose type URL
+	// governance has disabled.
+	ErrMsgTypeDisabled = Register(RootCodespace, 47, "message type is disabled")
+
 	// ErrPanic is only set when we recover from a panic, so we know to
 	// redact potentially sensitive system info
 	ErrPanic = Register(UndefinedCodespace, 111222, "panic")

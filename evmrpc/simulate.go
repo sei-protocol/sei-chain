@@ -34,6 +34,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -367,6 +368,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
+		header.MixDigest = types.PrevRandao(tmBlock.Block.Time)
 		sdkCtx = ctxProvider(tmBlock.Block.Height)
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
@@ -386,6 +388,9 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, b.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
 		return b.keeper.GetReceipt(sdkCtx, txHash)
 	})
+	if errors.Is(err, receiptdb.ErrNotFound) {
+		return false, nil, common.Hash{}, 0, 0, nil
+	}
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
@@ -432,21 +437,13 @@ func (b *Backend) GetCanonicalTransaction(txHash common.Hash) (bool, *ethtypes.T
 	return true, tx, blockHash, blockNumber, index
 }
 
-// TxIndexDone reports whether transaction indexing is complete; it is always false.
+// TxIndexDone reports true, so an unknown transaction hash reads as not found.
 func (b *Backend) TxIndexDone() bool {
-	// A transaction that cannot be found is then reported as a tx-indexing error.
-	return false
+	return true
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
-}
-
-func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) (int64, error) {
-	if bn == rpc.PendingBlockNumber {
-		return 0, errors.New("tracing on pending block is not supported")
-	}
-	return resolveHeight(context.Background(), b.tmClient, b.ctxProvider(LatestCtxHeight).BlockHeight(), bn)
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
@@ -460,11 +457,11 @@ func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.B
 }
 
 func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	blockNum, err := b.ConvertBlockNumber(bn)
+	heightPtr, err := getBlockNumber(ctx, b.tmClient, bn)
 	if err != nil {
 		return nil, nil, err
 	}
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -733,6 +730,40 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, base 
 	return statedb, release, nil
 }
 
+// traceCallBackend serves debug_traceCall, which runs on the committed state after a block, as
+// eth_call does. Backend.StateAtBlock returns the state a block starts from: block tracing passes it
+// the traced block itself, as Sei headers carry a block's own hash as their ParentHash.
+type traceCallBackend struct{ *Backend }
+
+func (b traceCallBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ vm.SeiStateDB, _ bool, _ bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
+	height := block.Number().Int64()
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("cannot find block %d from tendermint", height)
+	}
+	sdkCtx, release := b.traceCtxProvider(height)
+	// A snapshot trace context carries the latest block's header.
+	sdkCtx = sdkCtx.WithBlockHeight(height).WithBlockTime(tmBlock.Block.Time).WithIsEVM(true)
+	if ctx != nil {
+		sdkCtx = sdkCtx.WithContext(ctx)
+	}
+	return state.NewDBImpl(sdkCtx, b.keeper, true), release, nil
+}
+
+// GetBlockContext returns the EVM block context for block, carrying block's own base fee.
+func (b traceCallBackend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
+	blockCtx, err := b.Backend.GetBlockContext(ctx, block, statedb, backend)
+	if err != nil {
+		return vm.BlockContext{}, err
+	}
+	// The state is post-block, so the keeper's next base fee belongs to the following block;
+	// the header carries the traced block's own.
+	if baseFee := block.BaseFee(); baseFee != nil {
+		blockCtx.BaseFee = new(big.Int).Set(baseFee)
+	}
+	return blockCtx, nil
+}
+
 func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdkCtx sdk.Context, tmBlock *coretypes.ResultBlock, release tracers.StateReleaseFunc, err error) {
 	emptyRelease := func() {}
 	release = emptyRelease
@@ -744,12 +775,11 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
-	res, err := b.tmClient.Validators(ctx, &prevBlockHeight, nil, nil) // todo: load all
+	validators, err := b.loadAllValidators(ctx, prevBlockHeight)
 	if err != nil {
-		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
+		return sdk.Context{}, nil, emptyRelease, err
 	}
-	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
-	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
+	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(validators)
 	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
 	var nextRelease func()
@@ -792,6 +822,44 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	return sdkCtx, tmBlock, release, nil
 }
 
+// validatorsPerPage is the page size loadAllValidators requests from the validators RPC.
+const validatorsPerPage = 100
+
+// loadAllValidators returns the validator set at height in canonical order, reading it
+// from the validators RPC validatorsPerPage at a time.
+func (b *Backend) loadAllValidators(ctx context.Context, height int64) ([]*tmtypes.Validator, error) {
+	var all []*tmtypes.Validator
+	perPage := validatorsPerPage
+	for page := 1; ; page++ {
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		res, err := b.tmClient.Validators(ctx, &height, &page, &perPage)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load validators for block %d from tendermint: %w", height, err)
+		}
+		TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&height), fmt.Sprintf("%d", page), fmt.Sprintf("%d", perPage)}, res)
+		if len(res.Validators) == 0 {
+			if res.Total > len(all) {
+				return nil, fmt.Errorf("validator set at block %d ended after %d of %d", height, len(all), res.Total)
+			}
+			return all, nil
+		}
+		all = append(all, res.Validators...)
+		if res.Total > 0 && len(all) > res.Total {
+			return nil, fmt.Errorf("validator pages at block %d exceeded total %d", height, res.Total)
+		}
+		if res.Total <= len(all) {
+			return all, nil
+		}
+		if page >= res.Total {
+			return nil, fmt.Errorf("validator set at block %d did not converge after %d pages (have %d, total %d)", height, page, len(all), res.Total)
+		}
+	}
+}
+
 func (b *Backend) activateIncrementalTallyForTrace(ctx sdk.Context, height int64) error {
 	if b.keeper == nil || b.beginBlockKeepers.GovKeeper == nil {
 		return nil
@@ -829,7 +897,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
-	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles())
 	evm.SetTxContext(txContext)
 	return evm
 }
@@ -912,12 +980,13 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 		Time:          toUint64(tmBlock.Block.Time.Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 		ParentHash:    common.BytesToHash(tmBlock.BlockID.Hash),
+		MixDigest:     types.PrevRandao(tmBlock.Block.Time),
 	}
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.CustomPrecompiledContract {
-	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
+func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {
+	return b.keeper.CustomPrecompiles()
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {

@@ -494,6 +494,24 @@ func newStateWithConfigAndBlockStore(
 	blockStore *store.BlockStore,
 ) *testState {
 	t.Helper()
+	stateHandle := newUnloadedState(t, thisConfig, state, app, blockStore)
+	if err := stateHandle.updateStateFromStore(); err != nil {
+		panic(err)
+	}
+	stateHandle.SetPrivValidator(t.Context(), utils.Some(pv))
+	return stateHandle
+}
+
+// newUnloadedState returns a consensus state whose store holds state but which has
+// not loaded it yet, as node startup constructs it.
+func newUnloadedState(
+	t *testing.T,
+	thisConfig *config.Config,
+	state sm.State,
+	app *proxy.Proxy,
+	blockStore *store.BlockStore,
+) *testState {
+	t.Helper()
 	ctx := t.Context()
 
 	// Make Mempool
@@ -534,11 +552,6 @@ func newStateWithConfigAndBlockStore(
 		eventBus,
 		[]trace.TracerProviderOption{},
 	)}
-	if err := stateHandle.updateStateFromStore(); err != nil {
-		panic(err)
-	}
-
-	stateHandle.SetPrivValidator(ctx, utils.Some(pv))
 	t.Cleanup(func() {
 		stateHandle.waitForTestRoutines()
 		eventBus.Wait()

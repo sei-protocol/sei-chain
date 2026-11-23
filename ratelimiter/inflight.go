@@ -74,7 +74,7 @@ func (r *Registry) AcquireInFlight(ctx context.Context, ip, plane, method string
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(plane, method, r.knownGRPCMethods())),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
 		),
 	)
 	return false
@@ -95,16 +95,4 @@ func (r *Registry) InFlightHeld(ip string) int {
 		return 0
 	}
 	return r.inflight.heldFor(bucketKey(ip))
-}
-
-// IsKnownGRPCMethod reports whether fullMethod is one of the "service/Method"
-// names given to SetKnownGRPCMethods, with or without a leading slash. It
-// reports false when SetKnownGRPCMethods has not been called.
-func (r *Registry) IsKnownGRPCMethod(fullMethod string) bool {
-	known := r.knownGRPCMethods()
-	if known == nil {
-		return false
-	}
-	_, ok := known[trimLeadingSlash(fullMethod)]
-	return ok
 }

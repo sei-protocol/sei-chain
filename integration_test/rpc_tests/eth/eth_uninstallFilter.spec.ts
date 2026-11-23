@@ -1,6 +1,7 @@
 import { expect } from 'chai';
-import { bothProviders, rawSei, expectJsonRpcError } from '../utils/chainUtils';
+import { bothProviders, rawSei, expectJsonRpcError, sleep } from '../utils/chainUtils';
 import { FILTER_ID } from '../utils/logsUtils';
+import { FILTER_LIFETIME, filterLifetimeProbe } from '../utils/filterLifetime';
 
 const UNKNOWN_ID = '0xdeadbeefdeadbeefdeadbeefdeadbeef';
 
@@ -28,6 +29,24 @@ describe('eth_uninstallFilter', function () {
             await sei.send('eth_uninstallFilter', [id]);
             const res = await rawSei('eth_getFilterChanges', [id]);
             expectJsonRpcError(res, -32000, /filter does not exist/);
+        });
+    });
+
+    describe('removal after filter_timeout', function () {
+        // The probe filters are installed when the run starts (utils/filterLifetime.ts), and this
+        // spec runs last, so the sweep has usually happened by now and the wait below is short.
+        this.timeout(FILTER_LIFETIME.sweptByMs + 60_000);
+
+        it('a filter left unread past filter_timeout is removed, while one read within it is kept', async () => {
+            const probe = await filterLifetimeProbe();
+            await sleep(Math.max(0, probe.startedAt + FILTER_LIFETIME.sweptByMs - Date.now()));
+
+            expect(probe.failedReads, 'every periodic read of the kept filter answered').to.deep.equal([]);
+            expect(await sei.send('eth_getFilterLogs', [probe.kept]), 'the read filter still answers').to.deep.equal(
+                await sei.send('eth_getLogs', [probe.criteria]),
+            );
+            expectJsonRpcError(await rawSei('eth_getFilterLogs', [probe.idle]), -32000, /filter does not exist/);
+            await sei.send('eth_uninstallFilter', [probe.kept]);
         });
     });
 

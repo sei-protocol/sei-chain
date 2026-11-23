@@ -225,7 +225,7 @@ func (f *inspectFanout) matchesAccountPhysicalKey(physKey []byte) bool {
 func (f *inspectFanout) finalizeAccounts(accounts map[string]*semanticAccountDigestState) {
 	addrs := make([]string, 0, len(accounts))
 	for addr := range accounts {
-		if f.matchesAccountPhysicalKey(ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))) {
+		if f.matchesAccountPhysicalKey(ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, []byte(addr))) {
 			addrs = append(addrs, addr)
 		}
 	}

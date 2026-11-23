@@ -74,6 +74,25 @@ type hashLogFile struct {
 	headerWritten bool
 }
 
+// Bookkeeping for a sealed hash log file.
+type sealedFileInfo struct {
+
+	// The file's index.
+	index uint64
+
+	// The file's sealed name.
+	name string
+
+	// The first block number in the file.
+	firstBlock uint64
+
+	// The last block number in the file.
+	lastBlock uint64
+
+	// The file's size in bytes.
+	size uint64
+}
+
 // The result of parsing a hash log file name.
 type parsedFileName struct {
 	index      uint64
@@ -218,8 +237,29 @@ func ReadHashLogFile(path string) (*hashLogFile, error) {
 	return file, nil
 }
 
-// Write the next HashLog to this file. If the file is sealed, this returns an error.
-func (h *hashLogFile) write(hashLog *HashLog) error {
+// HashTypes returns this file's columns, in header order.
+func (h *hashLogFile) HashTypes() []string {
+	return h.hashTypes
+}
+
+// Size returns the number of bytes written to this file, including the header.
+func (h *hashLogFile) Size() uint64 {
+	return h.size
+}
+
+// SealedInfo returns the bookkeeping for this file as it is once sealed with its current contents.
+func (h *hashLogFile) SealedInfo() sealedFileInfo {
+	return sealedFileInfo{
+		index:      h.index,
+		name:       sealedFileName(h.index, h.firstBlockIndex, h.lastBlockIndex, h.version),
+		firstBlock: h.firstBlockIndex,
+		lastBlock:  h.lastBlockIndex,
+		size:       h.size,
+	}
+}
+
+// Write appends hashLog to this file as one row. Errors if the file is sealed.
+func (h *hashLogFile) Write(hashLog *HashLog) error {
 	if h.sealed {
 		return fmt.Errorf("cannot write to a sealed hash log file")
 	}
@@ -248,10 +288,23 @@ func (h *hashLogFile) write(hashLog *HashLog) error {
 	return nil
 }
 
-// Close this file, flushing any buffered data to disk and marking it as sealed. Sealing renames the file from
-// its unsealed name to its sealed name via an atomic rename. An empty file (one that never received a write) is
-// removed rather than sealed. Idempotent.
-func (h *hashLogFile) close() error {
+// Flush writes buffered rows to this mutable file and fsyncs it. Errors if the file is sealed.
+func (h *hashLogFile) Flush() error {
+	if h.sealed {
+		return fmt.Errorf("cannot flush a sealed hash log file")
+	}
+	if err := h.writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush hash log file: %w", err)
+	}
+	if err := h.file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync hash log file: %w", err)
+	}
+	return nil
+}
+
+// Close flushes this file to disk and seals it under its sealed name. A file that never received a write is
+// removed instead. Idempotent.
+func (h *hashLogFile) Close() error {
 	if h.sealed {
 		return nil
 	}

@@ -9,10 +9,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -22,28 +21,32 @@ import (
 )
 
 type Snapshot struct {
-	Blocks       map[types.GlobalBlockNumber]*types.Block
-	QCs          map[types.GlobalBlockNumber]*types.FullCommitQC
-	AppProposals map[types.GlobalBlockNumber]*types.AppProposal
+	Blocks       map[types.LaneBlockPos]*types.LaneBlock
+	QCs          map[types.RoadHeight]*types.FullCommitQC
+	AppProposals map[types.RoadHeight]*types.AppProposal
 }
 
 func newSnapshot() Snapshot {
 	return Snapshot{
-		Blocks:       map[types.GlobalBlockNumber]*types.Block{},
-		QCs:          map[types.GlobalBlockNumber]*types.FullCommitQC{},
-		AppProposals: map[types.GlobalBlockNumber]*types.AppProposal{},
+		Blocks:       map[types.LaneBlockPos]*types.LaneBlock{},
+		QCs:          map[types.RoadHeight]*types.FullCommitQC{},
+		AppProposals: map[types.RoadHeight]*types.AppProposal{},
 	}
 }
 
 func snapshot(s *State) Snapshot {
 	for inner := range s.inner.Lock() {
-		qcs := make(map[types.GlobalBlockNumber]*types.FullCommitQC, len(inner.qcs))
-		for n, e := range inner.qcs {
+		qcs := make(map[types.RoadHeight]*types.FullCommitQC, len(inner.blocks))
+		blocks := make(map[types.LaneBlockPos]*types.LaneBlock)
+		for n, e := range inner.blocks {
 			qcs[n] = e.qc
+			for offset, block := range e.blocks {
+				blocks[types.LaneBlockPos{Height: n, Offset: offset}] = block
+			}
 		}
 		return Snapshot{
 			QCs:          qcs,
-			Blocks:       maps.Clone(inner.blocks),
+			Blocks:       blocks,
 			AppProposals: maps.Clone(inner.appProposals),
 		}
 	}
@@ -53,25 +56,25 @@ func snapshot(s *State) Snapshot {
 // newTestBlockStore opens (or creates) a LittDB-backed BlockStore at dir.
 // Retention is set to 1ns so ForceGC reclaims pruned data immediately in tests.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestBlockStore(t *testing.T, dir string) types.BlockStore {
+func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 	t.Helper()
-	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
+	cfg := utils.OrPanic1(blockstore.DefaultConfig(dir))
 	cfg.RetentionTime = time.Nanosecond
-	store := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
+	store := utils.OrPanic1(blockstore.New(cfg))
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
-func newMemoryBlockStore(t testing.TB) types.BlockStore {
+func newTestStore(t testing.TB) *blockstore.Store {
 	t.Helper()
-	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	store := blockstore.NewTestStore(t)
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
 // newTestState constructs a State, replays store, and returns it ready to Run.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
+func newTestState(t testing.TB, cfg *Config, store *blockstore.Store) *State {
 	t.Helper()
 	return utils.OrPanic1(NewState(cfg, store))
 }
@@ -79,23 +82,18 @@ func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
 // writeToBlockStore writes QC+block pairs sequentially to store and flushes once.
 // qcs[i] and blockss[i] must correspond; QCs must be in ascending order.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
+func writeToBlockStore(t *testing.T, store *blockstore.Store, qcs []*types.FullCommitQC, blockss [][]*types.LaneBlock) {
 	t.Helper()
 	for i, qc := range qcs {
-		gr := qc.QC().GlobalRange()
-		utils.OrPanic(store.WriteQC(qc))
-		for j, n := 0, gr.First; n < gr.Next; n++ {
-			utils.OrPanic(store.WriteBlock(n, blockss[i][j]))
-			j++
-		}
+		utils.OrPanic(store.WriteBlock(types.NewRoadBlock(qc, blockss[i])))
 	}
 	utils.OrPanic(store.Flush())
 }
 
-func writeAppDataToBlockStore(t testing.TB, rng utils.Rng, store types.BlockStore, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
+func writeAppDataToBlockStore(t testing.TB, rng utils.Rng, store *blockstore.Store, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
 	t.Helper()
 	for _, qc := range qcs {
-		appProposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 		utils.OrPanic(store.WriteAppProposal(appProposal))
 		utils.OrPanic(store.WriteAppQC(TestAppQC(keys, appProposal)))
 	}
@@ -105,11 +103,11 @@ func writeAppDataToBlockStore(t testing.TB, rng utils.Rng, store types.BlockStor
 // pushAppHashesRunning runs state.Run under scope.Run long enough to accept
 // PushAppHash for [first, next), then cancels Run. Prefers scope.Run over a
 // raw goroutine so cleanup is structured.
-func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, first, next types.GlobalBlockNumber) error {
+func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, first, next types.RoadHeight) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		for n := first; n < next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
 				return err
 			}
 		}
@@ -117,7 +115,7 @@ func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, firs
 	})
 }
 
-func pushAppQCForBlock(ctx context.Context, state *State, keys []types.SecretKey, n types.GlobalBlockNumber) error {
+func pushAppQCForBlock(ctx context.Context, state *State, keys []types.SecretKey, n types.RoadHeight) error {
 	vote, err := state.AppVote(ctx, n)
 	if err != nil {
 		return err
@@ -128,99 +126,55 @@ func pushAppQCForBlock(ctx context.Context, state *State, keys []types.SecretKey
 func commitQCAtRoad(
 	ep *types.Epoch,
 	keys []types.SecretKey,
-	road types.RoadIndex,
-	globalFirst types.GlobalBlockNumber,
-) (*types.FullCommitQC, []*types.Block) {
-	proposal := types.ProposalAt(ep, types.View{Index: road, Number: 0}, globalFirst)
-	block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
+	road types.RoadHeight,
+) (*types.FullCommitQC, []*types.LaneBlock) {
+	proposal := types.ProposalAt(ep, types.View{Height: road, Number: 0})
+	block := types.NewLaneBlock(ep.Committee().Lanes().At(0), 0, types.LaneBlockHeaderHash{}, &types.Payload{})
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+	prepareQC := types.BuildPrepareQC(keys, proposal)
 	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
+		votes = append(votes, k.Sign(types.NewCommitVote(prepareQC)))
 	}
-	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()}), []*types.Block{block}
+	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.LaneBlockHeader{block.Header()}), []*types.LaneBlock{block}
 }
 
-func commitQCAtRoadBlocks(
-	ep *types.Epoch,
-	keys []types.SecretKey,
-	road types.RoadIndex,
-	globalFirst types.GlobalBlockNumber,
-	n int,
-) (*types.FullCommitQC, []*types.Block) {
-	proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: road, Number: 0}, globalFirst, n)
-	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
-	}
-	headers := make([]*types.BlockHeader, len(blocks))
-	for i, b := range blocks {
-		headers[i] = b.Header()
-	}
-	return types.NewFullCommitQC(types.NewCommitQC(votes), headers), blocks
-}
-
-func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
+func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
-	ep2 := registry.MustEpoch(2)
 	ep1 := registry.MustEpoch(1)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-
-	qcMid, blocksMid := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), ep1.FirstBlock())
-	require.NoError(t, state.PushQC(ctx, qcMid, blocksMid))
-	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch next road is still in epoch 1")
-	grMid := qcMid.QC().GlobalRange()
-	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grMid.First, grMid.Next))
-	require.Equal(t, ep1, state.NextCommitEpoch().Load())
-
-	qcLast, blocksLast := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), grMid.Next)
-	require.NoError(t, state.PushQC(ctx, qcLast, blocksLast))
-	require.Equal(t, ep2, state.NextCommitEpoch().Load(), "next road is in epoch 2, already filled from end(0)")
+	qcMid, blocksMid := commitQCAtRoad(ep1, keys, registry.LastRoad(1)-1)
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qcMid}, [][]*types.LaneBlock{blocksMid})
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+	require.Equal(t, ep1, state.Anchor().Load().NextHeightEpoch())
+	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qcMid.Height(), qcMid.Height()+1))
+	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
+	require.NoError(t, state.PushPartialBlock(ctx, qcLast, TestBlockMap(blocksLast)))
+	require.Equal(t, [2]*types.Epoch{ep1, registry.MustEpoch(2)}, state.Anchor().Load().Epochs)
+	require.False(t, state.Anchor().Load().First.IsPresent())
 }
 
-func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
+func TestNextHeightEpoch_AfterAppQCActivation(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	keeper := keys[0].Public()
-	ep0 := registry.MustEpoch(0)
-	ep1 := registry.MustEpoch(1)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	qc, blocks := commitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
-		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := registry.TestTryPushEpoch(qc.Height(), map[types.PublicKey]uint64{keys[0].Public(): 9}); err != nil {
 			return err
 		}
-		n0 := qc0.QC().GlobalRange().Next - 1
-		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
 			return err
 		}
-		if got := state.NextCommitEpoch().Load(); got != ep1 {
-			return fmt.Errorf("after LastRoad(0) QC: NextCommitEpoch = %v, want epoch 1", got.EpochIndex())
-		}
-
-		qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), qc0.QC().GlobalRange().Next)
-		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
-			return err
-		}
-		if got := state.NextCommitEpoch().Load(); got != ep1 {
-			return fmt.Errorf("LastRoad(1) QC before epoch 2 is live: NextCommitEpoch = %v, want epoch 1", got.EpochIndex())
-		}
-
-		if err := pushAppQCForBlock(ctx, state, keys, n0); err != nil {
-			return err
-		}
-		ep2, err := registry.EpochByIndex(2)
-		if err != nil {
-			return fmt.Errorf("epoch 2 after AppQC: %w", err)
-		}
-		if got := state.NextCommitEpoch().Load(); got != ep2 {
-			return fmt.Errorf("after AppQC: NextCommitEpoch = %v, want epoch 2", got.EpochIndex())
-		}
-		return nil
+		return pushAppQCForBlock(ctx, state, keys, qc.Height())
 	}))
+	require.Equal(t, registry.MustEpoch(1), state.Anchor().Load().NextHeightEpoch())
+	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 }
 
 func TestState(t *testing.T) {
@@ -228,7 +182,7 @@ func TestState(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -239,14 +193,14 @@ func TestState(t *testing.T) {
 			t.Logf("iteration %v", i)
 			qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, prev)
 			prev = utils.Some(qc.QC())
-			if err := state.PushQC(ctx, qc, blocks); err != nil {
-				return fmt.Errorf("state.PushQC(): %w", err)
+			if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
+				return fmt.Errorf("state.PushPartialBlock(): %w", err)
 			}
-			gr := qc.QC().GlobalRange()
-			for n := gr.First; n < gr.Next; n += 1 {
-				want.QCs[n] = qc
-				want.Blocks[n] = blocks[n-gr.First]
+			want.QCs[qc.Height()] = qc
+			for offset, block := range blocks {
+				want.Blocks[types.LaneBlockPos{Height: qc.Height(), Offset: uint64(offset)}] = block
 			}
+
 			if err := utils.TestDiff(want, snapshot(state)); err != nil {
 				return fmt.Errorf("snapshot: %w", err)
 			}
@@ -262,24 +216,24 @@ func TestState(t *testing.T) {
 
 			gotB, err = state.TryBlock(n)
 			if err != nil {
-				return fmt.Errorf("state.TryBlock(%v): %w", n, err)
+				return fmt.Errorf("state.TryBlock(types.LaneBlockPos{Index: %v}): %w", n, err)
 			}
 			if err := utils.TestDiff(wantB, gotB); err != nil {
-				return fmt.Errorf("state.TryBlock(%v): %w", n, err)
+				return fmt.Errorf("state.TryBlock(types.LaneBlockPos{Index: %v}): %w", n, err)
 			}
 
-			wantG := &types.GlobalBlock{
-				GlobalNumber: n,
-				Timestamp:    want.QCs[n].QC().Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
-				Header:       wantB.Header(),
-				Payload:      wantB.Payload(),
+			qc := want.QCs[n.Height]
+			blocks := make([]*types.LaneBlock, len(qc.Headers()))
+			for offset := range blocks {
+				blocks[offset] = want.Blocks[types.LaneBlockPos{Height: n.Height, Offset: uint64(offset)}]
 			}
-			gotG, err := state.GlobalBlock(ctx, n)
+			wantG := types.NewRoadBlock(qc, blocks).SuperBlock()
+			gotG, err := state.SuperBlock(ctx, n.Height)
 			if err != nil {
-				return fmt.Errorf("state.GlobalBlock(%v): %w", n, err)
+				return fmt.Errorf("state.SuperBlock(%v): %w", n, err)
 			}
 			if err := utils.TestDiff(wantG, gotG); err != nil {
-				return fmt.Errorf("state.GlobalBlock(%v): %w", n, err)
+				return fmt.Errorf("state.SuperBlock(%v): %w", n, err)
 			}
 		}
 		return nil
@@ -290,59 +244,59 @@ func TestState(t *testing.T) {
 
 // Scenario:
 // * a valid CommitQC is pushed.
-// * an invalid CommitQC with the same road index, but more blocks is pushed.
+// * an invalid CommitQC with the same road height, but more blocks is pushed.
 // * data State should verify and reject the CommitQC, in particular:
 //   - NOT replace the previous CommitQC
-//   - NOT append the extra blocks for this road index.
+//   - NOT append the extra blocks for this road height.
 func TestPushConflictingBadCommitQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.MustEpoch(0).Committee()
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	ep0 := registry.MustEpoch(0)
+	committee := ep0.Committee()
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
-	// Push a valid QC to advance inner.nextQC.
-	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	gr1 := qc1.QC().GlobalRange()
+	// Push a valid QC to advance inner.nextPartialBlock.
+	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 
 	// Construct a malicious QC signed by non-committee keys.
-	// It starts from block 0 (stale) but extends beyond nextQC.
+	// It starts from block 0 (stale) but extends beyond nextPartialBlock.
 	// Keep each lane range within the protocol max; we only need the
 	// total finalized span to exceed the previously accepted QC by 1.
 	badKeys := make([]types.SecretKey, len(keys))
 	for i := range badKeys {
 		badKeys[i] = types.GenSecretKey(rng)
 	}
-	laneBlocks := map[types.LaneID][]*types.Block{}
-	maliciousBlocksTotal := int(gr1.Len()) + 1
+	blocks := map[types.LaneID][]*types.LaneBlock{}
+	maliciousBlocksTotal := len(blocks1) + 1
 	require.LessOrEqual(t, maliciousBlocksTotal, committee.Lanes().Len()*types.MaxLaneRangeInProposal)
 	for i := range maliciousBlocksTotal {
 		lane := committee.Lanes().At(i % committee.Lanes().Len())
-		var b *types.Block
-		if bs := laneBlocks[lane]; len(bs) > 0 {
+		var b *types.LaneBlock
+		if bs := blocks[lane]; len(bs) > 0 {
 			parent := bs[len(bs)-1]
-			b = types.NewBlock(lane, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+			b = types.NewLaneBlock(lane, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
 		} else {
-			b = types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+			b = types.NewLaneBlock(lane, 0, types.GenLaneBlockHeaderHash(rng), types.GenPayload(rng))
 		}
-		laneBlocks[lane] = append(laneBlocks[lane], b)
+		blocks[lane] = append(blocks[lane], b)
 	}
 	laneQCs := map[types.LaneID]*types.LaneQC{}
-	var headers []*types.BlockHeader
-	var malBlocks []*types.Block
+	var headers []*types.LaneBlockHeader
+	var malBlocks []*types.LaneBlock
 	for lane := range committee.Lanes().All() {
-		bs := laneBlocks[lane]
+		bs := blocks[lane]
 		if len(bs) == 0 {
 			continue
 		}
-		laneQCs[lane] = TestLaneQC(badKeys, bs[len(bs)-1].Header())
+		laneQCs[lane] = TestLaneQC(ep0.EpochIndex(), badKeys, bs[len(bs)-1].Header())
 		for _, b := range bs {
 			headers = append(headers, b.Header())
 			malBlocks = append(malBlocks, b)
 		}
 	}
-	viewSpec := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: registry.MustEpoch(0)}}
+	viewSpec := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}}
 	leader := committee.Leader(viewSpec.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {
@@ -357,67 +311,58 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 		time.Now(),
 		laneQCs,
 	))
-	malGR := proposal.Proposal().Msg().GlobalRange()
-	require.Less(t, malGR.First, gr1.Next, "test setup: malicious gr.First must be < nextQC")
-	require.Greater(t, malGR.Next, gr1.Next, "test setup: malicious gr.Next must be > nextQC")
+	require.Less(t, proposal.Proposal().Msg().Height(), qc1.Height()+1, "test setup: malicious index must be < nextPartialBlock")
+	require.Equal(t, proposal.Proposal().Msg().Height(), qc1.Height())
 
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
+	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range badKeys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
+		votes = append(votes, k.Sign(types.NewCommitVote(prepareQC)))
 	}
 	maliciousQC := types.NewFullCommitQC(types.NewCommitQC(votes), headers)
 
 	// Push the malicious QC with its blocks. Whether it returns an error is an
 	// implementation detail — what matters is that the state is unchanged afterward.
-	// Passing blocks (not nil) exercises the min(gr.Next, inner.nextQC) cap that
-	// prevents out-of-bounds access when the malicious range extends beyond stored QCs.
-	_ = state.PushQC(ctx, maliciousQC, malBlocks)
+	// Passing blocks also checks them against the retained QC headers.
+	_ = state.PushPartialBlock(ctx, maliciousQC, TestBlockMap(malBlocks))
 
 	// Verify state was not corrupted: all previously pushed QCs and blocks are intact.
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state.QC(ctx, n)
-		require.NoError(t, err)
-		require.Equal(t, qc1, got)
-	}
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state.TryBlock(n)
-		require.NoError(t, err)
-		require.Equal(t, blocks1[n-gr1.First], got)
-	}
+	gotQC, err := state.QC(ctx, qc1.Height())
+	require.NoError(t, err)
+	require.Equal(t, qc1, gotQC)
+	got, err := state.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
+	require.NoError(t, err)
+	require.Equal(t, blocks1[0], got)
 
-	// Verify nextQC did not advance beyond the valid range.
+	// Verify nextPartialBlock did not advance beyond the valid range.
 	for inner := range state.inner.Lock() {
-		require.Equal(t, gr1.Next, inner.nextQC)
+		require.Equal(t, qc1.Height()+1, inner.nextPartialBlock)
 	}
 
 	// Verify state is still functional: the next valid QC is accepted and visible.
-	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
-	gr2 := qc2.QC().GlobalRange()
-	for n := gr2.First; n < gr2.Next; n++ {
-		got, err := state.QC(ctx, n)
-		require.NoError(t, err)
-		require.Equal(t, qc2, got)
-	}
+	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
+	require.NoError(t, state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)))
+	gotQC, err = state.QC(ctx, qc2.Height())
+	require.NoError(t, err)
+	require.Equal(t, qc2, gotQC)
 }
 
-func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
+func TestPushPartialBlockIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
 	// Push qc1 with NO blocks — only the QC is stored.
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	require.NoError(t, state.PushQC(ctx, qc1, nil))
-	gr := qc1.QC().GlobalRange()
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, nil))
 
 	// Build a tampered FullCommitQC: same CommitQC (same range) but with
 	// different block headers (different payloads → different hashes).
-	var fakeHeaders []*types.BlockHeader
-	var fakeBlocks []*types.Block
+	var fakeHeaders []*types.LaneBlockHeader
+	var fakeBlocks []*types.LaneBlock
 	for _, orig := range qc1.Headers() {
-		fb := types.NewBlock(orig.Lane(), orig.BlockNumber(), orig.ParentHash(), types.GenPayload(rng))
+		fb := types.NewLaneBlock(orig.Lane(), orig.Height(), orig.ParentHash(), types.GenPayload(rng))
 		fakeHeaders = append(fakeHeaders, fb.Header())
 		fakeBlocks = append(fakeBlocks, fb)
 	}
@@ -426,22 +371,17 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	// Push the tampered QC with blocks that match the tampered headers.
 	// needQC is false (range already covered), so the tampered QC is not
 	// verified. Blocks must be matched against the stored QC's headers.
-	_ = state.PushQC(ctx, tamperedQC, fakeBlocks)
+	_ = state.PushPartialBlock(ctx, tamperedQC, TestBlockMap(fakeBlocks))
 
 	// Verify no fake blocks were inserted.
-	for n := gr.First; n < gr.Next; n++ {
-		_, err := state.TryBlock(n)
-		require.ErrorIs(t, err, types.ErrNotFound)
-	}
+	_, err := state.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
+	require.ErrorIs(t, err, types.ErrNotFound)
 
 	// Push the real blocks (matching qc1's headers) and verify they work.
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	for i, n := 0, gr.First; n < gr.Next; n++ {
-		got, err := state.TryBlock(n)
-		require.NoError(t, err)
-		require.Equal(t, blocks1[i], got)
-		i++
-	}
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	got, err := state.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
+	require.NoError(t, err)
+	require.Equal(t, blocks1[0], got)
 }
 
 func TestExecution(t *testing.T) {
@@ -449,7 +389,7 @@ func TestExecution(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -458,23 +398,20 @@ func TestExecution(t *testing.T) {
 		for i := range 3 {
 			t.Logf("iteration %v", i)
 			qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, prev)
-			if err := state.PushQC(ctx, qc, blocks); err != nil {
-				return fmt.Errorf("state.PushQC(): %w", err)
+			if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
+				return fmt.Errorf("state.PushPartialBlock(): %w", err)
 			}
 			prev = utils.Some(qc.QC())
-			gr := qc.QC().GlobalRange()
-			// PushAppHash for a block beyond nextBlock should not succeed:
+			// PushAppHash for a block beyond nextFullBlock should not succeed:
 			// it waits for persistence which never happens for unfinalised blocks.
 			shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
-			if err := state.PushAppHash(shortCtx, gr.Next, types.GenAppHash(rng), nil); err == nil {
+			if err := state.PushAppHash(shortCtx, qc.Height()+1, types.GenAppHash(rng)); err == nil {
 				cancel()
 				return errors.New("PushAppHash expected to fail on non-finalized blocks")
 			}
 			cancel()
-			for n := gr.First; n < gr.Next; n += 1 {
-				if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
-					return fmt.Errorf("state.PushAppHash(): %w", err)
-				}
+			if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
+				return fmt.Errorf("state.PushAppHash(): %w", err)
 			}
 		}
 		return nil
@@ -488,7 +425,7 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		epoch := registry.MustEpoch(0)
@@ -499,93 +436,71 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 				prev = utils.Some(qcs[len(qcs)-1])
 			}
 			qc, blocks := TestCommitQC(rng, epoch, keys, prev)
-			if err := state.PushQC(ctx, qc, blocks); err != nil {
-				return fmt.Errorf("PushQC(): %w", err)
+			if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
+				return fmt.Errorf("PushPartialBlock(): %w", err)
 			}
 			qcs = append(qcs, qc.QC())
 		}
-		if err := state.PushAppHash(ctx, qcs[0].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[0].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc1): %w", err)
 		}
-		if qcs[2].GlobalRange().Len() < 2 {
-			panic("qcs[2].Len() is too small for this test")
-		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng), nil); !errors.Is(err, ErrOutOfOrder) {
-			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
-		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng), nil); !errors.Is(err, ErrOutOfOrder) {
+
+		if err := state.PushAppHash(ctx, qcs[2].Height(), types.GenAppHash(rng)); !errors.Is(err, ErrOutOfOrder) {
 			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
 		}
 
-		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[1].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[2].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc3): %w", err)
 		}
 		// Inserting old stuff should be a noop.
-		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[1].Height(), types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, qcs[2].Height()-1, types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
 		return nil
 	}))
 }
 
-func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
+func TestCommitteeFill_DerivedBeforeAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-		if err := state.PushQC(ctx, qc, blocks); err != nil {
-			return err
-		}
-		if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
-			return err
-		}
-		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
-			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
-		}
-		if got, ok := registry.Pending().Get(); ok {
-			return fmt.Errorf("Pending() = %v, want nothing staged mid-epoch", got)
-		}
-		return nil
-	}))
-}
-
-func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	ep1 := registry.MustEpoch(1)
 	keeper := keys[0].Public()
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	ep := registry.MustEpoch(0)
+	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0))
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
-		if err := state.PushQC(ctx, qc, blocks); err != nil {
+
+		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 			return err
 		}
-		n := qc.QC().GlobalRange().Next - 1
-		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		n := qc.Height()
+		if err := registry.TestTryPushEpoch(n, map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
-			return errors.New("epoch 2 must stay staged until an AppQC finalizes end(0)")
+		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			return err
 		}
-		if want := utils.Some(types.EpochIndex(2)); registry.Pending() != want {
-			return fmt.Errorf("Pending() = %v, want %v", registry.Pending(), want)
+		if _, err := registry.EpochAt(ep1.RoadRange().Next); err != nil {
+			return err
+		}
+		if state.Anchor().Load().First.IsPresent() {
+			return errors.New("anchor certified before AppQC")
 		}
 
 		if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
 			return err
 		}
-		filled, err := registry.EpochAt(epoch.FirstRoad(2))
+		filled, err := registry.EpochAt(ep1.RoadRange().Next)
 		if err != nil {
 			return fmt.Errorf("epoch 2 after AppQC: %w", err)
 		}
@@ -602,67 +517,45 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 	}))
 }
 
-func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
+func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	keeper := keys[0].Public()
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
-	n := qc.QC().GlobalRange().Next - 1
-
-	// Stop Run before the divergent AppQC: persisting one kills the node.
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushQC(ctx, qc, blocks); err != nil {
-			return err
-		}
-		return state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9})
-	}))
-
-	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
-	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
-	_, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.Error(t, err, "epoch 2 must stay staged after divergence")
-	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
-}
-
-func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	keeper := keys[0].Public()
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
-	qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
-	gr0 := qc0.QC().GlobalRange()
-	qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), gr0.Next)
+	qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0))
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc0}, [][]*types.LaneBlock{blocks0})
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+	qc1, blocks1 := commitQCAtRoad(ep1, keys, ep1.RoadRange().First)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+		if err := state.PushPartialBlock(ctx, qc0, TestBlockMap(blocks0)); err != nil {
 			return err
 		}
-		if err := state.PushAppHash(ctx, gr0.Next-1, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+		if err := registry.TestTryPushEpoch(qc0.Height(), map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
-		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+		if err := state.PushAppHash(ctx, qc0.Height(), types.GenAppHash(rng)); err != nil {
 			return err
 		}
-		return state.PushAppHash(ctx, qc1.QC().GlobalRange().Next-1, types.GenAppHash(rng), nil)
+		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
+			return err
+		}
+		return state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng))
 	}))
 
-	divergent := types.NewAppProposal(qc0.QC().Proposal(), types.GenAppHash(rng))
+	divergent := types.NewAppProposal(qc0.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
-	vote1, err := state.AppVote(ctx, qc1.QC().GlobalRange().First)
+	vote1, err := state.AppVote(ctx, qc1.Height())
 	require.NoError(t, err)
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, vote1.Proposal())))
 
-	_, err = registry.EpochAt(epoch.FirstRoad(2))
-	require.Error(t, err, "epoch 2 must stay staged when LastRoad(0) diverged")
-	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+	_, err = registry.EpochAt(ep1.RoadRange().Next)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(2), registry.MustEpoch(2).EpochIndex())
 }
 
 func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
@@ -670,24 +563,24 @@ func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	store := newTestBlockStore(t, t.TempDir())
-	state := newTestState(t, &Config{Registry: registry}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, epoch.FirstRoad(0), ep.FirstBlock())
-	n := qc.QC().GlobalRange().Next - 1
+	qc, blocks := commitQCAtRoad(ep, keys, ep.RoadRange().First)
+	n := qc.Height()
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushQC(ctx, qc, blocks); err != nil {
+		if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
 			return err
 		}
-		return state.PushAppHash(ctx, n, types.GenAppHash(rng), nil)
+		return state.PushAppHash(ctx, n, types.GenAppHash(rng))
 	}))
 	before := store.Status().OrPanic("status after AppHash")
 
-	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+	divergent := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
 
-	require.ErrorIs(t, state.runPersist(ctx), ErrAppHashDivergence)
+	require.ErrorIs(t, state.runPersist(ctx, state.blockStore.WriteAppProposal), ErrAppHashDivergence)
 	after := store.Status().OrPanic("status after divergence")
 	require.Equal(t, before.NextAppQC, after.NextAppQC, "divergent AppQC must not be persisted")
 	require.Equal(t, before.First, after.First, "eviction floor must not advance past it")
@@ -698,100 +591,386 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
 	// Push QC without blocks.
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	require.NoError(t, state.PushQC(ctx, qc, nil))
-	gr := qc.QC().GlobalRange()
+	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
 
 	// PushBlock for a block whose QC is already present succeeds immediately.
-	require.NoError(t, state.PushBlock(ctx, gr.First, blocks[0]))
-	got, err := state.TryBlock(gr.First)
+	require.NoError(t, state.PushBlock(ctx, types.LaneBlockPos{Height: qc.Height()}, blocks[0]))
+	require.False(t, state.NeedBlock(types.LaneBlockPos{Height: qc.Height()}))
+	for offset, block := range blocks[1:] {
+		require.NoError(t, state.PushBlock(ctx, types.LaneBlockPos{Height: qc.Height(), Offset: uint64(offset + 1)}, block))
+	}
+	got, err := state.TryBlock(types.LaneBlockPos{Height: qc.Height()})
 	require.NoError(t, err)
 	require.Equal(t, blocks[0], got)
 }
 
-func TestGlobalBlockByHash(t *testing.T) {
+func TestPushBlockRejectsMismatchedHeader(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
+
+	// PushBlock with wrong hash.
+	pos := types.LaneBlockPos{Height: qc.Height()}
+	header := blocks[0].Header()
+	wrongBlock := types.NewLaneBlock(header.Lane(), header.Height(), header.ParentHash(), types.GenPayload(rng))
+	require.NoError(t, wrongBlock.Verify())
+	require.NotEqual(t, qc.Headers()[pos.Offset].Hash(), wrongBlock.Header().Hash())
+	require.Error(t, state.PushBlock(ctx, pos, wrongBlock))
+
+	// PushBlock with wrong LaneBlockPos.
+	wrongPos := types.LaneBlockPos{Height: qc.Height(), Offset: 1}
+	require.NoError(t, blocks[0].Verify())
+	require.NotEqual(t, qc.Headers()[wrongPos.Offset].Hash(), blocks[0].Header().Hash())
+	require.Error(t, state.PushBlock(ctx, wrongPos, blocks[0]))
+
+	// Verify that no block was accepted despite the error.
+	for offset := range blocks {
+		missing := types.LaneBlockPos{Height: qc.Height(), Offset: uint64(offset)}
+		_, err := state.TryBlock(missing)
+		require.ErrorIs(t, err, types.ErrNotFound)
+		require.True(t, state.NeedBlock(missing))
+	}
+
+	// Check that all blocks still can be inserted.
+	for offset, block := range blocks {
+		pos := types.LaneBlockPos{Height: qc.Height(), Offset: uint64(offset)}
+		require.NoError(t, state.PushBlock(ctx, pos, block))
+		require.False(t, state.NeedBlock(pos))
+		got, err := state.TryBlock(pos)
+		require.NoError(t, err)
+		require.Equal(t, block, got)
+	}
+}
+
+func TestInsertAppProposalRequiresCommitQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	previous := utils.None[*types.CommitQC]()
+
+	for range 2 {
+		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, previous)
+		proposal := types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng))
+		for inner := range state.inner.Lock() {
+			require.Equal(t, proposal.Height(), inner.nextPartialBlock)
+			require.Equal(t, proposal.Height(), inner.nextAppProposal)
+			require.Error(t, inner.insertAppProposal(proposal))
+			require.Equal(t, proposal.Height(), inner.nextAppProposal)
+			_, inserted := inner.appProposals[proposal.Height()]
+			require.False(t, inserted)
+		}
+
+		require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
+		for inner := range state.inner.Lock() {
+			require.NoError(t, inner.insertAppProposal(proposal))
+			require.Equal(t, proposal.Height()+1, inner.nextAppProposal)
+		}
+		previous = utils.Some(qc.QC())
+	}
+}
+
+func TestPushEmptyQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	previous, blocks := TestCommitQC(rng, ep, keys, utils.None[*types.CommitQC]())
+	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: utils.Some(previous.QC()), Epoch: ep}}
+	leader := keys[0]
+	for _, key := range keys {
+		if key.Public() == ep.Committee().Leader(vs.View()) {
+			leader = key
+			break
+		}
+	}
+	proposal, err := types.NewProposal(leader, vs, vs.NextTimestamp(), nil)
+	require.NoError(t, err)
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	prepareQC := types.BuildPrepareQC(keys, proposal.Proposal().Msg())
+	for i, key := range keys {
+		votes[i] = key.Sign(types.NewCommitVote(prepareQC))
+	}
+	qc := types.NewFullCommitQC(types.NewCommitQC(votes), nil)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	require.NoError(t, state.PushPartialBlock(t.Context(), previous, TestBlockMap(blocks)))
+	require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
+	want := types.NewRoadBlock(qc, nil).SuperBlock()
+	byHash, err := state.SuperBlockByHash(want.Hash)
+	require.NoError(t, err)
+	require.True(t, byHash.IsPresent())
+	require.Equal(t, qc.Height()+1, state.NextQC())
+	got, err := state.SuperBlock(t.Context(), qc.Height())
+	require.NoError(t, err)
+	require.Equal(t, want.Height, got.Height)
+	require.Empty(t, got.Txs)
+}
+
+func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	ep := registry.MustEpoch(0)
+	qc1, blocks1 := TestCommitQC(rng, ep, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, ep, keys, utils.Some(qc1.QC()))
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, nil))
+	require.NoError(t, state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)))
+
+	for _, qc := range []*types.FullCommitQC{qc1, qc2} {
+		hash := qc.Header().Hash()
+		for inner := range state.inner.Lock() {
+			n, indexed := inner.byHash[hash]
+			require.True(t, indexed, "CommitQC must be indexed before the contiguous prefix advances")
+			require.Equal(t, qc.Height(), n)
+		}
+		got, err := state.SuperBlockByHash(hash)
+		require.NoError(t, err)
+		require.False(t, got.IsPresent(), "hash lookups must not serve incomplete blocks or skip gaps")
+	}
+
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	for _, qc := range []*types.FullCommitQC{qc1, qc2} {
+		got, err := state.SuperBlockByHash(qc.Header().Hash())
+		require.NoError(t, err)
+		block, ok := got.Get()
+		require.True(t, ok)
+		require.Equal(t, qc.Height(), block.Height)
+		require.Equal(t, qc.Header().Hash(), block.Hash)
+	}
+}
+
+func TestSuperBlockByHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	require.NoError(t, state.PushQC(ctx, qc, blocks))
-	gr := qc.QC().GlobalRange()
-	n := gr.First
-	wantBlock := blocks[0]
-	wantHash := wantBlock.Header().Hash()
-
-	// Known hash → Some with correct fields.
-	gotOpt, err := state.GlobalBlockByHash(wantHash)
+	require.NoError(t, state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)))
+	n := qc.Height()
+	wantBlock := types.NewRoadBlock(qc, blocks).SuperBlock()
+	wantHash := wantBlock.Hash
+	gotOpt, err := state.SuperBlockByHash(wantHash)
 	require.NoError(t, err)
 	gotGB, ok := gotOpt.Get()
-	require.True(t, ok, "GlobalBlockByHash(known) returned None")
-	require.Equal(t, n, gotGB.GlobalNumber)
-	require.Equal(t, wantBlock.Header(), gotGB.Header)
-	require.Equal(t, wantBlock.Payload(), gotGB.Payload)
+	require.True(t, ok)
+	require.Equal(t, n, gotGB.Height)
+	require.Equal(t, wantBlock.Txs, gotGB.Txs)
+	require.Equal(t, wantBlock.GasWanted, gotGB.GasWanted)
 
 	// Zero hash → None.
-	zeroOpt, err := state.GlobalBlockByHash(types.BlockHeaderHash{})
+	zeroOpt, err := state.SuperBlockByHash(types.RoadBlockHeaderHash{})
 	require.NoError(t, err)
 	_, ok = zeroOpt.Get()
-	require.False(t, ok, "GlobalBlockByHash(zero) returned Some")
+	require.False(t, ok, "SuperBlockByHash(zero) returned Some")
 
 	// Random unknown hash → None.
-	var randHash types.BlockHeaderHash
+	var randHash types.RoadBlockHeaderHash
 	rng.Read(randHash[:])
-	randOpt, err := state.GlobalBlockByHash(randHash)
+	randOpt, err := state.SuperBlockByHash(randHash)
 	require.NoError(t, err)
 	_, ok = randOpt.Get()
-	require.False(t, ok, "GlobalBlockByHash(random) returned Some")
+	require.False(t, ok, "SuperBlockByHash(random) returned Some")
 }
 
-// TestPushQCBeforeRunPersistsToBlockStore seeds in-memory QCs/blocks before Run
-// (mirroring inbound PushQC after transport start) and asserts runPersist still
-// writes them — Status seeding, not inner.nextQC/nextBlock.
-func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
+// TestPushPartialBlockBeforeRunPersistsToBlockStore seeds in-memory QCs/blocks before Run
+// (mirroring inbound PushPartialBlock after transport start) and asserts runPersist still
+// writes them — Status seeding, not inner.nextPartialBlock/nextFullBlock.
+func TestPushPartialBlockBeforeRunPersistsToBlockStore(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
 
 	db := newTestBlockStore(t, dir)
-	state := newTestState(t, &Config{Registry: registry}, db)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db)
 
-	// Transport-race window: PushQC before data.Run / runPersist starts.
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	require.False(t, db.Status().IsPresent(), "PushQC must not write BlockDB before Run")
+	// Transport-race window: PushPartialBlock before data.Run / runPersist starts.
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	require.False(t, db.Status().IsPresent(), "PushPartialBlock must not write BlockDB before Run")
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		// PushAppHash waits on persisted.NextBlock, so success implies Flush.
-		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
-				return fmt.Errorf("PushAppHash(%d): %w", n, err)
-			}
+		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
 		return nil
 	}))
 
 	tips := db.Status().OrPanic("non-empty BlockDB status")
-	require.Equal(t, gr1.Next, tips.NextBlock)
-	require.Equal(t, gr1.Next, tips.NextQC)
+	require.Equal(t, qc1.Height()+1, tips.NextBlock)
 
 	require.NoError(t, db.Close())
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{Registry: registry}, db2)
-	require.Equal(t, gr1.Next, state2.NextBlock())
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err, "block %d", n)
-		require.NotNil(t, got)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
+	require.Equal(t, qc1.Height()+1, state2.NextQC())
+	got, err := state2.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
+	require.NoError(t, err, "block %d", qc1.Height())
+	require.NotNil(t, got)
+}
+
+// TestRunPersistWaitsForCompleteQC verifies that a pending QC's partial blocks
+// stay out of storage until its final block arrives.
+func TestRunPersistWaitsForCompleteQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
+	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
+	store := newTestBlockStore(t, t.TempDir())
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	require.NoError(t, state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2[:len(blocks2)-1])))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		for inner, ctrl := range state.inner.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc1.Height()+1 }); err != nil {
+				return err
+			}
+		}
+		if got := store.Status().OrPanic("persisted QC"); got.NextBlock != qc1.Height()+1 {
+			return fmt.Errorf("incomplete QC was persisted: %v", got)
+		}
+		for range blocks2 {
+			got, err := store.ReadBlockByHash(qc2.Header().Hash())
+			if err != nil {
+				return err
+			}
+			if got.IsPresent() {
+				return fmt.Errorf("partial QC block was persisted")
+			}
+		}
+		if err := state.PushBlock(ctx, types.LaneBlockPos{Height: qc2.Height(), Offset: uint64(len(blocks2) - 1)}, blocks2[len(blocks2)-1]); err != nil {
+			return err
+		}
+		for inner, ctrl := range state.inner.Lock() {
+			return ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc2.Height()+1 })
+		}
+		panic("unreachable")
+	}))
+	require.Equal(t, qc2.Height()+1, store.Status().OrPanic("complete QCs").NextBlock)
+}
+
+type epochTestApplication struct {
+	abevm.Application
+	fetch func() (*types.EpochRegistry, error)
+}
+
+func (a *epochTestApplication) EpochRegistry() (*types.EpochRegistry, error) { return a.fetch() }
+
+func TestPersistFetchesEpochRegistryAtTransition(t *testing.T) {
+	fetchFailure := errors.New("fetch failed")
+	for _, tc := range []struct {
+		name     string
+		ready    bool
+		fetchErr error
+		wantErr  error
+	}{
+		{name: "ready", ready: true},
+		{name: "not ready", wantErr: types.ErrNotFound},
+		{name: "fetch error", fetchErr: fetchFailure, wantErr: fetchFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rng := utils.TestRng()
+			key := types.GenSecretKey(rng)
+			keys := []types.SecretKey{key}
+			weights := map[types.PublicKey]uint64{key.Public(): 1}
+			committee := utils.OrPanic1(types.NewCommittee(weights))
+			registry := utils.OrPanic1(epoch.TestGenesisRegistry(committee, 0, 3))
+			var fetches int
+			app := abevm.NewProxy(&epochTestApplication{fetch: func() (*types.EpochRegistry, error) {
+				fetches++
+				if fetches > 2 && tc.fetchErr != nil {
+					return nil, tc.fetchErr
+				}
+				return registry.Snapshot(), nil
+			}})
+			state := newTestState(t, &Config{App: app}, newTestBlockStore(t, t.TempDir()))
+			require.Equal(t, 1, fetches)
+			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+				s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+				prev := utils.None[*types.CommitQC]()
+				lastRoad := types.RoadHeight(3)
+				if tc.ready {
+					lastRoad = 6
+				}
+				for road := types.RoadHeight(0); road <= lastRoad; road++ {
+					ep, err := registry.EpochAt(road)
+					if err != nil {
+						return err
+					}
+					qc, blocks := TestCommitQC(rng, ep, keys, prev)
+					if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
+						return err
+					}
+					if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
+						return err
+					}
+					if err := pushAppQCForBlock(ctx, state, keys, qc.Height()); err != nil {
+						return err
+					}
+					// Wait for each anchor update so the transition is exercised independently
+					// of persistence batching. A failed fetch cancels this wait through scope.
+					if _, err := state.Anchor().Wait(ctx, func(a Anchor) bool {
+						first, ok := a.First.Get()
+						return ok && first.AppQC.Proposal().Height() >= road
+					}); err != nil {
+						return err
+					}
+					if (road == 2 || road == 5) && tc.ready {
+						if err := registry.TestPushEpoch(types.EpochIndex(road/3), weights); err != nil {
+							return err
+						}
+					}
+					prev = utils.Some(qc.QC())
+				}
+				return nil
+			})
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Equal(t, types.EpochIndex(0), state.Anchor().Load().Epochs[0].EpochIndex())
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, types.EpochIndex(2), state.Anchor().Load().Epochs[0].EpochIndex())
+				require.Equal(t, types.EpochIndex(3), state.Anchor().Load().Epochs[1].EpochIndex())
+			}
+			wantFetches := 3
+			if tc.ready {
+				wantFetches = 4
+			}
+			require.Equal(t, wantFetches, fetches)
+		})
+	}
+}
+
+func TestNewStateRejectsUnavailableEpochRegistry(t *testing.T) {
+	fetchFailure := errors.New("fetch failed")
+	for _, tc := range []struct {
+		name     string
+		fetchErr error
+	}{
+		{name: "fetch error", fetchErr: fetchFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewState(&Config{App: abevm.NewProxy(&epochTestApplication{fetch: func() (*types.EpochRegistry, error) {
+				return nil, tc.fetchErr
+			}})}, newTestStore(t))
+			require.Error(t, err)
+			if tc.fetchErr != nil {
+				require.ErrorIs(t, err, tc.fetchErr)
+			}
+		})
 	}
 }
 
@@ -802,57 +981,50 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
-	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	gr2 := qc2.QC().GlobalRange()
+	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
-		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
-			return fmt.Errorf("PushQC(qc1): %w", err)
+		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc1): %w", err)
 		}
-		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
-				return fmt.Errorf("PushAppHash(%d): %w", n, err)
-			}
+		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
 
 		// No AppQC yet -> eviction must not strip AppProposals; first stays put.
 		for inner := range state.inner.Lock() {
-			if inner.first != gr1.First {
-				return fmt.Errorf("no certified App: first = %d, want %d", inner.first, gr1.First)
+			if inner.first != qc1.Height() {
+				return fmt.Errorf("no certified App: first = %d, want %d", inner.first, qc1.Height())
 			}
-			for n := gr1.First; n < gr1.Next; n++ {
-				_, ok := inner.appProposals[n]
-				if !ok {
-					return fmt.Errorf("AppProposal %d missing before AppQC", n)
-				}
+			_, ok := inner.appProposals[qc1.Height()]
+			if !ok {
+				return fmt.Errorf("AppProposal %d missing before AppQC", qc1.Height())
 			}
 		}
 
-		if err := pushAppQCForBlock(ctx, state, keys, gr1.First); err != nil {
-			return fmt.Errorf("pushAppQCForBlock(%d): %w", gr1.First, err)
+		if err := pushAppQCForBlock(ctx, state, keys, qc1.Height()); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc1.Height(), err)
 		}
-		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
-				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
+		if _, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
+				return anchor.AppQC.Proposal().Height() >= qc1.Height()
 			}
 			return false
 		}); err != nil {
 			return fmt.Errorf("state.Anchor.Wait(): %w", err)
 		}
 
-		if err := state.PushQC(ctx, qc2, blocks2); err != nil {
-			return fmt.Errorf("PushQC(qc2): %w", err)
+		if err := state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc2): %w", err)
 		}
-		for n := gr2.First; n < gr2.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
-				return fmt.Errorf("PushAppHash(%d): %w", n, err)
-			}
+		if err := state.PushAppHash(ctx, qc2.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc2.Height(), err)
 		}
 
 		for inner := range state.inner.Lock() {
@@ -860,10 +1032,10 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 			if inner.first != evictionBound {
 				return fmt.Errorf("after catching up, first = %d, want eviction bound %d", inner.first, evictionBound)
 			}
-			if anchor, ok := inner.anchor.Load().Get(); !ok || anchor.AppQC != inner.appQCs[inner.first] || anchor.CommitQC != inner.qcs[inner.first].qc.QC() {
+			if anchor, ok := inner.anchor.Load().First.Get(); !ok || anchor.AppQC != inner.appQCs[inner.first] || anchor.CommitQC != inner.blocks[inner.first].qc.QC() {
 				return fmt.Errorf("anchor must cover inner.first %d", inner.first)
 			}
-			for n := gr1.First; n < inner.first; n++ {
+			for n := qc1.Height(); n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
 				if ok {
 					return fmt.Errorf("AppProposal %d present below first %d", n, inner.first)
@@ -876,13 +1048,13 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 					return fmt.Errorf("AppProposal %d missing at/above first %d", n, inner.first)
 				}
 			}
-			// Tip QC (nextQC-1) stays; nextToExecute uses maps at/above first.
-			if inner.nextQC-1 < inner.first {
-				return fmt.Errorf("tip QC height %d below first %d", inner.nextQC-1, inner.first)
+			// Tip QC (nextPartialBlock-1) stays; nextToExecute uses maps at/above first.
+			if inner.nextPartialBlock-1 < inner.first {
+				return fmt.Errorf("tip QC height %d below first %d", inner.nextPartialBlock-1, inner.first)
 			}
-			_, ok := inner.qcs[inner.nextQC-1]
+			_, ok := inner.blocks[inner.nextPartialBlock-1]
 			if !ok {
-				return fmt.Errorf("tip QC %d missing from maps", inner.nextQC-1)
+				return fmt.Errorf("tip QC %d missing from maps", inner.nextPartialBlock-1)
 			}
 		}
 		return nil
@@ -895,21 +1067,18 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, pushAppHashesRunning(ctx, state, rng, gr1.First, gr1.Next))
-	require.NoError(t, pushAppQCForBlock(ctx, state, keys, gr1.First))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qc1.Height(), qc1.Height()+1))
+	require.NoError(t, pushAppQCForBlock(ctx, state, keys, qc1.Height()))
 
 	for inner := range state.inner.Lock() {
-		require.Equal(t, gr1.Next, inner.nextAppQC)
-		require.Equal(t, gr1.First, inner.persisted.NextAppQC)
-		require.Equal(t, gr1.First, inner.first, "accepted but unpersisted AppQC must not advance eviction")
-		for n := gr1.First; n < gr1.Next; n++ {
-			_, ok := inner.appProposals[n]
-			require.True(t, ok, "AppProposal %d must survive until AppQC is persisted", n)
-		}
+		require.Equal(t, qc1.Height()+1, inner.nextAppQC)
+		require.Equal(t, qc1.Height(), inner.persisted.NextAppQC)
+		require.Equal(t, qc1.Height(), inner.first, "accepted but unpersisted AppQC must not advance eviction")
+		_, ok := inner.appProposals[qc1.Height()]
+		require.True(t, ok, "AppProposal %d must survive until AppQC is persisted", qc1.Height())
 	}
 }
 
@@ -920,35 +1089,34 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 	epoch := registry.MustEpoch(0)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
 		prev := utils.None[*types.CommitQC]()
 		for range 2 {
 			qc, blocks := TestCommitQC(rng, epoch, keys, prev)
 			prev = utils.Some(qc.QC())
-			gr := qc.QC().GlobalRange()
-			if err := state.PushQC(ctx, qc, blocks); err != nil {
-				return fmt.Errorf("PushQC: %w", err)
+			if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)); err != nil {
+				return fmt.Errorf("PushPartialBlock: %w", err)
 			}
-			if err := state.PushAppHash(ctx, gr.Next-1, types.GenAppHash(rng), nil); err != nil {
+			if err := state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng)); err != nil {
 				return fmt.Errorf("PushAppHash(tip): %w", err)
 			}
-			if err := pushAppQCForBlock(ctx, state, keys, gr.First); err != nil {
-				return fmt.Errorf("pushAppQCForBlock(%d): %w", gr.First, err)
+			if err := pushAppQCForBlock(ctx, state, keys, qc.Height()); err != nil {
+				return fmt.Errorf("pushAppQCForBlock(%d): %w", qc.Height(), err)
 			}
 		}
 		// Wait for anchor to progress past first block.
-		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
-				return registry.FirstBlock() < anchor.AppQC.Proposal().GlobalRange().First
+		if _, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
+				return epoch.RoadRange().First < anchor.AppQC.Proposal().Height()
 			}
 			return false
 		}); err != nil {
 			return fmt.Errorf("state.Anchor.Wait(): %w", err)
 		}
 		// Pushing apphash for height below the anchor should NOT expolode.
-		if err := state.PushAppHash(ctx, registry.FirstBlock(), types.GenAppHash(rng), nil); err != nil {
+		if err := state.PushAppHash(ctx, epoch.RoadRange().First, types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash below anchor: %w", err)
 		}
 		return nil
@@ -963,45 +1131,43 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
-	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
-		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
-			return fmt.Errorf("PushQC(qc1): %w", err)
+		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc1): %w", err)
 		}
-		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
-				return fmt.Errorf("PushAppHash(%d): %w", n, err)
-			}
+		if err := state.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
 		// Sticky case: persisted.NextAppQC == nextAppProposal. first advances to
 		// NAP-1; NAP-2 is gone; nextToExecute reads qc[NAP-1] until the next QC executes.
-		if err := pushAppQCForBlock(ctx, state, keys, gr1.First); err != nil {
-			return fmt.Errorf("pushAppQCForBlock(%d): %w", gr1.First, err)
+		if err := pushAppQCForBlock(ctx, state, keys, qc1.Height()); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc1.Height(), err)
 		}
-		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
-				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
+		if _, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
+				return anchor.AppQC.Proposal().Height() >= qc1.Height()
 			}
 			return false
 		}); err != nil {
 			return fmt.Errorf("state.Anchor.Wait(): %w", err)
 		}
-		if err := state.PushQC(ctx, qc2, blocks2); err != nil {
-			return fmt.Errorf("PushQC(qc2): %w", err)
+		if err := state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc2): %w", err)
 		}
 
 		var tipLane types.LaneID
-		var tipBlockNum types.BlockNumber
+		var tipHeight types.LaneHeight
 		for inner := range state.inner.Lock() {
-			if inner.nextAppProposal != gr1.Next {
-				return fmt.Errorf("nextAppProposal = %d, want %d", inner.nextAppProposal, gr1.Next)
+			if inner.nextAppProposal != qc1.Height()+1 {
+				return fmt.Errorf("nextAppProposal = %d, want %d", inner.nextAppProposal, qc1.Height()+1)
 			}
 			evictionBound := inner.persisted.First
 			if inner.first != evictionBound {
@@ -1011,23 +1177,22 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 			if ok {
 				return fmt.Errorf("block %d present, want evicted", inner.nextAppProposal-1)
 			}
-			if inner.nextAppProposal >= inner.nextQC {
-				return fmt.Errorf("nextAppProposal = %d, want < nextQC %d", inner.nextAppProposal, inner.nextQC)
+			if inner.nextAppProposal >= inner.nextPartialBlock {
+				return fmt.Errorf("nextAppProposal = %d, want < nextPartialBlock %d", inner.nextAppProposal, inner.nextPartialBlock)
 			}
-			fqc := inner.qcs[inner.nextAppProposal].qc
+			fqc := inner.blocks[inner.nextAppProposal].qc
 			if fqc == nil {
 				return fmt.Errorf("QC %d missing", inner.nextAppProposal)
 			}
-			gr := fqc.QC().GlobalRange()
-			h := fqc.Headers()[inner.nextAppProposal-gr.First]
+			h := fqc.Headers()[0]
 			tipLane = h.Lane()
-			tipBlockNum = h.BlockNumber()
-			if got := inner.nextToExecute(tipLane); got != tipBlockNum {
-				return fmt.Errorf("nextToExecute(%d) = %d, want %d", tipLane, got, tipBlockNum)
+			tipHeight = h.Height()
+			if got := inner.nextToExecute(tipLane); got != tipHeight {
+				return fmt.Errorf("nextToExecute(%d) = %d, want %d", tipLane, got, tipHeight)
 			}
 		}
 		// WaitUntilExecuted(n) returns when nextToExecute > n.
-		waitFrom := tipBlockNum
+		waitFrom := tipHeight
 		if waitFrom > 0 {
 			waitFrom--
 		}
@@ -1035,8 +1200,8 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("WaitUntilExecuted(%d, %d): %w", tipLane, waitFrom, err)
 		}
-		if next != tipBlockNum {
-			return fmt.Errorf("WaitUntilExecuted(%d, %d) = %d, want %d", tipLane, waitFrom, next, tipBlockNum)
+		if next != tipHeight {
+			return fmt.Errorf("WaitUntilExecuted(%d, %d) = %d, want %d", tipLane, waitFrom, next, tipHeight)
 		}
 		return nil
 	}))
@@ -1049,27 +1214,24 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
 
 	db1 := newTestBlockStore(t, dir)
-	state1 := newTestState(t, &Config{Registry: registry}, db1)
+	state1 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db1)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state1.Run(ctx)) })
 
-		if err := state1.PushQC(ctx, qc1, blocks1); err != nil {
-			return fmt.Errorf("PushQC(qc1): %w", err)
+		if err := state1.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
+			return fmt.Errorf("PushPartialBlock(qc1): %w", err)
 		}
-		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state1.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
-				return fmt.Errorf("PushAppHash(%d): %w", n, err)
-			}
+		if err := state1.PushAppHash(ctx, qc1.Height(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(%d): %w", qc1.Height(), err)
 		}
-		if err := pushAppQCForBlock(ctx, state1, keys, gr1.First); err != nil {
-			return fmt.Errorf("pushAppQCForBlock(%d): %w", gr1.First, err)
+		if err := pushAppQCForBlock(ctx, state1, keys, qc1.Height()); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", qc1.Height(), err)
 		}
-		if _, err := state1.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
-				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
+		if _, err := state1.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
+				return anchor.AppQC.Proposal().Height() >= qc1.Height()
 			}
 			return false
 		}); err != nil {
@@ -1078,27 +1240,83 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 		return nil
 	}))
 
-	storedProposal, err := db1.ReadAppProposalByBlockNumber(gr1.First)
+	storedProposal, err := db1.ReadAppProposal(qc1.Height())
 	require.NoError(t, err)
 	require.True(t, storedProposal.IsPresent(), "PushAppHash must persist the AppProposal")
-	stored, err := db1.ReadAppQCByBlockNumber(gr1.First)
+	stored, err := db1.ReadAppQC(qc1.Height())
 	require.NoError(t, err)
 	require.True(t, stored.IsPresent(), "PushAppQC must persist the AppQC")
 	require.NoError(t, db1.Close())
 
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{Registry: registry}, db2)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 	for inner := range state2.inner.Lock() {
-		require.Equal(t, gr1.Next, inner.nextAppProposal)
-		require.Equal(t, gr1.Next, inner.nextAppQC)
+		require.Equal(t, qc1.Height()+1, inner.nextAppProposal)
+		require.Equal(t, qc1.Height()+1, inner.nextAppQC)
 	}
-	appQC, err := state2.AppQC(ctx, gr1.First)
+	appQC, err := state2.AppQC(ctx, qc1.Height())
 	require.NoError(t, err)
-	fQC, err := state2.QC(ctx, gr1.First)
+	fQC, err := state2.QC(ctx, qc1.Height())
 	require.NoError(t, err)
-	require.Equal(t, gr1, appQC.Proposal().GlobalRange())
-	require.Equal(t, gr1, fQC.QC().GlobalRange())
+	require.Equal(t, qc1.Height(), appQC.Proposal().Height())
+	require.Equal(t, qc1.Height(), fQC.Height())
 	require.NoError(t, db2.Close())
+}
+
+// TestAnchorCoversOnlyPersistedAppQC pins the AnchorFirst contract: every published Anchor covers
+// an AppQC below persisted.NextAppQC, which runPersist advances only after BlockStore.Flush, and
+// that AppQC is readable from BlockStore.
+func TestAnchorCoversOnlyPersistedAppQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
+
+	db := newTestBlockStore(t, t.TempDir())
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		s.SpawnBgNamed("checkAnchor", func() error {
+			return utils.IgnoreCancel(state.Anchor().Iter(ctx, func(_ context.Context, anchor Anchor) error {
+				a, ok := anchor.First.Get()
+				if !ok {
+					return nil
+				}
+				for inner := range state.inner.Lock() {
+					if height := a.AppQC.Proposal().Height(); height >= inner.persisted.NextAppQC {
+						return fmt.Errorf("Anchor covers AppQC %d, persisted.NextAppQC = %d", height, inner.persisted.NextAppQC)
+					}
+				}
+				return nil
+			}))
+		})
+		for _, push := range []struct {
+			qc     *types.FullCommitQC
+			blocks []*types.LaneBlock
+		}{{qc1, blocks1}, {qc2, blocks2}} {
+			if err := state.PushPartialBlock(ctx, push.qc, TestBlockMap(push.blocks)); err != nil {
+				return fmt.Errorf("PushPartialBlock(%d): %w", push.qc.Height(), err)
+			}
+			if err := state.PushAppHash(ctx, push.qc.Height(), types.GenAppHash(rng)); err != nil {
+				return fmt.Errorf("PushAppHash(%d): %w", push.qc.Height(), err)
+			}
+			if err := pushAppQCForBlock(ctx, state, keys, push.qc.Height()); err != nil {
+				return fmt.Errorf("pushAppQCForBlock(%d): %w", push.qc.Height(), err)
+			}
+		}
+		if _, err := state.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			a, ok := anchor.First.Get()
+			return ok && a.AppQC.Proposal().Height() >= qc2.Height()
+		}); err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
+		return nil
+	}))
+
+	stored, err := db.ReadAppQC(qc2.Height())
+	require.NoError(t, err)
+	require.True(t, stored.IsPresent())
 }
 
 // TestPruningKeepsLastQCRange verifies BlockDB's never-empty prune: asking to
@@ -1110,37 +1328,32 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
 
-	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, gr1.First, gr1.Next))
+	state1 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, state1.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, qc1.Height(), qc1.Height()+1))
 
 	// Prune past every block; BlockDB clamps to retain the newest cohort.
-	require.NoError(t, state1.PruneBefore(gr1.Next))
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state1.TryBlock(n)
-		require.NoError(t, err, "never-empty prune should keep cohort block %d", n)
-		require.NotNil(t, got)
-	}
+	require.NoError(t, state1.PruneBefore(qc1.Height()+1))
+	got, err := state1.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
+	require.NoError(t, err, "never-empty prune should keep cohort block %d", qc1.Height())
+	require.NotNil(t, got)
 
 	// Consistent post-GC shape: full QC range of blocks. Restart recovers at QC start.
 	dir := t.TempDir()
 	db := newTestBlockStore(t, dir)
-	writeToBlockStore(t, db, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	writeToBlockStore(t, db, []*types.FullCommitQC{qc1}, [][]*types.LaneBlock{blocks1})
 	require.NoError(t, db.Close())
 
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{Registry: registry}, db2)
-	require.Equal(t, gr1.Next, state2.NextBlock())
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
+	require.Equal(t, qc1.Height()+1, state2.NextQC())
+	got, err = state2.TryBlock(types.LaneBlockPos{Height: qc1.Height()})
+	require.NoError(t, err)
+	require.NotNil(t, got)
 }
 
-// TestPruningWithPartialQCRange verifies BlockDB watermark pruning across QC
+// TestPruningPreservesRAMAndRecoveryAnchor verifies BlockDB watermark pruning across QC
 // ranges, and that a restart from a consistent BlockDB recovers from the
 // retained QC start. BlockDB clamps prune requests to QC First (cohort-atomic
 // readability), so a mid-range prune does not refuse heights inside that QC.
@@ -1148,30 +1361,29 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 // PruneBefore is BlockDB-only: heights still retained in RAM for AppVotes
 // (at/above persisted.First) remain
 // readable via TryBlock even after the store watermark advances past them.
-func TestPruningWithPartialQCRange(t *testing.T) {
+func TestPruningPreservesRAMAndRecoveryAnchor(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
-	gr2 := qc2.QC().GlobalRange()
+	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 
-	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
+	state1 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, state1.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+	require.NoError(t, state1.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)))
 
-	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, gr1.First, gr2.Next))
-	var exclusiveFloor types.GlobalBlockNumber
+	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, qc1.Height(), qc2.Height()+1))
+	var exclusiveFloor types.RoadHeight
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state1.Run(ctx)) })
-		if err := pushAppQCForBlock(ctx, state1, keys, gr1.First); err != nil {
+		if err := pushAppQCForBlock(ctx, state1, keys, qc1.Height()); err != nil {
 			return err
 		}
-		if _, err := state1.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
-			if anchor, ok := anchor.Get(); ok {
-				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
+		if _, err := state1.Anchor().Wait(ctx, func(anchor Anchor) bool {
+			if anchor, ok := anchor.First.Get(); ok {
+				return anchor.AppQC.Proposal().Height() >= qc1.Height()
 			}
 			return false
 		}); err != nil {
@@ -1184,54 +1396,41 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		require.Equal(t, exclusiveFloor, inner.first)
 	}
 
-	// Mid-QC prune clamps to gr1.First, so the whole qc1 cohort stays readable.
-	midQC1 := gr1.First + (gr1.Next-gr1.First)/2
-	if midQC1 > gr1.First {
-		require.NoError(t, state1.PruneBefore(midQC1))
-		for n := gr1.First; n < midQC1; n++ {
-			got, err := state1.TryBlock(n)
-			require.NoError(t, err, "mid-QC prune must not refuse block %d (clamped to QC First)", n)
-			require.NotNil(t, got)
-		}
-	}
-
 	// Prune past qc1 entirely. Because qc1 now has a persisted AppQC, BlockDB's
 	// never-empty rule keeps that newest AppQC+CommitQC+Block cohort readable.
-	require.NoError(t, state1.PruneBefore(gr2.Next))
+	require.NoError(t, state1.PruneBefore(qc2.Height()+1))
 	// Evicted heights (< exclusive App floor) fall through to BlockDB, but the
 	// persisted AppQC cohort is retained by the prune cap.
-	for n := gr1.First; n < exclusiveFloor; n++ {
-		got, err := state1.TryBlock(n)
+	for n := qc1.Height(); n < exclusiveFloor; n++ {
+		got, err := state1.TryBlock(types.LaneBlockPos{Height: n})
 		require.NoError(t, err)
 		require.NotNil(t, got)
 	}
 	// Exclusive floor and above stay cached for AppVotes despite BlockDB prune.
 	// ByHash must match TryBlock here — not fall through to a pruned BlockDB.
-	for n := exclusiveFloor; n < gr2.Next; n++ {
-		got, err := state1.TryBlock(n)
+	for n := exclusiveFloor; n < qc2.Height()+1; n++ {
+		got, err := state1.TryBlock(types.LaneBlockPos{Height: n})
 		require.NoError(t, err, "height %d must remain readable from RAM (>= exclusive floor)", n)
 		require.NotNil(t, got)
-		byHash, err := state1.GlobalBlockByHash(got.Header().Hash())
+		byHash, err := state1.SuperBlockByHash(utils.OrPanic1(state1.SuperBlock(ctx, n)).Hash)
 		require.NoError(t, err)
 		gb, ok := byHash.Get()
-		require.True(t, ok, "GlobalBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
-		require.Equal(t, n, gb.GlobalNumber)
+		require.True(t, ok, "SuperBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
+		require.Equal(t, n, gb.Height)
 	}
 
 	// Consistent retained range: full qc2.
 	dir := t.TempDir()
 	db := newTestBlockStore(t, dir)
-	writeToBlockStore(t, db, []*types.FullCommitQC{qc2}, [][]*types.Block{blocks2})
+	writeToBlockStore(t, db, []*types.FullCommitQC{qc2}, [][]*types.LaneBlock{blocks2})
 	require.NoError(t, db.Close())
 
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{Registry: registry}, db2)
-	require.Equal(t, gr2.Next, state2.NextBlock())
-	for n := gr2.First; n < gr2.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
+	require.Equal(t, qc2.Height()+1, state2.NextQC())
+	got, err := state2.TryBlock(types.LaneBlockPos{Height: qc2.Height()})
+	require.NoError(t, err)
+	require.NotNil(t, got)
 }
 
 func TestPushBlockWaitsForQC(t *testing.T) {
@@ -1239,95 +1438,80 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 3)
-
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-
-		// Push first QC covering [0, N).
-		qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-
-		// Prepare second QC covering [N, M) but don't push it yet.
-		qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-		gr2 := qc2.QC().GlobalRange()
-
-		// Block gr2.First should not be in state yet.
-		_, err := state.TryBlock(gr2.First)
-		require.ErrorIs(t, err, types.ErrNotFound)
-
-		// PushBlock for a block in qc2's range. With the off-by-one bug
-		// (n <= inner.nextQC), this would immediately dereference a nil QC
-		// pointer and panic. With the fix, it waits for the QC.
-		var pushErr error
-		go func() {
-			pushErr = state.PushBlock(ctx, gr2.First, blocks2[0])
-		}()
-
-		// Wait for PushBlock to become durably blocked on the QC channel.
-		synctest.Wait()
-
-		// Block should still not be in state (PushBlock is blocked).
-		_, err = state.TryBlock(gr2.First)
-		require.ErrorIs(t, err, types.ErrNotFound)
-
-		// Push qc2 to unblock PushBlock.
-		require.NoError(t, state.PushQC(ctx, qc2, nil))
-		synctest.Wait()
-		require.NoError(t, pushErr)
-
-		// Block gr2.First should now be in state.
-		got, err := state.TryBlock(gr2.First)
-		require.NoError(t, err)
-		require.Equal(t, blocks2[0], got)
+		ep0 := registry.MustEpoch(0)
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+		qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+		require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
+		qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
+		pos := types.LaneBlockPos{Height: qc2.Height()}
+		done := make(chan struct{})
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.Spawn(func() error {
+				if err := state.PushBlock(ctx, pos, blocks2[0]); err != nil {
+					return err
+				}
+				close(done)
+				return nil
+			})
+			synctest.Wait()
+			if _, err := state.TryBlock(pos); !errors.Is(err, types.ErrNotFound) {
+				return fmt.Errorf("block available before QC: %w", err)
+			}
+			remainingBlocks := TestBlockMap(blocks2)
+			delete(remainingBlocks, 0)
+			if err := state.PushPartialBlock(ctx, qc2, remainingBlocks); err != nil {
+				return err
+			}
+			if _, _, err := utils.RecvOrClosed(ctx, done); err != nil {
+				return err
+			}
+			got, err := state.TryBlock(pos)
+			if err != nil {
+				return err
+			}
+			return utils.TestDiff(blocks2[0], got)
+		}))
 	})
 }
 
-// TestTryBlockHidesGapFills verifies the no-gap contract: a block stored above
-// nextBlock (gap-fill) is not visible via TryBlock until the contiguous prefix
-// catches up. GlobalBlockByHash still serves it from RAM (hash index) even
-// though it is not yet durable in BlockDB.
-func TestTryBlockHidesGapFills(t *testing.T) {
+// TestTryBlockServesPartialBlocks verifies that received lane blocks are readable
+// before their SuperBlock is complete.
+func TestTryBlockServesPartialBlocks(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-
-	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
-	gr2 := qc2.QC().GlobalRange()
-	require.GreaterOrEqual(t, gr2.Len(), 2)
-
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, state.PushQC(ctx, qc2, nil))
-	require.Equal(t, gr1.Next, state.NextBlock())
-
-	// Gap-fill the last height of qc2 before earlier qc2 blocks.
-	last := gr2.Next - 1
-	gapBlock := blocks2[last-gr2.First]
-	require.NoError(t, state.PushBlock(ctx, last, gapBlock))
+	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	require.NoError(t, state.PushPartialBlock(ctx, qc, nil))
+	require.Equal(t, qc.Height()+1, state.NextQC())
+	last := types.LaneBlockPos{Height: qc.Height(), Offset: uint64(len(blocks) - 1)}
 	_, err := state.TryBlock(last)
-	require.ErrorIs(t, err, types.ErrNotFound, "gap-fill above nextBlock must stay hidden")
-	require.False(t, state.NeedBlock(last), "NeedBlock must treat gap-fills as already satisfied")
-	missing := gr2.First
-	require.True(t, state.NeedBlock(missing), "NeedBlock must still request holes below a gap-fill")
-
-	// ByHash must not fall through to BlockDB (gap-fills are not persisted yet).
-	gotOpt, err := state.GlobalBlockByHash(gapBlock.Header().Hash())
+	require.ErrorIs(t, err, types.ErrNotFound)
+	_, err = state.TryBlock(types.LaneBlockPos{Height: qc.Height() + 1})
+	require.ErrorIs(t, err, types.ErrNotFound)
+	require.NoError(t, state.PushBlock(ctx, last, blocks[len(blocks)-1]))
+	gotLane, err := state.TryBlock(last)
 	require.NoError(t, err)
-	gotGB, ok := gotOpt.Get()
-	require.True(t, ok, "gap-fill must be served from RAM via GlobalBlockByHash")
-	require.Equal(t, last, gotGB.GlobalNumber)
-	require.Equal(t, gapBlock.Header(), gotGB.Header)
-
-	// Fill contiguous prefix; last becomes visible with the rest.
-	for i, n := 0, gr2.First; n < gr2.Next; n++ {
-		require.NoError(t, state.PushBlock(ctx, n, blocks2[i]))
-		i++
+	require.Equal(t, blocks[len(blocks)-1], gotLane)
+	_, err = state.TryBlock(types.LaneBlockPos{Height: qc.Height()})
+	require.ErrorIs(t, err, types.ErrNotFound)
+	require.Equal(t, qc.Height(), state.NextFullBlock())
+	require.False(t, state.NeedBlock(last))
+	require.True(t, state.NeedBlock(types.LaneBlockPos{Height: qc.Height()}))
+	want := types.NewRoadBlock(qc, blocks).SuperBlock()
+	opt, err := state.SuperBlockByHash(want.Hash)
+	require.NoError(t, err)
+	require.False(t, opt.IsPresent(), "incomplete SuperBlock must not be served")
+	for offset, block := range blocks {
+		require.NoError(t, state.PushBlock(ctx, types.LaneBlockPos{Height: qc.Height(), Offset: uint64(offset)}, block))
 	}
-	require.Equal(t, gr2.Next, state.NextBlock())
-	got, err := state.TryBlock(last)
+	require.Equal(t, qc.Height()+1, state.NextFullBlock())
+	got, err := state.SuperBlock(ctx, qc.Height())
 	require.NoError(t, err)
-	require.Equal(t, blocks2[last-gr2.First], got)
+	require.Equal(t, want.Txs, got.Txs)
+	opt, err = state.SuperBlockByHash(want.Hash)
+	require.NoError(t, err)
+	require.True(t, opt.IsPresent())
 }
 
 // gathered reads one series from the default registry. A missing label set is 0.
@@ -1367,23 +1551,179 @@ func gathered(t *testing.T, name string, labels map[string]string) int64 {
 	return 0
 }
 
-func TestPushQC_RecordsNextBlockQC(t *testing.T) {
+func TestPushPartialBlock_RecordsNextBlockQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
 	store := newTestBlockStore(t, t.TempDir())
-	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	qc1, blocks1 := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc1}, [][]*types.LaneBlock{blocks1})
 
-	state := newTestState(t, &Config{Registry: registry}, store)
-	gr1 := qc1.QC().GlobalRange()
-	require.Equal(t, int64(gr1.Next), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+	require.Equal(t, int64(qc1.Height()+1), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
 
-	qc2, _ := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	require.NoError(t, state.PushQC(ctx, qc2, nil))
-	gr2 := qc2.QC().GlobalRange()
-	require.Equal(t, int64(gr2.Next), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
+	qc2, _ := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
+	require.NoError(t, state.PushPartialBlock(ctx, qc2, nil))
+	require.Equal(t, int64(qc2.Height()+1), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
 
-	require.NoError(t, state.PushQC(ctx, qc2, nil))
-	require.Equal(t, int64(gr2.Next), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
+	require.NoError(t, state.PushPartialBlock(ctx, qc2, nil))
+	require.Equal(t, int64(qc2.Height()+1), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
+}
+
+func TestLaneBlockInvalidOffset(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	store := newTestStore(t)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+	require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
+	pos := types.LaneBlockPos{Height: qc.Height(), Offset: uint64(len(blocks))}
+	_, err := state.TryBlock(pos)
+	require.ErrorIs(t, err, types.ErrNotFound)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
+	recovered := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+	_, err = recovered.Block(t.Context(), pos)
+	require.ErrorIs(t, err, types.ErrNotFound)
+}
+
+func TestLaneBlockCacheBound(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 2)
+		ep := registry.MustEpoch(0)
+		store := newTestStore(t)
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+		var qcs []*types.FullCommitQC
+		var blocks [][]*types.LaneBlock
+		prev := utils.None[*types.CommitQC]()
+		for count := 0; count <= maxLaneBlock; {
+			qc, bs := testCommitQCBlocks(rng, ep, keys, prev, 20)
+			require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
+			qcs, blocks = append(qcs, qc), append(blocks, bs)
+			prev = utils.Some(qc.QC())
+			count += len(bs)
+		}
+		nextQC, _ := TestCommitQC(rng, ep, keys, prev)
+		// Admitted QCs still accept missing payloads above the limit.
+		for i, qc := range qcs {
+			require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks[i])))
+		}
+		writeToBlockStore(t, store, qcs, blocks)
+		state = newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
+
+		hashes := []types.AppHash{types.GenAppHash(rng), types.GenAppHash(rng)}
+		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.Spawn(func() error { return state.PushPartialBlock(ctx, nextQC, nil) })
+			synctest.Wait()
+			if state.NextQC() != nextQC.Height() {
+				return fmt.Errorf("new QC admitted while recovered capacity usage exceeds the limit")
+			}
+			// Recovered QCs still accept duplicates above the limit.
+			for i, qc := range qcs {
+				if err := state.PushPartialBlock(ctx, qc, TestBlockMap(blocks[i])); err != nil {
+					return err
+				}
+			}
+			s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+			// The second persisted AppQC evicts the first road and frees its lane blocks.
+			for i, hash := range hashes {
+				if err := state.PushAppHash(ctx, qcs[i].Height(), hash); err != nil {
+					return err
+				}
+				if err := pushAppQCForBlock(ctx, state, keys, qcs[i].Height()); err != nil {
+					return err
+				}
+			}
+			return nil
+		}))
+		require.Equal(t, nextQC.Height()+1, state.NextQC())
+	})
+}
+
+func TestLaneBlockCacheAllowsOvershoot(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 2)
+	ep := registry.MustEpoch(0)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	prev := utils.None[*types.CommitQC]()
+	for count := 0; count < maxLaneBlock; {
+		qc, blocks := testCommitQCBlocks(rng, ep, keys, prev, 20)
+		require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
+		prev = utils.Some(qc.QC())
+		count += len(blocks)
+	}
+	// At the limit, one more road is accepted; the following road must wait.
+	qc, blocks := TestCommitQC(rng, ep, keys, prev)
+	require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
+	require.NoError(t, state.PushPartialBlock(t.Context(), qc, TestBlockMap(blocks)))
+	nextQC, _ := TestCommitQC(rng, ep, keys, utils.Some(qc.QC()))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, state.PushPartialBlock(ctx, nextQC, nil), context.Canceled)
+	require.Equal(t, nextQC.Height(), state.NextQC())
+}
+
+func TestRoadBlockCacheManySmallRoads(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	ep := registry.MustEpoch(0)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	for i := range maxRoadBlocks {
+		qc, _ := commitQCAtRoad(ep, keys, ep.RoadRange().First+types.RoadHeight(i))
+		require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	nextQC, _ := commitQCAtRoad(ep, keys, state.NextQC())
+	require.ErrorIs(t, state.PushPartialBlock(ctx, nextQC, nil), context.Canceled)
+}
+
+func TestRoadBlockCacheEmptyRoads(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 1)
+		ep := registry.MustEpoch(0)
+		state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+		prev := utils.None[*types.CommitQC]()
+		var nextQC *types.FullCommitQC
+		for i := range maxRoadBlocks + 1 {
+			vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: prev, Epoch: ep}}
+			proposal, err := types.NewProposal(keys[0], vs, vs.NextTimestamp(), nil)
+			require.NoError(t, err)
+			vote := types.NewCommitVote(types.BuildPrepareQC(keys, proposal.Proposal().Msg()))
+			nextQC = types.NewFullCommitQC(types.NewCommitQC([]*types.Signed[*types.CommitVote]{keys[0].Sign(vote)}), nil)
+			if i < maxRoadBlocks {
+				require.NoError(t, state.PushPartialBlock(t.Context(), nextQC, nil))
+			}
+			prev = utils.Some(nextQC.QC())
+		}
+		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(state.PushPartialBlock(ctx, nextQC, nil)) })
+			synctest.Wait()
+			if state.NextQC() != nextQC.Height() {
+				return fmt.Errorf("empty road admitted while capacity usage exceeds the limit")
+			}
+			return nil
+		}))
+	})
+}
+
+func TestAnchorEpochAt(t *testing.T) {
+	rng := utils.TestRng()
+	registry, _ := epoch.GenRegistry(rng, 1)
+	anchor := TestAnchor(types.NewEpoch(0, types.RoadRange{First: 10, Next: 12}, registry.MustEpoch(0).Committee()))
+	for _, tc := range []struct {
+		road types.RoadHeight
+		want utils.Option[*types.Epoch]
+	}{
+		{9, utils.None[*types.Epoch]()},
+		{10, utils.Some(anchor.Epochs[0])},
+		{11, utils.Some(anchor.Epochs[0])},
+		{12, utils.Some(anchor.Epochs[1])},
+		{13, utils.Some(anchor.Epochs[1])},
+		{14, utils.None[*types.Epoch]()},
+	} {
+		require.Equal(t, tc.want, anchor.EpochAt(tc.road))
+	}
 }

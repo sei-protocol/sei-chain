@@ -20,14 +20,14 @@ func TestConsensusClientServer(t *testing.T) {
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
 	for _, key := range types.TestKeysWithWeight(committee, keys, committee.CommitQuorum()) {
-		nodes = append(nodes, env.AddNode(key))
+		nodes = append(nodes, env.AddNode(t, key))
 	}
-	firstBlock := nodes[0].data.Registry().FirstBlock()
+	firstBlock := nodes[0].data.Anchor().Load().Epochs[0].RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		for offset := range types.GlobalBlockNumber(20) {
-			idx := firstBlock + offset
-			t.Logf("[%v] Push a block.", idx)
+		for offset := range types.RoadHeight(20) {
+			height := firstBlock + offset
+			t.Logf("[%v] Push a block.", height)
 			node := nodes[rng.Intn(len(env.nodes))]
 			a := node.consensus.Avail()
 			lane := a.LocalLane().OrPanic("local")
@@ -35,38 +35,34 @@ func TestConsensusClientServer(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("ds.ProduceLocalBlock(): %w", err)
 			}
-			want := &types.GlobalBlock{
-				Header:       b.Msg().Block().Header(),
-				Payload:      b.Msg().Block().Payload(),
-				GlobalNumber: idx,
-			}
+
 			wantAppProposal := utils.None[*types.AppProposal]()
 			for _, n := range nodes {
-				t.Logf("[%v] Wait for it to be final.", idx)
-				got, err := n.data.GlobalBlock(ctx, idx)
+				t.Logf("[%v] Wait for it to be final.", height)
+				got, err := n.data.SuperBlock(ctx, height)
 				if err != nil {
 					return fmt.Errorf("ds.Block(): %w", err)
 				}
-				qc, err := n.data.QC(ctx, idx)
+				qc, err := n.data.QC(ctx, height)
 				if err != nil {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
-				want.Timestamp = qc.QC().Proposal().BlockTimestamp(idx).OrPanic("global block not in QC")
+				want := types.NewRoadBlock(qc, []*types.LaneBlock{b.Msg().Block()}).SuperBlock()
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
 				if !wantAppProposal.IsPresent() {
-					wantAppProposal = utils.Some(types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng)))
+					wantAppProposal = utils.Some(types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng)))
 				}
 				p := wantAppProposal.OrPanic("missing app proposal")
-				if err := n.data.PushAppHash(ctx, idx, p.AppHash(), nil); err != nil {
+				if err := n.data.PushAppHash(ctx, height, p.AppHash()); err != nil {
 					return fmt.Errorf("ds.PushAppProposal(): %w", err)
 				}
 			}
 			for _, n := range nodes {
-				t.Logf("[%v] Wait for AppHash consensus.", idx)
+				t.Logf("[%v] Wait for AppHash consensus.", height)
 				p := wantAppProposal.OrPanic("missing app proposal")
-				got, err := n.data.AppQC(ctx, idx)
+				got, err := n.data.AppQC(ctx, height)
 				if err != nil {
 					return fmt.Errorf("cs.avail.WaitForAppQC(): %w", err)
 				}

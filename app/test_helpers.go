@@ -16,7 +16,7 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -45,6 +45,7 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	receiptpebble "github.com/sei-protocol/sei-chain/sei-db/receipt_db/pebble"
 )
 
 const TestContract = "TEST"
@@ -305,7 +306,7 @@ func (s *TestWrapper) EndBlock() {
 	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)
 }
 
-func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
+func setupReceiptStore(storeKey sdk.StoreKey) (receiptdb.ReceiptStore, error) {
 	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
 	baseDir := filepath.Join(os.TempDir(), "sei-testing")
 	if err := os.MkdirAll(baseDir, 0o750); err != nil {
@@ -319,7 +320,7 @@ func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
 	receiptConfig.KeepRecent = 0 // No min retain blocks in test
 	receiptConfig.DBDirectory = tempDir
-	receiptStore, err := receipt.NewReceiptStore(receiptConfig, storeKey)
+	receiptStore, err := receiptpebble.NewReceiptStore(receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +624,7 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 }
 
 // DefaultConsensusParams defines the default Tendermint consensus params used in
-// SimApp testing.
+// App testing.
 var DefaultConsensusParams = &tmproto.ConsensusParams{
 	Block: &tmproto.BlockParams{
 		MaxBytes: 200000,
@@ -665,10 +666,9 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 	return app, GenesisState{}
 }
 
-// SetupWithGenesisValSet initializes a new SimApp with a validator set and genesis accounts
-// that also act as delegators. For simplicity, each validator is bonded with a delegation
-// of one consensus engine unit (10^6) in the default token of the simapp from first genesis
-// account. A Nop logger is set in SimApp.
+// SetupWithGenesisValSet initializes a new App with a validator set and genesis accounts
+// that also act as delegators. Each validator is bonded with a delegation of one consensus
+// engine unit (10^6) of the bond denom from the first genesis account.
 func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *App {
 	app, genesisState := setup(t, true, 5)
 	// set genesis accounts
@@ -747,7 +747,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	return app
 }
 
-// SetupWithGenesisAccounts initializes a new SimApp with the provided genesis
+// SetupWithGenesisAccounts initializes a new App with the provided genesis
 // accounts and possible balances.
 func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *App {
 	app, genesisState := setup(t, true, 0)
@@ -775,9 +775,21 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 	)
 
 	_, _ = app.Commit(context.Background())
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: app.LastBlockHeight() + 1}})
 
 	return app
+}
+
+// CommitBlockWithWrites makes write's state changes in the next block, before its working hash is taken, and
+// commits that block.
+func CommitBlockWithWrites(t *testing.T, app *App, write func(ctx sdk.Context)) {
+	header := tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
+	ctx, writeCache := app.NewUncachedContext(false, header).CacheContext()
+	write(ctx)
+	writeCache()
+	_, err := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &header})
+	require.NoError(t, err)
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 }
 
 type GenerateAccountStrategy func(int) []sdk.AccAddress
@@ -815,7 +827,7 @@ func createIncrementalAccounts(accNum int) []sdk.AccAddress {
 	return addresses
 }
 
-// AddTestAddrsFromPubKeys adds the addresses into the SimApp providing only the public keys.
+// AddTestAddrsFromPubKeys funds the address of each of pubKeys with accAmt of the bond denom.
 func AddTestAddrsFromPubKeys(app *App, ctx sdk.Context, pubKeys []cryptotypes.PubKey, accAmt sdk.Int) {
 	initCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), accAmt))
 
@@ -976,12 +988,13 @@ func SignCheckDeliver(
 		require.Error(t, err)
 		require.Nil(t, res)
 	}
-	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	blockRes, err := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Txs:    [][]byte{txBytes},
+		Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height},
+	})
 	require.NoError(t, err)
-	gInfo, res, deliverErr := app.Deliver(txCfg.TxEncoder(), tx)
-	if deliverErr == nil && res == nil {
-		deliverErr = fmt.Errorf("deliver tx returned no result")
-	}
+	require.Len(t, blockRes.TxResults, 1)
+	gInfo, res, deliverErr := txResultOutcome(blockRes.TxResults[0])
 
 	if expPass {
 		require.NoError(t, deliverErr)
@@ -991,12 +1004,23 @@ func SignCheckDeliver(
 		require.Nil(t, res)
 	}
 
-	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
-	require.NoError(t, err)
 	_, err = app.Commit(context.Background())
 	require.NoError(t, err)
 
 	return gInfo, res, deliverErr
+}
+
+// txResultOutcome returns a block's tx result in the form BaseApp.Deliver() reports it: a nil result and the
+// registered error for a failed tx.
+func txResultOutcome(txRes *abci.ExecTxResult) (sdk.GasInfo, *sdk.Result, error) {
+	gInfo := sdk.GasInfo{
+		GasWanted: uint64(txRes.GasWanted), //nolint:gosec // gas is never negative
+		GasUsed:   uint64(txRes.GasUsed),   //nolint:gosec // gas is never negative
+	}
+	if txRes.Code != 0 {
+		return gInfo, nil, errors.ABCIError(txRes.Codespace, txRes.Code, txRes.Log)
+	}
+	return gInfo, &sdk.Result{Data: txRes.Data, Log: txRes.Log, Events: txRes.Events}, nil
 }
 
 func GenSequenceOfTxs(txGen client.TxConfig, msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...cryptotypes.PrivKey) ([]sdk.Tx, error) {

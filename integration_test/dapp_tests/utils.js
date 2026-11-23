@@ -70,13 +70,6 @@ async function deployEthersContract(name, abi, bytecode, deployer, deployParams=
   return deployed;
 }
 
-async function doesTokenFactoryDenomExist(denom) {
-  const output = await execute(`seid q tokenfactory denom-authority-metadata ${denom} --output json`);
-  const parsed = JSON.parse(output);
-
-  return parsed.authority_metadata.admin !== "";
-}
-
 async function sendFunds(amountSei, recipient, signer) {
 
   const bal = await signer.getBalance();
@@ -331,7 +324,6 @@ module.exports = {
   deployTokenPool,
   supplyLiquidity,
   deployEthersContract,
-  doesTokenFactoryDenomExist,
   pollBalance,
   sendFunds
 };

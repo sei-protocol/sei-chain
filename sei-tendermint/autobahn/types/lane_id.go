@@ -9,7 +9,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // LaneID identifies a validator's continuous committee membership period.
@@ -56,7 +55,7 @@ var LaneIDConv = protoutils.Conv[LaneID, *pb.LaneID]{
 	Encode: func(l LaneID) *pb.LaneID {
 		return &pb.LaneID{
 			Validator: PublicKeyConv.Encode(l.Validator),
-			Joined:    utils.Alloc(uint64(l.Joined)),
+			Joined:    new(uint64(l.Joined)),
 		}
 	},
 	Decode: func(p *pb.LaneID) (LaneID, error) {

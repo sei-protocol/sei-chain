@@ -63,9 +63,9 @@ func TestHashLogFileWriteReadRoundTrip(t *testing.T) {
 
 	file, err := newHashLogFile(dir, 1, "v1.0.0", hashTypes)
 	require.NoError(t, err)
-	require.NoError(t, file.write(newTestLog(10, hashTypes)))
-	require.NoError(t, file.write(newTestLog(11, hashTypes)))
-	require.NoError(t, file.close())
+	require.NoError(t, file.Write(newTestLog(10, hashTypes)))
+	require.NoError(t, file.Write(newTestLog(11, hashTypes)))
+	require.NoError(t, file.Close())
 
 	sealedPath := filepath.Join(dir, "1-10-11-v1.0.0.hlog")
 	require.FileExists(t, sealedPath)
@@ -85,16 +85,16 @@ func TestHashLogFileWriteRejectedAfterSeal(t *testing.T) {
 	hashTypes := []string{"changeset"}
 	file, err := newHashLogFile(dir, 1, "v1.0.0", hashTypes)
 	require.NoError(t, err)
-	require.NoError(t, file.write(newTestLog(1, hashTypes)))
-	require.NoError(t, file.close())
-	require.Error(t, file.write(newTestLog(2, hashTypes)))
+	require.NoError(t, file.Write(newTestLog(1, hashTypes)))
+	require.NoError(t, file.Close())
+	require.Error(t, file.Write(newTestLog(2, hashTypes)))
 }
 
 func TestHashLogFileEmptyRemovedOnClose(t *testing.T) {
 	dir := t.TempDir()
 	file, err := newHashLogFile(dir, 1, "v1.0.0", []string{"changeset"})
 	require.NoError(t, err)
-	require.NoError(t, file.close())
+	require.NoError(t, file.Close())
 
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
@@ -107,9 +107,9 @@ func TestReadHashLogFileTolaratesTornFinalLine(t *testing.T) {
 
 	file, err := newHashLogFile(dir, 1, "v1.0.0", hashTypes)
 	require.NoError(t, err)
-	require.NoError(t, file.write(newTestLog(10, hashTypes)))
-	require.NoError(t, file.write(newTestLog(11, hashTypes)))
-	require.NoError(t, file.close())
+	require.NoError(t, file.Write(newTestLog(10, hashTypes)))
+	require.NoError(t, file.Write(newTestLog(11, hashTypes)))
+	require.NoError(t, file.Close())
 	sealedPath := filepath.Join(dir, "1-10-11-v1.0.0.hlog")
 
 	// Simulate a torn write: append a partial record with no trailing newline.
@@ -132,8 +132,8 @@ func TestSealHashLogRecoversOrphan(t *testing.T) {
 	// Create an unsealed file but do not seal it (simulating a crash).
 	file, err := newHashLogFile(dir, 4, "v9.9.9", hashTypes)
 	require.NoError(t, err)
-	require.NoError(t, file.write(newTestLog(30, hashTypes)))
-	require.NoError(t, file.write(newTestLog(31, hashTypes)))
+	require.NoError(t, file.Write(newTestLog(30, hashTypes)))
+	require.NoError(t, file.Write(newTestLog(31, hashTypes)))
 	require.NoError(t, file.writer.Flush())
 	require.NoError(t, file.file.Sync())
 	require.NoError(t, file.file.Close())

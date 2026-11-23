@@ -21,7 +21,7 @@ func (*PingResp) MaxSize() int {
 }
 
 func (*LaneVote) MaxSize() int {
-	return 238
+	return 252
 }
 
 func (*LaneProposal) MaxSize() int {
@@ -29,7 +29,7 @@ func (*LaneProposal) MaxSize() int {
 }
 
 func (*AppVote) MaxSize() int {
-	return 187
+	return 165
 }
 
 func (*StreamLaneProposalsReq) MaxSize() int {
@@ -49,7 +49,7 @@ func (*StreamAppVotesReq) MaxSize() int {
 }
 
 func (*GetBlockReq) MaxSize() int {
-	return 11
+	return 24
 }
 
 func (*GetBlockResp) MaxSize() int {
@@ -76,12 +76,12 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneVote.
 	runtime.MustRegister[*LaneVote](runtime.Schema{
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlockHeader]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedLaneVote]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneProposal.
 	runtime.MustRegister[*LaneProposal](runtime.Schema{
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlock]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedLaneBlock]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.AppVote.
@@ -91,7 +91,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamLaneProposalsReq.
 	runtime.MustRegister[*StreamLaneProposalsReq](runtime.Schema{
-		1: {MaxCount: 1},
+		3: {MaxCount: 1},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.LaneID]())},
 	})
 
@@ -106,12 +106,12 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.GetBlockReq.
 	runtime.MustRegister[*GetBlockReq](runtime.Schema{
-		1: {MaxCount: 1},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.LaneBlockPos]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.GetBlockResp.
 	runtime.MustRegister[*GetBlockResp](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.Block]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.LaneBlock]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamFullCommitQCsReq.

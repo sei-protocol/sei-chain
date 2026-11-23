@@ -16,7 +16,6 @@ import (
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -24,18 +23,18 @@ import (
 	bankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const Pacific1ChainID = "pacific-1"
@@ -74,11 +73,7 @@ type Keeper struct {
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
-	receiptStore receipt.ReceiptStore
-
-	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
-	latestCustomPrecompiles map[common.Address]vm.CustomPrecompiledContract
-	latestUpgrade           string
+	receiptStore receiptdb.ReceiptStore
 
 	// UseRegularStore when true causes PrefixStore to use ctx.KVStore instead of ctx.GigaKVStore.
 	// This is for debugging/testing to isolate Giga executor logic from GigaKVStore layer.
@@ -144,7 +139,7 @@ func (ctx *ReplayChainContext) Config() *params.ChainConfig {
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore receipt.ReceiptStore,
+	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore receiptdb.ReceiptStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
 	wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
 
@@ -171,62 +166,6 @@ func NewKeeper(
 	return k
 }
 
-func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
-	k.customPrecompiles = cp
-	k.latestUpgrade = latestUpgrade
-	k.latestCustomPrecompiles = make(map[common.Address]vm.CustomPrecompiledContract, len(cp))
-	for addr, versioned := range cp {
-		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
-	}
-}
-
-func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.CustomPrecompiledContract {
-	if !ctx.IsTracing() {
-		return k.latestCustomPrecompiles
-	}
-	versions := k.GetCustomPrecompilesVersions(ctx)
-	cp := make(map[common.Address]vm.CustomPrecompiledContract, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		cp[addr] = versioned[versions[addr]]
-	}
-	return cp
-}
-
-func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Address]string {
-	height := ctx.BlockHeight()
-	cp := make(map[common.Address]string, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		mostRecentUpgradeHeight := int64(0)
-		earliestUpgradeHeight := int64(0)
-		earliestUpgrade := ""
-		noForkHistory := true
-		for upgrade := range versioned {
-			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
-			if upgradeHeight != 0 {
-				noForkHistory = false
-				if earliestUpgradeHeight == 0 || upgradeHeight < earliestUpgradeHeight {
-					earliestUpgradeHeight = upgradeHeight
-					earliestUpgrade = upgrade
-				}
-			}
-			if height < upgradeHeight {
-				// requested height hasn't seen this upgrade version yet.
-				continue
-			}
-			if upgradeHeight > mostRecentUpgradeHeight {
-				mostRecentUpgradeHeight = upgradeHeight
-				cp[addr] = upgrade
-			}
-		}
-		if noForkHistory {
-			cp[addr] = k.latestUpgrade
-		} else if mostRecentUpgradeHeight == 0 {
-			cp[addr] = earliestUpgrade
-		}
-	}
-	return cp
-}
-
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
 	return k.accountKeeper
 }
@@ -235,7 +174,7 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
 }
 
-func (k *Keeper) ReceiptStore() receipt.ReceiptStore {
+func (k *Keeper) ReceiptStore() receiptdb.ReceiptStore {
 	return k.receiptStore
 }
 
@@ -288,12 +227,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp *core.GasPool) (*vm.Block
 		return nil, err
 	}
 
-	// Use hash of block timestamp as info for PREVRANDAO
-	r, err := ctx.BlockHeader().Time.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	rh := crypto.Keccak256Hash(r)
+	rh := evmtypes.PrevRandao(ctx.BlockHeader().Time)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int, rules *params.Rules) {
 		if IsPayablePrecompile(&recipient) {

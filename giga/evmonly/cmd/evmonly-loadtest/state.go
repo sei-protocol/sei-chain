@@ -190,17 +190,15 @@ func (s *generatedState) changeSet() evmonly.StateChangeSet {
 
 	var changes evmonly.StateChangeSet
 	for _, address := range ordered {
-		if balance, ok := s.balances[address]; ok {
-			changes.Balances = append(changes.Balances, evmonly.BalanceChange{
-				Address: address,
-				Balance: new(big.Int).Set(balance),
-			})
-		}
-		if nonce, ok := s.nonces[address]; ok {
-			changes.Nonces = append(changes.Nonces, evmonly.NonceChange{Address: address, Nonce: nonce})
-		}
-		if code, ok := s.code[address]; ok {
-			changes.Code = append(changes.Code, evmonly.CodeChange{Address: address, Code: cloneBytes(code)})
+		balance, hasBalance := s.balances[address]
+		nonce, hasNonce := s.nonces[address]
+		code, hasCode := s.code[address]
+		if hasBalance || hasNonce || hasCode {
+			account := evmonly.AccountState{Nonce: nonce, Code: cloneBytes(code)}
+			if hasBalance {
+				account.Balance = new(big.Int).Set(balance)
+			}
+			changes.Accounts = append(changes.Accounts, evmonly.AccountChange{Address: address, Account: account})
 		}
 		slots := s.storage[address]
 		orderedSlots := make([]common.Hash, 0, len(slots))
