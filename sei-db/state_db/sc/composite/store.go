@@ -43,12 +43,11 @@ type CompositeCommitStore struct {
 	// The memIAVL backend. Will be nil after all data is migrated to flatkv.
 	memIAVL *memiavl.CommitStore
 
-	// The flatKV backend, nil until migration to flatKV starts. SetWriteMode
-	// installs it while views from GetChildStoreByName may be reading it, so
-	// access it only through loadFlatKV and storeFlatKV. Readers load it, the
-	// write mode and the router independently, so an instance is published
-	// before the mode and router that route to it, and unpublished before it
-	// is closed.
+	// The flatKV backend, nil until migration to flatKV starts. Views from
+	// GetChildStoreByName read it while SetWriteMode installs it, so access it
+	// only through loadFlatKV and storeFlatKV, publish an instance before the
+	// mode and router that route to it, and unpublish a discarded instance
+	// before closing it.
 	flatKV atomic.Pointer[gigatypes.LiveStateStore]
 
 	// flatKVHash is the last hash flatKV handed over, written by the listener registered on it and
@@ -713,11 +712,11 @@ func (cs *CompositeCommitStore) buildRouter() error {
 	return nil
 }
 
-// newRouter constructs, without installing, the migration router for mode over memIAVL and flatKV.
-// cancel stops the router's background work.
+// newRouter builds, without installing, the migration router for mode over memIAVL and flatKV, and
+// returns the function that stops its background work.
 func (cs *CompositeCommitStore) newRouter(
 	mode types.WriteMode, flatKV gigatypes.LiveStateStore,
-) (_ migration.Router, cancel context.CancelFunc, _ error) {
+) (migration.Router, context.CancelFunc, error) {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
 	var options []migration.RouterOption
 	if cs.derived {
@@ -736,11 +735,12 @@ func (cs *CompositeCommitStore) newRouter(
 
 // installRouter makes router the installed router and cancels the one it replaces.
 func (cs *CompositeCommitStore) installRouter(router migration.Router, cancel context.CancelFunc) {
-	if cs.routerCancel != nil {
-		cs.routerCancel()
-	}
+	replacedCancel := cs.routerCancel
 	cs.storeRouter(router)
 	cs.routerCancel = cancel
+	if replacedCancel != nil {
+		replacedCancel()
+	}
 }
 
 // SetMigrationBatchSize records the governance-controlled migration batch
@@ -885,9 +885,8 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 	return nil
 }
 
-// publishWriteMode builds the router for mode over flatKV and, only once it is built, installs mode
-// and the router, adopting flatKV first when it is new. On error nothing is installed, so readers
-// never see a flatKV or mode that a failed transition rolls back.
+// publishWriteMode installs mode with a router built over flatKV, adopting flatKV first when
+// newFlatKV is set. On error nothing is installed.
 func (cs *CompositeCommitStore) publishWriteMode(
 	mode types.WriteMode, flatKV gigatypes.LiveStateStore, newFlatKV bool,
 ) error {
