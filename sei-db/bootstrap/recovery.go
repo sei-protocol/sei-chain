@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
+	"github.com/sei-protocol/sei-chain/sei-db/archive/chstore"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
@@ -291,4 +293,22 @@ func openReceiptStore(cfg *config.GigaStorageConfig) (receiptdb.ReceiptStore, er
 			cfg.ReceiptDBConfig.DBDirectory, err)
 	}
 	return receiptDB, nil
+}
+
+// openArchive opens the history archive, returning nil when no archive is configured. An empty archive starts at
+// first. It refuses a rollback window shorter than chstore.MaxLag.
+func openArchive(ctx context.Context, cfg *config.GigaStorageConfig, first uint64) (archive.ArchivalStore, error) {
+	if cfg.ArchiveConfig == nil {
+		return nil, nil
+	}
+	if window := cfg.PruningConfig.RollbackWindow; window < chstore.MaxLag {
+		return nil, fmt.Errorf("the rollback window of %d blocks is shorter than the %d blocks the archive can "+
+			"trail the node by, so a node could not roll back to the archive after a crash", window, chstore.MaxLag)
+	}
+	exporter, err := chstore.StartExporter(ctx, *cfg.ArchiveConfig, first)
+	if err != nil {
+		// Returned as a nil Store, not a Store holding a nil exporter.
+		return nil, err
+	}
+	return exporter, nil
 }

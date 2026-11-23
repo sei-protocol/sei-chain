@@ -137,6 +137,21 @@ func TestConfigTemplateRendersSkipUpgrades(t *testing.T) {
 	require.Equal(t, want, cfg)
 }
 
+func TestConfigTemplateRendersArchivePassword(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	want := gigaconfig.DefaultConfig
+	want.Archive.ClickHouseAddr = "ch:9000"
+	want.Archive.Password = `p"a\ss#word`
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, want, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                         "full",
@@ -180,6 +195,10 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.state_sync.snapshot_region":           "eu-central-1",
 		"giga.state_sync.snapshot_upload":           "true",
 		"giga.state_sync.snapshot_upload_interval":  "6h",
+		"giga.archive.clickhouse_addr":              "ch:9000",
+		"giga.archive.database":                     "arch",
+		"giga.archive.user":                         "writer",
+		"giga.archive.password":                     "secret",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -231,6 +250,12 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			SnapshotRegion:         "eu-central-1",
 			SnapshotUpload:         true,
 			SnapshotUploadInterval: 6 * time.Hour,
+		},
+		Archive: gigaconfig.ArchiveConfig{
+			ClickHouseAddr: "ch:9000",
+			Database:       "arch",
+			User:           "writer",
+			Password:       "secret",
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -326,6 +351,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-boolean upload":           {"giga.state_sync.snapshot_upload": "maybe"},
 		"negative upload interval":     {"giga.state_sync.snapshot_upload_interval": "-1s"},
 		"non-duration upload interval": {"giga.state_sync.snapshot_upload_interval": "daily"},
+		"archive without database":     {"giga.archive.clickhouse_addr": "ch:9000", "giga.archive.database": ""},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

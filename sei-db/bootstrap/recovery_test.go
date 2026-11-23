@@ -9,7 +9,9 @@ import (
 
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-db/archive/chstore"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/littidx"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -637,4 +639,19 @@ func TestOpenDBWithoutRecoveryOnAFreshHome(t *testing.T) {
 	require.Zero(t, manager.StateDB().SC().Version())
 	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
 	require.Zero(t, manager.ReceiptDB().LatestVersion())
+}
+
+func TestOpenArchiveRefusesARollbackWindowShorterThanItsLag(t *testing.T) {
+	cfg := &config.GigaStorageConfig{
+		// Nothing listens here, so an archive that passes the check fails to connect instead.
+		ArchiveConfig: &clickhouse.Config{Addr: "127.0.0.1:1", Database: "archive"},
+		PruningConfig: &config.StorageGarbageCollectorConfig{RollbackWindow: chstore.MaxLag - 1},
+	}
+	_, err := openArchive(t.Context(), cfg, 1)
+	require.ErrorContains(t, err, "rollback window")
+
+	cfg.PruningConfig.RollbackWindow = chstore.MaxLag
+	_, err = openArchive(t.Context(), cfg, 1)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "rollback window")
 }
