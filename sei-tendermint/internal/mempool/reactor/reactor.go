@@ -55,7 +55,7 @@ type Reactor struct {
 
 // NewReactor returns a reference to a new reactor.
 func NewReactor(cfg *config.MempoolConfig, txmp *mempool.TxMempool, router *p2p.Router) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor())
+	channel, err := router.OpenChannel(GetChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}

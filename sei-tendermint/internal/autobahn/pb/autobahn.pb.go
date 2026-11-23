@@ -1768,6 +1768,7 @@ type Msg struct {
 	//	*Msg_CommitVoteV2
 	//	*Msg_TimeoutVote
 	//	*Msg_AppVote
+	//	*Msg_Challenge
 	T             isMsg_T `protobuf_oneof:"t"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1873,6 +1874,15 @@ func (x *Msg) GetAppVote() *AppProposal {
 	return nil
 }
 
+func (x *Msg) GetChallenge() *Challenge {
+	if x != nil {
+		if x, ok := x.T.(*Msg_Challenge); ok {
+			return x.Challenge
+		}
+	}
+	return nil
+}
+
 type isMsg_T interface {
 	isMsg_T()
 }
@@ -1908,6 +1918,11 @@ type Msg_AppVote struct {
 	AppVote *AppProposal `protobuf:"bytes,7,opt,name=app_vote,json=appVote,proto3,oneof"`
 }
 
+type Msg_Challenge struct {
+	// P2P authentication
+	Challenge *Challenge `protobuf:"bytes,13,opt,name=challenge,proto3,oneof"`
+}
+
 func (*Msg_LaneProposalV2) isMsg_T() {}
 
 func (*Msg_LaneVoteV3) isMsg_T() {}
@@ -1921,6 +1936,8 @@ func (*Msg_CommitVoteV2) isMsg_T() {}
 func (*Msg_TimeoutVote) isMsg_T() {}
 
 func (*Msg_AppVote) isMsg_T() {}
+
+func (*Msg_Challenge) isMsg_T() {}
 
 type SignedProposal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2644,28 +2661,28 @@ func (x *StateSyncProof) GetAppQc() *AppQC {
 	return nil
 }
 
-// Persisted epoch registry state.
-type PersistedEpochRegistry struct {
+// Retained epoch registry state.
+type EpochRegistry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	LiveV2        []*Epoch               `protobuf:"bytes,3,rep,name=live_v2,json=liveV2,proto3" json:"live_v2,omitempty"`
+	Epochs        []*Epoch               `protobuf:"bytes,1,rep,name=epochs,proto3" json:"epochs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PersistedEpochRegistry) Reset() {
-	*x = PersistedEpochRegistry{}
+func (x *EpochRegistry) Reset() {
+	*x = EpochRegistry{}
 	mi := &file_autobahn_autobahn_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PersistedEpochRegistry) String() string {
+func (x *EpochRegistry) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PersistedEpochRegistry) ProtoMessage() {}
+func (*EpochRegistry) ProtoMessage() {}
 
-func (x *PersistedEpochRegistry) ProtoReflect() protoreflect.Message {
+func (x *EpochRegistry) ProtoReflect() protoreflect.Message {
 	mi := &file_autobahn_autobahn_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2677,14 +2694,14 @@ func (x *PersistedEpochRegistry) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PersistedEpochRegistry.ProtoReflect.Descriptor instead.
-func (*PersistedEpochRegistry) Descriptor() ([]byte, []int) {
+// Deprecated: Use EpochRegistry.ProtoReflect.Descriptor instead.
+func (*EpochRegistry) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{43}
 }
 
-func (x *PersistedEpochRegistry) GetLiveV2() []*Epoch {
+func (x *EpochRegistry) GetEpochs() []*Epoch {
 	if x != nil {
-		return x.LiveV2
+		return x.Epochs
 	}
 	return nil
 }
@@ -2792,6 +2809,110 @@ func (x *LaneBlockPos) GetOffset() uint64 {
 		return *x.Offset
 	}
 	return 0
+}
+
+type Challenge struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionKey    []byte                 `protobuf:"bytes,1,opt,name=session_key,json=sessionKey,proto3,oneof" json:"session_key,omitempty"` // required
+	IsServer      *bool                  `protobuf:"varint,2,opt,name=is_server,json=isServer,proto3,oneof" json:"is_server,omitempty"`      // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Challenge) Reset() {
+	*x = Challenge{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Challenge) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Challenge) ProtoMessage() {}
+
+func (x *Challenge) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Challenge.ProtoReflect.Descriptor instead.
+func (*Challenge) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *Challenge) GetSessionKey() []byte {
+	if x != nil {
+		return x.SessionKey
+	}
+	return nil
+}
+
+func (x *Challenge) GetIsServer() bool {
+	if x != nil && x.IsServer != nil {
+		return *x.IsServer
+	}
+	return false
+}
+
+type SignedChallenge struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Msg           *Challenge             `protobuf:"bytes,1,opt,name=msg,proto3,oneof" json:"msg,omitempty"` // required
+	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3,oneof" json:"sig,omitempty"` // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedChallenge) Reset() {
+	*x = SignedChallenge{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedChallenge) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedChallenge) ProtoMessage() {}
+
+func (x *SignedChallenge) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedChallenge.ProtoReflect.Descriptor instead.
+func (*SignedChallenge) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *SignedChallenge) GetMsg() *Challenge {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SignedChallenge) GetSig() *Signature {
+	if x != nil {
+		return x.Sig
+	}
+	return nil
 }
 
 var File_autobahn_autobahn_proto protoreflect.FileDescriptor
@@ -2997,7 +3118,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\f_epoch_indexB\t\n" +
 	"\a_heightB\v\n" +
 	"\t_app_hashJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\n" +
-	"road_indexR\rglobal_numberR\fglobal_firstR\vglobal_next\"\x93\x04\n" +
+	"road_indexR\rglobal_numberR\fglobal_firstR\vglobal_next\"\xc8\x04\n" +
 	"\x03Msg\x12?\n" +
 	"\x10lane_proposal_v2\x18\n" +
 	" \x01(\v2\x13.autobahn.LaneBlockH\x00R\x0elaneProposalV2\x126\n" +
@@ -3007,7 +3128,8 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x0fprepare_vote_v2\x18\b \x01(\v2\x15.autobahn.PrepareVoteH\x00R\rprepareVoteV2\x12<\n" +
 	"\x0ecommit_vote_v2\x18\t \x01(\v2\x14.autobahn.CommitVoteH\x00R\fcommitVoteV2\x12:\n" +
 	"\ftimeout_vote\x18\x06 \x01(\v2\x15.autobahn.TimeoutVoteH\x00R\vtimeoutVote\x122\n" +
-	"\bapp_vote\x18\a \x01(\v2\x15.autobahn.AppProposalH\x00R\aappVote:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x03\n" +
+	"\bapp_vote\x18\a \x01(\v2\x15.autobahn.AppProposalH\x00R\aappVote\x123\n" +
+	"\tchallenge\x18\r \x01(\v2\x13.autobahn.ChallengeH\x00R\tchallenge:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x03\n" +
 	"\x01tJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\v\x10\fR\rlane_proposalR\tlane_voteR\flane_vote_v2R\fprepare_voteR\vcommit_vote\"e\n" +
 	"\x0eSignedProposal\x12$\n" +
 	"\x03msg\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x03msg\x12%\n" +
@@ -3040,15 +3162,15 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\ftimeout_vote\x18\x04 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x00R\vtimeoutVote\x124\n" +
 	"\n" +
 	"timeout_qc\x18\x05 \x01(\v2\x13.autobahn.TimeoutQCH\x00R\ttimeoutQc:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
-	"\x01tJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\fprepare_voteR\vcommit_voteR\x0fprepare_vote_v2R\x0ecommit_vote_v2\"L\n" +
+	"\x01tJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\fprepare_voteR\vcommit_voteR\x0fprepare_vote_v2R\x0ecommit_vote_v2\"R\n" +
 	"\tCommittee\x127\n" +
-	"\amembers\x18\x01 \x03(\v2\x15.autobahn.EpochMemberB\x06Ј\xe2\xab\fdR\amembers:\x06\xe8\x88\xe2\xab\f\x01\"\xdd\x01\n" +
+	"\amembers\x18\x01 \x03(\v2\x15.autobahn.EpochMemberB\x06Ј\xe2\xab\fdR\amembers:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01\"\xe3\x01\n" +
 	"\x05Epoch\x12\x19\n" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x126\n" +
 	"\tcommittee\x18\x02 \x01(\v2\x13.autobahn.CommitteeH\x01R\tcommittee\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"first_road\x18\x03 \x01(\x04H\x02R\tfirstRoad\x88\x01\x01\x12 \n" +
-	"\tnext_road\x18\x04 \x01(\x04H\x03R\bnextRoad\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\b\n" +
+	"\tnext_road\x18\x04 \x01(\x04H\x03R\bnextRoad\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\f\n" +
 	"\n" +
 	"_committeeB\r\n" +
@@ -3061,13 +3183,12 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x06app_qc\x18\x03 \x01(\v2\x0f.autobahn.AppQCH\x01R\x05appQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
 	"\n" +
 	"_commit_qcB\t\n" +
-	"\a_app_qcJ\x04\b\x02\x10\x03R\vlane_blocks\"o\n" +
-	"\x16PersistedEpochRegistry\x12(\n" +
-	"\alive_v2\x18\x03 \x03(\v2\x0f.autobahn.EpochR\x06liveV2J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x04\x10\x05R\x04liveR\apendingR\n" +
-	"pending_v2\"y\n" +
+	"\a_app_qcJ\x04\b\x02\x10\x03R\vlane_blocks\"@\n" +
+	"\rEpochRegistry\x12'\n" +
+	"\x06epochs\x18\x01 \x03(\v2\x0f.autobahn.EpochR\x06epochs:\x06Ȉ\xe2\xab\f\x01\"\x7f\n" +
 	"\vEpochMember\x12.\n" +
 	"\alane_id\x18\x01 \x01(\v2\x10.autobahn.LaneIDH\x00R\x06laneId\x88\x01\x01\x12\x1b\n" +
-	"\x06weight\x18\x02 \x01(\x04H\x01R\x06weight\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\n" +
+	"\x06weight\x18\x02 \x01(\x04H\x01R\x06weight\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\n" +
 	"\n" +
 	"\b_lane_idB\t\n" +
 	"\a_weight\"s\n" +
@@ -3075,7 +3196,19 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x06height\x18\x03 \x01(\x04H\x00R\x06height\x88\x01\x01\x12\x1b\n" +
 	"\x06offset\x18\x02 \x01(\x04H\x01R\x06offset\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\t\n" +
 	"\a_heightB\t\n" +
-	"\a_offsetJ\x04\b\x01\x10\x02R\x05indexBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
+	"\a_offsetJ\x04\b\x01\x10\x02R\x05index\"\x87\x01\n" +
+	"\tChallenge\x12,\n" +
+	"\vsession_key\x18\x01 \x01(\fB\x06؈\xe2\xab\f H\x00R\n" +
+	"sessionKey\x88\x01\x01\x12 \n" +
+	"\tis_server\x18\x02 \x01(\bH\x01R\bisServer\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
+	"\f_session_keyB\f\n" +
+	"\n" +
+	"_is_server\"\x81\x01\n" +
+	"\x0fSignedChallenge\x12*\n" +
+	"\x03msg\x18\x01 \x01(\v2\x13.autobahn.ChallengeH\x00R\x03msg\x88\x01\x01\x12*\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureH\x01R\x03sig\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x06\n" +
+	"\x04_msgB\x06\n" +
+	"\x04_sigBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once
@@ -3089,58 +3222,60 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_autobahn_autobahn_proto_goTypes = []any{
-	(*Timestamp)(nil),              // 0: autobahn.Timestamp
-	(*Duration)(nil),               // 1: autobahn.Duration
-	(*TransactionTimestamps)(nil),  // 2: autobahn.TransactionTimestamps
-	(*TransactionHeader)(nil),      // 3: autobahn.TransactionHeader
-	(*Transaction)(nil),            // 4: autobahn.Transaction
-	(*TransactionResp)(nil),        // 5: autobahn.TransactionResp
-	(*PublicKey)(nil),              // 6: autobahn.PublicKey
-	(*LaneID)(nil),                 // 7: autobahn.LaneID
-	(*Signature)(nil),              // 8: autobahn.Signature
-	(*LaneBlockHeader)(nil),        // 9: autobahn.LaneBlockHeader
-	(*Payload)(nil),                // 10: autobahn.Payload
-	(*LaneBlock)(nil),              // 11: autobahn.LaneBlock
-	(*LaneVote)(nil),               // 12: autobahn.LaneVote
-	(*LaneQC)(nil),                 // 13: autobahn.LaneQC
-	(*LaneRange)(nil),              // 14: autobahn.LaneRange
-	(*View)(nil),                   // 15: autobahn.View
-	(*RoadBlockHeader)(nil),        // 16: autobahn.RoadBlockHeader
-	(*Proposal)(nil),               // 17: autobahn.Proposal
-	(*PrepareVote)(nil),            // 18: autobahn.PrepareVote
-	(*CommitVote)(nil),             // 19: autobahn.CommitVote
-	(*FullProposal)(nil),           // 20: autobahn.FullProposal
-	(*PrepareQC)(nil),              // 21: autobahn.PrepareQC
-	(*CommitQC)(nil),               // 22: autobahn.CommitQC
-	(*FullCommitQC)(nil),           // 23: autobahn.FullCommitQC
-	(*TimeoutVote)(nil),            // 24: autobahn.TimeoutVote
-	(*TimeoutQC)(nil),              // 25: autobahn.TimeoutQC
-	(*FullTimeoutVote)(nil),        // 26: autobahn.FullTimeoutVote
-	(*PersistedInner)(nil),         // 27: autobahn.PersistedInner
-	(*AppQC)(nil),                  // 28: autobahn.AppQC
-	(*AppProposal)(nil),            // 29: autobahn.AppProposal
-	(*Msg)(nil),                    // 30: autobahn.Msg
-	(*SignedProposal)(nil),         // 31: autobahn.SignedProposal
-	(*SignedPrepareVote)(nil),      // 32: autobahn.SignedPrepareVote
-	(*SignedCommitVote)(nil),       // 33: autobahn.SignedCommitVote
-	(*SignedTimeoutVote)(nil),      // 34: autobahn.SignedTimeoutVote
-	(*SignedAppVote)(nil),          // 35: autobahn.SignedAppVote
-	(*SignedLaneBlock)(nil),        // 36: autobahn.SignedLaneBlock
-	(*SignedLaneVote)(nil),         // 37: autobahn.SignedLaneVote
-	(*SignedAppProposal)(nil),      // 38: autobahn.SignedAppProposal
-	(*ConsensusMsg)(nil),           // 39: autobahn.ConsensusMsg
-	(*Committee)(nil),              // 40: autobahn.Committee
-	(*Epoch)(nil),                  // 41: autobahn.Epoch
-	(*StateSyncProof)(nil),         // 42: autobahn.StateSyncProof
-	(*PersistedEpochRegistry)(nil), // 43: autobahn.PersistedEpochRegistry
-	(*EpochMember)(nil),            // 44: autobahn.EpochMember
-	(*LaneBlockPos)(nil),           // 45: autobahn.LaneBlockPos
-	nil,                            // 46: autobahn.TransactionHeader.PropertiesEntry
+	(*Timestamp)(nil),             // 0: autobahn.Timestamp
+	(*Duration)(nil),              // 1: autobahn.Duration
+	(*TransactionTimestamps)(nil), // 2: autobahn.TransactionTimestamps
+	(*TransactionHeader)(nil),     // 3: autobahn.TransactionHeader
+	(*Transaction)(nil),           // 4: autobahn.Transaction
+	(*TransactionResp)(nil),       // 5: autobahn.TransactionResp
+	(*PublicKey)(nil),             // 6: autobahn.PublicKey
+	(*LaneID)(nil),                // 7: autobahn.LaneID
+	(*Signature)(nil),             // 8: autobahn.Signature
+	(*LaneBlockHeader)(nil),       // 9: autobahn.LaneBlockHeader
+	(*Payload)(nil),               // 10: autobahn.Payload
+	(*LaneBlock)(nil),             // 11: autobahn.LaneBlock
+	(*LaneVote)(nil),              // 12: autobahn.LaneVote
+	(*LaneQC)(nil),                // 13: autobahn.LaneQC
+	(*LaneRange)(nil),             // 14: autobahn.LaneRange
+	(*View)(nil),                  // 15: autobahn.View
+	(*RoadBlockHeader)(nil),       // 16: autobahn.RoadBlockHeader
+	(*Proposal)(nil),              // 17: autobahn.Proposal
+	(*PrepareVote)(nil),           // 18: autobahn.PrepareVote
+	(*CommitVote)(nil),            // 19: autobahn.CommitVote
+	(*FullProposal)(nil),          // 20: autobahn.FullProposal
+	(*PrepareQC)(nil),             // 21: autobahn.PrepareQC
+	(*CommitQC)(nil),              // 22: autobahn.CommitQC
+	(*FullCommitQC)(nil),          // 23: autobahn.FullCommitQC
+	(*TimeoutVote)(nil),           // 24: autobahn.TimeoutVote
+	(*TimeoutQC)(nil),             // 25: autobahn.TimeoutQC
+	(*FullTimeoutVote)(nil),       // 26: autobahn.FullTimeoutVote
+	(*PersistedInner)(nil),        // 27: autobahn.PersistedInner
+	(*AppQC)(nil),                 // 28: autobahn.AppQC
+	(*AppProposal)(nil),           // 29: autobahn.AppProposal
+	(*Msg)(nil),                   // 30: autobahn.Msg
+	(*SignedProposal)(nil),        // 31: autobahn.SignedProposal
+	(*SignedPrepareVote)(nil),     // 32: autobahn.SignedPrepareVote
+	(*SignedCommitVote)(nil),      // 33: autobahn.SignedCommitVote
+	(*SignedTimeoutVote)(nil),     // 34: autobahn.SignedTimeoutVote
+	(*SignedAppVote)(nil),         // 35: autobahn.SignedAppVote
+	(*SignedLaneBlock)(nil),       // 36: autobahn.SignedLaneBlock
+	(*SignedLaneVote)(nil),        // 37: autobahn.SignedLaneVote
+	(*SignedAppProposal)(nil),     // 38: autobahn.SignedAppProposal
+	(*ConsensusMsg)(nil),          // 39: autobahn.ConsensusMsg
+	(*Committee)(nil),             // 40: autobahn.Committee
+	(*Epoch)(nil),                 // 41: autobahn.Epoch
+	(*StateSyncProof)(nil),        // 42: autobahn.StateSyncProof
+	(*EpochRegistry)(nil),         // 43: autobahn.EpochRegistry
+	(*EpochMember)(nil),           // 44: autobahn.EpochMember
+	(*LaneBlockPos)(nil),          // 45: autobahn.LaneBlockPos
+	(*Challenge)(nil),             // 46: autobahn.Challenge
+	(*SignedChallenge)(nil),       // 47: autobahn.SignedChallenge
+	nil,                           // 48: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	46, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	48, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.LaneID.validator:type_name -> autobahn.PublicKey
@@ -3187,39 +3322,42 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	19, // 44: autobahn.Msg.commit_vote_v2:type_name -> autobahn.CommitVote
 	24, // 45: autobahn.Msg.timeout_vote:type_name -> autobahn.TimeoutVote
 	29, // 46: autobahn.Msg.app_vote:type_name -> autobahn.AppProposal
-	17, // 47: autobahn.SignedProposal.msg:type_name -> autobahn.Proposal
-	8,  // 48: autobahn.SignedProposal.sig:type_name -> autobahn.Signature
-	18, // 49: autobahn.SignedPrepareVote.msg:type_name -> autobahn.PrepareVote
-	8,  // 50: autobahn.SignedPrepareVote.sig:type_name -> autobahn.Signature
-	19, // 51: autobahn.SignedCommitVote.msg:type_name -> autobahn.CommitVote
-	8,  // 52: autobahn.SignedCommitVote.sig:type_name -> autobahn.Signature
-	24, // 53: autobahn.SignedTimeoutVote.msg:type_name -> autobahn.TimeoutVote
-	8,  // 54: autobahn.SignedTimeoutVote.sig:type_name -> autobahn.Signature
-	29, // 55: autobahn.SignedAppVote.msg:type_name -> autobahn.AppProposal
-	8,  // 56: autobahn.SignedAppVote.sig:type_name -> autobahn.Signature
-	11, // 57: autobahn.SignedLaneBlock.msg:type_name -> autobahn.LaneBlock
-	8,  // 58: autobahn.SignedLaneBlock.sig:type_name -> autobahn.Signature
-	12, // 59: autobahn.SignedLaneVote.msg:type_name -> autobahn.LaneVote
-	8,  // 60: autobahn.SignedLaneVote.sig:type_name -> autobahn.Signature
-	29, // 61: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
-	8,  // 62: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
-	20, // 63: autobahn.ConsensusMsg.proposal:type_name -> autobahn.FullProposal
-	32, // 64: autobahn.ConsensusMsg.prepare_vote_v3:type_name -> autobahn.SignedPrepareVote
-	33, // 65: autobahn.ConsensusMsg.commit_vote_v3:type_name -> autobahn.SignedCommitVote
-	26, // 66: autobahn.ConsensusMsg.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	25, // 67: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
-	44, // 68: autobahn.Committee.members:type_name -> autobahn.EpochMember
-	40, // 69: autobahn.Epoch.committee:type_name -> autobahn.Committee
-	23, // 70: autobahn.StateSyncProof.commit_qc:type_name -> autobahn.FullCommitQC
-	11, // 71: autobahn.StateSyncProof.blocks:type_name -> autobahn.LaneBlock
-	28, // 72: autobahn.StateSyncProof.app_qc:type_name -> autobahn.AppQC
-	41, // 73: autobahn.PersistedEpochRegistry.live_v2:type_name -> autobahn.Epoch
-	7,  // 74: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
-	75, // [75:75] is the sub-list for method output_type
-	75, // [75:75] is the sub-list for method input_type
-	75, // [75:75] is the sub-list for extension type_name
-	75, // [75:75] is the sub-list for extension extendee
-	0,  // [0:75] is the sub-list for field type_name
+	46, // 47: autobahn.Msg.challenge:type_name -> autobahn.Challenge
+	17, // 48: autobahn.SignedProposal.msg:type_name -> autobahn.Proposal
+	8,  // 49: autobahn.SignedProposal.sig:type_name -> autobahn.Signature
+	18, // 50: autobahn.SignedPrepareVote.msg:type_name -> autobahn.PrepareVote
+	8,  // 51: autobahn.SignedPrepareVote.sig:type_name -> autobahn.Signature
+	19, // 52: autobahn.SignedCommitVote.msg:type_name -> autobahn.CommitVote
+	8,  // 53: autobahn.SignedCommitVote.sig:type_name -> autobahn.Signature
+	24, // 54: autobahn.SignedTimeoutVote.msg:type_name -> autobahn.TimeoutVote
+	8,  // 55: autobahn.SignedTimeoutVote.sig:type_name -> autobahn.Signature
+	29, // 56: autobahn.SignedAppVote.msg:type_name -> autobahn.AppProposal
+	8,  // 57: autobahn.SignedAppVote.sig:type_name -> autobahn.Signature
+	11, // 58: autobahn.SignedLaneBlock.msg:type_name -> autobahn.LaneBlock
+	8,  // 59: autobahn.SignedLaneBlock.sig:type_name -> autobahn.Signature
+	12, // 60: autobahn.SignedLaneVote.msg:type_name -> autobahn.LaneVote
+	8,  // 61: autobahn.SignedLaneVote.sig:type_name -> autobahn.Signature
+	29, // 62: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
+	8,  // 63: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
+	20, // 64: autobahn.ConsensusMsg.proposal:type_name -> autobahn.FullProposal
+	32, // 65: autobahn.ConsensusMsg.prepare_vote_v3:type_name -> autobahn.SignedPrepareVote
+	33, // 66: autobahn.ConsensusMsg.commit_vote_v3:type_name -> autobahn.SignedCommitVote
+	26, // 67: autobahn.ConsensusMsg.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	25, // 68: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
+	44, // 69: autobahn.Committee.members:type_name -> autobahn.EpochMember
+	40, // 70: autobahn.Epoch.committee:type_name -> autobahn.Committee
+	23, // 71: autobahn.StateSyncProof.commit_qc:type_name -> autobahn.FullCommitQC
+	11, // 72: autobahn.StateSyncProof.blocks:type_name -> autobahn.LaneBlock
+	28, // 73: autobahn.StateSyncProof.app_qc:type_name -> autobahn.AppQC
+	41, // 74: autobahn.EpochRegistry.epochs:type_name -> autobahn.Epoch
+	7,  // 75: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
+	46, // 76: autobahn.SignedChallenge.msg:type_name -> autobahn.Challenge
+	8,  // 77: autobahn.SignedChallenge.sig:type_name -> autobahn.Signature
+	78, // [78:78] is the sub-list for method output_type
+	78, // [78:78] is the sub-list for method input_type
+	78, // [78:78] is the sub-list for extension type_name
+	78, // [78:78] is the sub-list for extension extendee
+	0,  // [0:78] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -3256,6 +3394,7 @@ func file_autobahn_autobahn_proto_init() {
 		(*Msg_CommitVoteV2)(nil),
 		(*Msg_TimeoutVote)(nil),
 		(*Msg_AppVote)(nil),
+		(*Msg_Challenge)(nil),
 	}
 	file_autobahn_autobahn_proto_msgTypes[39].OneofWrappers = []any{
 		(*ConsensusMsg_Proposal)(nil),
@@ -3268,13 +3407,15 @@ func file_autobahn_autobahn_proto_init() {
 	file_autobahn_autobahn_proto_msgTypes[42].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[44].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[45].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[46].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[47].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   47,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

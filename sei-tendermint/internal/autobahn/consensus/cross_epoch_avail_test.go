@@ -23,13 +23,13 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 	rng := utils.TestRng()
 
 	// epoch length = 3, 4 validators: 3 honest, 1 byzantine
-	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	keys := rng.GenSliceN(4, types.GenSecretKey)
 	weights := map[types.PublicKey]uint64{}
 	for _, key := range keys {
 		weights[key.Public()] = 1
 	}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
-	registry := utils.OrPanic1(epoch.NewRegistry(committee, 0, time.Now(), 3, utils.None[string]()))
+	registry := utils.OrPanic1(epoch.TestGenesisRegistry(committee, 0, 3))
 	shared, isolated := newTestDataState(t, registry), newTestDataState(t, registry)
 
 	// Only byzantine validator can be the leader.
