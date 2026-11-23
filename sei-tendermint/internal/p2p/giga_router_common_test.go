@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
@@ -324,6 +325,20 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
+}
+
+func TestGigaRouterCommon_TranslateSuperBlockNamesTheParentAsLastBlockID(t *testing.T) {
+	rng := utils.TestRng()
+	router := &gigaRouterCommon{cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+	block := atypes.GenSuperBlock(rng)
+
+	block.ParentHash = utils.None[atypes.RoadBlockHeaderHash]()
+	require.True(t, router.translateSuperBlock(block).Block.LastBlockID.IsNil())
+
+	parent := atypes.GenRoadBlockHeaderHash(rng)
+	block.ParentHash = utils.Some(parent)
+	got := router.translateSuperBlock(block).Block.LastBlockID.Hash
+	require.Equal(t, common.Hash(parent).Bytes(), []byte(got))
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {

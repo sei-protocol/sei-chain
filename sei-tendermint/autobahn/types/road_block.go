@@ -201,9 +201,10 @@ func (b *RoadBlock) LaneBlocks() []*LaneBlock { return b.blocks }
 // SuperBlock returns the merged transactions and execution metadata for the road.
 func (b *RoadBlock) SuperBlock() *SuperBlock {
 	superBlock := &SuperBlock{
-		Hash:      b.Header().Hash(),
-		Height:    b.qc.Height(),
-		Timestamp: b.Header().Timestamp(),
+		Hash:       b.Header().Hash(),
+		ParentHash: b.Header().ParentHash(),
+		Height:     b.qc.Height(),
+		Timestamp:  b.Header().Timestamp(),
 	}
 	for _, block := range b.blocks {
 		superBlock.GasWanted += block.Payload().TotalGasWanted()
@@ -233,8 +234,10 @@ func (b *RoadBlock) Verify(ep *Epoch) error {
 
 // SuperBlock contains all transactions finalized by one CommitQC in header order.
 type SuperBlock struct {
-	Hash   RoadBlockHeaderHash
-	Height RoadHeight
+	Hash RoadBlockHeaderHash
+	// ParentHash is the header hash of the previous road block, or None for the first road block.
+	ParentHash utils.Option[RoadBlockHeaderHash]
+	Height     RoadHeight
 	// Timestamp extracted from CommitQC.
 	Timestamp time.Time
 	// Sum of GasWanted of the CommitQC's lane blocks.

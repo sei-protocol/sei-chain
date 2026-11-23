@@ -212,6 +212,22 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	require.Equal(t, [][]byte{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}}, block.Txs)
 }
 
+func TestSuperBlockNamesTheParentOfItsRoadBlock(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 3)
+	ep := GenEpochWithCommittee(rng, committee)
+	for _, parent := range []utils.Option[RoadBlockHeaderHash]{utils.None[RoadBlockHeaderHash](), utils.Some(GenRoadBlockHeaderHash(rng))} {
+		proposal, blocks := proposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 1, parent)
+		prepareQC := BuildPrepareQC(keys, proposal)
+		var votes []*Signed[*CommitVote]
+		for _, key := range keys {
+			votes = append(votes, Sign(key, NewCommitVote(prepareQC)))
+		}
+		qc := NewFullCommitQC(NewCommitQC(votes), []*LaneBlockHeader{blocks[0].Header()})
+		require.Equal(t, parent, NewRoadBlock(qc, blocks).SuperBlock().ParentHash)
+	}
+}
+
 func TestLaneRangeVerifyRejectsHashOnEmptyRange(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := GenCommittee(rng, 4)
