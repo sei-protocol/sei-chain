@@ -1758,3 +1758,36 @@ func balanceAlloc(balances map[common.Address]*uint256.Int) map[common.Address]e
 	}
 	return accounts
 }
+
+// A later FinalizeBlock may prepare while an earlier one still runs; both leave the same state as
+// sequential finalization.
+func TestEVMOnlyApplicationFinalizesTheNextBlockWhileTheCurrentOneRuns(t *testing.T) {
+	pipelined := newInitializedEVMOnlyTestApp(t)
+	sequential := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	tx0 := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
+	tx1 := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		done := make(chan error, 1)
+		s.Spawn(func() error {
+			_, err := pipelined.FinalizeBlock(ctx, evmOnlyTestBlock(pipelined, 2, tx1))
+			done <- err
+			return nil
+		})
+		if _, err := pipelined.FinalizeBlock(ctx, evmOnlyTestBlock(pipelined, 1, tx0)); err != nil {
+			return err
+		}
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}))
+	finalizeEVMOnlyTestBlock(t, sequential, evmOnlyTestBlock(sequential, 1, tx0))
+	finalizeEVMOnlyTestBlock(t, sequential, evmOnlyTestBlock(sequential, 2, tx1))
+	require.Equal(t, sequential.Info().LastBlockAppHash, pipelined.Info().LastBlockAppHash)
+	require.Equal(t, sequential.LastBlockHeight(), pipelined.LastBlockHeight())
+}
