@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ func TestGenesisAllocCreditsOnlyItsHeight(t *testing.T) {
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: ctx})
 		require.NoError(t, err)
 		if number == 1 {
-			require.Len(t, result.ChangeSet.Accounts, 2)
+			require.Len(t, result.ChangeSet.Accounts, 2+len(ProtocolAccounts()))
 		} else {
 			require.Empty(t, result.ChangeSet.Accounts, "block %d credits nothing", number)
 		}
@@ -37,6 +38,19 @@ func TestGenesisAllocRefusesMissingAccountState(t *testing.T) {
 	alloc := WithGenesisAlloc(1, map[common.Address]GenesisAccount{{1}: {Balance: uint256.NewInt(5)}})
 	require.Panics(t, func() {
 		NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(NewMemoryState()), WithMissingAccountState(NewMemoryState()), alloc)
+	})
+}
+
+func TestGenesisAllocRefusesAProtocolAccount(t *testing.T) {
+	alloc := WithGenesisAlloc(1, map[common.Address]GenesisAccount{params.HistoryStorageAddress: {Balance: uint256.NewInt(5)}})
+	require.Panics(t, func() {
+		NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(NewMemoryState()), alloc)
+	})
+}
+
+func TestGenesisAllocWithoutBalancesAcceptsMissingAccountState(t *testing.T) {
+	require.NotPanics(t, func() {
+		NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(NewMemoryState()), WithMissingAccountState(NewMemoryState()), WithGenesisAlloc(1, nil))
 	})
 }
 

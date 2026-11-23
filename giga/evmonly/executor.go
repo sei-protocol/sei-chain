@@ -78,10 +78,10 @@ func WithMissingAccountState(state StateReader) Option {
 	}
 }
 
-// WithGenesisAlloc sets up each account in alloc at the start of block height,
-// before any begin blocker runs. NewExecutor panics if it is combined with
-// WithMissingAccountState, whose balances the alloc would be credited on top
-// of.
+// WithGenesisAlloc sets up each account in alloc, and every protocol account,
+// at the start of block height, the chain's initial height. NewExecutor panics
+// if alloc sets a protocol account, or credits a balance and is combined with
+// WithMissingAccountState, whose balances it would be credited on top of.
 func WithGenesisAlloc(height uint64, alloc map[common.Address]GenesisAccount) Option {
 	return func(e *Executor) {
 		e.genesis = newGenesisAlloc(height, alloc)
@@ -124,8 +124,8 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	for _, opt := range opts {
 		opt(e)
 	}
-	if len(e.genesis.accounts) > 0 && e.missingState != nil {
-		panic("a genesis alloc cannot be combined with a missing account state")
+	if e.genesis.creditsBalance() && e.missingState != nil {
+		panic("a genesis alloc that credits a balance cannot be combined with a missing account state")
 	}
 	return e
 }
@@ -251,7 +251,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	begin, err := e.runBeginBlockers(req.Context, source, false)
+	begin, err := e.runBlockStart(req.Context, source, false)
 	if err != nil {
 		return nil, err
 	}

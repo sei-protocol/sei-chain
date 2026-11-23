@@ -73,6 +73,10 @@ type evmOnlyApplication struct {
 	// other account starts empty. Without it, every account the store holds
 	// nothing for has evmOnlyBaseBalance.
 	alloc utils.Option[GenesisAlloc]
+	// initialHeight is the chain's first block, where the executor sets up the
+	// genesis alloc and the protocol accounts. It is unset on a chain without an
+	// alloc that resumed past that block.
+	initialHeight utils.Option[int64]
 	// upgradeInfoPath is where a halt on a due upgrade plan writes
 	// UpgradeInfoFileName.
 	upgradeInfoPath utils.Option[string]
@@ -145,6 +149,9 @@ func NewEVMOnlyApplication(
 		if !alloc.setsBalance() {
 			return nil, errors.New("EVM-only genesis alloc funds no account")
 		}
+		if addr, ok := alloc.protocolAccount(); ok {
+			return nil, fmt.Errorf("EVM-only genesis alloc sets protocol account %s", addr)
+		}
 	}
 	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
@@ -158,6 +165,7 @@ func NewEVMOnlyApplication(
 		validators:        maps.Clone(validators),
 		customPrecompiles: customPrecompiles,
 		alloc:             alloc,
+		initialHeight:     allocInitialHeight(alloc),
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
 		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
@@ -198,11 +206,13 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		evmonly.WithStorageManager(a.storage),
 		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
 	}
-	if alloc, ok := a.alloc.Get(); ok {
-		// NewEVMOnlyApplication refuses a height that is not positive.
-		opts = append(opts, evmonly.WithGenesisAlloc(uint64(alloc.InitialHeight), alloc.Accounts)) //nolint:gosec // G115: positive.
-	} else {
+	alloc, ok := a.alloc.Get()
+	if !ok {
 		opts = append(opts, evmonly.WithMissingAccountState(evmOnlyFundedState{}))
+	}
+	if height, ok := a.initialHeight.Get(); ok {
+		// NewEVMOnlyApplication and InitChain refuse a height that is not positive.
+		opts = append(opts, evmonly.WithGenesisAlloc(uint64(height), alloc.Accounts)) //nolint:gosec // G115: positive.
 	}
 	return evmonly.NewExecutor(evmonly.Config{
 		ChainConfig:  a.chainConfig,
@@ -277,6 +287,7 @@ func (a *evmOnlyApplication) InitChain(req abevm.InitConfig) error {
 		if err := a.seedInitialStateVersion(initialHeight); err != nil {
 			return err
 		}
+		a.initialHeight = utils.Some(initialHeight)
 		a.installExecutor(executor)
 		for state := range a.cursor.Lock() {
 			state.committed = evmOnlyCursor{height: initialHeight - 1, gasLimit: gasLimit}
@@ -981,6 +992,25 @@ func (w *evmOnlyHashWriter) flush() error {
 type GenesisAlloc struct {
 	InitialHeight int64
 	Accounts      map[common.Address]evmonly.GenesisAccount
+}
+
+// allocInitialHeight returns alloc's initial height, or None without an alloc.
+func allocInitialHeight(alloc utils.Option[GenesisAlloc]) utils.Option[int64] {
+	if alloc, ok := alloc.Get(); ok {
+		return utils.Some(alloc.InitialHeight)
+	}
+	return utils.None[int64]()
+}
+
+// protocolAccount returns an account g sets that every chain holds as a
+// protocol account.
+func (g GenesisAlloc) protocolAccount() (common.Address, bool) {
+	for addr := range evmonly.ProtocolAccounts() {
+		if _, ok := g.Accounts[addr]; ok {
+			return addr, true
+		}
+	}
+	return common.Address{}, false
 }
 
 // setsBalance reports whether any account has a Balance.

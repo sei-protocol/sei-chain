@@ -27,7 +27,7 @@ func (e *Executor) ViewState(view gigatypes.EVMStateView) vm.SeiStateDB {
 // reverted snapshot.
 func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.SeiStateDB, error) {
 	source, reads := e.recordingReader(view)
-	begin, err := e.runBeginBlockers(req.Context, source, true)
+	begin, err := e.runBlockStart(req.Context, source, true)
 	if err != nil {
 		return nil, err
 	}
