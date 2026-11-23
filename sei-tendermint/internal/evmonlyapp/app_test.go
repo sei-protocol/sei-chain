@@ -30,14 +30,9 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-<<<<<<< HEAD
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-=======
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
->>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -93,18 +88,7 @@ func evmOnlyTestBlockTime(height int64) time.Time {
 	return time.Unix(1_700_000_000+height, 0)
 }
 
-<<<<<<< HEAD
-// evmOnlyTestEpochBlock returns an empty block at height that carries state.
-func evmOnlyTestEpochBlock(app abevm.Application, height int64, state abevm.EpochState) abevm.FinalizeBlockReq {
-	req := evmOnlyTestBlock(app, height)
-	req.EpochState = utils.Some(state)
-	return req
-}
-
 func finalizeEVMOnlyTestBlock(t *testing.T, app abevm.Application, req abevm.FinalizeBlockReq) []byte {
-=======
-func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app proxy.EVMApplication, req *proxy.RequestFinalizeBlock) []byte {
->>>>>>> origin/main
 	t.Helper()
 	_, err := app.FinalizeBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -153,45 +137,6 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abevm.Application {
 	return app
 }
 
-<<<<<<< HEAD
-func TestEVMOnlyAppCommitsEpochState(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := abevm.EpochState{EpochRegistry: []byte("registry"), NextEpoch: []byte("next-epoch")}
-
-	require.NotEmpty(t, finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state)))
-	require.NoError(t, app.AwaitCommits())
-
-	require.Equal(t, state.EpochRegistry, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
-	require.Equal(t, state.NextEpoch, evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
-}
-
-func TestEVMOnlyAppCommitsEmptyEpochRegistryAsEmptyRow(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := abevm.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
-
-	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state))
-	require.NoError(t, app.AwaitCommits())
-
-	require.Empty(t, evmOnlyEpochStateRow(t, app, epochStateEpochRegistryKey))
-}
-
-func TestEVMOnlyAppEpochStateRowsDoNotAliasTheRequest(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	state := abevm.EpochState{NextEpoch: []byte("next-epoch")}
-
-	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state))
-	copy(state.NextEpoch, "XXXXXXXXXX")
-	require.NoError(t, app.AwaitCommits())
-
-	require.Equal(t, []byte("next-epoch"), evmOnlyEpochStateRow(t, app, epochStateNextEpochKey))
-}
-
-func TestEVMOnlyAppWithoutEpochStateWritesNoEpochStateRows(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-
-	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1))
-	require.NoError(t, app.AwaitCommits())
-=======
 // TestEpochRegistryRowSurvivesReopen pins that a restarted app reopens the registry row the
 // first block wrote.
 func TestEpochRegistryRowSurvivesReopen(t *testing.T) {
@@ -210,32 +155,17 @@ func TestEpochRegistryRowSurvivesReopen(t *testing.T) {
 		utils.None[string](),
 	)
 	require.NoError(t, err)
-	_, err = app.InitChain(evmOnlyTestInitChain())
+	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1))
 	require.NoError(t, app.(*evmOnlyApplication).AwaitCommits())
 	want := epochRegistryRow(t, storage)
->>>>>>> origin/main
 
 	resumed, reopened := reopenEVMOnlyTestApp(t, app, storage, home)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, resumed, reopened) })
 	require.Equal(t, want, epochRegistryRow(t, reopened))
 }
 
-<<<<<<< HEAD
-func TestEVMOnlyAppEpochStateDoesNotCarryOver(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	encoded := installRecordingEVMExecutor(app)
-	state := abevm.EpochState{EpochRegistry: nil, NextEpoch: []byte("next-epoch")}
-
-	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestEpochBlock(app, 1, state))
-	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
-	require.NoError(t, app.AwaitCommits())
-
-	for blocks := range encoded.Lock() {
-		require.Equal(t, 2, epochStateRowCount(blocks[1]))
-		require.Equal(t, 0, epochStateRowCount(blocks[2]))
-=======
 // TestEpochRegistryWritesOnGenesisAndClosingRoads pins which blocks write the registry row. The
 // first road writes the genesis row, and each closing road writes the row that derives the epoch
 // after the newest one.
@@ -256,15 +186,14 @@ func TestEpochRegistryWritesOnGenesisAndClosingRoads(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
-	_, err = app.InitChain(evmOnlyTestInitChain())
+	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	initialRegistry, err := app.EpochRegistry()
 	require.NoError(t, err)
 	encoded := installRecordingEVMExecutor(app.(*evmOnlyApplication))
 	const last = 7
 	for height := int64(1); height <= last; height++ {
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height))
->>>>>>> origin/main
+		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, height))
 	}
 	require.NoError(t, app.(*evmOnlyApplication).AwaitCommits())
 
@@ -303,11 +232,11 @@ func TestEpochRegistryRestartReadsTheRowOfTheClosingRoad(t *testing.T) {
 		utils.None[string](),
 	)
 	require.NoError(t, err)
-	_, err = app.InitChain(evmOnlyTestInitChain())
+	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	// Epoch 0 is roads [1, 101), so road 100 is its closing road.
 	for height := int64(1); height <= length; height++ {
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height))
+		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, height))
 	}
 	require.NoError(t, app.(*evmOnlyApplication).AwaitCommits())
 
@@ -320,7 +249,7 @@ func TestEpochRegistryRestartReadsTheRowOfTheClosingRoad(t *testing.T) {
 	require.Equal(t, atypes.RoadHeight(2*length+1), window[len(window)-1].RoadRange().First)
 
 	// Execution resumes after the closing road, and the window stays on epoch 2.
-	finalizeAndCommitEVMOnlyTestBlock(t, resumed, evmOnlyTestBlock(length+1))
+	finalizeEVMOnlyTestBlock(t, resumed, evmOnlyTestBlock(resumed, length+1))
 	require.NoError(t, resumed.(*evmOnlyApplication).AwaitCommits())
 	registry, err = resumed.EpochRegistry()
 	require.NoError(t, err)
@@ -512,7 +441,7 @@ func reopenEVMOnlyTestApp(t *testing.T, app abevm.Application, storage *bootstra
 }
 
 // reopenEVMOnlyTestAppWithEpochs is reopenEVMOnlyTestApp for a chain whose epochs have length roads.
-func reopenEVMOnlyTestAppWithEpochs(t *testing.T, app proxy.EVMApplication, storage *bootstrap.GigaStorageManager, home string, length atypes.RoadHeight) (proxy.EVMApplication, *bootstrap.GigaStorageManager) {
+func reopenEVMOnlyTestAppWithEpochs(t *testing.T, app abevm.Application, storage *bootstrap.GigaStorageManager, home string, length atypes.RoadHeight) (abevm.Application, *bootstrap.GigaStorageManager) {
 	t.Helper()
 	closeEVMOnlyTestApp(t, app, storage)
 	reopened := openEVMOnlyTestStorageAt(t, home)
@@ -529,12 +458,12 @@ func reopenEVMOnlyTestAppWithEpochs(t *testing.T, app proxy.EVMApplication, stor
 }
 
 // evmOnlyTestGenesisValidators returns validators, or a one-validator set when validators is empty.
-func evmOnlyTestGenesisValidators(validators []proxy.ValidatorUpdate) []proxy.ValidatorUpdate {
+func evmOnlyTestGenesisValidators(validators abevm.CommitteeWeights) abevm.CommitteeWeights {
 	if len(validators) > 0 {
 		return validators
 	}
 	key := atypes.GenSecretKey(utils.TestRng())
-	return []proxy.ValidatorUpdate{{PubKey: key.Public(), Power: 1}}
+	return abevm.CommitteeWeights{key.Public(): 1}
 }
 
 // openEVMOnlyTestEpochs opens the epoch registry storage holds for a chain whose first block is
@@ -542,7 +471,7 @@ func evmOnlyTestGenesisValidators(validators []proxy.ValidatorUpdate) []proxy.Va
 func openEVMOnlyTestEpochs(
 	t *testing.T,
 	storage *bootstrap.GigaStorageManager,
-	validators []proxy.ValidatorUpdate,
+	validators abevm.CommitteeWeights,
 	initialHeight int64,
 ) *EpochRegistry {
 	t.Helper()
@@ -553,7 +482,7 @@ func openEVMOnlyTestEpochs(
 func openEVMOnlyTestEpochsWithLength(
 	t *testing.T,
 	storage *bootstrap.GigaStorageManager,
-	validators []proxy.ValidatorUpdate,
+	validators abevm.CommitteeWeights,
 	initialHeight int64,
 	length atypes.RoadHeight,
 ) *EpochRegistry {
@@ -1432,11 +1361,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	err = settler.AwaitCommits()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "in the EVM module")
-<<<<<<< HEAD
 	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)}, abevm.CallOverrides{})
-=======
-	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(uint256.Int), Value: new(uint256.Int)}, proxy.CallOverrides{})
->>>>>>> origin/main
 	require.Error(t, err)
 
 	// The block that failed to finalize left nothing staged, and the store never
@@ -1484,14 +1409,8 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 					return fmt.Errorf("nonce %d is behind the committed nonce %d", nonce, committed)
 				}
 				last = nonce
-<<<<<<< HEAD
 				// Calls must not race the storage commit they settle.
 				_, _ = settler.EvmCall(ctx, callMessage(sender, nil), abevm.CallOverrides{})
-=======
-				// A call may be refused while a finalized block awaits Commit;
-				// what matters is that it never races the commit it settles.
-				_, _ = settler.EvmCall(ctx, callMessage(sender, nil), proxy.CallOverrides{})
->>>>>>> origin/main
 			}
 			return nil
 		})
@@ -1600,15 +1519,11 @@ func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
 		{"alloc changed", alloc(5), alloc(6), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-<<<<<<< HEAD
 			open := func(storage *bootstrap.GigaStorageManager, alloc utils.Option[GenesisAlloc]) (abevm.Application, error) {
-=======
-			open := func(storage *bootstrap.GigaStorageManager, alloc utils.Option[GenesisAlloc]) (proxy.EVMApplication, error) {
 				initialHeight := int64(1)
 				if a, ok := alloc.Get(); ok {
 					initialHeight = a.InitialHeight
 				}
->>>>>>> origin/main
 				return NewEVMOnlyApplication(
 					evmOnlyTestChainID, nil, storage,
 					openEVMOnlyTestEpochs(t, storage, nil, initialHeight),
@@ -1672,12 +1587,8 @@ func TestEVMOnlyApplicationResumesOnlyOnTheChainIDItRanOn(t *testing.T) {
 }
 
 // newEVMOnlyTestAppOnChain constructs an application on chainID over storage.
-<<<<<<< HEAD
-func newEVMOnlyTestAppOnChain(storage *bootstrap.GigaStorageManager, chainID uint64) (abevm.Application, error) {
-=======
-func newEVMOnlyTestAppOnChain(t *testing.T, storage *bootstrap.GigaStorageManager, chainID uint64) (proxy.EVMApplication, error) {
+func newEVMOnlyTestAppOnChain(t *testing.T, storage *bootstrap.GigaStorageManager, chainID uint64) (abevm.Application, error) {
 	t.Helper()
->>>>>>> origin/main
 	return NewEVMOnlyApplication(
 		chainID, nil, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),

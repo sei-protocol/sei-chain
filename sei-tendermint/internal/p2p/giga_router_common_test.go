@@ -181,7 +181,7 @@ func newAppHashTestRouter(
 		AppHashBuilder:     hashBuilder,
 	}
 	registry := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
-	state, err := BuildDataState(cfg, db, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	signer := newTestSigner(cfg.App.EvmChainID(), 0)
 	router := &gigaRouterCommon{
@@ -282,32 +282,6 @@ func TestPushAppHashesResumesAtNextAppProposal(t *testing.T) {
 	require.Equal(t, last+1, state.NextAppProposal())
 }
 
-<<<<<<< HEAD
-func TestBuildDataStateGenesisEpochLength(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-	params := tmtypes.DefaultAutobahnParams()
-	params.EpochLength = 3
-	genesis := &tmtypes.GenesisDoc{ChainID: "epoch-length", Autobahn: utils.Some(params)}
-	require.NoError(t, genesis.ValidateAndComplete())
-	db := blockstore.NewTestStore(t)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	state, err := BuildDataState(&GigaRouterCommonConfig{
-		DialInterval:       time.Second,
-		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
-		PersistentStateDir: t.TempDir(),
-		GenDoc:             genesis,
-		App:                abevm.NewProxy(&fixedHeightApp{}),
-		AppHashBuilder:     newPublishingAppHashBuilder(),
-	}, db)
-	require.NoError(t, err)
-	anchor := state.Anchor().Load()
-	require.Equal(t, atypes.RoadRange{First: 1, Next: 4}, anchor.Epochs[0].RoadRange())
-	require.Equal(t, atypes.RoadRange{First: 4, Next: 7}, anchor.Epochs[1].RoadRange())
-}
-
-=======
->>>>>>> origin/main
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -347,7 +321,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		App:                abevm.NewProxy(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
-	state, err := BuildDataState(cfg, db, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
@@ -426,7 +400,7 @@ func testRouterAtRoad(t *testing.T, registry *epoch.TestRegistry, keys []atypes.
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
 	require.NoError(t, store.Flush())
-	state, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store)
+	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, err)
 	return &gigaRouterCommon{data: state}
 }
@@ -449,7 +423,7 @@ func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epo
 	require.NoError(t, err)
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	state, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, db)
+	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, db)
 	require.NoError(t, err)
 	return state, registry
 }
@@ -958,7 +932,7 @@ func testStateAtRoad(t *testing.T, registry *epoch.TestRegistry, qc *atypes.Full
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	utils.OrPanic(db.WriteBlock(atypes.NewRoadBlock(qc, blocks)))
 	utils.OrPanic(db.Flush())
-	state, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, db)
+	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, db)
 	require.NoError(t, err)
 	return state
 }
@@ -1247,7 +1221,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		},
 	}
 	registry := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
-	state, err := BuildDataState(cfg, db, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	router, err := NewGigaFullnodeRouter(cfg, localKey, state, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)

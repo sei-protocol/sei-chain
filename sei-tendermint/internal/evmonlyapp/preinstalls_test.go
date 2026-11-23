@@ -4,8 +4,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
@@ -58,11 +56,7 @@ func TestEVMOnlyPreinstalledCreate2ProxyDeploys(t *testing.T) {
 	msg := callMessage(common.Address{0xf1}, &arachnidCreate2Proxy)
 	msg.Data = append(salt.Bytes(), init...)
 
-<<<<<<< HEAD
 	result, err := app.EvmCall(t.Context(), msg, abevm.CallOverrides{})
-=======
-	result, err := app.EvmCall(t.Context(), msg, proxy.CallOverrides{})
->>>>>>> origin/main
 
 	require.NoError(t, err)
 	require.False(t, result.Failed(), "%v", result.Err)
@@ -74,11 +68,7 @@ func TestEVMOnlyPreinstalledPermit2HasTheChainsDomainSeparator(t *testing.T) {
 	msg := callMessage(common.Address{0xf1}, &permit2)
 	msg.Data = crypto.Keccak256([]byte("DOMAIN_SEPARATOR()"))[:4]
 
-<<<<<<< HEAD
 	result, err := app.EvmCall(t.Context(), msg, abevm.CallOverrides{})
-=======
-	result, err := app.EvmCall(t.Context(), msg, proxy.CallOverrides{})
->>>>>>> origin/main
 
 	require.NoError(t, err)
 	require.False(t, result.Failed(), "%v", result.Err)

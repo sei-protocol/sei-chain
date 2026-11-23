@@ -8,12 +8,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 
-<<<<<<< HEAD
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-=======
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
->>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -32,11 +28,7 @@ func TestEVMOnlyApplicationEvmEstimateGasReadsCommittedContractCode(t *testing.T
 		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
-<<<<<<< HEAD
 	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
-=======
-	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, proxy.CallOverrides{})
->>>>>>> origin/main
 
 	require.NoError(t, err)
 	require.Empty(t, revert)
@@ -64,11 +56,7 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	before.Close()
 	require.Equal(t, common.Hash{}, beforeValue)
 
-<<<<<<< HEAD
 	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
-=======
-	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, proxy.CallOverrides{})
->>>>>>> origin/main
 	require.NoError(t, err)
 
 	after := evmApp.storage.StateDB().OpenView()
@@ -86,11 +74,7 @@ func TestEVMOnlyApplicationEvmEstimateGasAfterFinalization(t *testing.T) {
 		Time:   time.Unix(1_700_000_001, 0)})
 	require.NoError(t, err)
 
-<<<<<<< HEAD
 	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, abevm.CallOverrides{})
-=======
-	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, proxy.CallOverrides{})
->>>>>>> origin/main
 
 	require.NoError(t, err)
 }
@@ -99,11 +83,7 @@ func TestEVMOnlyApplicationEvmEstimateGasRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 	evmApp := app.(*evmOnlyApplication)
 
-<<<<<<< HEAD
 	_, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, abevm.CallOverrides{})
-=======
-	_, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, proxy.CallOverrides{})
->>>>>>> origin/main
 
 	require.Error(t, err)
 }

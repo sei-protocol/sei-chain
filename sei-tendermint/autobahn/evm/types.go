@@ -7,7 +7,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // ResponseInfo describes the application's committed state.
@@ -29,13 +28,12 @@ type InitConfig struct {
 	GasLimit      uint64
 }
 
-// FinalizeBlockReq contains a block and its consensus-owned epoch data.
+// FinalizeBlockReq contains a block to execute.
 type FinalizeBlockReq struct {
-	Height     types.RoadHeight
-	Time       time.Time
-	Hash       common.Hash
-	Txs        []EvmTx
-	EpochState utils.Option[EpochState]
+	Height types.RoadHeight
+	Time   time.Time
+	Hash   common.Hash
+	Txs    []EvmTx
 }
 
 // FinalizeBlockResp contains the gas consumed by a finalized block.
@@ -44,13 +42,6 @@ type FinalizeBlockResp struct{ GasUsed uint64 }
 // AdmittedTx contains app-computed metadata for an accepted EVM transaction.
 type AdmittedTx struct {
 	GasEstimated uint64
-}
-
-// EpochState is consensus-owned epoch data committed unchanged with a block.
-// Both values are written as given; an empty value is committed as an empty row.
-type EpochState struct {
-	EpochRegistry []byte
-	NextEpoch     []byte
 }
 
 // BlockRef contains the execution context of a historical EVM block.

@@ -30,11 +30,10 @@ type shaHash = [sha256.Size]byte
 
 // testAppBlock records block inputs without process-local transaction caches.
 type testAppBlock struct {
-	Height     atypes.RoadHeight
-	Time       time.Time
-	Hash       common.Hash
-	Txs        [][]byte
-	EpochState utils.Option[abevm.EpochState]
+	Height atypes.RoadHeight
+	Time   time.Time
+	Hash   common.Hash
+	Txs    [][]byte
 }
 
 type testAppState struct {
@@ -140,7 +139,7 @@ func (a *testApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq)
 		for i, tx := range req.Txs {
 			txs[i] = utils.OrPanic1(tx.MarshalBinary())
 		}
-		state.Blocks = append(state.Blocks, testAppBlock{Height: req.Height, Time: req.Time, Hash: req.Hash, Txs: txs, EpochState: req.EpochState})
+		state.Blocks = append(state.Blocks, testAppBlock{Height: req.Height, Time: req.Time, Hash: req.Hash, Txs: txs})
 		state.AppHash = sha256.Sum256(slices.Concat(req.Hash[:], state.AppHash[:]))
 		for _, tx := range req.Txs {
 			state.Txs[sha256.Sum256(utils.OrPanic1(tx.MarshalBinary()))] = true

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -23,7 +23,7 @@ func TestRecoveryEmpty(t *testing.T) {
 	fb := registry.MustEpoch(0).RoadRange().First
 
 	db := newTestBlockStore(t, dir)
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db)
 	require.Equal(t, fb, state.First())
 	require.Equal(t, fb, state.NextQC())
 	for inner := range state.inner.Lock() {
@@ -40,7 +40,7 @@ func TestNewStateRun(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 
 	store := newTestStore(t)
-	state := utils.OrPanic1(NewState(&Config{App: proxy.TestEpochApp(registry)}, store))
+	state := utils.OrPanic1(NewState(&Config{App: abevm.TestEpochApp(registry)}, store))
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -75,7 +75,7 @@ func TestRecoveryNormal(t *testing.T) {
 
 	// Session 2: NewState should recover blocks and QCs.
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db2)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 
 	require.Equal(t, qc2.Height()+1, state2.NextQC())
 	for n := qc1.Height(); n < qc2.Height()+1; n++ {
@@ -92,7 +92,7 @@ func TestRecoveryNormal(t *testing.T) {
 
 	// Session 3: verify session 2 did not corrupt BlockDB.
 	db3 := newTestBlockStore(t, dir)
-	state3 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db3)
+	state3 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db3)
 	require.Equal(t, qc2.Height()+1, state3.NextQC())
 }
 
@@ -106,7 +106,7 @@ func TestRecoveryRejectsMissingFirstCommittedBlock(t *testing.T) {
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	db = newTestBlockStore(t, dir)
-	_, err := NewState(&Config{App: proxy.TestEpochApp(registry)}, db)
+	_, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, db)
 	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 }
 
@@ -124,7 +124,7 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 	writeAppDataToBlockStore(t, rng, db, keys, qc1, qc2)
 	require.NoError(t, db.PruneBefore(qc2.Height()))
 
-	state, err := NewState(&Config{App: proxy.TestEpochApp(registry)}, db)
+	state, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, db)
 	require.NoError(t, err)
 	_, err = state.SuperBlock(t.Context(), qc1.Height())
 	require.ErrorIs(t, err, types.ErrPruned)
@@ -143,7 +143,7 @@ func TestPruningDiscards(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
 	qc3, blocks3 := TestCommitQC(rng, ep0, keys, utils.Some(qc2.QC()))
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 	require.NoError(t, state.PushPartialBlock(ctx, qc2, TestBlockMap(blocks2)))
 	require.NoError(t, state.PushPartialBlock(ctx, qc3, TestBlockMap(blocks3)))
@@ -187,7 +187,7 @@ func TestRecoveryAfterPruning(t *testing.T) {
 	// With no AppQC yet, first stays at the recovery floor (not advanced to 0),
 	// so below-floor reads fall through to BlockDB instead of nil maps.
 	db2 := newTestBlockStore(t, dir)
-	state2 := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db2)
+	state2 := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 
 	for inner := range state2.inner.Lock() {
 		require.Equal(t, qc2.Height(), inner.first)
@@ -220,7 +220,7 @@ func TestRecoveryRejectsIncompleteQC(t *testing.T) {
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	db = newTestBlockStore(t, dir)
-	_, err := NewState(&Config{App: proxy.TestEpochApp(registry)}, db)
+	_, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, db)
 	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 }
 
@@ -250,7 +250,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	// This is the PruneBefore-without-GC path: the watermark advanced but
 	// physical reclamation has not happened yet, so the store looks like a
 	// fresh store containing all data from qc1 and qc2.
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store2)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store2)
 
 	// Without GC all data is still present; qc1 and qc2 blocks are accessible.
 	for n := qc1.Height(); n < qc2.Height()+1; n++ {
@@ -270,7 +270,7 @@ func TestRecoveryRejectsQCWithoutBlocks(t *testing.T) {
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	db = newTestBlockStore(t, dir)
-	_, err := NewState(&Config{App: proxy.TestEpochApp(registry)}, db)
+	_, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, db)
 	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 }
 
@@ -299,7 +299,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	require.Equal(t, qc2.Height()+1, tips.NextBlock)
 	require.NotZero(t, tips.NextBlock)
 
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, db2)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, db2)
 	require.Equal(t, qc2.Height()+1, state.NextQC())
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -324,7 +324,7 @@ func TestRecoveryBlockGap(t *testing.T) {
 	mid := len(blocks) / 2
 	gapped := append(slices.Clone(blocks[:mid]), blocks[mid+1:]...)
 	require.NoError(t, db.WriteBlock(types.NewRoadBlock(qc, gapped)))
-	_, err := NewState(&Config{App: proxy.TestEpochApp(registry)}, db)
+	_, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, db)
 	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 }
 
@@ -338,7 +338,7 @@ func TestPushAppHashDoesNotDeriveTheClosingEpoch(t *testing.T) {
 	qc, blocks := commitQCAtRoad(registry.MustEpoch(0), keys, registry.LastRoad(0))
 	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.LaneBlock{blocks})
-	state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		return state.PushAppHash(ctx, qc.Height(), types.GenAppHash(rng))
@@ -360,7 +360,7 @@ func TestNewState_PreservesExecutionDerivedEpoch(t *testing.T) {
 			if certified {
 				writeAppDataToBlockStore(t, rng, store, keys, qc)
 			}
-			state := newTestState(t, &Config{App: proxy.TestEpochApp(registry)}, store)
+			state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 			require.Equal(t, uint64(9), registry.MustEpoch(2).Committee().Weight(keys[0].Public()))
 			require.Equal(t, [2]*types.Epoch{ep, registry.MustEpoch(1)}, state.Anchor().Load().Epochs)
 			require.Equal(t, certified, state.Anchor().Load().First.IsPresent())
@@ -381,7 +381,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 	_, err := registry.Epoch(0)
 	require.ErrorIs(t, err, types.ErrPruned)
 	store = newTestBlockStore(t, dir)
-	state, err := NewState(&Config{App: proxy.TestEpochApp(registry)}, store)
+	state, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, err)
 	require.Equal(t, qc.Height(), state.First())
 	require.Equal(t, qc.Height()+1, state.NextQC())

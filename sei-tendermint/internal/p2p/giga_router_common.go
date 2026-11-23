@@ -106,7 +106,7 @@ func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes
 func BuildDataState(
 	cfg *GigaRouterCommonConfig,
 	blockStore *ablockstore.Store,
-	app *proxy.EVMProxy,
+	app *abevm.Proxy,
 	genesisTimestamp time.Time,
 ) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
@@ -215,15 +215,6 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("AppHashBuilder.GetAppHash(%v): %w", n, err)
 		}
-<<<<<<< HEAD
-		// TODO: PushAppHash needs the validator set from right after block n.
-		// GetValidators() is the app tip, which can be past n. This is exact only
-		// while the app's validator set never changes, as for the EVM-only and mock
-		// apps Autobahn runs. Read the next epoch's validator set from app state
-		// once it keeps one.
-		weights := r.app.GetValidators()
-=======
->>>>>>> origin/main
 		appHash := entry.AppHash()
 		if err := r.data.PushAppHash(ctx, n, appHash[:]); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)

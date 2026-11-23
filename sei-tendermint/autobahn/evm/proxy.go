@@ -238,3 +238,9 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 	}
 	return BlockRef{Height: types.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, nil
 }
+
+// EpochRegistry returns the wrapped application's retained epoch window.
+func (app *Proxy) EpochRegistry() (*types.EpochRegistry, error) {
+	defer proxymetrics.Observe("epoch_registry", "sync")()
+	return app.app.EpochRegistry()
+}

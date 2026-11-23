@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"golang.org/x/time/rate"
 
@@ -36,7 +36,7 @@ func newTestBlockStore(t *testing.T, dir string) *blockstore.Store {
 
 func newTestDataState(t testing.TB, registry *epoch.TestRegistry) *data.State {
 	store := blockstore.NewTestStore(t)
-	return utils.OrPanic1(data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store))
+	return utils.OrPanic1(data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store))
 }
 
 func newTestAvail(t *testing.T, registry *epoch.TestRegistry, key types.SecretKey) (*data.State, *avail.State) {
@@ -1063,7 +1063,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	store := newTestBlockStore(t, filepath.Join(dir, "blockdb"))
-	ds, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store)
+	ds, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
 	if err != nil {
 		t.Fatalf("data.NewState: %v", err)
 	}

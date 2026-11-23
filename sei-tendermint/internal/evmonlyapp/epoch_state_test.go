@@ -3,16 +3,6 @@ package evmonlyapp
 import (
 	"testing"
 
-<<<<<<< HEAD
-	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-)
-
-func TestEpochStateMiscChanges(t *testing.T) {
-	state := abevm.EpochState{
-		EpochRegistry: nil,
-		NextEpoch:     []byte("next-epoch"),
-=======
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -30,7 +20,6 @@ func TestChangesReplacesTheUncommittedEpoch(t *testing.T) {
 		state:     utils.NewMutex(&epochRegistryState{registry: registry}),
 		firstRoad: first,
 		weights:   weights,
->>>>>>> origin/main
 	}
 
 	got, err := epochs.Changes(5)

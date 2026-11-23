@@ -14,14 +14,10 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-<<<<<<< HEAD
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-=======
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
->>>>>>> origin/main
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -138,15 +134,11 @@ func (b *testBackend) EvmBlockNumber() uint64 {
 	return b.blockNumber()
 }
 
-<<<<<<< HEAD
-func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
-=======
 func (b *testBackend) GenesisInitialHeight() int64 {
 	return b.initialHeight
 }
 
-func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
->>>>>>> origin/main
+func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
 	b.gotOverrides = overrides
 	return b.call(ctx, msg)
 }

@@ -11,12 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 
-<<<<<<< HEAD
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-=======
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
->>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -41,20 +37,12 @@ func TestEVMOnlyApplicationSimulatesAgainstCommittedState(t *testing.T) {
 	})
 
 	t.Run("estimate gas after calls", func(t *testing.T) {
-<<<<<<< HEAD
 		alone, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
-=======
-		alone, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contractAddr), 0, proxy.CallOverrides{})
->>>>>>> origin/main
 		require.NoError(t, err)
 
 		// A prior call has already written the slot, so the same write costs less.
 		afterWrite, _, err := evmApp.EvmEstimateGasAfterCalls(t.Context(),
-<<<<<<< HEAD
 			[]*ethcore.Message{callMessage(sender, &contractAddr)}, callMessage(sender, &contractAddr), 0, abevm.CallOverrides{})
-=======
-			[]*ethcore.Message{callMessage(sender, &contractAddr)}, callMessage(sender, &contractAddr), 0, proxy.CallOverrides{})
->>>>>>> origin/main
 
 		require.NoError(t, err)
 		require.Less(t, afterWrite, alone)
@@ -67,11 +55,7 @@ func TestEVMOnlyApplicationSimulationRequiresInitChain(t *testing.T) {
 
 	_, _, err := evmApp.EvmCreateAccessList(t.Context(), callMessage(common.Address{}, nil))
 	require.Error(t, err)
-<<<<<<< HEAD
 	_, _, err = evmApp.EvmEstimateGasAfterCalls(t.Context(), nil, callMessage(common.Address{}, nil), 0, abevm.CallOverrides{})
-=======
-	_, _, err = evmApp.EvmEstimateGasAfterCalls(t.Context(), nil, callMessage(common.Address{}, nil), 0, proxy.CallOverrides{})
->>>>>>> origin/main
 	require.Error(t, err)
 }
 
@@ -112,19 +96,11 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	})
 
 	code := hexutil.Bytes(runtime)
-<<<<<<< HEAD
 	withCode := abevm.CallOverrides{State: export.StateOverride{contract: {Code: &code}}}
 	for _, tc := range []struct {
 		name      string
 		header    abevm.BlockRef
 		overrides abevm.CallOverrides
-=======
-	withCode := proxy.CallOverrides{State: export.StateOverride{contract: {Code: &code}}}
-	for _, tc := range []struct {
-		name      string
-		header    *ethtypes.Header
-		overrides proxy.CallOverrides
->>>>>>> origin/main
 	}{
 		{name: "estimate gas after calls", header: deployed},
 		// The contract exists only in the override, so the prior call writes the slot only if the
@@ -146,11 +122,7 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	t.Run("a state the node does not hold", func(t *testing.T) {
 		_, _, err := app.EvmCreateAccessListAt(t.Context(), msg(), traceTestHeader(9, common.Hash{}))
 		require.Error(t, err)
-<<<<<<< HEAD
 		_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), []*ethcore.Message{msg()}, msg(), 0, traceTestHeader(9, common.Hash{}), abevm.CallOverrides{})
-=======
-		_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), []*ethcore.Message{msg()}, msg(), 0, traceTestHeader(9, nil), proxy.CallOverrides{})
->>>>>>> origin/main
 		require.Error(t, err)
 	})
 }

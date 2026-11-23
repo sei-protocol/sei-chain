@@ -373,15 +373,7 @@ func buildGigaRouter(
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
 // BlockStore on app.
-<<<<<<< HEAD
 func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
-=======
-func buildExecutor(
-	app *proxy.EVMProxy,
-	genDoc *types.GenesisDoc,
-	manager *bootstrap.GigaStorageManager,
-) *execution.Executor {
->>>>>>> origin/main
 	return execution.New(&execution.Config{
 		GenDoc:         genDoc,
 		App:            app,
@@ -677,13 +669,8 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
-<<<<<<< HEAD
-		giga, closingRoad, err := buildGigaRouter(
-			cfg, nodeKey, validatorKey, proxyApp, signer.OrPanic("Autobahn requires a transaction signer"), genDoc,
-=======
 		giga, err := buildGigaRouter(
-			cfg, nodeKey, validatorKey, proxyApp, genDoc,
->>>>>>> origin/main
+			cfg, nodeKey, validatorKey, proxyApp, signer.OrPanic("Autobahn requires a transaction signer"), genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
 			options.PersistentPeers,
 		)

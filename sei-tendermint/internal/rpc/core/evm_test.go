@@ -28,11 +28,7 @@ type testEVMApp struct {
 	gotHeader    abevm.BlockRef
 	gotHeight    int64
 	gotTxs       [][]byte
-<<<<<<< HEAD
 	gotOverrides abevm.CallOverrides
-=======
-	gotOverrides proxy.CallOverrides
->>>>>>> origin/main
 }
 
 var _ abevm.Application = (*testEVMApp)(nil)
@@ -46,61 +42,37 @@ var (
 	testOverrides       = abevm.CallOverrides{State: export.StateOverride{common.Address{1}: {}}}
 )
 
-<<<<<<< HEAD
 func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message, overrides abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
-=======
-func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message, overrides proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
->>>>>>> origin/main
 	app.gotOverrides = overrides
 	app.gotMsg = msg
 	return testExecutionResult, nil
 }
 
-<<<<<<< HEAD
 func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
-=======
-func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, gasCap uint64, overrides proxy.CallOverrides) (uint64, []byte, error) {
->>>>>>> origin/main
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap = msg, gasCap
 	return 21_000, []byte{0x01}, nil
 }
 
-<<<<<<< HEAD
 func (app *testEVMApp) EvmCallAt(_ context.Context, msg *ethcore.Message, header abevm.BlockRef, overrides abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
-=======
-func (app *testEVMApp) EvmCallAt(_ context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
->>>>>>> origin/main
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotHeader = msg, header
 	return testExecutionResult, nil
 }
 
-<<<<<<< HEAD
 func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message, gasCap uint64, header abevm.BlockRef, overrides abevm.CallOverrides) (uint64, []byte, error) {
-=======
-func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides proxy.CallOverrides) (uint64, []byte, error) {
->>>>>>> origin/main
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap, app.gotHeader = msg, gasCap, header
 	return 22_000, []byte{0x02}, nil
 }
 
-<<<<<<< HEAD
 func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
-=======
-func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides proxy.CallOverrides) (uint64, []byte, error) {
->>>>>>> origin/main
 	app.gotOverrides = overrides
 	app.gotCalls, app.gotMsg, app.gotGasCap = calls, msg, gasCap
 	return 42_000, []byte{0x02}, nil
 }
 
-<<<<<<< HEAD
 func (app *testEVMApp) EvmEstimateGasAfterCallsAt(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header abevm.BlockRef, overrides abevm.CallOverrides) (uint64, []byte, error) {
-=======
-func (app *testEVMApp) EvmEstimateGasAfterCallsAt(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides proxy.CallOverrides) (uint64, []byte, error) {
->>>>>>> origin/main
 	app.gotOverrides = overrides
 	app.gotCalls, app.gotMsg, app.gotGasCap, app.gotHeader = calls, msg, gasCap, header
 	return 43_000, []byte{0x03}, nil
@@ -154,7 +126,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testExecutionResult, got)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 	})
 
 	t.Run("estimate gas", func(t *testing.T) {
@@ -166,7 +138,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, uint64(21_000), got)
 		require.Equal(t, []byte{0x01}, revert)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
 	})
 
@@ -180,13 +152,8 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testExecutionResult, got)
 		require.Equal(t, msg, app.gotMsg)
-<<<<<<< HEAD
 		require.Equal(t, testOverrides, app.gotOverrides)
 		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
-=======
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
-		require.Equal(t, header, app.gotHeader)
->>>>>>> origin/main
 	})
 
 	t.Run("past block gas estimate", func(t *testing.T) {
@@ -200,7 +167,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, uint64(22_000), got)
 		require.Equal(t, []byte{0x02}, revert)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(9_000_000), app.gotGasCap)
 		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
@@ -216,7 +183,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x02}, revert)
 		require.Equal(t, calls, app.gotCalls)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
 	})
 
@@ -233,7 +200,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x03}, revert)
 		require.Equal(t, calls, app.gotCalls)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
 		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})

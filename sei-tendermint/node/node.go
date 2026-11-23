@@ -359,14 +359,10 @@ func makeNode(
 		if !ok {
 			return nil, errors.New("autobahn requires a storage manager")
 		}
-<<<<<<< HEAD
-		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), evmSigner.OrPanic("Autobahn requires a transaction signer"), genDoc, manager))
-=======
 		if _, ok := node.giga.Get(); !ok {
 			return nil, errors.New("autobahn requires a router")
 		}
-		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), genDoc, manager))
->>>>>>> origin/main
+		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), evmSigner.OrPanic("Autobahn requires a transaction signer"), genDoc, manager))
 		node.rpcEnv.Executor = node.executor
 	}
 

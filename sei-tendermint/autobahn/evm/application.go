@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 // Application executes EVM transactions for Autobahn and serves read-only
@@ -19,6 +20,7 @@ type Application interface {
 	// Application state and initialization.
 	Info() *ResponseInfo
 	GetValidators() CommitteeWeights
+	EpochRegistry() (*atypes.EpochRegistry, error)
 	LastBlockHeight() int64
 	InitChain(InitConfig) error
 	RestoreBlockTime(time.Time)

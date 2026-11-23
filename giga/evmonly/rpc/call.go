@@ -11,13 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-<<<<<<< HEAD
 
-	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
-=======
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
->>>>>>> origin/main
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // defaultCallGasCap bounds the gas an eth_call may consume, filling in an
