@@ -29,6 +29,15 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	require.Equal(t, []byte(appQC.Proposal().AppHash()), []byte(decoded.AppQC().Proposal().AppHash()))
 }
 
+func TestEncodeForTestingDecodesAtItsHeight(t *testing.T) {
+	encoded, err := EncodeForTesting(utils.TestRng(), 7)
+	require.NoError(t, err)
+
+	decoded, err := Decode(encoded, 7)
+	require.NoError(t, err)
+	require.Equal(t, types.RoadHeight(7), decoded.Height())
+}
+
 func TestDecodeRejectsMalformedFiles(t *testing.T) {
 	cases := map[string][]byte{
 		"empty":            {},

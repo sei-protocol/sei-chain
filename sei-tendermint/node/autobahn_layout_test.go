@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -40,8 +41,10 @@ func TestResolveAutobahnLayout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want.FlatKVConfig.DataDir, layout.FlatKVDir)
 	require.Equal(t, filepath.Join(psd, "data", "state_commit", "flatkv"), layout.FlatKVDir)
-	require.Equal(t, filepath.Join(psd, "state-sync-restored"), layout.RestoreMarkerFile)
+	require.Equal(t, filepath.Join(psd, "state-sync-restore-pending"), layout.RestoreMarkerFile)
+	require.Equal(t, filepath.Join(psd, "state-sync-proof"), layout.RestoreProofFile)
 	require.Equal(t, filepath.Join(psd, "data", "state_commit", "state_sync_proofs"), layout.StateSyncProofDir)
+	require.Equal(t, filepath.Join(psd, ".state-sync-import"), layout.ImportStagingDir)
 }
 
 func TestResolveAutobahnLayoutAbsolutePersistentStateDir(t *testing.T) {
@@ -58,6 +61,23 @@ func TestResolveAutobahnLayoutLegacyFlatKVDir(t *testing.T) {
 	layout, err := ResolveAutobahnLayout(layoutConfig(t, psd))
 	require.NoError(t, err)
 	require.Equal(t, legacy, layout.FlatKVDir)
+}
+
+// TestFlatKVConfig holds the FlatKV config of a layout to the one the storage manager opens.
+func TestFlatKVConfig(t *testing.T) {
+	layout, err := ResolveAutobahnLayout(layoutConfig(t, t.TempDir()))
+	require.NoError(t, err)
+
+	got, err := FlatKVConfig(layout, config.ModeFull, gigaconfig.DefaultConfig.Storage, genesisAt(1))
+
+	require.NoError(t, err)
+	want, err := buildGigaStorageConfig(layout.PersistentStateDir, config.ModeFull, gigaconfig.DefaultConfig.Storage, genesisAt(1))
+	require.NoError(t, err)
+	require.Equal(t, want.FlatKVConfig, got)
+	require.Equal(t, layout.FlatKVDir, got.DataDir)
+
+	_, err = FlatKVConfig(layout, config.ModeFull, gigaconfig.DefaultConfig.Storage, genesisAt(0))
+	require.Error(t, err)
 }
 
 func TestResolveAutobahnLayoutRequiresAutobahnConfig(t *testing.T) {
