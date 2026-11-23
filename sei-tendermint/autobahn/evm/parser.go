@@ -160,7 +160,7 @@ func (s *Signer) Admits(tx *ethtypes.Transaction) error {
 		return errors.New("unprotected Ethereum transaction")
 	}
 	if tx.Type() == ethtypes.BlobTxType {
-		return ethtypes.ErrTxTypeNotSupported
+		return fmt.Errorf("unsupported transaction type: %w", ethtypes.ErrTxTypeNotSupported)
 	}
 	chainID := s.signer.ChainID()
 	if chainID == nil || tx.ChainId().Cmp(chainID) != 0 {
