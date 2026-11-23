@@ -34,9 +34,9 @@ type Config struct {
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.
 	BlockStore *blockstore.Store
-	// FinalizeAheadBlocks is how many blocks Run may have in FinalizeBlock at once. Values below 1
-	// run blocks one at a time.
-	FinalizeAheadBlocks int
+	// MaxBlocksInFlight is how many blocks Run may have in FinalizeBlock at once: one executing,
+	// and the rest being prepared. Values below 1 run blocks one at a time.
+	MaxBlocksInFlight int
 }
 
 // Executor executes durable blocks on the app, one at a time in road order.
@@ -61,18 +61,17 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails. Up to FinalizeAheadBlocks
-// blocks are in FinalizeBlock at once, so the app can prepare a block while the
-// previous one executes.
+// road order until ctx is canceled or a block fails. Up to MaxBlocksInFlight
+// blocks are in flight at once: one executing, and the rest being prepared.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
 		return err
 	}
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		ahead := max(e.cfg.FinalizeAheadBlocks, 1)
-		inFlight := utils.NewSemaphore(ahead)
-		results := make(chan scope.JoinHandle[atypes.ExecutedBlock], ahead)
+		inFlightLimit := max(e.cfg.MaxBlocksInFlight, 1)
+		inFlight := utils.NewSemaphore(inFlightLimit)
+		results := make(chan scope.JoinHandle[atypes.ExecutedBlock], inFlightLimit)
 		s.Spawn(func() error {
 			for n := next; ; n++ {
 				release, err := inFlight.Acquire(ctx)

@@ -239,12 +239,12 @@ func TestInitChainThenFinalize(t *testing.T) {
 // durable.
 func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store, signer *abevm.Signer) *execution.Executor {
 	return execution.New(&execution.Config{
-		GenDoc:              cfg.GenDoc,
-		App:                 cfg.App,
-		AppHashBuilder:      cfg.AppHashBuilder,
-		BlockStore:          store,
-		Signer:              signer,
-		FinalizeAheadBlocks: gigaconfig.DefaultConfig.Execution.FinalizeAheadBlocks,
+		GenDoc:            cfg.GenDoc,
+		App:               cfg.App,
+		AppHashBuilder:    cfg.AppHashBuilder,
+		BlockStore:        store,
+		Signer:            signer,
+		MaxBlocksInFlight: gigaconfig.DefaultConfig.Execution.MaxBlocksInFlight,
 	})
 }
 
