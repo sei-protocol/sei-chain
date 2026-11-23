@@ -102,12 +102,10 @@ func (e *Executor) Run(ctx context.Context) error {
 			}
 		})
 		for {
-			gigametrics.SetPhase(gigametrics.PhaseConsensus)
 			result, err := utils.Recv(ctx, results)
 			if err != nil {
 				return err
 			}
-			gigametrics.SetPhase(gigametrics.PhaseExecution)
 			executed, err := result.Join(ctx)
 			if err != nil {
 				return err
@@ -115,7 +113,8 @@ func (e *Executor) Run(ctx context.Context) error {
 			e.publishExecuted(executed)
 		}
 	})
-	logger.Info("Execution stopped", "last_executed", e.executed.Load().Latest().Height)
+	// The app's height, not the executed window's: a block in flight at a cancel finishes unpublished.
+	logger.Info("Execution stopped", "last_executed", e.cfg.App.LastBlockHeight())
 	return err
 }
 
@@ -186,7 +185,6 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (atyp
 // publishExecuted records b in the executed-block window and the gas metric.
 // Blocks must be published in road order.
 func (e *Executor) publishExecuted(b atypes.ExecutedBlock) {
-	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	metrics.GasUsed.Add(utils.Clamp[int64](b.GasUsed))
 	e.executed.Store(e.executed.Load().Push(b))

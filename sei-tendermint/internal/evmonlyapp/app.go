@@ -30,6 +30,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -936,6 +937,8 @@ func (a *evmOnlyApplication) finishBlock(height int64) error {
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
 		delete(state.started, height)
+		// Under the cursor lock, so it precedes the next block's turn and its PhaseExecution.
+		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		ctrl.Updated()
 		return nil
 	}
