@@ -13,6 +13,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -201,11 +202,12 @@ func (env *testEnv) write(from, to int, flush bool) error {
 
 func (env *testEnv) executor(app abevm.Application) *Executor {
 	return New(&Config{
-		GenDoc:         env.genDoc,
-		App:            abevm.NewProxy(app),
-		AppHashBuilder: recordingBuilder{events: env.events},
-		BlockStore:     env.store,
-		Signer:         newTestSigner(app.EvmChainID(), 0),
+		GenDoc:              env.genDoc,
+		App:                 abevm.NewProxy(app),
+		AppHashBuilder:      recordingBuilder{events: env.events},
+		BlockStore:          env.store,
+		Signer:              newTestSigner(app.EvmChainID(), 0),
+		FinalizeAheadBlocks: gigaconfig.DefaultConfig.Execution.FinalizeAheadBlocks,
 	})
 }
 

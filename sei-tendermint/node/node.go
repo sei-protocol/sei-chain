@@ -362,7 +362,7 @@ func makeNode(
 		if _, ok := node.giga.Get(); !ok {
 			return nil, errors.New("autobahn requires a router")
 		}
-		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), evmSigner.OrPanic("Autobahn requires a transaction signer"), genDoc, manager))
+		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), evmSigner.OrPanic("Autobahn requires a transaction signer"), genDoc, manager, opts.giga.Execution.FinalizeAheadBlocks))
 		node.rpcEnv.Executor = node.executor
 	}
 

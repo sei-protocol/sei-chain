@@ -11,21 +11,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 )
 
-// speculationChangeBlocks is how many executed blocks' changes are kept for checking early results.
-// A block speculated against state further behind than this is discarded rather than checked.
-const speculationChangeBlocks = 5
-
-// speculationBatch is how many transactions one early-speculation worker claims at a time.
-const speculationBatch = 8
-
-// speculationReuseBatch is how many transactions one OCC task checks when choosing results to reuse.
-const speculationReuseBatch = speculationBatch * 8
-
 // speculationState is the executor's early-speculation bookkeeping.
 type speculationState struct {
 	// blocks holds each block being speculated ahead of execution, by block number.
 	blocks map[uint64]*earlySpeculation
-	// recentChanges indexes the changes of the last blocks executed, by block number.
+	// recentChanges indexes, by block number, the changes of the executed blocks a speculation in
+	// blocks may still be checked against, and of the last block executed.
 	recentChanges map[uint64]*pendingIndex
 }
 
@@ -101,8 +92,9 @@ func (s *earlySpeculation) run(ctx context.Context, e *Executor, source StateRea
 	evm := vm.NewEVMWithCustomPrecompiles(runner.blockCtx, stateDB, runner.chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	n := len(s.block.Txs)
+	batch := occChunkSize(n, e.cfg.EarlySpeculationWorkers)
 	for {
-		start := int(s.claimed.Add(speculationBatch)) - speculationBatch
+		start := int(s.claimed.Add(int64(batch))) - batch
 		if start >= n {
 			return
 		}
@@ -110,7 +102,7 @@ func (s *earlySpeculation) run(ctx context.Context, e *Executor, source StateRea
 		if err != nil {
 			return
 		}
-		for i := start; i < min(start+speculationBatch, n) && ctx.Err() == nil; i++ {
+		for i := start; i < min(start+batch, n) && ctx.Err() == nil; i++ {
 			task := occExecutionTask{
 				txIndex:     i,
 				txIndexUint: uint(i), //nolint:gosec // i is a non-negative transaction index.
@@ -127,15 +119,20 @@ func (s *earlySpeculation) run(ctx context.Context, e *Executor, source StateRea
 }
 
 // recordExecutedChanges keeps the changes of the block whose commit just started, for checking early
-// results against, and marks it the last block executed.
+// results against, and marks it the last block executed. It drops the changes no speculation needs.
 func (e *Executor) recordExecutedChanges(blockNumber uint64, changes *pendingIndex) {
 	if e.speculationSlots == nil {
 		return
 	}
 	for state := range e.speculation.Lock() {
 		state.recentChanges[blockNumber] = changes
+		// A speculation not yet in blocks that needs a dropped change is discarded at execution.
+		oldest := blockNumber
+		for _, s := range state.blocks {
+			oldest = min(oldest, s.base+1)
+		}
 		for number := range state.recentChanges {
-			if number+speculationChangeBlocks <= blockNumber {
+			if number < oldest {
 				delete(state.recentChanges, number)
 			}
 		}
@@ -188,10 +185,10 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 
 	filled := make([]bool, len(results))
 	var reused, stale, unfinished atomic.Int64
-	chunks := (len(results) + speculationReuseBatch - 1) / speculationReuseBatch
-	err := e.occPool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
-		for c := workerID; c < chunks; c += workers {
-			for i := c * speculationReuseBatch; i < min((c+1)*speculationReuseBatch, len(results)); i++ {
+	ranges := occRanges(len(results), occChunkSize(len(results), e.cfg.OCCWorkers))
+	err := e.occPool.Run(ctx, len(ranges), func(workerCtx context.Context, workerID int, workers int) error {
+		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += workers {
+			for i := ranges[rangeIndex].start; i < ranges[rangeIndex].end; i++ {
 				switch {
 				case !s.done[i].Load() || s.block.Txs[i].Tx.Hash() != req.Txs[i].Tx.Hash():
 					unfinished.Add(1)

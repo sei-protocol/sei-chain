@@ -34,10 +34,10 @@ type Config struct {
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.
 	BlockStore *blockstore.Store
+	// FinalizeAheadBlocks is how many blocks Run may have in FinalizeBlock at once. Values below 1
+	// run blocks one at a time.
+	FinalizeAheadBlocks int
 }
-
-// finalizeAheadBlocks is how many blocks Run may have in FinalizeBlock at once.
-const finalizeAheadBlocks = 3
 
 // Executor executes durable blocks on the app, one at a time in road order.
 type Executor struct {
@@ -61,7 +61,7 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails. Up to finalizeAheadBlocks
+// road order until ctx is canceled or a block fails. Up to FinalizeAheadBlocks
 // blocks are in FinalizeBlock at once, so the app can prepare a block while the
 // previous one executes.
 func (e *Executor) Run(ctx context.Context) error {
@@ -70,8 +70,9 @@ func (e *Executor) Run(ctx context.Context) error {
 		return err
 	}
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		inFlight := utils.NewSemaphore(finalizeAheadBlocks)
-		results := make(chan scope.JoinHandle[atypes.ExecutedBlock], finalizeAheadBlocks)
+		ahead := max(e.cfg.FinalizeAheadBlocks, 1)
+		inFlight := utils.NewSemaphore(ahead)
+		results := make(chan scope.JoinHandle[atypes.ExecutedBlock], ahead)
 		s.Spawn(func() error {
 			for n := next; ; n++ {
 				release, err := inFlight.Acquire(ctx)

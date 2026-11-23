@@ -1,6 +1,7 @@
 package evmonly
 
 import (
+	"maps"
 	"math/big"
 	"slices"
 	"sync/atomic"
@@ -217,8 +218,10 @@ func TestEarlySpeculationStopsWorkersWaitingForASlot(t *testing.T) {
 	for state := range executor.speculation.Lock() {
 		s = state.blocks[1]
 	}
-	// Once every chunk is claimed, the workers holding one are waiting for a slot.
-	require.Eventually(t, func() bool { return s.claimed.Load() >= int64(len(block.Txs)) }, time.Second, time.Millisecond)
+	// Once every worker has claimed a chunk, the workers holding one are waiting for a slot.
+	workers := executor.cfg.EarlySpeculationWorkers
+	claimedByAll := int64(min(len(block.Txs), workers*occChunkSize(len(block.Txs), workers)))
+	require.Eventually(t, func() bool { return s.claimed.Load() >= claimedByAll }, time.Second, time.Millisecond)
 
 	results := make([]occTxExecution, len(block.Txs))
 	require.Equal(t, make([]bool, len(block.Txs)), executor.reuseEarlySpeculation(t.Context(), block, nil, results))
@@ -311,4 +314,28 @@ func TestNewestAccountStateTakesTheBalanceFromTheLastBlockThatWroteIt(t *testing
 
 	_, ok = newestAccountState([]*pendingIndex{block(overlayAccount{})}, common.HexToAddress("0x2"), prior)
 	require.False(t, ok)
+}
+
+// Executed changes are kept while a listed speculation could be checked against them, however many
+// blocks that spans, and dropped once none could.
+func TestEarlySpeculationKeepsChangesOnlyWhileASpeculationNeedsThem(t *testing.T) {
+	scenario := newPipelineScenario(t)
+	executor := newEarlyExecutor(NewMemoryStore(scenario.genesis()))
+	defer executor.Close()
+	recorded := func() []uint64 {
+		for state := range executor.speculation.Lock() {
+			return slices.Sorted(maps.Keys(state.recentChanges))
+		}
+		panic("unreachable")
+	}
+
+	setSpeculation(executor, 9, &earlySpeculation{base: 1, cancel: func() {}})
+	for number := uint64(2); number <= 8; number++ {
+		executor.recordExecutedChanges(number, newPendingIndex(&StateChangeSet{}))
+	}
+	require.Equal(t, []uint64{2, 3, 4, 5, 6, 7, 8}, recorded())
+
+	executor.stopEarlySpeculation()
+	executor.recordExecutedChanges(9, newPendingIndex(&StateChangeSet{}))
+	require.Equal(t, []uint64{9}, recorded())
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -238,11 +239,12 @@ func TestInitChainThenFinalize(t *testing.T) {
 // durable.
 func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store, signer *abevm.Signer) *execution.Executor {
 	return execution.New(&execution.Config{
-		GenDoc:         cfg.GenDoc,
-		App:            cfg.App,
-		AppHashBuilder: cfg.AppHashBuilder,
-		BlockStore:     store,
-		Signer:         signer,
+		GenDoc:              cfg.GenDoc,
+		App:                 cfg.App,
+		AppHashBuilder:      cfg.AppHashBuilder,
+		BlockStore:          store,
+		Signer:              signer,
+		FinalizeAheadBlocks: gigaconfig.DefaultConfig.Execution.FinalizeAheadBlocks,
 	})
 }
 

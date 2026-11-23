@@ -70,6 +70,9 @@ type ExecutionConfig struct {
 	// EarlySpeculationWorkers, when positive, speculates a block's transactions before the block
 	// executes. Zero disables early speculation.
 	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
+	// FinalizeAheadBlocks is how many blocks execution hands to the app at once, so the app can
+	// prepare and speculate later blocks while one executes. 1 runs blocks one at a time.
+	FinalizeAheadBlocks int `mapstructure:"finalize_ahead_blocks"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
 	// EvmRpcPort is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
@@ -253,6 +256,7 @@ var DefaultConfig = Config{
 		MinGasPrice:         1_000_000_000,
 		OCCWorkers:          0,
 		ParseWorkers:        0,
+		FinalizeAheadBlocks: 3,
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
@@ -319,6 +323,7 @@ const (
 	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
 	FlagExecutionEarlySpeculationWorkers = "giga.execution.early_speculation_workers"
+	FlagExecutionFinalizeAheadBlocks     = "giga.execution.finalize_ahead_blocks"
 	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
@@ -413,6 +418,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionEarlySpeculationWorkers); v != nil {
 		if cfg.Execution.EarlySpeculationWorkers, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionEarlySpeculationWorkers, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionFinalizeAheadBlocks); v != nil {
+		if cfg.Execution.FinalizeAheadBlocks, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionFinalizeAheadBlocks, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionBlockResultPoolSize); v != nil {
@@ -625,6 +635,9 @@ func (c Config) Validate() error {
 	if c.Execution.EarlySpeculationWorkers < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionEarlySpeculationWorkers, c.Execution.EarlySpeculationWorkers)
 	}
+	if c.Execution.FinalizeAheadBlocks < 1 {
+		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionFinalizeAheadBlocks, c.Execution.FinalizeAheadBlocks)
+	}
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
 	}
@@ -756,6 +769,10 @@ parse_workers = {{ .Giga.Execution.ParseWorkers }}
 # early_speculation_workers, when positive, speculates a block's transactions before the block
 # executes. Zero disables early speculation.
 early_speculation_workers = {{ .Giga.Execution.EarlySpeculationWorkers }}
+
+# finalize_ahead_blocks is how many blocks execution hands to the app at once, so the app can
+# prepare and speculate later blocks while one executes. 1 runs blocks one at a time.
+finalize_ahead_blocks = {{ .Giga.Execution.FinalizeAheadBlocks }}
 
 # block_result_pool_size is the number of block results kept pooled between executions.
 block_result_pool_size = {{ .Giga.Execution.BlockResultPoolSize }}
