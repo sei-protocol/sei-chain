@@ -299,48 +299,31 @@ func (bp *BlockPersister) PruneAndPersist(
 	panic("unreachable")
 }
 
-// deleteLaneLocked closes and removes one open lane WAL. Caller holds the map write lock.
-// No-op if not open.
-func (bp *BlockPersister) deleteLaneLocked(lanes map[types.LaneID]*laneWAL, dir string, lane types.LaneID) error {
-	lw, ok := lanes[lane]
-	if !ok {
-		return nil
-	}
-	if err := lw.close(); err != nil {
-		return fmt.Errorf("close lane %s WAL: %w", lane, err)
-	}
-	delete(lanes, lane)
-	path := filepath.Join(dir, laneDir(lane))
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("remove lane dir %s: %w", path, err)
-	}
-	logger.Info("deleted inactive lane WAL", "lane", lane.String())
-	return nil
-}
-
 // SyncLanes deletes open WALs whose LaneID is not a key of keep. Idempotent.
 // Must not overlap an in-flight PruneAndPersist on a lane being removed: that
 // call may recreate the WAL. Avail serializes them in runPersist.
-func SyncLanes[V any](bp *BlockPersister, keep map[types.LaneID]V) error {
+func (bp *BlockPersister) SyncLanes[V any](keep map[types.LaneID]V) error {
 	dir, ok := bp.dir.Get()
 	if !ok {
 		return nil
 	}
 	for lanes := range bp.lanes.Lock() {
-		var stale []types.LaneID
-		for lane := range lanes {
-			if _, ok := keep[lane]; !ok {
-				stale = append(stale, lane)
+		for lane, lw := range lanes {
+			if _, ok := keep[lane]; ok {
+				continue
 			}
-		}
-		for _, lane := range stale {
-			if err := bp.deleteLaneLocked(lanes, dir, lane); err != nil {
-				return err
+			if err := lw.close(); err != nil {
+				return fmt.Errorf("close lane %s WAL: %w", lane, err)
 			}
+			delete(lanes, lane)
+			path := filepath.Join(dir, laneDir(lane))
+			if err := os.RemoveAll(path); err != nil {
+				return fmt.Errorf("remove lane dir %s: %w", path, err)
+			}
+			logger.Info("deleted inactive lane WAL", "lane", lane.String())
 		}
-		return nil
 	}
-	panic("unreachable")
+	return nil
 }
 
 // Close shuts down all per-lane WALs, releasing the exclusive lock each one holds on its directory.

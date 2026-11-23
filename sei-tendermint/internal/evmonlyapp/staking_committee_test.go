@@ -11,9 +11,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -71,7 +71,7 @@ func (r closingEpochRecorder) EndBlock(block precompiles.BlockContext, _ precomp
 
 // newStakingEVMOnlyTestApp returns an initialized application configured with
 // configured, running contract as staking, with epochs of stakingTestEpochLength.
-func newStakingEVMOnlyTestApp(t *testing.T, configured []proxy.ValidatorUpdate, contract utils.Option[precompiles.Contract]) proxy.EVMApplication {
+func newStakingEVMOnlyTestApp(t *testing.T, configured abevm.CommitteeWeights, contract utils.Option[precompiles.Contract]) abevm.Application {
 	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
@@ -91,21 +91,20 @@ func newStakingEVMOnlyTestApp(t *testing.T, configured []proxy.ValidatorUpdate, 
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
-	_, err = app.InitChain(evmOnlyTestInitChain())
-	require.NoError(t, err)
+	require.NoError(t, app.InitChain(evmOnlyTestInitChain()))
 	return app
 }
 
-// runEVMOnlyTestBlocks finalizes and commits an empty block at each height from first through last.
-func runEVMOnlyTestBlocks(t *testing.T, app proxy.EVMApplication, first, last int64) {
+// runEVMOnlyTestBlocks finalizes an empty block at each height from first through last.
+func runEVMOnlyTestBlocks(t *testing.T, app abevm.Application, first, last int64) {
 	t.Helper()
 	for height := first; height <= last; height++ {
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height))
+		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, height))
 	}
 }
 
 // committeeWeights returns the voting weight of each member of epoch's committee in app's registry.
-func committeeWeights(t *testing.T, app proxy.EVMApplication, epoch types.EpochIndex) map[types.PublicKey]uint64 {
+func committeeWeights(t *testing.T, app abevm.Application, epoch types.EpochIndex) map[types.PublicKey]uint64 {
 	t.Helper()
 	registry, err := app.EpochRegistry()
 	require.NoError(t, err)
@@ -144,7 +143,7 @@ func TestEVMOnlyApplicationCommitsEachDerivedEpochToStakingsSnapshot(t *testing.
 	configuredKey := autobahnKey(ed25519.TestSecretKey([]byte("configured")).Public())
 	key1 := ed25519.TestSecretKey([]byte("validator-1")).Public()
 	key2 := ed25519.TestSecretKey([]byte("validator-2")).Public()
-	app := newStakingEVMOnlyTestApp(t, []proxy.ValidatorUpdate{{PubKey: configuredKey, Power: 1}}, utils.Some[precompiles.Contract](stakingGenesis{validators: []staking.GenesisValidator{
+	app := newStakingEVMOnlyTestApp(t, abevm.CommitteeWeights{configuredKey: 1}, utils.Some[precompiles.Contract](stakingGenesis{validators: []staking.GenesisValidator{
 		testGenesisValidator(common.HexToAddress("0xa2"), key2, 20),
 		testGenesisValidator(common.HexToAddress("0xa1"), key1, 30),
 	}}))
@@ -169,7 +168,7 @@ func TestEVMOnlyApplicationCommitsToTheConfiguredValidatorsUntilStakingSnapshots
 		"before staking has params": utils.Some[precompiles.Contract](staking.Precompile{}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			app := newStakingEVMOnlyTestApp(t, []proxy.ValidatorUpdate{{PubKey: configuredKey, Power: 1}}, contract)
+			app := newStakingEVMOnlyTestApp(t, abevm.CommitteeWeights{configuredKey: 1}, contract)
 			runEVMOnlyTestBlocks(t, app, 1, 3)
 			require.Equal(t, configured, committeeWeights(t, app, 2))
 		})
@@ -179,7 +178,7 @@ func TestEVMOnlyApplicationCommitsToTheConfiguredValidatorsUntilStakingSnapshots
 func TestEVMOnlyApplicationFailsTheBlockThatClosesAnEpochOnACorruptSnapshot(t *testing.T) {
 	app := newStakingEVMOnlyTestApp(t, nil, utils.Some[precompiles.Contract](corruptEpochSnapshot{}))
 	runEVMOnlyTestBlocks(t, app, 1, 2)
-	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(3))
+	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(app, 3))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read staking's committee at road 3")
 }

@@ -169,7 +169,7 @@ func NewReactor(
 	router *p2p.Router,
 	syncerConfig utils.Option[SyncerConfig],
 ) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor())
+	channel, err := router.OpenChannel(GetChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("router.AddChannel(): %w", err)
 	}

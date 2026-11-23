@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -24,7 +26,9 @@ type Config struct {
 	// GenDoc is the genesis a fresh app is initialized from.
 	GenDoc *types.GenesisDoc
 	// App is the application blocks are executed on.
-	App *proxy.EVMProxy
+	App *abevm.Proxy
+	// Signer parses block transactions and retains admitted senders until execution.
+	Signer *abevm.Signer
 	// AppHashBuilder receives each block's hash before the block runs.
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.
@@ -101,26 +105,18 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
 		// node.go: shouldHandshake = !stateSync && !gigaEnabled), so we
-		// call InitChain ourselves. It sets up the app's deliverState
-		// against which the first FinalizeBlock below runs.
-		//
-		// Re-entering on restart (crashed after InitChain, before the first
-		// block became durable) is safe — nothing was committed, so it
-		// behaves as a fresh init. An app whose storage already holds
-		// blocks must report them here and refuse InitChain, since blocks
-		// may be durable before Commit acknowledged them.
-		if _, err := app.InitChain(&proxy.RequestInitChain{
-			Time:          e.cfg.GenDoc.GenesisTime,
-			ChainID:       e.cfg.GenDoc.ChainID,
-			InitialHeight: e.cfg.GenDoc.InitialHeight,
-			MaxGas:        e.cfg.GenDoc.ConsensusParams.Block.MaxGas,
-			AppStateBytes: e.cfg.GenDoc.AppState,
-		}); err != nil {
-			return 0, fmt.Errorf("App.InitChain(): %w", err)
-		}
+		// call InitChain ourselves to seed the store before the first block. A
+		// resumed app reports its durable height and refuses initialization.
 		next, ok := utils.SafeCast[atypes.RoadHeight](e.cfg.GenDoc.InitialHeight)
-		if !ok {
+		if !ok || next == 0 {
 			return 0, fmt.Errorf("invalid GenDoc.InitialHeight = %v", e.cfg.GenDoc.InitialHeight)
+		}
+		gasLimit, ok := utils.SafeCast[uint64](e.cfg.GenDoc.ConsensusParams.Block.MaxGas)
+		if !ok || gasLimit == 0 {
+			return 0, fmt.Errorf("invalid genesis block gas limit: %d", e.cfg.GenDoc.ConsensusParams.Block.MaxGas)
+		}
+		if err := app.InitChain(abevm.InitConfig{InitialHeight: next, GasLimit: gasLimit}); err != nil {
+			return 0, fmt.Errorf("App.InitChain(): %w", err)
 		}
 		return next, nil
 	}
@@ -133,34 +129,12 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 		}
 		return 0, fmt.Errorf("WaitForBlock(%v): %w", last, err)
 	}
-	app.InitLastHeader(&proxy.Header{
-		ChainID: e.cfg.GenDoc.ChainID,
-		Height:  int64(last), // nolint:gosec // different representations of the same value
-		Time:    block.Header().Timestamp(),
-		// TODO: for consistency we should also set proposerAddress here,
-		// but this is a placeholder solution so maybe we don't care.
-	})
+	app.RestoreBlockTime(block.Header().Timestamp())
 	return last + 1, nil
 }
 
-// committeeProposer returns the address of the member with the lowest public key in the committee
-// of the epoch holding road, or none when the app's epoch registry does not hold that epoch.
-func committeeProposer(app *proxy.EVMProxy, road atypes.RoadHeight) (types.Address, error) {
-	registry, err := app.EpochRegistry()
-	if err != nil {
-		return nil, fmt.Errorf("app.EpochRegistry(): %w", err)
-	}
-	for _, epoch := range registry.Epochs() {
-		if epoch.RoadRange().Has(road) {
-			// A committee has at least one member, and its lanes are ordered by public key.
-			return epoch.Committee().Lanes().At(0).Validator.ED25519().Address(), nil
-		}
-	}
-	return nil, nil
-}
-
-// executeBlock reports b's hash to the app hash builder, then finalizes and
-// commits b. A cancel does not interrupt it.
+// executeBlock reports b's hash, finalizes b, and publishes its execution result.
+// A cancel does not interrupt it.
 func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
 	// A cancel must not abort a block after some stores have taken its writes.
 	ctx := context.Background()
@@ -168,55 +142,31 @@ func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
 		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
 	}
 	app := e.cfg.App
-	// A deterministic proposer, so that the app does not emit error logs.
-	proposerAddress, err := committeeProposer(app, b.Height)
+	txs, err := e.cfg.Signer.ParseTxs(b.Txs)
 	if err != nil {
-		return err
+		return fmt.Errorf("decode block transactions: %w", err)
 	}
 
-	resp, err := app.FinalizeBlock(ctx, &proxy.RequestFinalizeBlock{
-		Txs: b.Txs,
-
-		// The road block hash identifies the block before execution.
-		// It is used to identify block processed optimistically
-		// and is fed as block hash to EVM contracts.
-		Hash: b.Hash[:],
-		Header: &proxy.Header{
-			ChainID: e.cfg.GenDoc.ChainID,
-			Height:  int64(b.Height), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
-		},
+	e.cfg.Signer.ForgetTxs(txs)
+	resp, err := app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
+		Txs: txs,
+		// The road block hash identifies the block before execution and is fed as the block hash to EVM contracts.
+		Hash:   common.Hash(b.Hash),
+		Height: b.Height,
+		Time:   b.Timestamp,
 	})
 	if err != nil {
 		return fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	gasUsed := finalizeBlockGasUsed(resp)
+	gasUsed := resp.GasUsed
 
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
-	if _, err := app.Commit(ctx); err != nil {
-		return fmt.Errorf("app.Commit(): %w", err)
-	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	metrics.GasUsed.Add(gasUsed)
+	metrics.GasUsed.Add(utils.Clamp[int64](gasUsed))
 	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
 		Height:  b.Height,
-		GasUsed: utils.Clamp[uint64](gasUsed),
+		GasUsed: gasUsed,
 	}))
 	gigametrics.EndStoragePhase()
 	return nil
-}
-
-// finalizeBlockGasUsed returns the gas used, as reported by FinalizeBlock.
-func finalizeBlockGasUsed(resp *proxy.ResponseFinalizeBlock) int64 {
-	var total int64
-	for _, result := range resp.TxResults {
-		if result != nil {
-			total += max(0, result.GasUsed)
-		}
-	}
-	return total
 }

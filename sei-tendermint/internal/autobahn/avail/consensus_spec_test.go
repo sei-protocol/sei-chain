@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -56,7 +56,7 @@ func TestConsensusSpecAdvancesOnlyAfterPersistence(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 2)
 	store := blockstore.NewTestStore(t)
 	defer func() { require.NoError(t, store.Close()) }()
-	ds, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store)
+	ds, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, err)
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)

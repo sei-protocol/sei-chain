@@ -183,7 +183,7 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 		if idx < opts.MockNodes {
 			rts.mocks = append(rts.mocks, nodeID)
 			var err error
-			rts.pexChannels[nodeID], err = p2p.OpenChannel(node.Router, ChannelDescriptor())
+			rts.pexChannels[nodeID], err = node.Router.OpenChannel(ChannelDescriptor())
 			require.NoError(t, err)
 		} else {
 			reactor, err := NewReactor(

@@ -7,9 +7,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -34,7 +34,7 @@ type epochRegistryState struct{ registry *atypes.EpochRegistry }
 func OpenEpochRegistry(
 	storage *bootstrap.GigaStorageManager,
 	firstRoad, length atypes.RoadHeight,
-	validators []proxy.ValidatorUpdate,
+	validators abevm.CommitteeWeights,
 ) (*EpochRegistry, error) {
 	weights, err := epochWeights(validators)
 	if err != nil {
@@ -65,20 +65,12 @@ func (e *EpochRegistry) Registry() *atypes.EpochRegistry {
 }
 
 // epochWeights maps each validator with positive power to its voting weight.
-func epochWeights(validators []proxy.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+func epochWeights(validators abevm.CommitteeWeights) (map[atypes.PublicKey]uint64, error) {
 	weights := make(map[atypes.PublicKey]uint64, len(validators))
-	for _, v := range validators {
-		if v.Power <= 0 {
-			continue
+	for key, weight := range validators {
+		if weight > 0 {
+			weights[key] = weight
 		}
-		if _, dup := weights[v.PubKey]; dup {
-			return nil, fmt.Errorf("duplicate validator public key %s", v.PubKey)
-		}
-		weight, ok := utils.SafeCast[uint64](v.Power)
-		if !ok {
-			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
-		}
-		weights[v.PubKey] = weight
 	}
 	return weights, nil
 }

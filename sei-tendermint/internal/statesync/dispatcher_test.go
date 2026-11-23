@@ -38,7 +38,7 @@ func dispatcherSetup(t *testing.T) *dispatcherTestSuite {
 		},
 	})
 	n := network.Nodes()[0]
-	ch, err := p2p.OpenChannel(n.Router, GetLightBlockChannelDescriptor())
+	ch, err := n.Router.OpenChannel(GetLightBlockChannelDescriptor())
 	if err != nil {
 		panic(err)
 	}
@@ -61,7 +61,7 @@ func (ts *dispatcherTestSuite) AddPeer(t *testing.T) *DispatcherNode {
 	testNode := ts.network.MakeNode(t, p2p.TestNodeOptions{
 		MaxConnected: utils.Some(1),
 	})
-	blockCh, err := p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())
+	blockCh, err := testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())
 	if err != nil {
 		panic(err)
 	}
@@ -165,7 +165,7 @@ func TestDispatcherDeliversOneResponsePerRequest(t *testing.T) {
 		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 			callCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			call := scope.Spawn1(s, func() (struct{}, error) {
+			call := s.Spawn1(func() (struct{}, error) {
 				lb, err := ts.dispatcher.LightBlock(callCtx, height+1, peer.NodeID)
 				if err != nil && !errors.Is(err, context.Canceled) {
 					return struct{}{}, fmt.Errorf("LightBlock(): %w", err)
@@ -205,7 +205,7 @@ func TestDispatcherCleanupKeepsNewerCall(t *testing.T) {
 	ts := dispatcherSetup(t)
 	peer := ts.AddPeer(t)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		older := scope.Spawn1(s, func() (*types.LightBlock, error) {
+		older := s.Spawn1(func() (*types.LightBlock, error) {
 			return ts.dispatcher.LightBlock(ctx, 1, peer.NodeID)
 		})
 		if _, err := peer.blockCh.Recv(ctx); err != nil {
@@ -216,7 +216,7 @@ func TestDispatcherCleanupKeepsNewerCall(t *testing.T) {
 		if !ok {
 			return errors.New("takeCall(): no pending call")
 		}
-		newer := scope.Spawn1(s, func() (*types.LightBlock, error) {
+		newer := s.Spawn1(func() (*types.LightBlock, error) {
 			return ts.dispatcher.LightBlock(ctx, 2, peer.NodeID)
 		})
 		if _, err := peer.blockCh.Recv(ctx); err != nil {

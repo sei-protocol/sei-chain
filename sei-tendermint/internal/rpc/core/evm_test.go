@@ -12,26 +12,26 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// testEVMApp answers every EVMApplication method with a fixed value and
+// testEVMApp answers every abevm.Application method with a fixed value and
 // records the arguments it was called with.
 type testEVMApp struct {
-	proxy.EVMApplication
+	abevm.Application
 	gotMsg       *ethcore.Message
 	gotCalls     []*ethcore.Message
 	gotGasCap    uint64
-	gotHeader    *ethtypes.Header
+	gotHeader    abevm.BlockRef
 	gotHeight    int64
 	gotTxs       [][]byte
-	gotOverrides proxy.CallOverrides
+	gotOverrides abevm.CallOverrides
 }
 
-var _ proxy.EVMApplication = (*testEVMApp)(nil)
+var _ abevm.Application = (*testEVMApp)(nil)
 
 var (
 	testExecutionResult = &ethcore.ExecutionResult{ReturnData: []byte{0x2a}}
@@ -39,40 +39,40 @@ var (
 	testChainConfig     = &params.ChainConfig{ChainID: big.NewInt(713700)}
 	testBaseFee         = big.NewInt(7)
 	testMinGasPrice     = big.NewInt(1_000_000_000)
-	testOverrides       = evmonly.CallOverrides{State: export.StateOverride{common.Address{1}: {}}}
+	testOverrides       = abevm.CallOverrides{State: export.StateOverride{common.Address{1}: {}}}
 )
 
-func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message, overrides proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *testEVMApp) EvmCall(_ context.Context, msg *ethcore.Message, overrides abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
 	app.gotOverrides = overrides
 	app.gotMsg = msg
 	return testExecutionResult, nil
 }
 
-func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, gasCap uint64, overrides proxy.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *ethcore.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap = msg, gasCap
 	return 21_000, []byte{0x01}, nil
 }
 
-func (app *testEVMApp) EvmCallAt(_ context.Context, msg *ethcore.Message, header *ethtypes.Header, overrides proxy.CallOverrides) (*ethcore.ExecutionResult, error) {
+func (app *testEVMApp) EvmCallAt(_ context.Context, msg *ethcore.Message, header abevm.BlockRef, overrides abevm.CallOverrides) (*ethcore.ExecutionResult, error) {
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotHeader = msg, header
 	return testExecutionResult, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides proxy.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAt(_ context.Context, msg *ethcore.Message, gasCap uint64, header abevm.BlockRef, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotMsg, app.gotGasCap, app.gotHeader = msg, gasCap, header
 	return 22_000, []byte{0x02}, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides proxy.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAfterCalls(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotCalls, app.gotMsg, app.gotGasCap = calls, msg, gasCap
 	return 42_000, []byte{0x02}, nil
 }
 
-func (app *testEVMApp) EvmEstimateGasAfterCallsAt(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header *ethtypes.Header, overrides proxy.CallOverrides) (uint64, []byte, error) {
+func (app *testEVMApp) EvmEstimateGasAfterCallsAt(_ context.Context, calls []*ethcore.Message, msg *ethcore.Message, gasCap uint64, header abevm.BlockRef, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	app.gotOverrides = overrides
 	app.gotCalls, app.gotMsg, app.gotGasCap, app.gotHeader = calls, msg, gasCap, header
 	return 43_000, []byte{0x03}, nil
@@ -83,7 +83,7 @@ func (app *testEVMApp) EvmCreateAccessList(_ context.Context, msg *ethcore.Messa
 	return testAccessList, testExecutionResult, nil
 }
 
-func (app *testEVMApp) EvmCreateAccessListAt(_ context.Context, msg *ethcore.Message, header *ethtypes.Header) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
+func (app *testEVMApp) EvmCreateAccessListAt(_ context.Context, msg *ethcore.Message, header abevm.BlockRef) (ethtypes.AccessList, *ethcore.ExecutionResult, error) {
 	app.gotMsg, app.gotHeader = msg, header
 	return testAccessList, testExecutionResult, nil
 }
@@ -96,26 +96,26 @@ func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee
 func (app *testEVMApp) EvmGasLimit() uint64                 { return 35_000_000 }
 func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasPrice }
 
-func (app *testEVMApp) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+func (app *testEVMApp) EvmBlockContext(header abevm.BlockRef) (vm.BlockContext, error) {
 	app.gotHeader = header
-	return vm.BlockContext{BlockNumber: header.Number}, nil
+	return vm.BlockContext{BlockNumber: new(big.Int).SetUint64(uint64(header.Height))}, nil
 }
 
-func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.SeiStateDB, func(), error) {
+func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (*abevm.StateHandle, error) {
 	app.gotHeight = height
-	return nil, func() {}, nil
+	return abevm.NewStateHandle(&testStateDB{}, func() {}), nil
 }
 
-func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header abevm.BlockRef, txs [][]byte) (*abevm.StateHandle, error) {
 	app.gotHeader, app.gotTxs = header, txs
-	return nil, func() {}, nil
+	return abevm.NewStateHandle(&testStateDB{}, func() {}), nil
 }
 
 func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
 	app := &testEVMApp{}
-	evm := proxy.NewEVM(app)
-	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, EVMProxy: evm}
+	evm := abevm.NewProxy(app)
+	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, Proxy: evm}
 	msg := &ethcore.Message{GasLimit: 21_000}
 
 	t.Run("call", func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testExecutionResult, got)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 	})
 
 	t.Run("estimate gas", func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, uint64(21_000), got)
 		require.Equal(t, []byte{0x01}, revert)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
 	})
 
@@ -152,8 +152,8 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testExecutionResult, got)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
-		require.Equal(t, header, app.gotHeader)
+		require.Equal(t, testOverrides, app.gotOverrides)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("past block gas estimate", func(t *testing.T) {
@@ -167,9 +167,9 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, uint64(22_000), got)
 		require.Equal(t, []byte{0x02}, revert)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(9_000_000), app.gotGasCap)
-		require.Equal(t, header, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("estimate gas after calls", func(t *testing.T) {
@@ -183,7 +183,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x02}, revert)
 		require.Equal(t, calls, app.gotCalls)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
 	})
 
@@ -200,9 +200,9 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, []byte{0x03}, revert)
 		require.Equal(t, calls, app.gotCalls)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, proxy.CallOverrides(testOverrides), app.gotOverrides)
+		require.Equal(t, abevm.CallOverrides(testOverrides), app.gotOverrides)
 		require.Equal(t, uint64(10_000_000), app.gotGasCap)
-		require.Equal(t, header, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("create access list", func(t *testing.T) {
@@ -227,7 +227,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, testAccessList, accessList)
 		require.Equal(t, testExecutionResult, result)
 		require.Equal(t, msg, app.gotMsg)
-		require.Equal(t, header, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 	})
 
 	t.Run("execution parameters", func(t *testing.T) {
@@ -264,7 +264,9 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		require.Equal(t, int64(4), gotHeight)
 		require.NoError(t, stateBeforeErr)
 		require.True(t, releaseBefore != nil)
-		require.Equal(t, header, app.gotHeader)
+		require.Equal(t, abevm.BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
 		require.Equal(t, txs, app.gotTxs)
 	})
 }
+
+type testStateDB struct{ vm.SeiStateDB }

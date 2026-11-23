@@ -63,7 +63,7 @@ func BenchmarkOCCValidateAndMerge(b *testing.B) {
 			source := frozenStateReader{accounts: genesis.accounts}
 			executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, RejectUnappliableTxs: true}, withTestState(genesis))
 			b.Cleanup(executor.Close)
-			prepared, err := executor.PrepareBlock(ctx, scenario.block(b, 1))
+			prepared, err := executor.PrepareBlock(scenario.block(b, 1))
 			require.NoError(b, err)
 			runner := newOCCSpeculativeRunner(executor, prepared)
 			speculative := make([]occTxExecution, len(prepared.Txs))

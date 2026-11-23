@@ -174,7 +174,7 @@ func TestPipelinedExecutionMatchesSynchronousExecution(t *testing.T) {
 
 		want, err := syncExecutor.ExecuteBlock(t.Context(), req)
 		require.NoError(t, err)
-		prepared, err := pipeExecutor.PrepareBlock(t.Context(), req)
+		prepared, err := pipeExecutor.PrepareBlock(req)
 		require.NoError(t, err)
 		got, err := pipeExecutor.ExecutePreparedBlock(t.Context(), prepared)
 		require.NoError(t, err)
