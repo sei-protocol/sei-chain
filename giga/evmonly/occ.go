@@ -59,19 +59,19 @@ type occSpeculativeRunner struct {
 	blockGasLimit uint64
 }
 
-func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunner {
+func newOCCSpeculativeRunner(e *Executor, req PreparedBlock, source StateReader) occSpeculativeRunner {
 	return occSpeculativeRunner{
 		executor:      e,
 		req:           req,
 		chainConfig:   e.chainConfig(req.Context),
-		blockCtx:      EVMBlockContext(req.Context),
+		blockCtx:      EVMBlockContext(req.Context, source),
 		baseFee:       cloneOptionalBig(req.Context.BaseFee),
 		blockGasLimit: req.Context.GasLimit,
 	}
 }
 
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	runner := newOCCSpeculativeRunner(e, req)
+	runner := newOCCSpeculativeRunner(e, req, source)
 	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 

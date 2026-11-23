@@ -36,12 +36,13 @@ func (e *Executor) CallAt(ctx context.Context, view gigatypes.EVMStateView, bloc
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx))
+	reader := gigaSnapshotStateReader{snapshot: view, missingState: e.missingState}
+	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx, reader))
 	if err != nil {
 		return nil, err
 	}
 
-	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
+	stateDB := e.acquireStateDB(reader)
 	defer e.releaseStateDB(stateDB)
 
 	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.

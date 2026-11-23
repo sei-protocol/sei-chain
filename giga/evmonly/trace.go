@@ -31,7 +31,8 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 	if err != nil {
 		return nil, err
 	}
-	stateDB := newNativeStateDB(newPendingOverlay(source, &begin))
+	started := newPendingOverlay(source, &begin)
+	stateDB := newNativeStateDB(started)
 	replayed := &replayedStateDB{nativeStateDB: stateDB, reads: reads}
 	if len(req.Txs) == 0 {
 		return replayed, nil
@@ -41,7 +42,7 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 		return nil, err
 	}
 	chainConfig := e.chainConfig(prepared.Context)
-	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(prepared.Context, started), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	// executeTx does not watch ctx, so the EVM is stopped mid-transaction once ctx ends.
 	stop := context.AfterFunc(ctx, evm.Cancel)

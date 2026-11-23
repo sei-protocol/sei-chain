@@ -76,7 +76,7 @@ func (e *Executor) traceAccessList(
 ) (*core.ExecutionResult, error) {
 	stateDB := e.acquireStateDB(reader)
 	defer e.releaseStateDB(stateDB)
-	evm := e.newEVM(EVMBlockContext(blockCtx), stateDB, chainConfig, vm.Config{Tracer: tracer.Hooks(), NoBaseFee: true})
+	evm := e.newEVM(EVMBlockContext(blockCtx, reader), stateDB, chainConfig, vm.Config{Tracer: tracer.Hooks(), NoBaseFee: true})
 	result, cancelled, err := applyMessage(ctx, evm, msg)
 	if cancelled {
 		return nil, fmt.Errorf("EVM-only access list cancelled: %w", ctx.Err())
@@ -102,7 +102,7 @@ func (e *Executor) accessListExclusions(chainConfig *params.ChainConfig, blockCt
 		to = &created
 	}
 	excluded := map[common.Address]struct{}{msg.From: {}, *to: {}}
-	evmBlock := EVMBlockContext(blockCtx)
+	evmBlock := EVMBlockContext(blockCtx, reader)
 	for _, precompile := range vm.ActivePrecompiles(chainConfig.Rules(evmBlock.BlockNumber, evmBlock.Random != nil, evmBlock.Time)) {
 		excluded[precompile] = struct{}{}
 	}

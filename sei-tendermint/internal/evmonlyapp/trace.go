@@ -17,13 +17,14 @@ import (
 
 var errTraceGenesis = errors.New("block 0 has no parent state to trace against")
 
-// EvmBlockContext returns the EVM execution context of block.
-func (a *evmOnlyApplication) EvmBlockContext(block abevm.BlockRef) (vm.BlockContext, error) {
+// EvmBlockContext returns the EVM execution context of block, with BLOCKHASH reading earlier blocks'
+// hashes from state.
+func (a *evmOnlyApplication) EvmBlockContext(block abevm.BlockRef, state vm.StateDB) (vm.BlockContext, error) {
 	number, err := blockNumber(block)
 	if err != nil {
 		return vm.BlockContext{}, err
 	}
-	return evmonly.EVMBlockContext(a.traceBlockContext(number, block)), nil
+	return evmonly.EVMBlockContext(a.traceBlockContext(number, block), state), nil
 }
 
 // EvmStateAt returns the committed state after height, or the latest committed state for

@@ -54,8 +54,9 @@ type Backend interface {
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int
-	// EvmBlockContext returns the block context header's block executed at.
-	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
+	// EvmBlockContext returns the block context header's block executed at, with BLOCKHASH reading
+	// earlier blocks' hashes from state, the state before the block or any state within it.
+	EvmBlockContext(header *ethtypes.Header, state vm.StateDB) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
 	// GenesisInitialHeight returns the height of the chain's first block, or 0 when unknown.
 	GenesisInitialHeight() int64

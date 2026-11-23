@@ -93,8 +93,11 @@ func TestEVMOnlyApplicationRebuildsABlockContext(t *testing.T) {
 	first := evmOnlyTestBlock(app, 1, oneEVMOnlyTestTx(t))
 	finalizeEVMOnlyTestBlock(t, app, first)
 	header := traceTestHeader(2, first.Hash)
+	parent, err := app.EvmStateAt(t.Context(), 1)
+	require.NoError(t, err)
+	defer parent.Close()
 
-	got, err := app.EvmBlockContext(header)
+	got, err := app.EvmBlockContext(header, parent)
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), got.BlockNumber.Uint64())

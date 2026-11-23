@@ -145,8 +145,8 @@ func newTraceChain(t *testing.T) *traceChain {
 		baseFee:     func() *big.Int { return new(big.Int) },
 		chainConfig: func() *params.ChainConfig { return &chainConfig },
 		chainID:     func() uint64 { return traceChainID },
-		blockContext: func(header *ethtypes.Header) (vm.BlockContext, error) {
-			return evmonly.EVMBlockContext(blockContext(header)), nil
+		blockContext: func(header *ethtypes.Header, state vm.StateDB) (vm.BlockContext, error) {
+			return evmonly.EVMBlockContext(blockContext(header), state), nil
 		},
 		stateAt: func(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
 			header := chain.header(2)

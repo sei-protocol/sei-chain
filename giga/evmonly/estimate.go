@@ -64,13 +64,14 @@ func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.E
 	if err := ctx.Err(); err != nil {
 		return 0, nil, err
 	}
-	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx))
+	reader := gigaSnapshotStateReader{snapshot: view, missingState: e.missingState}
+	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx, reader))
 	if err != nil {
 		return 0, nil, err
 	}
 
 	// Unpooled: an estimate can hold this stateDB open far longer than a Call.
-	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
+	stateDB := newNativeStateDB(reader)
 	if len(overrides.State) > 0 {
 		// As in go-ethereum's eth_estimateGas, a precompile move is validated against the active
 		// precompiles, but gasestimator runs its own EVM with the default precompiles, so the move

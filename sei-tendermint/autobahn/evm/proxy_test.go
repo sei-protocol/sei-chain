@@ -95,7 +95,7 @@ func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee
 func (app *testEVMApp) EvmGasLimit() uint64                 { return 35_000_000 }
 func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasPrice }
 
-func (app *testEVMApp) EvmBlockContext(header BlockRef) (vm.BlockContext, error) {
+func (app *testEVMApp) EvmBlockContext(header BlockRef, _ vm.StateDB) (vm.BlockContext, error) {
 	app.gotHeader = header
 	return vm.BlockContext{BlockNumber: new(big.Int).SetUint64(uint64(header.Height))}, nil
 }
@@ -248,7 +248,7 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		txs := [][]byte{{1}, {2}}
 
 		// Test: the block context, the state after a block, and the state before a transaction.
-		blockCtx, err := evm.EvmBlockContext(header)
+		blockCtx, err := evm.EvmBlockContext(header, nil)
 		require.NoError(t, err)
 		_, release, err := evm.EvmStateAt(t.Context(), 4)
 		require.NoError(t, err)
@@ -282,7 +282,7 @@ func TestEVMProxyRejectsInvalidHistoricalHeaders(t *testing.T) {
 		require.Error(t, err)
 		_, _, err = evm.EvmCreateAccessListAt(t.Context(), &core.Message{}, header)
 		require.Error(t, err)
-		_, err = evm.EvmBlockContext(header)
+		_, err = evm.EvmBlockContext(header, nil)
 		require.Error(t, err)
 		_, _, err = evm.EvmStateBeforeTx(t.Context(), header, nil)
 		require.Error(t, err)

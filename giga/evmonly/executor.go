@@ -327,7 +327,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
-	blockCtx := EVMBlockContext(req.Context)
+	blockCtx := EVMBlockContext(req.Context, source)
 	evm := vm.NewEVMWithCustomPrecompiles(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
@@ -561,9 +561,15 @@ func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message
 	return msg, nil
 }
 
+// HistoryReader reads the EIP-2935 history storage BLOCKHASH answers from.
+type HistoryReader interface {
+	GetState(common.Address, common.Hash) common.Hash
+}
+
 // EVMBlockContext returns the go-ethereum block context the executor runs a block with context ctx
-// at. BLOCKHASH answers only for the parent block.
-func EVMBlockContext(ctx BlockContext) vm.BlockContext {
+// at. BLOCKHASH answers the parent block from ctx and earlier blocks from the EIP-2935 history
+// storage history holds.
+func EVMBlockContext(ctx BlockContext, history HistoryReader) vm.BlockContext {
 	prevRandao := ctx.PrevRandao
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee)
@@ -571,10 +577,7 @@ func EVMBlockContext(ctx BlockContext) vm.BlockContext {
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
 		GetHash: func(n uint64) common.Hash {
-			if ctx.Number > 0 && n == ctx.Number-1 {
-				return ctx.ParentHash
-			}
-			return common.Hash{}
+			return blockHash(ctx, history, n)
 		},
 		Coinbase:    ctx.Coinbase,
 		GasLimit:    ctx.GasLimit,
@@ -585,6 +588,25 @@ func EVMBlockContext(ctx BlockContext) vm.BlockContext {
 		BlobBaseFee: blobBaseFee,
 		Random:      &prevRandao,
 	}
+}
+
+// blockHash returns the hash of block n as seen from the block with context ctx: the parent hash
+// for its parent, the EIP-2935 entry history holds for a block within its serve window, and zero
+// otherwise.
+func blockHash(ctx BlockContext, history HistoryReader, n uint64) common.Hash {
+	switch {
+	case n >= ctx.Number || ctx.Number-n > params.HistoryServeWindow:
+		return common.Hash{}
+	case n == ctx.Number-1:
+		return ctx.ParentHash
+	default:
+		return history.GetState(params.HistoryStorageAddress, historySlot(n))
+	}
+}
+
+// historySlot returns the EIP-2935 history storage slot holding the hash of block n.
+func historySlot(n uint64) common.Hash {
+	return common.BigToHash(new(big.Int).SetUint64(n % params.HistoryServeWindow))
 }
 
 type unresolvedCustomPrecompile struct{}

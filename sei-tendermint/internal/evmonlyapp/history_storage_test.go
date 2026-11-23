@@ -61,3 +61,24 @@ func TestEVMOnlyApplicationRefusesAnAllocSettingAProtocolAccount(t *testing.T) {
 	)
 	require.Error(t, err)
 }
+
+func TestEVMOnlyApplicationTraceContextReadsBlockHistory(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	first := evmOnlyTestBlock(app, 1)
+	finalizeEVMOnlyTestBlock(t, app, first)
+	second := evmOnlyTestBlock(app, 2)
+	finalizeEVMOnlyTestBlock(t, app, second)
+	third := evmOnlyTestBlock(app, 3)
+	finalizeEVMOnlyTestBlock(t, app, third)
+	parent, err := app.EvmStateAt(t.Context(), 3)
+	require.NoError(t, err)
+	defer parent.Close()
+
+	got, err := app.EvmBlockContext(traceTestHeader(4, third.Hash), parent)
+
+	require.NoError(t, err)
+	require.Equal(t, first.Hash, got.GetHash(1))
+	require.Equal(t, second.Hash, got.GetHash(2))
+	require.Equal(t, third.Hash, got.GetHash(3))
+	require.Equal(t, common.Hash{}, got.GetHash(4))
+}

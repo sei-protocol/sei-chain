@@ -81,7 +81,7 @@ func (e *Executor) storeParentHash(block BlockContext, stateDB *nativeStateDB) e
 	if block.ParentHash == (common.Hash{}) || !chainConfig.IsPrague(new(big.Int).SetUint64(block.Number), block.Time) {
 		return nil
 	}
-	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(block), stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(block, stateDB), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	core.ProcessParentBlockHash(block.ParentHash, evm, nil)
 	if err := stateDB.Error(); err != nil {

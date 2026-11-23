@@ -237,7 +237,7 @@ func (app *MockApp) EvmGasLimit() uint64 { return 0 }
 func (app *MockApp) EvmMinGasPrice() *big.Int { return new(big.Int) }
 
 // EvmBlockContext always errors: the mock app keeps no EVM state to trace against.
-func (app *MockApp) EvmBlockContext(abevm.BlockRef) (vm.BlockContext, error) {
+func (app *MockApp) EvmBlockContext(abevm.BlockRef, vm.StateDB) (vm.BlockContext, error) {
 	return vm.BlockContext{}, errMockAppNoExecution
 }
 
