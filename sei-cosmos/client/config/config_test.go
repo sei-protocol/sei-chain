@@ -47,13 +47,13 @@ func TestConfigCmd(t *testing.T) {
 		cleanup()
 	}()
 
-	// NODE=http://localhost:1 ./build/simd config node http://localhost:2
+	// NODE=http://localhost:1 ./build/seid config node http://localhost:2
 	cmd := config.Cmd()
 	args := []string{"node", testNode2}
 	_, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, args)
 	require.NoError(t, err)
 
-	//./build/simd config node //http://localhost:1
+	//./build/seid config node //http://localhost:1
 	b := bytes.NewBufferString("")
 	cmd.SetOut(b)
 	cmd.SetArgs([]string{"node"})
@@ -93,7 +93,7 @@ func TestConfigCmdEnvFlag(t *testing.T) {
 			/*
 				env var is set with a flag
 
-				NODE=http://localhost:1 ./build/simd q staking validators --node http://localhost:2
+				NODE=http://localhost:1 ./build/seid q staking validators --node http://localhost:2
 				Error: post failed: Post "http://localhost:2": dial tcp 127.0.0.1:2: connect: connection refused
 
 				We dial http://localhost:2 cause a flag has the higher priority than env variable.

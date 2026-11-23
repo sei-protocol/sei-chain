@@ -46,3 +46,4 @@ Within sei-tendermint subdirectory
   1 generator at no cost.
 * calling a function in tests with an explicitly cancelled context is not a reliable test that call was blocking.
   If you really need to test blocking behavior use synctest.Wait and only then cancel the ctx.
+* Prefer defer to t.Cleanup where applicable, in particular in the main test body.

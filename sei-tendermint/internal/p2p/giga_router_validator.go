@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -32,7 +33,7 @@ type gigaValidatorRouter struct {
 // NewGigaValidatorRouter constructs a validator GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState);
 // close it if this constructor returns an error.
-func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataState *data.State) (*gigaValidatorRouter, error) {
+func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataState *data.State, signer *abevm.Signer) (*gigaValidatorRouter, error) {
 	validatorKey := cfg.ValidatorKey.Public()
 	self, ok := cfg.ValidatorAddrs[validatorKey]
 	if !ok {
@@ -41,7 +42,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if self.Key != key.Public() {
 		return nil, fmt.Errorf("local validator node key = %v, want %v", self.Key, key.Public())
 	}
-	if err := utils.CheckRPCURL(self.EVMRPC); err != nil {
+	if err := utils.CheckRPCURL(cfg.EVMRPC); err != nil {
 		return nil, fmt.Errorf("local validator %v evmrpc: %w", validatorKey, err)
 	}
 	selfAddr := NodeAddress{
@@ -63,7 +64,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
+	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App, signer)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
@@ -76,13 +77,13 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:             cfg.App,
-			offer: utils.Some(handshakeOffer{
-				ValidatorKey: cfg.ValidatorKey,
-				EVMRPC:       self.EVMRPC,
-			}),
-			selfAddr:             utils.Some(selfAddr),
-			liveAddrs:            utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
-			liveAddrVersion:      utils.NewAtomicSend(uint64(0)),
+			signer:          signer,
+			gigaSpec: gigaHandshakeSpec{
+				ValidatorKey: utils.Some(cfg.ValidatorKey),
+				EVMRPC:       cfg.EVMRPC,
+			},
+			selfAddr: utils.Some(selfAddr),
+
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
@@ -99,7 +100,7 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("committeeMembers", func() error {
-			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer, r.runEvmProxy)
+			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })

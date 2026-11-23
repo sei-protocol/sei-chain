@@ -31,7 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -65,8 +65,8 @@ const MockHeight100 = 100
 
 // pinReceiptVersions widens a store's queryable window to [1, latest]. These tests seed receipts
 // by other means, so nothing has advanced the markers a read is gated on.
-func pinReceiptVersions(store receipt.ReceiptStore, latest int64) error {
-	return receipt.PinVersions(store, 1, latest)
+func pinReceiptVersions(store receiptdb.ReceiptStore, latest int64) error {
+	return receiptdb.PinVersions(store, 1, latest)
 }
 
 // LatestCtxUpgradeName makes the test ctx look like a real chain that has

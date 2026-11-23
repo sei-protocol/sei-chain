@@ -30,7 +30,7 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -46,7 +46,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
+func primeReceiptStore(t *testing.T, store receiptdb.ReceiptStore, latest int64) {
 	t.Helper()
 	require.NoError(t, pinReceiptVersions(store, latest))
 }

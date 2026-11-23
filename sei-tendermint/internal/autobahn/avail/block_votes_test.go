@@ -10,7 +10,7 @@ import (
 
 func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	rng := utils.TestRng()
-	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	keys := rng.GenSliceN(4, types.GenSecretKey)
 	weights := make(map[types.PublicKey]uint64, len(keys))
 	for _, k := range keys {
 		weights[k.Public()] = 1
@@ -22,11 +22,11 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	bv := newBlockVotes()
 	beforeQC := gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil)
 	beforeVotes := gathered(t, "tendermint_internal_autobahn_avail_lane_votes_ingested", nil)
-	first := types.Sign(keys[0], types.NewLaneVote(ep.EpochIndex(), h))
+	first := keys[0].Sign(types.NewLaneVote(ep.EpochIndex(), h))
 	bv.pushVote(ep.Committee(), first)
 	bv.pushVote(ep.Committee(), first)
 	for _, k := range keys[1:] {
-		bv.pushVote(ep.Committee(), types.Sign(k, types.NewLaneVote(ep.EpochIndex(), h)))
+		bv.pushVote(ep.Committee(), k.Sign(types.NewLaneVote(ep.EpochIndex(), h)))
 	}
 	require.True(t, bv.qc.IsPresent())
 	require.Equal(t, beforeQC+1, gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil))

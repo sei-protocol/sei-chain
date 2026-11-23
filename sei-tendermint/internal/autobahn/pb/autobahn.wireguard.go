@@ -163,6 +163,14 @@ func (*LaneBlockPos) MaxSize() int {
 	return 22
 }
 
+func (*Challenge) MaxSize() int {
+	return 36
+}
+
+func (*SignedChallenge) MaxSize() int {
+	return 142
+}
+
 func init() {
 	// Register the wireguard.Schema generated for autobahn.Timestamp.
 	runtime.MustRegister[*Timestamp](runtime.Schema{
@@ -372,6 +380,7 @@ func init() {
 		9:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitVote]())},
 		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
 		7:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		13: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedProposal.
@@ -451,9 +460,9 @@ func init() {
 		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppQC]())},
 	})
 
-	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.
-	runtime.MustRegister[*PersistedEpochRegistry](runtime.Schema{
-		3: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
+	// Register the wireguard.Schema generated for autobahn.EpochRegistry.
+	runtime.MustRegister[*EpochRegistry](runtime.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.EpochMember.
@@ -466,6 +475,18 @@ func init() {
 	runtime.MustRegister[*LaneBlockPos](runtime.Schema{
 		3: {MaxCount: 1},
 		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.Challenge.
+	runtime.MustRegister[*Challenge](runtime.Schema{
+		1: {MaxCount: 1, MaxSize: 32},
+		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.SignedChallenge.
+	runtime.MustRegister[*SignedChallenge](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
 }

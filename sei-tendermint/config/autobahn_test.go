@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/holiman/uint256"
@@ -16,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/stretchr/testify/require"
 )
 
 func TestURLJSONReencode(t *testing.T) {
@@ -54,9 +55,7 @@ func TestURLUnmarshalRejectsNonWebSocket(t *testing.T) {
 
 func validAutobahnFileConfig() AutobahnFileConfig {
 	return AutobahnFileConfig{
-		Validators: []AutobahnValidator{{
-			EVMRPC: URL{URL: &url.URL{Scheme: "ws", Host: "localhost:8546"}},
-		}},
+		Validators:     []AutobahnValidator{{}},
 		MaxTxsPerBlock: 1,
 		BlockInterval:  utils.Duration(time.Second),
 		DialInterval:   utils.Duration(time.Second),
@@ -212,6 +211,20 @@ func TestAutobahnFileConfig_EVMAllocJSON(t *testing.T) {
 	for _, balance := range []string{`"-0x1"`, `"0x1` + strings.Repeat("0", 64) + `"`, `1`} {
 		require.Error(t, json.Unmarshal([]byte(`{"evm_alloc":{"`+addr.Hex()+`":`+balance+`}}`), &got), balance)
 	}
+}
+
+func TestAutobahnFileConfig_LocalEVMRPC(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	require.NoError(t, fc.Validate())
+	fc.EVMRPC = utils.Some(URL{URL: &url.URL{Scheme: "ws", Host: "local.example:8546"}})
+	require.NoError(t, fc.Validate())
+	encoded, err := json.Marshal(fc)
+	require.NoError(t, err)
+	var wire map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &wire))
+	require.Equal(t, `"ws://local.example:8546"`, string(wire["evmrpc"]))
+	fc.EVMRPC = utils.Some(URL{URL: &url.URL{Scheme: "http", Host: "local.example:8545"}})
+	require.Error(t, fc.Validate())
 }
 
 func TestAutobahnFileConfig_EVMAllocAccountObjects(t *testing.T) {

@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func notClosingRoad(types.RoadHeight) bool { return false }
-
 // newTestExporter returns an exporter over an empty BlockStore whose checkpoints come from
 // checkpointRoads.
 func newTestExporter(t *testing.T, checkpointRoads func() ([]types.RoadHeight, error)) *statesyncproof.Exporter {
@@ -28,7 +26,6 @@ func newTestExporter(t *testing.T, checkpointRoads func() ([]types.RoadHeight, e
 		CheckpointRoads: checkpointRoads,
 		BlockStore:      blockstore.NewTestStore(t),
 		LastAppQC:       func() utils.Option[types.RoadHeight] { return utils.None[types.RoadHeight]() },
-		IsClosingRoad:   notClosingRoad,
 	})
 }
 
@@ -38,19 +35,14 @@ func TestStateSyncProofExportConfig(t *testing.T) {
 	cfg := newHome(t, nil)
 	checkpoint := filepath.Join(cfg.FlatKVConfig.DataDir, flatkv.SnapshotDirName(7))
 	require.NoError(t, os.MkdirAll(checkpoint, 0o750))
-	closingRoad := types.RoadHeight(9)
 
-	exportCfg := stateSyncProofExportConfig(cfg, blockstore.NewTestStore(t), func(road types.RoadHeight) bool {
-		return road == closingRoad
-	})
+	exportCfg := stateSyncProofExportConfig(cfg, blockstore.NewTestStore(t))
 
 	require.Equal(t, filepath.Join(cfg.HomePath, "data", "state_commit", "state_sync_proofs"), exportCfg.Dir)
 	roads, err := exportCfg.CheckpointRoads()
 	require.NoError(t, err)
 	require.Equal(t, []types.RoadHeight{7}, roads)
 	require.False(t, exportCfg.LastAppQC().IsPresent())
-	require.True(t, exportCfg.IsClosingRoad(closingRoad))
-	require.False(t, exportCfg.IsClosingRoad(closingRoad-1))
 }
 
 func TestLastAppQC(t *testing.T) {
@@ -68,8 +60,8 @@ func TestLastAppQC(t *testing.T) {
 func TestStartStateSyncProofExportTwiceFails(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NoError(t, manager.StartStateSyncProofExport(notClosingRoad))
-	require.Error(t, manager.StartStateSyncProofExport(notClosingRoad))
+	require.NoError(t, manager.StartStateSyncProofExport())
+	require.Error(t, manager.StartStateSyncProofExport())
 }
 
 func TestStartStateSyncProofExportAfterCloseFails(t *testing.T) {
@@ -77,7 +69,7 @@ func TestStartStateSyncProofExportAfterCloseFails(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, manager.Close())
 
-	require.Error(t, manager.StartStateSyncProofExport(notClosingRoad))
+	require.Error(t, manager.StartStateSyncProofExport())
 }
 
 func TestStateSyncProofExportStopIsIdempotent(t *testing.T) {

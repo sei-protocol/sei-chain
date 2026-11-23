@@ -144,16 +144,16 @@ import (
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
-
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	receiptpebble "github.com/sei-protocol/sei-chain/sei-db/receipt_db/pebble"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -420,7 +420,7 @@ type App struct {
 
 	stateStore   seidb.StateStore
 	rootStore    *rootmulti.Store
-	receiptStore receipt.ReceiptStore
+	receiptStore receiptdb.ReceiptStore
 
 	forkInitializer func(sdk.Context)
 
@@ -608,7 +608,7 @@ func New(
 	// A nil store is the seam tests inject their own through, and it is also what a disabled
 	// receipt store leaves behind: the EVM keeper reads nil as a node that keeps no receipts.
 	if app.receiptStore == nil && receiptConfig.Enable {
-		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
+		receiptStore, err := receiptpebble.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
@@ -2351,7 +2351,7 @@ func (app *App) ModuleAccountAddrs() map[string]bool {
 	return modAccAddrs
 }
 
-// LegacyAmino returns SimApp's amino codec.
+// LegacyAmino returns the App's amino codec.
 //
 // NOTE: This is solely to be used for testing purposes as it may be desirable
 // for modules to register their own custom testing types.

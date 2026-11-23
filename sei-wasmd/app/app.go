@@ -421,7 +421,6 @@ func NewWasmApp(
 		evidencetypes.ModuleName,
 		paramstypes.ModuleName,
 		upgradetypes.ModuleName,
-		// additional non simd modules
 		wasm.ModuleName,
 	)
 

@@ -3,16 +3,31 @@ package node
 import (
 	"encoding/binary"
 	"math/big"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+func TestGenesisEpochUsesAutobahnEpochLength(t *testing.T) {
+	params := types.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genDoc := &types.GenesisDoc{InitialHeight: 7, GenesisTime: time.Unix(1, 0), Autobahn: utils.Some(params)}
+	firstRoad, err := genesisFirstRoad(genDoc)
+	require.NoError(t, err)
+	require.Equal(t, atypes.RoadHeight(7), firstRoad)
+	require.Equal(t, atypes.RoadHeight(3), genesisEpochLength(genDoc))
+}
 
 func genesisAt(initialHeight int64) *types.GenesisDoc {
 	return &types.GenesisDoc{InitialHeight: initialHeight}
@@ -155,26 +170,50 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, err = app.InitChain(&proxy.RequestInitChain{
-		InitialHeight: initialHeight,
-		MaxGas:        30_000_000,
-	})
+	err = app.InitChain(abevm.InitConfig{
+		InitialHeight: atypes.RoadHeight(initialHeight),
+		GasLimit:      30_000_000})
 	require.NoError(t, err)
 
 	var blockHash [32]byte
 	binary.BigEndian.PutUint64(blockHash[:], uint64(initialHeight))
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), uint64(initialHeight), blockHash))
-	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
-		Hash: blockHash[:],
-		Header: &proxy.Header{
-			Height: initialHeight,
-			Time:   time.Unix(1_700_000_000+initialHeight, 0),
-		},
-	})
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Hash:   common.BytesToHash(blockHash[:]),
+		Height: atypes.RoadHeight(initialHeight),
+		Time:   time.Unix(1_700_000_000+initialHeight, 0)})
 	require.NoError(t, err)
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
 	require.Equal(t, uint64(initialHeight), got.BlockHeight())
+}
+
+func TestStateSyncUpload(t *testing.T) {
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AWS_PROFILE", "")
+	uploading := gigaconfig.StateSyncConfig{
+		Enabled:                true,
+		SnapshotBucket:         "sei-snapshots",
+		SnapshotRegion:         "eu-central-1",
+		SnapshotUpload:         true,
+		SnapshotUploadInterval: time.Hour,
+	}
+
+	reading := uploading
+	reading.SnapshotUpload = false
+	upload, err := stateSyncUpload(config.ModeFull, reading, "chain-a", "node-a")
+	require.NoError(t, err)
+	require.False(t, upload.IsPresent(), "a bucket without snapshot_upload uploads no snapshot")
+
+	upload, err = stateSyncUpload(config.ModeFull, uploading, "chain-a", "node-a")
+	require.NoError(t, err)
+	got, ok := upload.Get()
+	require.True(t, ok)
+	require.Equal(t, "chain-a", got.ChainID)
+	require.Equal(t, "node-a", got.NodeID)
+	require.Equal(t, time.Hour, got.Interval)
+
+	_, err = stateSyncUpload(config.ModeValidator, uploading, "chain-a", "node-a")
+	require.Error(t, err)
 }

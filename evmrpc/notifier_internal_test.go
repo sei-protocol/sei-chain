@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -391,10 +391,10 @@ func TestUnreadReceiptTotals(t *testing.T) {
 	require.Equal(t, uint64(111000), totals.gasUsed)
 }
 
-// versionedReceiptStore is a receipt.ReceiptStore whose only working method
+// versionedReceiptStore is a receiptdb.ReceiptStore whose only working method
 // is LatestVersion.
 type versionedReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	latest atomic.Int64
 }
 
@@ -427,13 +427,13 @@ func TestAwaitReceipts(t *testing.T) {
 	})
 
 	t.Run("no receipt store", func(t *testing.T) {
-		require.ErrorIs(t, awaitReceipts(nil, 10, time.Second), receipt.ErrNotConfigured)
+		require.ErrorIs(t, awaitReceipts(nil, 10, time.Second), receiptdb.ErrNotConfigured)
 	})
 }
 
-// panickingReceiptStore is a receipt.ReceiptStore whose LatestVersion panics with panicWith().
+// panickingReceiptStore is a receiptdb.ReceiptStore whose LatestVersion panics with panicWith().
 type panickingReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	panicWith func() any
 }
 
@@ -441,7 +441,7 @@ func (s *panickingReceiptStore) LatestVersion() int64 {
 	panic(s.panicWith())
 }
 
-func subscriptionAPIWithReceiptStore(store receipt.ReceiptStore) *SubscriptionAPI {
+func subscriptionAPIWithReceiptStore(store receiptdb.ReceiptStore) *SubscriptionAPI {
 	k := &keeper.Keeper{}
 	k.SetReceiptStoreForTesting(store)
 	return &SubscriptionAPI{logFetcher: &LogFetcher{k: k}}
@@ -514,6 +514,7 @@ func TestNewHeadsDroppedBlocksAreCounted(t *testing.T) {
 		a.noteNewHeadEvent(height)
 	}
 	dropNewHeadWithoutBaseFee(17, errors.New("state at height 16 is unavailable"))
+	dropNewHeadWithoutState(18, errors.New("state at height 18 is unavailable"))
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &rm))
@@ -529,5 +530,5 @@ func TestNewHeadsDroppedBlocksAreCounted(t *testing.T) {
 			}
 		}
 	}
-	require.Equal(t, map[string]int64{newHeadsDropMissed: 3, newHeadsDropBaseFeeUnavailable: 1}, byReason)
+	require.Equal(t, map[string]int64{newHeadsDropMissed: 3, newHeadsDropBaseFeeUnavailable: 1, newHeadsDropStateUnavailable: 1}, byReason)
 }
