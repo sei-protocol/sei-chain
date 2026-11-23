@@ -93,6 +93,7 @@ func newRecvState(cipher cipher.AEAD) *recvState {
 
 var _ Conn = (*SecretConnection)(nil)
 
+// Challenge is the shared 32-byte authentication challenge of a secret connection.
 type Challenge [32]byte
 
 // SecretConnection implements Conn.

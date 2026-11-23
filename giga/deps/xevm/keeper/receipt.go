@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	receipts "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -34,7 +34,7 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txInde
 	store := ctx.TransientStore(k.transientStoreKey)
 	bz := store.Get(types.NewTransientReceiptKey(txIndex, txHash))
 	if bz == nil {
-		return nil, receipts.ErrNotFound
+		return nil, receiptdb.ErrNotFound
 	}
 	r := &types.Receipt{}
 	if err := r.Unmarshal(bz); err != nil {
@@ -53,14 +53,14 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if k.receiptStore == nil {
-		return nil, receipts.ErrNotConfigured
+		return nil, receiptdb.ErrNotConfigured
 	}
 	r, err := k.receiptStore.GetReceipt(ctx, txHash)
 	if err == nil {
 		return convertReceipt(r), nil
 	}
 	// Only fall back to legacy store for a not found error.
-	if !errors.Is(err, receipts.ErrNotFound) {
+	if !errors.Is(err, receiptdb.ErrNotFound) {
 		return nil, err
 	}
 
@@ -68,7 +68,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	store := k.GetKVStore(ctx)
 	bz := store.Get(types.ReceiptKey(txHash))
 	if bz == nil {
-		return nil, receipts.ErrNotFound
+		return nil, receiptdb.ErrNotFound
 	}
 
 	var legacy types.Receipt
@@ -81,7 +81,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 // Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if k.receiptStore == nil {
-		return nil, receipts.ErrNotConfigured
+		return nil, receiptdb.ErrNotConfigured
 	}
 	r, err := k.receiptStore.GetReceiptFromStore(ctx, txHash)
 	if err != nil {
@@ -102,7 +102,7 @@ func (k *Keeper) GetReceiptWithRetry(goCtx context.Context, ctx sdk.Context, txH
 		}
 
 		// If it's not a "not found" error, return immediately
-		if !errors.Is(err, receipts.ErrNotFound) {
+		if !errors.Is(err, receiptdb.ErrNotFound) {
 			return nil, err
 		}
 

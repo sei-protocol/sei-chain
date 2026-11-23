@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +21,7 @@ func TestLogsErrorNotificationJSON(t *testing.T) {
 	}{
 		{
 			name: "oversized block",
-			err:  &oversizedBlockError{height: 42, err: receipt.ErrTooManyLogs},
+			err:  &oversizedBlockError{height: 42, err: logfilter.ErrTooManyLogs},
 			want: `{"error":"logs of block 42 skipped: query matches too many logs","blockNumber":"0x2a"}`,
 		},
 		{

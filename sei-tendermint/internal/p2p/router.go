@@ -156,7 +156,7 @@ func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 func (r *Router) Giga() utils.Option[GigaRouter] { return r.giga }
 
 // OpenChannel opens a new channel for the given message type.
-func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
+func (r *Router) OpenChannel[T gogoproto.Message](chDesc ChannelDescriptor[T]) (*Channel[T], error) {
 	if chDesc.ID > math.MaxUint8 {
 		return nil, fmt.Errorf("channel ID %d exceeds the one-byte wire limit", chDesc.ID)
 	}
@@ -232,6 +232,8 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						pexAddrs = r.Advertise(MaxPexAddrs)
 					}
 					spec := handshakeSpec{
+						NodeKey:  r.privKey,
+						IsServer: true,
 						SelfAddr: r.options.SelfAddress,
 						// Listener has to send pex data, so that dialer can learn about more peers in
 						// case listener does not have capacity for new connections.
@@ -240,16 +242,15 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
 						PexAddrs: pexAddrs,
 					}
-					var offer utils.Option[handshakeOffer]
 					giga, hasGiga := r.giga.Get()
 					if hasGiga {
-						spec, offer = giga.fillInboundHandshake(spec)
+						spec = giga.fillInboundHandshake(spec)
 					}
-					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, spec, offer)
+					hConn, err := handshake(handshakeCtx, tcpConn, spec)
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
-					if hasGiga && hConn.msg.SeiGigaConnection {
+					if hasGiga && hConn.msg.Giga.IsPresent() {
 						release()
 						return giga.RunInboundConn(ctx, hConn)
 					}
@@ -305,10 +306,11 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 					var info types.NodeInfo
 					err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
 						var err error
-						hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
-							SelfAddr:          r.options.SelfAddress,
-							SeiGigaConnection: false,
-						}, utils.None[handshakeOffer]())
+						hConn, err = handshake(ctx, tcpConn, handshakeSpec{
+							NodeKey:  r.privKey,
+							IsServer: false,
+							SelfAddr: r.options.SelfAddress,
+						})
 						if err != nil {
 							return fmt.Errorf("handshake(): %w", err)
 						}

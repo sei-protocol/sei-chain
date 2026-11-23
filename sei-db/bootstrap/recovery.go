@@ -11,8 +11,8 @@ import (
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/littidx"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
@@ -68,7 +68,7 @@ func readStoreHeads(cfg *config.GigaStorageConfig) (storeHeads, error) {
 	}
 	if cfg.ReceiptDBConfig.Enable {
 		logger.Info("Reading a store head", "store", "receipt store")
-		heads.receiptStore, err = gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
+		heads.receiptStore, err = littidx.GetLatestBlock(cfg.ReceiptDBConfig)
 		if err != nil {
 			return storeHeads{}, fmt.Errorf("read receipt store head: %w", err)
 		}
@@ -135,7 +135,7 @@ func requireNoReceiptStoreWhileDisabled(cfg *config.GigaStorageConfig) error {
 	if cfg.ReceiptDBConfig.Enable {
 		return nil
 	}
-	head, err := gigareceipt.GetLatestBlock(cfg.ReceiptDBConfig)
+	head, err := littidx.GetLatestBlock(cfg.ReceiptDBConfig)
 	if err != nil {
 		return fmt.Errorf("read disabled receipt store head: %w", err)
 	}
@@ -271,7 +271,7 @@ func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint
 	}
 	if cfg.ReceiptDBConfig.Enable {
 		timer.SetPhase("receipt_store")
-		if err := gigareceipt.PruneAfter(cfg.ReceiptDBConfig, target); err != nil {
+		if err := littidx.PruneAfter(cfg.ReceiptDBConfig, target); err != nil {
 			return fmt.Errorf("roll back the receipt store: %w", err)
 		}
 	}
@@ -280,12 +280,12 @@ func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint
 }
 
 // openReceiptStore opens the receipt store, returning nil when receipts are disabled.
-func openReceiptStore(cfg *config.GigaStorageConfig) (receipt.ReceiptStore, error) {
+func openReceiptStore(cfg *config.GigaStorageConfig) (receiptdb.ReceiptStore, error) {
 	if !cfg.ReceiptDBConfig.Enable {
 		return nil, nil
 	}
 	// Giga has no legacy receipt KVStore.
-	receiptDB, err := gigareceipt.NewReceiptStore(cfg.ReceiptDBConfig, nil)
+	receiptDB, err := littidx.NewReceiptStore(cfg.ReceiptDBConfig, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open the receipt store's files under %s: %w",
 			cfg.ReceiptDBConfig.DBDirectory, err)

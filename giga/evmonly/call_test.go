@@ -17,6 +17,7 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -258,11 +259,11 @@ func TestExecutorExecutesAgainstTheGivenView(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, current.Return())
 
-	result, err := executor.CallAt(t.Context(), view, blockCtx, msg, CallOverrides{})
+	result, err := executor.CallAt(t.Context(), view, blockCtx, msg, abevm.CallOverrides{})
 	require.NoError(t, err)
 	require.Equal(t, value.Bytes(), result.Return())
 
-	estimate, _, err := executor.EstimateGasAt(t.Context(), view, blockCtx, msg, 0, CallOverrides{})
+	estimate, _, err := executor.EstimateGasAt(t.Context(), view, blockCtx, msg, 0, abevm.CallOverrides{})
 	require.NoError(t, err)
 	require.Greater(t, estimate, params.TxGas)
 }
@@ -285,7 +286,7 @@ func TestExecutorAppliesCallOverrides(t *testing.T) {
 		name       string
 		to         common.Address
 		data       []byte
-		overrides  CallOverrides
+		overrides  abevm.CallOverrides
 		wantReturn []byte
 		wantErr    bool
 	}{
@@ -293,25 +294,25 @@ func TestExecutorAppliesCallOverrides(t *testing.T) {
 		{
 			name:       "state diff",
 			to:         contract,
-			overrides:  CallOverrides{State: export.StateOverride{contract: {StateDiff: map[common.Hash]common.Hash{slot: replaced}}}},
+			overrides:  abevm.CallOverrides{State: export.StateOverride{contract: {StateDiff: map[common.Hash]common.Hash{slot: replaced}}}},
 			wantReturn: replaced.Bytes(),
 		},
 		{
 			name:       "replaced storage",
 			to:         contract,
-			overrides:  CallOverrides{State: export.StateOverride{contract: {State: map[common.Hash]common.Hash{}}}},
+			overrides:  abevm.CallOverrides{State: export.StateOverride{contract: {State: map[common.Hash]common.Hash{}}}},
 			wantReturn: common.Hash{}.Bytes(),
 		},
 		{
 			name:       "code",
 			to:         moved,
-			overrides:  CallOverrides{State: export.StateOverride{moved: {Code: &code}}},
+			overrides:  abevm.CallOverrides{State: export.StateOverride{moved: {Code: &code}}},
 			wantReturn: common.Hash{}.Bytes(),
 		},
 		{
 			name: "block number",
 			to:   moved,
-			overrides: CallOverrides{
+			overrides: abevm.CallOverrides{
 				State: export.StateOverride{moved: {Code: (*hexutil.Bytes)(&numberReturnCode)}},
 				Block: utils.Some(export.BlockOverrides{Number: (*hexutil.Big)(new(big.Int).SetUint64(uint64(number)))}),
 			},
@@ -321,19 +322,19 @@ func TestExecutorAppliesCallOverrides(t *testing.T) {
 			name:       "moved precompile",
 			to:         moved,
 			data:       []byte{0xca, 0xfe},
-			overrides:  CallOverrides{State: export.StateOverride{identity: {MovePrecompileTo: &moved}}},
+			overrides:  abevm.CallOverrides{State: export.StateOverride{identity: {MovePrecompileTo: &moved}}},
 			wantReturn: []byte{0xca, 0xfe},
 		},
 		{
 			name:      "state and state diff together",
 			to:        contract,
-			overrides: CallOverrides{State: export.StateOverride{contract: {State: map[common.Hash]common.Hash{}, StateDiff: map[common.Hash]common.Hash{}}}},
+			overrides: abevm.CallOverrides{State: export.StateOverride{contract: {State: map[common.Hash]common.Hash{}, StateDiff: map[common.Hash]common.Hash{}}}},
 			wantErr:   true,
 		},
 		{
 			name:      "unsupported block field",
 			to:        contract,
-			overrides: CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})},
+			overrides: abevm.CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})},
 			wantErr:   true,
 		},
 	} {
@@ -363,23 +364,23 @@ func TestExecutorAppliesCallOverrides(t *testing.T) {
 		msg := callMessage(testAddress(0x01), &moved)
 		blockCtx := blockContext(big.NewInt(testChainID))
 
-		plain, _, err := executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0, CallOverrides{})
+		plain, _, err := executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0, abevm.CallOverrides{})
 		require.NoError(t, err)
 		withCode, _, err := executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
-			CallOverrides{State: export.StateOverride{moved: {Code: &code}}})
+			abevm.CallOverrides{State: export.StateOverride{moved: {Code: &code}}})
 		require.NoError(t, err)
 		require.Equal(t, params.TxGas, plain)
 		require.Greater(t, withCode, params.TxGas)
 
 		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
-			CallOverrides{State: export.StateOverride{identity: {MovePrecompileTo: &moved}}})
+			abevm.CallOverrides{State: export.StateOverride{identity: {MovePrecompileTo: &moved}}})
 		require.NoError(t, err)
 		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
-			CallOverrides{State: export.StateOverride{contract: {MovePrecompileTo: &moved}}})
+			abevm.CallOverrides{State: export.StateOverride{contract: {MovePrecompileTo: &moved}}})
 		require.ErrorContains(t, err, "is not a precompile")
 
 		_, _, err = executor.EstimateGasAt(t.Context(), newMemoryGigaSnapshot(7), blockCtx, msg, 0,
-			CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})})
+			abevm.CallOverrides{Block: utils.Some(export.BlockOverrides{BeaconRoot: &common.Hash{}})})
 		require.Error(t, err)
 	})
 }

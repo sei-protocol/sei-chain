@@ -21,8 +21,7 @@ func init() {
 	sdk.DefaultPowerReduction = sdk.NewIntFromBigInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
 }
 
-// createTestInput Returns a simapp with custom StakingKeeper
-// to avoid messing with the hooks.
+// createTestInput returns an App whose StakingKeeper has no hooks set.
 func createTestInput(t *testing.T) (*codec.LegacyAmino, *seiapp.App, sdk.Context) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})

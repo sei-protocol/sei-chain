@@ -27,7 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -337,7 +337,7 @@ func (c *v2Chain) settle() {
 	store := c.app.EvmKeeper.ReceiptStore()
 	require.NotNil(c.t, store)
 	require.Eventually(c.t, func() bool { return store.LatestVersion() >= latest }, settleTimeout, time.Millisecond)
-	require.NoError(c.t, receipt.PinVersions(store, 1, store.LatestVersion()))
+	require.NoError(c.t, receiptdb.PinVersions(store, 1, store.LatestVersion()))
 }
 
 func freePort(t *testing.T) int {

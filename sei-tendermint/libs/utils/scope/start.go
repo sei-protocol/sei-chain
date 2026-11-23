@@ -64,7 +64,7 @@ type JoinHandle[R any] struct {
 }
 
 // Spawn1 is the same as Scope.Spawn, but allows awaiting completion of a task and getting its result.
-func Spawn1[R any](s Scope, t func() (R, error)) JoinHandle[R] {
+func (s Scope) Spawn1[R any](t func() (R, error)) JoinHandle[R] {
 	result := utils.NewAtomicSend[*R](nil)
 	s.Spawn(func() error {
 		v, err := t()

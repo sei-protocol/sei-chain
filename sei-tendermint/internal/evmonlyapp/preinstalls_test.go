@@ -9,6 +9,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands/preinstalls"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -29,9 +30,9 @@ func newEVMOnlyTestAppWithPreinstalls(t *testing.T) (*evmOnlyApplication, []prei
 		accounts[account.Address] = evmonly.GenesisAccount{Nonce: account.Nonce, Code: account.Code, Storage: account.Storage}
 	}
 	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: accounts}).(*evmOnlyApplication)
-	_, err = app.InitChain(evmOnlyTestInitChain())
+	err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1))
 	return app, full
 }
 
@@ -55,7 +56,7 @@ func TestEVMOnlyPreinstalledCreate2ProxyDeploys(t *testing.T) {
 	msg := callMessage(common.Address{0xf1}, &arachnidCreate2Proxy)
 	msg.Data = append(salt.Bytes(), init...)
 
-	result, err := app.EvmCall(t.Context(), msg, evmonly.CallOverrides{})
+	result, err := app.EvmCall(t.Context(), msg, abevm.CallOverrides{})
 
 	require.NoError(t, err)
 	require.False(t, result.Failed(), "%v", result.Err)
@@ -67,7 +68,7 @@ func TestEVMOnlyPreinstalledPermit2HasTheChainsDomainSeparator(t *testing.T) {
 	msg := callMessage(common.Address{0xf1}, &permit2)
 	msg.Data = crypto.Keccak256([]byte("DOMAIN_SEPARATOR()"))[:4]
 
-	result, err := app.EvmCall(t.Context(), msg, evmonly.CallOverrides{})
+	result, err := app.EvmCall(t.Context(), msg, abevm.CallOverrides{})
 
 	require.NoError(t, err)
 	require.False(t, result.Failed(), "%v", result.Err)
