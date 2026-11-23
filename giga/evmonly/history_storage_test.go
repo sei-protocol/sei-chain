@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,26 +130,67 @@ func executeHistoryChain(t *testing.T, executor *Executor, state *MemoryState, l
 func TestBlockHashAnswersFromTheParentAndHistoryStorage(t *testing.T) {
 	const number = params.HistoryServeWindow + 809
 	history := NewMemoryState()
-	for _, n := range []uint64{number - 2, number - params.HistoryServeWindow, number - params.HistoryServeWindow - 1} {
+	for _, n := range []uint64{number - 1, number - 2, number - blockHashWindow, number - blockHashWindow - 1} {
 		history.SetState(params.HistoryStorageAddress, historySlot(n), historyTestHash(n))
 	}
-	ctx := BlockContext{Number: number, ParentHash: historyTestHash(number - 1)}
+	parent := common.Hash{0xfe}
 
 	for _, tc := range []struct {
-		name string
-		n    uint64
-		want common.Hash
+		name    string
+		parent  common.Hash
+		history HistoryReader
+		n       uint64
+		want    common.Hash
 	}{
-		{"parent", number - 1, historyTestHash(number - 1)},
-		{"stored", number - 2, historyTestHash(number - 2)},
-		{"oldest served", number - params.HistoryServeWindow, historyTestHash(number - params.HistoryServeWindow)},
-		{"past the serve window", number - params.HistoryServeWindow - 1, common.Hash{}},
-		{"current", number, common.Hash{}},
-		{"future", number + 1, common.Hash{}},
+		{"parent from the context", parent, history, number - 1, parent},
+		{"parent from history when the context has none", common.Hash{}, history, number - 1, historyTestHash(number - 1)},
+		{"stored", parent, history, number - 2, historyTestHash(number - 2)},
+		{"oldest answered", parent, history, number - blockHashWindow, historyTestHash(number - blockHashWindow)},
+		{"past the window", parent, history, number - blockHashWindow - 1, common.Hash{}},
+		{"current", parent, history, number, common.Hash{}},
+		{"future", parent, history, number + 1, common.Hash{}},
+		{"parent without history", parent, nil, number - 1, parent},
+		{"stored without history", parent, nil, number - 2, common.Hash{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, blockHash(ctx, history, tc.n))
+			hashes := newBlockHashes(BlockContext{Number: number, ParentHash: tc.parent}, tc.history)
+			require.Equal(t, tc.want, hashes.get(tc.n))
+			require.Equal(t, tc.want, hashes.get(tc.n), "a repeated read")
 		})
+	}
+}
+
+func TestEstimateHeaderChainWalksBlockHashes(t *testing.T) {
+	const number = 300
+	history := NewMemoryState()
+	for n := uint64(number - blockHashWindow); n < number; n++ {
+		history.SetState(params.HistoryStorageAddress, historySlot(n), historyTestHash(n))
+	}
+	ctx := blockContext(big.NewInt(testChainID))
+	ctx.Number = number
+	hashes := newBlockHashes(ctx, history)
+
+	getHash := core.GetHashFn(estimateHeader(ctx, hashes, abevm.CallOverrides{}), estimateChainContext{hashes: hashes})
+
+	for _, n := range []uint64{number - 1, number - 2, number - blockHashWindow} {
+		require.Equal(t, historyTestHash(n), getHash(n), "block %d", n)
+	}
+	require.Equal(t, common.Hash{}, getHash(number-blockHashWindow-1))
+}
+
+// BenchmarkBlockHash reads every hash BLOCKHASH answers from one block context, repeatedly.
+func BenchmarkBlockHash(b *testing.B) {
+	const number = 10_000
+	history := NewMemoryState()
+	for n := uint64(number - blockHashWindow); n < number; n++ {
+		history.SetState(params.HistoryStorageAddress, historySlot(n), historyTestHash(n))
+	}
+	getHash := EVMBlockContext(BlockContext{Number: number}, history).GetHash
+	b.ReportAllocs()
+	for b.Loop() {
+		for n := uint64(number - blockHashWindow); n < number; n++ {
+			_ = getHash(n)
+		}
 	}
 }
 
@@ -212,4 +256,11 @@ func TestBlockHashOpcodeReadsHistoryStorageInACall(t *testing.T) {
 		}
 		require.Equal(t, want.Bytes(), result.ReturnData, "BLOCKHASH(%d)", n)
 	}
+}
+
+func TestExecutorRefusesACustomPrecompileAtTheHistoryStorage(t *testing.T) {
+	registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{params.HistoryStorageAddress: counterPrecompile{}})
+	require.Panics(t, func() {
+		NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(NewMemoryState()))
+	})
 }

@@ -90,7 +90,8 @@ type Application interface {
 	// admitted at.
 	EvmMinGasPrice() *big.Int
 	// EvmBlockContext returns the block context block executed at, with BLOCKHASH reading earlier
-	// blocks' hashes from state, the state before block or any state within it.
+	// blocks' hashes from state, the state before block or any state within it. A nil state
+	// answers only the parent's hash.
 	EvmBlockContext(block BlockRef, state vm.StateDB) (vm.BlockContext, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest
 	// committed state when height is rpc.LatestBlockNumber, held until the returned handle is closed.

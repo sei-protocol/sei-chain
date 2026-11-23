@@ -74,8 +74,8 @@ func (e *Executor) runBlockStart(block BlockContext, source StateReader, replay 
 	return changes, nil
 }
 
-// storeParentHash makes the EIP-2935 system call that records block's parent
-// hash. It does nothing before Prague or for a block without a parent.
+// storeParentHash makes the EIP-2935 system call that records block's parent hash. It does
+// nothing before Prague or when block.ParentHash is zero, which marks a block without a parent.
 func (e *Executor) storeParentHash(block BlockContext, stateDB *nativeStateDB) error {
 	chainConfig := e.chainConfig(block)
 	if block.ParentHash == (common.Hash{}) || !chainConfig.IsPrague(new(big.Int).SetUint64(block.Number), block.Time) {
@@ -83,6 +83,7 @@ func (e *Executor) storeParentHash(block BlockContext, stateDB *nativeStateDB) e
 	}
 	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(block, stateDB), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
+	// No block access list: the chain config does not enable Amsterdam.
 	core.ProcessParentBlockHash(block.ParentHash, evm, nil)
 	if err := stateDB.Error(); err != nil {
 		return fmt.Errorf("store parent hash of block %d: %w", block.Number, err)
