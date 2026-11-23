@@ -1,6 +1,7 @@
 package node
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -93,5 +94,7 @@ func TestStoreRestoreAnchorRejectsAHeightBelowActivation(t *testing.T) {
 	layout := AutobahnLayout{PersistentStateDir: psd, AppHashVaultDir: filepath.Join(psd, "app_hash_vault")}
 
 	err := StoreRestoreAnchor(layout, config.ModeFull, gigaconfig.StorageConfig{}, &types.GenesisDoc{InitialHeight: 10}, 9, [32]byte{1})
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrBelowGigaActivation)
+	_, err = os.Stat(layout.AppHashVaultDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

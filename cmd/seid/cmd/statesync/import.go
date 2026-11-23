@@ -127,15 +127,19 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 	return nil
 }
 
-// prepareHome checks the manifest of the archive against the home of t and src, removes the FlatKV
-// data and the app-hash vault of an earlier import when resume is set, and checks that the home has
-// room for the import.
+// prepareHome checks the manifest of the archive against the home of t and src, and the height of
+// the archive against the giga activation height of t. It then removes the FlatKV data and the
+// app-hash vault of an earlier import when resume is set, and checks that the home has room for the
+// import.
 func prepareHome(t target, lock *flatkv.RootLock, src source, m *ssarchive.Manifest, resume bool, stop stepHook) error {
 	if m.ChainID != t.chainID {
 		return fmt.Errorf("%w: archive chain id %q, genesis chain id %q", errOtherChain, m.ChainID, t.chainID)
 	}
 	if src.height != 0 && m.Height != src.height {
 		return fmt.Errorf("%w: archive height %d, want %d", errOtherHeight, m.Height, src.height)
+	}
+	if err := node.RequireRestoreHeight(t.genDoc, m.Height); err != nil {
+		return err
 	}
 	if resume {
 		if err := lock.Clear(); err != nil {

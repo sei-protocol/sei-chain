@@ -53,6 +53,23 @@ func epochOfRoad(registry *atypes.EpochRegistry, road atypes.RoadHeight) (*atype
 	return nil, fmt.Errorf("the epoch registry of the checkpoint holds no epoch of road %d", road)
 }
 
+// ErrBelowGigaActivation is returned for a restore height below the giga activation height, which
+// has no app hash.
+var ErrBelowGigaActivation = errors.New("height is below the giga activation height, so it has no app hash")
+
+// RequireRestoreHeight returns ErrBelowGigaActivation unless height is at or above the giga
+// activation height of the chain that genDoc starts.
+func RequireRestoreHeight(genDoc *types.GenesisDoc, height int64) error {
+	activationHeight, err := gigaActivationHeight(genDoc)
+	if err != nil {
+		return err
+	}
+	if height < 1 || uint64(height) < activationHeight { //nolint:gosec // height is positive.
+		return fmt.Errorf("%w: height %d, activation height %d", ErrBelowGigaActivation, height, activationHeight)
+	}
+	return nil
+}
+
 // StoreRestoreAnchor stores appHash as the app hash of height, the first record of the empty
 // app-hash vault of layout. mode, storage and genDoc are the node mode, the [giga.storage] settings
 // and the genesis doc that the node starts with.
@@ -64,14 +81,14 @@ func StoreRestoreAnchor(
 	height int64,
 	appHash [32]byte,
 ) (retErr error) {
+	if err := RequireRestoreHeight(genDoc, height); err != nil {
+		return err
+	}
 	storageConfig, err := buildGigaStorageConfig(layout.PersistentStateDir, mode, storage, genDoc)
 	if err != nil {
 		return fmt.Errorf("build Autobahn storage config: %w", err)
 	}
 	cfg := *storageConfig.AppHashBuilderConfig
-	if height < 1 || uint64(height) < cfg.GigaActivationHeight { //nolint:gosec // height is positive.
-		return fmt.Errorf("height %d is below the giga activation height %d, so it has no app hash", height, cfg.GigaActivationHeight)
-	}
 	cfg.HashVaultConfig.Path = layout.AppHashVaultDir
 	hashVault, err := vault.NewStandardHashVault(cfg.HashVaultConfig, cfg.ChainID, cfg.GigaActivationHeight)
 	if err != nil {

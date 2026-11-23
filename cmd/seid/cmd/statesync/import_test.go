@@ -178,6 +178,19 @@ func TestImportRejectsAnotherChain(t *testing.T) {
 	requireUntouched(t, tg)
 }
 
+func TestImportRejectsAnArchiveBelowTheGigaActivationHeight(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	tg := freshHome(t)
+	tg.genDoc.InitialHeight = height + 1
+
+	err := runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard)
+
+	require.ErrorIs(t, err, node.ErrBelowGigaActivation)
+	require.NoFileExists(t, tg.layout.RestoreProofFile)
+	requireUntouched(t, tg)
+}
+
 func TestImportRejectsAChangedRow(t *testing.T) {
 	p := newProducer(t)
 	height := p.commit(t, 1)
