@@ -7,7 +7,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 )
 
 // maxWritesPerTransaction is the most keys one transfer of any kind writes: an ERC20 transfer writes the
@@ -31,7 +31,7 @@ type simulatedBlock struct {
 
 	// The receipts written to the receipt store, empty when receipts are disabled. They are final
 	// when the block is built; execution does not change them.
-	receiptRecords []receipt.ReceiptRecord
+	receiptRecords []receipttypes.ReceiptRecord
 
 	// The total size of the receipt bodies, which the run reports as bytes written.
 	receiptBytes int64

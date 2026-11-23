@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/binary"
 	"math/big"
 	"testing"
 
@@ -14,12 +15,14 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -63,13 +66,13 @@ func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	require.Equal(t, 0, app.EvmBaseFee().Sign())
 	require.Equal(t, 0, app.EvmMinGasPrice().Sign())
 	require.Equal(t, uint64(0), app.EvmGasLimit())
-	_, err := app.EvmCall(t.Context(), &ethcore.Message{}, evmonly.CallOverrides{})
+	_, err := app.EvmCall(t.Context(), &ethcore.Message{}, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGasAfterCalls(t.Context(), nil, &ethcore.Message{}, 0, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
-	_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), nil, &ethcore.Message{}, 0, &ethtypes.Header{Number: big.NewInt(1)}, evmonly.CallOverrides{})
+	_, _, err = app.EvmEstimateGasAfterCallsAt(t.Context(), nil, &ethcore.Message{}, 0, &ethtypes.Header{Number: big.NewInt(1)}, proxy.CallOverrides{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmCreateAccessList(t.Context(), &ethcore.Message{})
 	require.ErrorIs(t, err, errMockAppNoExecution)
@@ -309,6 +312,46 @@ func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
 
 	got := app.EvmBalance(common.Address{}, nil)
 	require.Equal(t, want, got.ToBig())
+}
+
+// TestMockAppCommitAdvancesTheEpochRegistry pins that a mock-app commit derives the next epoch
+// on a closing road. Deleting the Changes call leaves the window on epoch 1.
+func TestMockAppCommitAdvancesTheEpochRegistry(t *testing.T) {
+	const length = 3
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage, err := bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for n := uint64(1); n <= length; n++ {
+			var hash [32]byte
+			binary.BigEndian.PutUint64(hash[:8], n)
+			require.NoError(t, storage.AppHashBuilder().ReportBlockHash(context.Background(), n, hash))
+		}
+		require.NoError(t, storage.Close())
+	})
+
+	key := atypes.GenSecretKey(utils.TestRng())
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, 1, length, []proxy.ValidatorUpdate{{PubKey: key.Public(), Power: 1}})
+	require.NoError(t, err)
+
+	app := NewMockApp(mockAppFixture{})
+	app.storage = utils.Some(storage)
+	app.epochRegistry = epochs
+	_, err = app.InitChain(&proxy.RequestInitChain{InitialHeight: 1})
+	require.NoError(t, err)
+	for height := int64(1); height <= length; height++ {
+		_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{Header: &proxy.Header{Height: height}})
+		require.NoError(t, err)
+		_, err = app.Commit(t.Context())
+		require.NoError(t, err)
+	}
+	registry, err := app.EpochRegistry()
+	require.NoError(t, err)
+	window := registry.Epochs()
+	require.Equal(t, atypes.EpochIndex(2), window[len(window)-1].EpochIndex())
 }
 
 const mockAppFixtureEVMChainID uint64 = 4242

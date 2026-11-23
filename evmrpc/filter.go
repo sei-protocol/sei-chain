@@ -25,7 +25,8 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -189,7 +190,7 @@ type logCollector interface {
 // pooledCollector for reused slice
 type pooledCollector struct {
 	logs   *[]*ethtypes.Log
-	budget *receipt.LogBudget
+	budget *logfilter.LogBudget
 }
 
 func (c *pooledCollector) Append(log *ethtypes.Log) error {
@@ -334,7 +335,7 @@ func NewFilterAPI(
 		filterConfig.maxLog = DefaultMaxLogLimit
 	}
 	if filterConfig.maxLogBytes <= 0 {
-		filterConfig.maxLogBytes = receipt.DefaultMaxLogBytes
+		filterConfig.maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
 	if filterConfig.maxFilters == 0 {
 		filterConfig.maxFilters = DefaultMaxFilters
@@ -985,24 +986,24 @@ func ComputeBlockBounds(latest, earliest int64, crit filters.FilterCriteria) (in
 	return begin, end, nil
 }
 
-func (f *LogFetcher) newLogBudget(limit int64) *receipt.LogBudget {
+func (f *LogFetcher) newLogBudget(limit int64) *logfilter.LogBudget {
 	maxLogBytes := f.filterConfig.maxLogBytes
 	if maxLogBytes <= 0 {
-		maxLogBytes = receipt.DefaultMaxLogBytes
+		maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
-	return receipt.NewLogBudget(limit, maxLogBytes)
+	return logfilter.NewLogBudget(limit, maxLogBytes)
 }
 
 // storeCandidateBudget caps estimated heap bytes while the litt store
 // materializes tag-index matches. Count is not capped here because raw store
 // matches can include logs dropped during eth normalization (synthetic /
 // non-EVM-visible receipts); the authoritative count+byte cap runs there.
-func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
+func (f *LogFetcher) storeCandidateBudget() *logfilter.LogBudget {
 	maxLogBytes := f.filterConfig.maxLogBytes
 	if maxLogBytes <= 0 {
-		maxLogBytes = receipt.DefaultMaxLogBytes
+		maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
-	return receipt.NewLogBudgetBytesOnly(maxLogBytes)
+	return logfilter.NewLogBudgetBytesOnly(maxLogBytes)
 }
 
 // withBounds returns crit fixed to the numeric range [begin, end]. A blockHash crit is returned
@@ -1065,8 +1066,8 @@ func (f *LogFetcher) logsInRange(ctx context.Context, crit filters.FilterCriteri
 		// #nosec G115 -- begin and end are validated to be positive block heights above
 		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit, limit); rangeErr == nil {
 			return logs, end, nil
-		} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
-			// A real error (including receipt.ErrTooManyLogs) short-circuits;
+		} else if !errors.Is(rangeErr, receiptdb.ErrRangeQueryNotSupported) {
+			// A real error (including logfilter.ErrTooManyLogs) short-circuits;
 			// only "unsupported" falls through to the block-by-block path.
 			return nil, 0, rangeErr
 		}
@@ -1339,7 +1340,7 @@ func prunedLogsError(crit filters.FilterCriteria, cursor, earliest int64) error 
 
 // exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
 func exceedsLogCaps(err error) bool {
-	return errors.Is(err, receipt.ErrTooManyLogs) || errors.Is(err, receipt.ErrTooManyLogBytes)
+	return errors.Is(err, logfilter.ErrTooManyLogs) || errors.Is(err, logfilter.ErrTooManyLogBytes)
 }
 
 // oversizedBlockError reports a block whose logs matching a filter alone exceed the log caps.
@@ -1448,7 +1449,7 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
-		return nil, receipt.ErrNotConfigured
+		return nil, receiptdb.ErrNotConfigured
 	}
 
 	budget := f.newLogBudget(limit)
@@ -1511,7 +1512,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 // caches receipts in globalBlockCache) to build the filtered tx mapping, then
 // reconstructs logs from cached receipts — avoiding the double receipt fetch
 // that a full collectLogs rebuild would require.
-func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria, budget *receipt.LogBudget) ([]*ethtypes.Log, error) {
+func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria, budget *logfilter.LogBudget) ([]*ethtypes.Log, error) {
 	ctxProvider := withRequestContext(ctx, f.ctxProvider)
 	// Collect unique block numbers from range query results
 	blockSet := make(map[uint64]struct{})
@@ -1621,7 +1622,7 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 }
 
 // GetLogsForBlockPooled appends a block's matching logs to a pooled result slice.
-func (f *LogFetcher) GetLogsForBlockPooled(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log, budget *receipt.LogBudget) error {
+func (f *LogFetcher) GetLogsForBlockPooled(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log, budget *logfilter.LogBudget) error {
 	collector := &pooledCollector{logs: result, budget: budget}
 	return f.collectLogs(ctx, block, crit, collector)
 }
@@ -1660,7 +1661,7 @@ func (f *LogFetcher) collectLogs(goCtx context.Context, block *coretypes.ResultB
 			if ctxErr := goCtx.Err(); ctxErr != nil {
 				return ctxErr
 			}
-			if errors.Is(err, receipt.ErrNotConfigured) {
+			if errors.Is(err, receiptdb.ErrNotConfigured) {
 				return err
 			}
 			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)

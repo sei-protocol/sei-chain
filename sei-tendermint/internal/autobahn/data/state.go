@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -27,8 +27,10 @@ var ErrAppHashDivergence = errors.New("AppHash divergence")
 
 // Config is the config for the data State.
 type Config struct {
-	// Registry is the authoritative source of committee and stake information.
-	Registry *epoch.Registry
+	// App supplies the retained epoch window at startup and epoch transitions.
+	App *proxy.EVMProxy
+	// GenesisTimestamp is the timestamp of the first proposal.
+	GenesisTimestamp time.Time
 }
 
 // blockEntry contains a FullCommitQC, its lane blocks, and its verifying epoch.
@@ -210,8 +212,14 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
 	status, ok := suffix.Status.Get()
+	// TODO: storage reconciliation must bring the registry row to the block store's suffix before
+	// loading. Until then, a suffix the row does not cover fails here.
+	registry, err := cfg.App.EpochRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("fetch epoch registry: %w", err)
+	}
 	if !ok {
-		genesis, err := cfg.Registry.Epoch(0)
+		genesis, err := registry.Epoch(0)
 		if err != nil {
 			return nil, fmt.Errorf("genesis epoch 0: %w", err)
 		}
@@ -237,7 +245,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		anchor:           utils.NewAtomicSend(Anchor{}),
 	}
 	for _, block := range suffix.Blocks {
-		epoch, err := cfg.Registry.Epoch(block.QC().QC().View().EpochIndex)
+		epoch, err := registry.Epoch(block.QC().QC().View().EpochIndex)
 		if err != nil {
 			return nil, fmt.Errorf("load block from BlockStore: %w", err)
 		}
@@ -250,7 +258,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		}
 		// The parent of the first stored road block may be pruned, so that road block is checked only
 		// at the first road height of the chain, where it must name no parent.
-		if n > inner.first || n == cfg.Registry.FirstRoad() {
+		if n > inner.first || (epoch.EpochIndex() == 0 && n == epoch.RoadRange().First) {
 			if err := block.Header().VerifyParent(inner.lastHeader()); err != nil {
 				return nil, fmt.Errorf("load block %d from BlockStore: %w", n, err)
 			}
@@ -275,9 +283,11 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 			return nil, fmt.Errorf("load AppQC from BlockStore: %w", err)
 		}
 	}
-	if err := inner.setAnchor(cfg.Registry); err != nil {
-		return nil, fmt.Errorf("set anchor: %w", err)
+	epochs, ok := registry.ForAnchor(status.First)
+	if !ok {
+		return nil, fmt.Errorf("epoch registry not ready for road %d: %w", status.First, types.ErrNotFound)
 	}
+	inner.setAnchor(epochs)
 	return inner, nil
 }
 
@@ -291,13 +301,8 @@ func (s *State) First() types.RoadHeight {
 	return s.blockStore.First()
 }
 
-// GenesisTimestamp returns the genesis timestamp.
-func (s *State) GenesisTimestamp() time.Time { return s.cfg.Registry.GenesisTimestamp() }
-
-// ClosingEpoch returns the epoch that road ends, if road is that epoch's last road.
-func (s *State) ClosingEpoch(road types.RoadHeight) utils.Option[types.EpochIndex] {
-	return s.cfg.Registry.ClosingEpoch(road)
-}
+// GenesisTimestamp returns the timestamp of the first proposal.
+func (s *State) GenesisTimestamp() time.Time { return s.cfg.GenesisTimestamp }
 
 // PushPartialBlock pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
@@ -607,9 +612,8 @@ func (s *State) appQCFromDB(n types.RoadHeight) (*types.AppQC, error) {
 	return nil, types.ErrPruned
 }
 
-// PushAppHash records the AppHash for road n and derives C_{E+2}
-// when n closes epoch E.
-func (s *State) PushAppHash(ctx context.Context, n types.RoadHeight, hash types.AppHash, weights map[types.PublicKey]uint64) error {
+// PushAppHash records the AppHash for road n.
+func (s *State) PushAppHash(ctx context.Context, n types.RoadHeight, hash types.AppHash) error {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
@@ -619,11 +623,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadHeight, hash types.
 		}
 		if n != inner.nextAppProposal {
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
-		}
-		// Durable before the cursor moves, so a crash cannot persist this proposal
-		// and leave its derived epoch unregistered.
-		if err := s.cfg.Registry.TryPushEpoch(n, weights); err != nil {
-			return fmt.Errorf("TryPushEpoch(): %w", err)
 		}
 		e := inner.blocks[n]
 		proposal := types.NewAppProposal(e.qc.QC().View(), hash)
@@ -755,6 +754,10 @@ func (s *State) PruneBefore(retainFrom types.RoadHeight) error {
 // In-memory block/QC/AppProposal/AppQC eviction is driven by persisted SuffixRange
 // changes. A QC is persisted only once all its blocks are available.
 func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.AppProposal) error) error {
+	registry, err := s.cfg.App.EpochRegistry()
+	if err != nil {
+		return fmt.Errorf("fetch epoch registry: %w", err)
+	}
 	for {
 		var blocks []*types.RoadBlock
 		var appProposals []*types.AppProposal
@@ -811,15 +814,27 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 		if err := s.blockStore.Flush(); err != nil {
 			return fmt.Errorf("flush BlockStore: %w", err)
 		}
+		epochs, ok := registry.ForAnchor(status.First)
+		if !ok {
+			// A missing anchor pair requires a fresh application snapshot. Missing epochs
+			// are fatal: returning from runPersist propagates the failure to the node.
+			registry, err = s.cfg.App.EpochRegistry()
+			if err != nil {
+				return fmt.Errorf("fetch epoch registry: %w", err)
+			}
+			epochs, ok = registry.ForAnchor(status.First)
+			if !ok {
+				return fmt.Errorf("epoch registry not ready for road %d: %w", status.First, types.ErrNotFound)
+			}
+		}
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
-			t := time.Now()
-			if inner.first < inner.persisted.First ||
-				(!inner.anchor.Load().First.IsPresent() && inner.persisted.First < inner.persisted.NextAppQC) {
-				if err := inner.setAnchor(s.cfg.Registry); err != nil {
-					return fmt.Errorf("inner.setAnchor(): %w", err)
-				}
+			// The anchor moves when the persisted low end advances, or when no anchor is
+			// set yet and status persists an AppQC.
+			if inner.first < status.First || (!inner.anchor.Load().First.IsPresent() && status.First < status.NextAppQC) {
+				inner.setAnchor(epochs)
 			}
+			t := time.Now()
 			for inner.first < inner.persisted.First {
 				e := inner.blocks[inner.first]
 				for _, b := range e.blocks {
@@ -837,23 +852,12 @@ func (s *State) runPersist(ctx context.Context, writeAppProposal func(*types.App
 			s.metrics.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
 			ctrl.Updated()
 		}
-		ei := s.Anchor().Load().Epochs[0].EpochIndex()
-		if err := s.cfg.Registry.PruneBefore(ei); err != nil {
-			return fmt.Errorf("Registry.PruneBefore(%d): %w", ei, err)
-		}
 	}
 }
 
-func (i *inner) setAnchor(registry *epoch.Registry) error {
-	e0, err := registry.EpochAt(i.persisted.First)
-	if err != nil {
-		return err
-	}
-	e1, err := registry.Epoch(e0.EpochIndex() + 1)
-	if err != nil {
-		return err
-	}
-	a := Anchor{Epochs: [2]*types.Epoch{e0, e1}}
+// setAnchor sets the anchor to the persisted first road and its two epochs.
+func (i *inner) setAnchor(epochs [2]*types.Epoch) {
+	a := Anchor{Epochs: epochs}
 	if i.persisted.First < i.persisted.NextAppQC {
 		a.First = utils.Some(AnchorFirst{
 			CommitQC: i.blocks[i.persisted.First].qc.QC(),
@@ -861,7 +865,6 @@ func (i *inner) setAnchor(registry *epoch.Registry) error {
 		})
 	}
 	i.anchor.Store(a)
-	return nil
 }
 
 // Run starts the background persistence loop.

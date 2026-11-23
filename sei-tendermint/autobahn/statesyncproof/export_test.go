@@ -69,15 +69,6 @@ func TestExporterCatchesCheckpointAfterAppQC(t *testing.T) {
 	require.FileExists(t, env.proofPath(env.height))
 }
 
-func TestExporterSkipsLastRoad(t *testing.T) {
-	rng := utils.TestRng()
-	env := newExportEnv(t, rng)
-	env.closingRoad = true
-
-	require.NoError(t, env.exporter.Sweep())
-	require.NoFileExists(t, env.proofPath(env.height))
-}
-
 func TestExporterSkipsMissingOrPrunedInputs(t *testing.T) {
 	cases := map[string]func(*exportEnv){
 		"pruned block": func(env *exportEnv) {
@@ -312,9 +303,6 @@ func TestExporterSkipsSettledCheckpoints(t *testing.T) {
 		"inconsistent": func(env *exportEnv) {
 			env.store.appProposals[env.height] = types.NewAppProposal(env.block.QC().QC().View(), []byte{9, 9, 9})
 		},
-		"last road": func(env *exportEnv) {
-			env.closingRoad = true
-		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -323,10 +311,9 @@ func TestExporterSkipsSettledCheckpoints(t *testing.T) {
 			mutate(env)
 
 			require.NoError(t, env.exporter.Sweep())
-			blockReads, closingChecks := env.store.blockReads, env.closingChecks
+			blockReads := env.store.blockReads
 			require.NoError(t, env.exporter.Sweep())
 			require.Equal(t, blockReads, env.store.blockReads)
-			require.Equal(t, closingChecks, env.closingChecks)
 		})
 	}
 }
@@ -458,11 +445,7 @@ type exportEnv struct {
 	// lastAppQC is what LastAppQC reports.
 	lastAppQC   utils.Option[types.RoadHeight]
 	checkpoints []types.RoadHeight
-	// closingRoad is what IsClosingRoad reports for every road.
-	closingRoad bool
-	// closingChecks counts the IsClosingRoad calls.
-	closingChecks int
-	exporter      *Exporter
+	exporter    *Exporter
 }
 
 func newExportEnv(t *testing.T, rng utils.Rng) *exportEnv {
@@ -505,10 +488,6 @@ func (e *exportEnv) newExporter() *Exporter {
 		BlockStore: e.store,
 		LastAppQC: func() utils.Option[types.RoadHeight] {
 			return e.lastAppQC
-		},
-		IsClosingRoad: func(types.RoadHeight) bool {
-			e.closingChecks++
-			return e.closingRoad
 		},
 	})
 }

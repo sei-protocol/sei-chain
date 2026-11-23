@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -424,7 +424,7 @@ func TestSubscriptionManager(t *testing.T) {
 
 // failingReceiptStore is a receipt store, caught up to every height, whose receipt reads fail with err.
 type failingReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	err error
 }
 
@@ -434,7 +434,7 @@ func (s *failingReceiptStore) GetReceipt(sdk.Context, common.Hash) (*types.Recei
 	return nil, s.err
 }
 
-func newHeadsAPIReadingReceiptsFrom(store receipt.ReceiptStore) *evmrpc.SubscriptionAPI {
+func newHeadsAPIReadingReceiptsFrom(store receiptdb.ReceiptStore) *evmrpc.SubscriptionAPI {
 	k := &keeper.Keeper{}
 	k.SetReceiptStoreForTesting(store)
 	return evmrpc.NewLogsSubscriptionAPIForTest(evmrpc.NewLogFetcherForTest(evmrpc.LogFetcherTestDeps{
@@ -461,7 +461,7 @@ func TestNewHeadReceiptTotalsFailOnReceiptReadError(t *testing.T) {
 // with no receipt is left out, as eth_getBlockByNumber leaves it out, and is
 // not taken for a failed read.
 func TestNewHeadReceiptTotalsSkipMissingReceipts(t *testing.T) {
-	api := newHeadsAPIReadingReceiptsFrom(&failingReceiptStore{err: receipt.ErrNotFound})
+	api := newHeadsAPIReadingReceiptsFrom(&failingReceiptStore{err: receiptdb.ErrNotFound})
 
 	logsBloom, gasUsed, err := api.ReadReceiptTotalsForTest(MockHeight2)
 

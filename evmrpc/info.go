@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -239,7 +239,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 				if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
 					return nil, ctxErr
 				}
-				if errors.Is(err, receipt.ErrNotConfigured) {
+				if errors.Is(err, receiptdb.ErrNotConfigured) {
 					return nil, err
 				}
 				// If we can't calculate the ratio, use 0.0 as fallback
@@ -395,7 +395,7 @@ func (i *InfoAPI) getRewards(ctx context.Context, block *coretypes.ResultBlock, 
 			// okay to get from latest since receipt is immutable
 			rcpt, err := i.keeper.GetReceipt(ctxProvider(LatestCtxHeight), ethtx.Hash())
 			if err != nil {
-				if errors.Is(err, receipt.ErrNotConfigured) {
+				if errors.Is(err, receiptdb.ErrNotConfigured) {
 					return nil, err
 				}
 				if ctxErr := ctx.Err(); ctxErr != nil {
