@@ -26,10 +26,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// failingEVMStore is a mock gigatypes.LiveStateStore whose loads always fail.
+// failingEVMStore is a mock flatkv.LiveStateStore whose loads always fail.
 type failingEVMStore struct{}
 
-var _ gigatypes.LiveStateStore = (*failingEVMStore)(nil)
+var _ flatkv.LiveStateStore = (*failingEVMStore)(nil)
 
 type importerFailingEVMStore struct {
 	failingEVMStore
@@ -41,7 +41,7 @@ func (f *importerFailingEVMStore) Importer(int64) (types.Importer, error) {
 
 func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavailable") }
 
-func (f *failingEVMStore) LoadVersionReadOnly(int64) (gigatypes.LiveStateStore, error) {
+func (f *failingEVMStore) LoadVersionReadOnly(int64) (flatkv.LiveStateStore, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
 func (f *failingEVMStore) CheckVersionReachable(int64) error { return nil }

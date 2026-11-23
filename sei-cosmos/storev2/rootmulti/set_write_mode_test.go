@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
@@ -551,7 +551,7 @@ func TestRootMultiCacheMultiStoreForExport_PreKickoffHeightAfterKickoff(t *testi
 	}
 
 	_, err := store.scStore.LoadVersion(pre, true)
-	require.ErrorIs(t, err, gigatypes.ErrVersionUnreachable)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 
 	cms, err := store.CacheMultiStoreForExport(pre)
 	require.NoError(t, err)

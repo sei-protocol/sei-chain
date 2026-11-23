@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -46,7 +45,7 @@ type CompositeCommitStore struct {
 	// The flatKV backend, nil until migration to flatKV starts. SetWriteMode
 	// installs it while views from GetChildStoreByName may be reading it, so
 	// access it only through loadFlatKV and storeFlatKV.
-	flatKV atomic.Pointer[gigatypes.LiveStateStore]
+	flatKV atomic.Pointer[flatkv.LiveStateStore]
 
 	// flatKVHash is the last hash flatKV handed over, written by the listener registered on it and
 	// read on the commit path once per block.
@@ -189,7 +188,7 @@ func NewCompositeCommitStore(
 		openFlatKV = false
 	}
 
-	var flatKV gigatypes.LiveStateStore
+	var flatKV flatkv.LiveStateStore
 	if openFlatKV {
 		stateWAL, err := flatkv.OpenStateWAL(&cfg.FlatKVConfig)
 		if err != nil {
@@ -220,7 +219,7 @@ func NewCompositeCommitStore(
 
 // adoptFlatKV installs store as this composite's flatKV backend and starts tracking the hash it
 // publishes for each block.
-func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) error {
+func (cs *CompositeCommitStore) adoptFlatKV(store flatkv.LiveStateStore) error {
 	cs.storeFlatKV(store)
 
 	mostRecent, err := store.RegisterHashListener(cs.recordFlatKVHash)
@@ -478,7 +477,7 @@ func (cs *CompositeCommitStore) loadVersionReadOnly(targetVersion int64, allowPr
 	}
 
 	var memIAVLCommitter *memiavl.CommitStore
-	var flatKVStore gigatypes.LiveStateStore
+	var flatKVStore flatkv.LiveStateStore
 
 	defer func() {
 		if retErr == nil {
@@ -516,7 +515,7 @@ func (cs *CompositeCommitStore) loadVersionReadOnly(targetVersion int64, allowPr
 		case err == nil:
 			flatKVStore = fkv
 		case allowPreMigration && cs.config.WriteMode == types.Auto &&
-			errors.Is(err, gigatypes.ErrVersionUnreachable) && precedesMigration(flatKV, targetVersion):
+			errors.Is(err, flatkv.ErrVersionUnreachable) && precedesMigration(flatKV, targetVersion):
 			// Before kickoff FlatKV isn't in the AppHash, so memIAVL alone is the full state.
 		default:
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
@@ -649,14 +648,14 @@ func (cs *CompositeCommitStore) requirePinnedModeMatchesMigration() error {
 }
 
 // loadFlatKV returns the flatKV backend, or nil when none is open.
-func (cs *CompositeCommitStore) loadFlatKV() gigatypes.LiveStateStore {
+func (cs *CompositeCommitStore) loadFlatKV() flatkv.LiveStateStore {
 	if store := cs.flatKV.Load(); store != nil {
 		return *store
 	}
 	return nil
 }
 
-func (cs *CompositeCommitStore) storeFlatKV(store gigatypes.LiveStateStore) {
+func (cs *CompositeCommitStore) storeFlatKV(store flatkv.LiveStateStore) {
 	if store == nil {
 		cs.flatKV.Store(nil)
 		return
@@ -885,7 +884,7 @@ func (cs *CompositeCommitStore) IsWriteModeComplete(mode types.WriteMode) (bool,
 // newFlatKVInstance constructs (but does not open) a flatkv commit store
 // rooted at this store's home directory, mirroring the constructor's
 // configuration.
-func (cs *CompositeCommitStore) newFlatKVInstance() (gigatypes.LiveStateStore, error) {
+func (cs *CompositeCommitStore) newFlatKVInstance() (flatkv.LiveStateStore, error) {
 	flatKVConfig := cs.config.FlatKVConfig
 	flatKVConfig.DataDir = utils.GetFlatKVPath(cs.homeDir)
 	stateWAL, err := flatkv.OpenStateWAL(&flatKVConfig)
@@ -1254,7 +1253,7 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 
 // migrationStarted reports whether flatKV's committed migration metadata shows the EVM migration past
 // MigrationNotStarted.
-func migrationStarted(flatKV gigatypes.LiveStateStore) (bool, error) {
+func migrationStarted(flatKV flatkv.LiveStateStore) (bool, error) {
 	if boundaryBytes, ok := flatKV.Get(
 		migration.MigrationStore, []byte(migration.MigrationBoundaryKey),
 	); ok {
@@ -1673,10 +1672,10 @@ func exportNeedsMetadataGating(mode types.WriteMode) bool {
 // every height before kickoff, since FlatKV is created at the kickoff block. Any other unreachable
 // version fails: silently omitting flatkv would produce a consensus-incomplete snapshot,
 // byte-indistinguishable from a legitimate memiavl-only stream.
-func exportMigrationState(flatKV gigatypes.LiveStateStore, version int64) (started, migrationDone bool, err error) {
+func exportMigrationState(flatKV flatkv.LiveStateStore, version int64) (started, migrationDone bool, err error) {
 	ro, err := flatKV.LoadVersionReadOnly(version)
 	if err != nil {
-		if errors.Is(err, gigatypes.ErrVersionUnreachable) && precedesMigration(flatKV, version) {
+		if errors.Is(err, flatkv.ErrVersionUnreachable) && precedesMigration(flatKV, version) {
 			return false, false, nil
 		}
 		return false, false, fmt.Errorf("failed to load flatkv at export version %d: %w", version, err)
@@ -1698,7 +1697,7 @@ func exportMigrationState(flatKV gigatypes.LiveStateStore, version int64) (start
 // precedesMigration reports whether the migration had not started at the oldest FlatKV snapshot above
 // version. Any error reading that snapshot reports false. For a pre-kickoff version that snapshot is the
 // kickoff seed written by SetInitialVersion; once pruning drops it this reports false and exports fail loud.
-func precedesMigration(flatKV gigatypes.LiveStateStore, version int64) bool {
+func precedesMigration(flatKV flatkv.LiveStateStore, version int64) bool {
 	snapshot, ok, err := flatKV.OldestSnapshotAbove(version)
 	if err != nil || !ok {
 		return false

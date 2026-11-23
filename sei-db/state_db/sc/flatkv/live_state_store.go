@@ -1,4 +1,4 @@
-package types
+package flatkv
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -77,7 +78,7 @@ type LiveStateStore interface {
 	CommitStateChanges(blockNum int64, mutations []mutation.Mutation) error
 
 	// OpenView returns a read-only StateView of the current block. The caller must Close it when done.
-	OpenView() StateView
+	OpenView() gigatypes.StateView
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is
 	// accepted as the first commit. Must be called after LoadLatest, on a
@@ -145,7 +146,7 @@ type LiveStateStore interface {
 	// A read-only store takes a listener and never calls it: it hashes only inside the call that
 	// builds it. The hash it reports is the height it was opened at, which is what such a caller is
 	// after.
-	RegisterHashListener(listener HashListener) (mostRecentHash lthash.BlockHash, err error)
+	RegisterHashListener(listener gigatypes.HashListener) (mostRecentHash lthash.BlockHash, err error)
 
 	// FlushHashes blocks until every block committed so far has been hashed and its hash handed to
 	// every registered listener.
