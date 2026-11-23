@@ -18,6 +18,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -358,7 +359,7 @@ func (a *snapshotAuditor) readDatabase(
 func openPebbleReadOnly(dbDir string) (*pebble.DB, error) {
 	db, err := pebble.Open(dbDir, &pebble.Options{
 		ReadOnly:           true,
-		FormatMajorVersion: pebble.FormatVirtualSSTables,
+		FormatMajorVersion: pebbledb.FormatMajorVersion,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open pebble read-only: %w", err)

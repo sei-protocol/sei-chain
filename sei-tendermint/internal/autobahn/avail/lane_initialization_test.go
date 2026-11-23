@@ -33,7 +33,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	stayProposal := keys[0].Sign(types.NewLaneProposal(types.NewLaneBlock(stay, 6, committed.Header().Hash(), &types.Payload{})))
 	leaveProposal := keys[1].Sign(types.NewLaneProposal(types.NewLaneBlock(leave, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
 	joinProposal := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
 		stay:  {{Height: 5, Proposal: committedProposal}, {Height: 6, Proposal: stayProposal}},
 		leave: {{Height: 0, Proposal: leaveProposal}},
 		join:  {{Height: 0, Proposal: joinProposal}},
@@ -48,7 +48,7 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	require.Equal(t, leaveProposal, i.lanes[leave].blocks.q[0])
 	require.Equal(t, joinProposal, i.lanes[join].blocks.q[0])
 
-	restored, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
+	restored, err := newInner(anchor, testGenesisTimestamp, &loadedState{})
 	require.NoError(t, err)
 	require.Equal(t, types.LaneHeight(6), restored.lanes[stay].blocks.first)
 	require.Equal(t, types.LaneHeight(6), restored.lanes[stay].blocks.next)
@@ -68,7 +68,7 @@ func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
 	rejoin := ep3.Committee().Lane(keys[1].Public()).OrPanic("rejoining lane")
 	proposal := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{ep1, ep2}}
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
 		join: {{Height: 0, Proposal: proposal}},
 	}})
 	require.NoError(t, err)

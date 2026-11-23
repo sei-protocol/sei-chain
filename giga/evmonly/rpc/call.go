@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 )
 
 // defaultCallGasCap bounds the gas an eth_call may consume, filling in an
@@ -21,6 +22,7 @@ const defaultCallGasCap = 10_000_000
 
 type callAPI struct {
 	backend Backend
+	store   receiptdb.ReceiptStore
 	blocks  *blockAPI
 	limits  overrideLimits
 }
@@ -35,7 +37,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err != nil {
 		return nil, err
 	}
-	height, latest, err := stateHeight(ctx, api.backend, block)
+	height, latest, err := stateHeight(ctx, api.backend, api.store, block)
 	if err != nil {
 		return nil, err
 	}

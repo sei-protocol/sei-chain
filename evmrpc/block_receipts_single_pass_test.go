@@ -123,3 +123,74 @@ func TestGetBlockReceiptsFiltersBlockOnce(t *testing.T) {
 		}
 	}
 }
+
+// TestGetBlockReceiptsTakesSenderFromReceipt checks that the nonce check on a failed zero-price
+// transaction uses the sender its receipt records, and the signer when the receipt records none.
+func TestGetBlockReceiptsTakesSenderFromReceipt(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
+		WithBlockHeight(parityTestHeight).
+		WithBlockTime(time.Unix(1700000000, 0)).
+		WithClosestUpgradeName("v6.0.0")
+
+	const nonce = 7
+	recorded := common.HexToAddress("0x5e4de5000000000000000000000000000000a11c")
+	k.SetNonce(ctx, recorded, nonce)
+	to := common.HexToAddress("0x010203")
+	var txs []tmtypes.Tx
+	var signer common.Address
+	for i, from := range []string{recorded.Hex(), ""} {
+		builder, ethTx := buildTx(ethtypes.DynamicFeeTx{
+			Nonce:     nonce,
+			GasFeeCap: big.NewInt(10),
+			Gas:       1000,
+			To:        &to,
+			Value:     big.NewInt(1000),
+			Data:      fmt.Appendf(nil, "receipt-sender-%d", i),
+			ChainID:   big.NewInt(config.DefaultChainID),
+		})
+		bz, err := Encoder(builder.GetTx())
+		require.NoError(t, err)
+		txs = append(txs, bz)
+		signer, err = ethtypes.Sender(ethtypes.LatestSignerForChainID(ethTx.ChainId()), ethTx)
+		require.NoError(t, err)
+		require.NoError(t, k.MockReceipt(ctx, ethTx.Hash(), &types.Receipt{
+			From:             from,
+			To:               to.Hex(),
+			TransactionIndex: uint32(i), //nolint:gosec
+			BlockNumber:      uint64(parityTestHeight),
+			TxType:           2,
+			TxHashHex:        ethTx.Hash().Hex(),
+			GasUsed:          21000,
+		}))
+	}
+	k.SetNonce(ctx, signer, nonce)
+
+	block := &coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header:     mockBlockHeader(parityTestHeight),
+			Data:       tmtypes.Data{Txs: txs},
+			LastCommit: &tmtypes.Commit{Height: parityTestHeight - 1},
+		},
+	}
+	ctxProvider := func(h int64) sdk.Context {
+		if h == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(h)
+	}
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+	cache := evmrpc.NewBlockCache(3000)
+	mu := &sync.Mutex{}
+	tm := &parityTxCountTMClient{block: block}
+	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore())
+	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
+
+	number := rpc.BlockNumber(parityTestHeight)
+	got, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &number})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, recorded, got[0]["from"])
+	require.Equal(t, signer, got[1]["from"])
+}

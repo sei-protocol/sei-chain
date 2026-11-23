@@ -40,7 +40,7 @@ func (q *QueryServiceTestHelper) Invoke(_ gocontext.Context, method string, args
 	if querier == nil {
 		return fmt.Errorf("handler not found for %s", method)
 	}
-	reqBz, err := protoCodec.Marshal(args)
+	reqBz, err := marshalProto(args)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (q *QueryServiceTestHelper) Invoke(_ gocontext.Context, method string, args
 		return err
 	}
 
-	err = protoCodec.Unmarshal(res.Value, reply)
+	err = unmarshalProto(res.Value, reply)
 	if err != nil {
 		return err
 	}

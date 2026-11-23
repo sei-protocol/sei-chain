@@ -126,7 +126,7 @@ func tipLink(ep *types.Epoch, key types.SecretKey, height types.RoadHeight) *typ
 
 // TestAdvanceToEpoch publishes certified epoch seals through want-1.
 // The registry must already contain each successor epoch.
-func TestAdvanceToEpoch(ctx context.Context, state *State, keys []types.SecretKey, registry *epoch.Registry, want types.EpochIndex) error {
+func TestAdvanceToEpoch(ctx context.Context, state *State, keys []types.SecretKey, registry *epoch.TestRegistry, want types.EpochIndex) error {
 	for state.ConsensusSpec().Load().Epoch.EpochIndex() < want {
 		cur := state.ConsensusSpec().Load().Epoch
 		if cur.RoadRange().Next == utils.Max[types.RoadHeight]() {

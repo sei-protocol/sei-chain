@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -21,7 +22,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistryThrough(rng, 3, 3)
+			registry, keys := epoch.GenRegistryThrough(rng, 3, 4)
 			proposal, blocks := types.ProposalAtBlocks(registry.MustEpoch(2), types.View{Height: registry.LastRoad(2)}, 1)
 			prepare := types.BuildPrepareQC(keys, proposal)
 			votes := make([]*types.Signed[*types.CommitVote], len(keys))
@@ -37,12 +38,11 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			require.NoError(t, store.WriteAppProposal(app))
 			require.NoError(t, store.WriteAppQC(data.TestAppQC(keys, app)))
 			require.NoError(t, store.Flush())
-			require.NoError(t, registry.PruneBefore(2))
 			for idx := range 2 {
 				_, err := registry.Epoch(types.EpochIndex(idx))
 				require.ErrorIs(t, err, types.ErrPruned)
 			}
-			ds, err := data.NewState(&data.Config{Registry: registry}, store)
+			ds, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry), GenesisTimestamp: testGenesisTimestamp}, store)
 			require.NoError(t, err)
 			stateDir := utils.None[string]()
 			wantTip := qc
@@ -60,7 +60,7 @@ func TestRecoveryAfterGenesisEpochsPruned(t *testing.T) {
 			spec := state.ConsensusSpec().Load()
 			require.Equal(t, types.EpochIndex(3), spec.Epoch.EpochIndex())
 			require.Equal(t, utils.Some(wantTip), spec.CommitQC)
-			require.Equal(t, registry.GenesisTimestamp(), spec.GenesisTimestamp)
+			require.Equal(t, testGenesisTimestamp, spec.GenesisTimestamp)
 		})
 	}
 }

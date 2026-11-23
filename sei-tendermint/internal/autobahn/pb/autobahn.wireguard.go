@@ -460,9 +460,9 @@ func init() {
 		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppQC]())},
 	})
 
-	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.
-	runtime.MustRegister[*PersistedEpochRegistry](runtime.Schema{
-		3: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
+	// Register the wireguard.Schema generated for autobahn.EpochRegistry.
+	runtime.MustRegister[*EpochRegistry](runtime.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Epoch]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.EpochMember.
