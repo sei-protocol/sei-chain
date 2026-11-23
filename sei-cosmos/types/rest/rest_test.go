@@ -26,14 +26,18 @@ import (
 func TestBaseReq_Sanitize(t *testing.T) {
 	t.Parallel()
 	sanitized := rest.BaseReq{ChainID: "   test",
-		Memo: "memo     ",
-		From: " cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0 ",
-		Gas:  " ",
+		Memo:          "memo     ",
+		From:          " cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0 ",
+		Gas:           " ",
+		GasAdjustment: "  0.3",
+		Simulate:      true,
 	}.Sanitize()
 	require.Equal(t, rest.BaseReq{ChainID: "test",
-		Memo: "memo",
-		From: "cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0",
-		Gas:  "",
+		Memo:          "memo",
+		From:          "cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0",
+		Gas:           "",
+		GasAdjustment: "0.3",
+		Simulate:      true,
 	}, sanitized)
 }
 
@@ -76,6 +80,44 @@ func TestBaseReq_ValidateBasic(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, tt.req.ValidateBasic(tt.w))
+		})
+	}
+}
+
+// TestBaseReq_RefusesSimulation pins that a base_req setting simulate or
+// gas_adjustment gets a 400 from the decode, Sanitize and ValidateBasic steps every
+// REST tx handler runs before it builds a transaction, ahead of the chain-id and fee
+// checks.
+func TestBaseReq_RefusesSimulation(t *testing.T) {
+	t.Parallel()
+	const from = `"from":"sei139f7kncmglres2nf3h4hc4tade85ekfr2udfy4"`
+	const signable = from + `,"chain_id":"test","fees":[{"denom":"usei","amount":"10"}]`
+	const simulateErr = "simulate is not supported: transactions cannot be simulated"
+	const gasAdjustmentErr = "gas_adjustment is not supported: gas is not estimated"
+
+	type txReq struct {
+		BaseReq rest.BaseReq `json:"base_req"`
+	}
+	tests := []struct {
+		name    string
+		baseReq string
+		wantErr string
+	}{
+		{"simulate", signable + `,"simulate":true`, simulateErr},
+		{"simulate without chain-id or fees", from + `,"simulate":true`, simulateErr},
+		{"gas_adjustment with a gas limit", signable + `,"gas":"200000","gas_adjustment":"1.5"`, gasAdjustmentErr},
+		{"gas_adjustment with gas auto", signable + `,"gas":"auto","gas_adjustment":"1.5"`, gasAdjustmentErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var req txReq
+			w := httptest.NewRecorder()
+			body := strings.NewReader(`{"base_req":{` + tt.baseReq + `}}`)
+			require.True(t, rest.ReadRESTReq(w, httptest.NewRequest(http.MethodPost, "/", body), codec.NewLegacyAmino(), &req))
+			require.False(t, req.BaseReq.Sanitize().ValidateBasic(w))
+			require.Equal(t, http.StatusBadRequest, w.Code)
+			require.Equal(t, `{"error":"`+tt.wantErr+`"}`, w.Body.String())
 		})
 	}
 }

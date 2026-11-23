@@ -65,6 +65,10 @@ type BaseReq struct {
 	Fees          sdk.Coins    `json:"fees"`
 	GasPrices     sdk.DecCoins `json:"gas_prices"`
 	Gas           string       `json:"gas"`
+	// GasAdjustment and Simulate are unsupported. They are decoded only so that
+	// ValidateBasic can refuse a request that sets them.
+	GasAdjustment string `json:"gas_adjustment"`
+	Simulate      bool   `json:"simulate"`
 }
 
 // NewBaseReq creates a new basic request instance and sanitizes its values
@@ -86,10 +90,13 @@ func NewBaseReq(
 
 // Sanitize performs basic sanitization on a BaseReq object.
 func (br BaseReq) Sanitize() BaseReq {
-	return NewBaseReq(
+	sanitized := NewBaseReq(
 		br.From, br.Memo, br.ChainID, br.Gas,
 		br.AccountNumber, br.Sequence, br.Fees, br.GasPrices,
 	)
+	sanitized.GasAdjustment = strings.TrimSpace(br.GasAdjustment)
+	sanitized.Simulate = br.Simulate
+	return sanitized
 }
 
 // ValidateBasic performs basic validation of a BaseReq. If custom validation
@@ -97,6 +104,14 @@ func (br BaseReq) Sanitize() BaseReq {
 // checks manually.
 func (br BaseReq) ValidateBasic(w http.ResponseWriter) bool {
 	switch {
+	case br.Simulate:
+		WriteErrorResponse(w, http.StatusBadRequest, "simulate is not supported: transactions cannot be simulated")
+		return false
+
+	case br.GasAdjustment != "":
+		WriteErrorResponse(w, http.StatusBadRequest, "gas_adjustment is not supported: gas is not estimated")
+		return false
+
 	case len(br.ChainID) == 0:
 		WriteErrorResponse(w, http.StatusUnauthorized, "chain-id required but not specified")
 		return false
