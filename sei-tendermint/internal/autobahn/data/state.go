@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"time"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -28,7 +29,7 @@ var ErrAppHashDivergence = errors.New("AppHash divergence")
 // Config is the config for the data State.
 type Config struct {
 	// App supplies the retained epoch window at startup and epoch transitions.
-	App *proxy.EVMProxy
+	App *abevm.Proxy
 	// GenesisTimestamp is the timestamp of the first proposal.
 	GenesisTimestamp time.Time
 }

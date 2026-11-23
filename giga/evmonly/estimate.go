@@ -16,6 +16,7 @@ import (
 	"github.com/holiman/uint256"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // estimateGasErrorRatio is the search's allowed overestimation tolerance.
@@ -30,14 +31,14 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		return 0, nil, err
 	}
 	defer snapshot.Close()
-	return e.EstimateGasAt(ctx, snapshot, blockCtx, msg, gasCap, CallOverrides{})
+	return e.EstimateGasAt(ctx, snapshot, blockCtx, msg, gasCap, abevm.CallOverrides{})
 }
 
 // EstimateGasAt returns the lowest gas limit that lets msg execute
 // successfully against the state view holds, with overrides applied. Like
 // CallAt it persists no state change; a revert's data is returned alongside
 // the error.
-func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
+func (e *Executor) EstimateGasAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	return e.EstimateGasAfterCallsAt(ctx, view, blockCtx, nil, msg, gasCap, overrides)
 }
 
@@ -49,13 +50,13 @@ func (e *Executor) EstimateGasAfterCalls(ctx context.Context, blockCtx BlockCont
 		return 0, nil, err
 	}
 	defer snapshot.Close()
-	return e.EstimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap, CallOverrides{})
+	return e.EstimateGasAfterCallsAt(ctx, snapshot, blockCtx, calls, msg, gasCap, abevm.CallOverrides{})
 }
 
 // EstimateGasAfterCallsAt returns what EstimateGasAt returns for msg against the state view holds,
 // with overrides applied and then calls applied, in order. A call that fails in the EVM leaves the
 // state as a failed transaction would; one that cannot be applied at all fails the estimate.
-func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64, overrides CallOverrides) (uint64, []byte, error) {
+func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.EVMStateView, blockCtx BlockContext, calls []*core.Message, msg *core.Message, gasCap uint64, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
 		return 0, nil, err
@@ -63,7 +64,7 @@ func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.E
 	if err := ctx.Err(); err != nil {
 		return 0, nil, err
 	}
-	evmCtx, err := overrides.blockContext(blockCtx)
+	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx))
 	if err != nil {
 		return 0, nil, err
 	}
@@ -133,7 +134,7 @@ func (e *Executor) applyCall(ctx context.Context, evmCtx vm.BlockContext, chainC
 
 // estimateHeader returns the header gas estimation executes in: blockCtx's, with overrides' block
 // fields applied.
-func estimateHeader(blockCtx BlockContext, overrides CallOverrides) *ethtypes.Header {
+func estimateHeader(blockCtx BlockContext, overrides abevm.CallOverrides) *ethtypes.Header {
 	header := buildEstimateHeader(blockCtx)
 	if block, ok := overrides.Block.Get(); ok {
 		return block.MakeHeader(header)
@@ -143,7 +144,7 @@ func estimateHeader(blockCtx BlockContext, overrides CallOverrides) *ethtypes.He
 
 // estimateBlobBaseFee returns the blob base fee gas estimation executes with: the overridden one if
 // overrides sets it, and blockCtx's otherwise.
-func estimateBlobBaseFee(blockCtx BlockContext, overrides CallOverrides) *big.Int {
+func estimateBlobBaseFee(blockCtx BlockContext, overrides abevm.CallOverrides) *big.Int {
 	if block, ok := overrides.Block.Get(); ok && block.BlobBaseFee != nil {
 		return new(big.Int).Set(block.BlobBaseFee.ToInt())
 	}

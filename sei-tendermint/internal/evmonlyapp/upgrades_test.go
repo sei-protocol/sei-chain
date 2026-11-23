@@ -13,13 +13,14 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/sei-protocol/sei-chain/app/upgradenames"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -33,8 +34,8 @@ func TestEVMOnlyApplicationRecordsAppliedUpgradesAtTheFirstBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), out[0].(uint64))
 
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
 	for _, name := range testAppliedUpgrades {
 		out, err := precompileCall(t, app, upgrade.Address, upgrade.ABI, upgrade.AppliedPlanMethod, name)
 		require.NoError(t, err)
@@ -80,7 +81,7 @@ func TestReleaseNamesFollowTheUpgradeNameRule(t *testing.T) {
 // upgradeTestNode is an app over storage at home whose gov electorate is
 // anvil account 0. A halt writes upgrade-info.json under home.
 type upgradeTestNode struct {
-	app     proxy.EVMApplication
+	app     abevm.Application
 	storage *bootstrap.GigaStorageManager
 }
 
@@ -112,7 +113,7 @@ func upgradeTestApp(t *testing.T, home string, withTestUpgrade bool) upgradeTest
 
 // maxDepositPeriod returns gov's max deposit period as the params precompile
 // serves it.
-func maxDepositPeriod(t *testing.T, app proxy.EVMApplication) uint64 {
+func maxDepositPeriod(t *testing.T, app abevm.Application) uint64 {
 	t.Helper()
 	out, err := precompileCall(t, app, chainparams.Address, chainparams.ABI, chainparams.ParamMethod, "gov", "depositparams.max_deposit_period")
 	require.NoError(t, err)
@@ -128,7 +129,7 @@ func anvilAddress(t *testing.T) common.Address {
 
 // passUpgrade passes an expedited upgrade proposal for plan, starting at
 // block next, and returns the next block to finalize.
-func passUpgrade(t *testing.T, app proxy.EVMApplication, next int64, plan upgrade.Plan) int64 {
+func passUpgrade(t *testing.T, app abevm.Application, next int64, plan upgrade.Plan) int64 {
 	t.Helper()
 	deposit := gov.DefaultParams().MinExpeditedDeposit
 	submit := signedGovTx(t, 0, deposit, gov.SubmitSoftwareUpgradeMethod, "t", "d", true,
@@ -137,11 +138,11 @@ func passUpgrade(t *testing.T, app proxy.EVMApplication, next int64, plan upgrad
 			Height uint64
 			Info   string
 		}{plan.Name, plan.Height, plan.Info})
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(next, submit))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, next, submit))
 	vote := signedGovTx(t, 1, nil, gov.VoteMethod, uint64(1), gov.OptionYes)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(next+1, vote))
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, next+1, vote))
 	for n := next + 2; n < next+5; n++ {
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(n))
+		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, n))
 	}
 	out, err := precompileCall(t, app, upgrade.Address, upgrade.ABI, upgrade.CurrentPlanMethod)
 	require.NoError(t, err)
@@ -158,16 +159,16 @@ func passUpgrade(t *testing.T, app proxy.EVMApplication, next int64, plan upgrad
 func TestEVMOnlyApplicationHaltsAtAnUpgradeAndResumesWithItsHandler(t *testing.T) {
 	home := t.TempDir()
 	node := upgradeTestApp(t, home, false)
-	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	err := node.app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
-	finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(1))
+	finalizeEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(node.app, 1))
 	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 9, Info: `{"binaries":{}}`})
 	require.Equal(t, gov.DefaultParams().MaxDepositPeriod, maxDepositPeriod(t, node.app))
 	for ; next < 9; next++ {
-		finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(next))
+		finalizeEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(node.app, next))
 	}
 
-	_, err = node.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(9))
+	_, err = node.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(node.app, 9))
 	var needed *upgrade.NeededError
 	require.True(t, errors.As(err, &needed), "the block halts on the plan: %v", err)
 	require.Equal(t, uint64(9), needed.Block)
@@ -180,29 +181,29 @@ func TestEVMOnlyApplicationHaltsAtAnUpgradeAndResumesWithItsHandler(t *testing.T
 	node.close(t)
 	resumed := upgradeTestApp(t, home, true)
 	t.Cleanup(func() { resumed.close(t) })
-	finalizeAndCommitEVMOnlyTestBlock(t, resumed.app, evmOnlyTestBlock(9))
+	finalizeEVMOnlyTestBlock(t, resumed.app, evmOnlyTestBlock(resumed.app, 9))
 	out, err := precompileCall(t, resumed.app, upgrade.Address, upgrade.ABI, upgrade.AppliedPlanMethod, testUpgradeName)
 	require.NoError(t, err)
 	require.Equal(t, uint64(9), out[0].(uint64), "the resumed binary applied the plan at the block the old one halted at")
 	require.Equal(t, uint64(testUpgradeMaxDepositPeriod), maxDepositPeriod(t, resumed.app), "the handler's change is in state")
-	finalizeAndCommitEVMOnlyTestBlock(t, resumed.app, evmOnlyTestBlock(10))
+	finalizeEVMOnlyTestBlock(t, resumed.app, evmOnlyTestBlock(resumed.app, 10))
 }
 
 func TestEVMOnlyApplicationHaltsAnOldBinaryAfterAnUpgrade(t *testing.T) {
 	home := t.TempDir()
 	node := upgradeTestApp(t, home, true)
-	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	err := node.app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
-	finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(1))
+	finalizeEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(node.app, 1))
 	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 8, Info: `{"upgradeType":"minor"}`})
 	for ; next <= 8; next++ {
-		finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(next))
+		finalizeEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(node.app, next))
 	}
 
 	node.close(t)
 	old := upgradeTestApp(t, home, false)
 	t.Cleanup(func() { old.close(t) })
-	_, err = old.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(9))
+	_, err = old.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(old.app, 9))
 	require.ErrorIs(t, err, upgrade.ErrWrongBinary)
 }
 
@@ -221,12 +222,12 @@ func TestHaltForUpgradeReportsAFailedWrite(t *testing.T) {
 func TestEVMOnlyApplicationTracesABlockBeforeAPlansHeight(t *testing.T) {
 	home := t.TempDir()
 	node := upgradeTestApp(t, home, false)
-	_, err := node.app.InitChain(evmOnlyTestInitChain())
+	err := node.app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
-	finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(1))
+	finalizeEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(node.app, 1))
 	next := passUpgrade(t, node.app, 2, upgrade.Plan{Name: testUpgradeName, Height: 20})
 	for ; next < 12; next++ {
-		finalizeAndCommitEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(next))
+		finalizeEVMOnlyTestBlock(t, node.app, evmOnlyTestBlock(node.app, next))
 	}
 	node.close(t)
 
@@ -234,9 +235,9 @@ func TestEVMOnlyApplicationTracesABlockBeforeAPlansHeight(t *testing.T) {
 	// height, but rebuilds the same block for a trace.
 	upgraded := upgradeTestApp(t, home, true)
 	t.Cleanup(func() { upgraded.close(t) })
-	_, release, err := upgraded.app.EvmStateBeforeTx(t.Context(), traceTestHeader(12, evmOnlyTestBlock(11).Hash), nil)
+	state, err := upgraded.app.EvmStateBeforeTx(t.Context(), traceTestHeader(12, evmOnlyTestBlock(upgraded.app, 11).Hash), nil)
 	require.NoError(t, err)
-	release()
-	_, err = upgraded.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(12))
+	state.Close()
+	_, err = upgraded.app.FinalizeBlock(t.Context(), evmOnlyTestBlock(upgraded.app, 12))
 	require.ErrorIs(t, err, upgrade.ErrBinaryUpdatedBeforeTrigger)
 }

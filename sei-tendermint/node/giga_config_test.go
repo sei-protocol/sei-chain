@@ -7,11 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -168,24 +170,18 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, err = app.InitChain(&proxy.RequestInitChain{
-		InitialHeight: initialHeight,
-		MaxGas:        30_000_000,
-	})
+	err = app.InitChain(abevm.InitConfig{
+		InitialHeight: atypes.RoadHeight(initialHeight),
+		GasLimit:      30_000_000})
 	require.NoError(t, err)
 
 	var blockHash [32]byte
 	binary.BigEndian.PutUint64(blockHash[:], uint64(initialHeight))
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), uint64(initialHeight), blockHash))
-	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
-		Hash: blockHash[:],
-		Header: &proxy.Header{
-			Height: initialHeight,
-			Time:   time.Unix(1_700_000_000+initialHeight, 0),
-		},
-	})
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Hash:   common.BytesToHash(blockHash[:]),
+		Height: atypes.RoadHeight(initialHeight),
+		Time:   time.Unix(1_700_000_000+initialHeight, 0)})
 	require.NoError(t, err)
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)

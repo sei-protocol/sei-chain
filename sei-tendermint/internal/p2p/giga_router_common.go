@@ -12,11 +12,11 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -46,7 +46,8 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	app             *proxy.EVMProxy
+	app             *abevm.Proxy
+	signer          *abevm.Signer
 	gigaSpec        gigaHandshakeSpec
 	selfAddr        utils.Option[NodeAddress]
 
@@ -54,6 +55,21 @@ type gigaRouterCommon struct {
 	// block-sync subset. Persistent and block-sync peers do not consume it.
 	inboundFullnodeCount utils.Mutex[*int64]
 	inboundFullnodeCap   int64
+}
+
+// CheckTx checks a transaction for admission without inserting it into the mempool.
+func (r *gigaRouterCommon) CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error) {
+	return abevm.CheckTx(r.app, r.signer, raw)
+}
+
+// RememberEvmSender records a verified sender for local admission.
+func (r *gigaRouterCommon) RememberEvmSender(hash common.Hash, sender common.Address) {
+	r.signer.Remember(hash, sender)
+}
+
+// ForgetEvmSender removes the cached sender for hash.
+func (r *gigaRouterCommon) ForgetEvmSender(hash common.Hash) {
+	r.signer.Forget(hash)
 }
 
 func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) handshakeSpec {
@@ -87,7 +103,7 @@ func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes
 func BuildDataState(
 	cfg *GigaRouterCommonConfig,
 	blockStore *ablockstore.Store,
-	app *proxy.EVMProxy,
+	app *abevm.Proxy,
 	genesisTimestamp time.Time,
 ) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {

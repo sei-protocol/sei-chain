@@ -3,8 +3,14 @@ package types
 import (
 	"cmp"
 	"fmt"
+	"math/big"
 	"slices"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -254,6 +260,28 @@ func GenPayload(rng utils.Rng) *Payload {
 		TotalGasEstimated: rng.Uint64(),
 		Txs:               rng.GenSlice(func(rng utils.Rng) []byte { return utils.GenBytes(rng, 10) }),
 	}.Build())
+}
+
+// GenEthPayload generates a payload of signed Ethereum transfers on chain ID 1.
+func GenEthPayload(rng utils.Rng) *Payload {
+	payload := GenPayload(rng).ToBuilder()
+	payload.TotalGasWanted = 0
+	payload.TotalGasEstimated = 0
+	signer := ethtypes.LatestSignerForChainID(big.NewInt(1))
+	for i := range payload.Txs {
+		key := utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))
+		recipient := common.Address(utils.GenBytes(rng, len(common.Address{})))
+		tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+			To:       &recipient,
+			Gas:      params.TxGas,
+			GasPrice: big.NewInt(params.GWei),
+		})
+		signed := utils.OrPanic1(ethtypes.SignTx(tx, signer, key))
+		payload.Txs[i] = utils.OrPanic1(signed.MarshalBinary())
+		payload.TotalGasWanted += signed.Gas()
+		payload.TotalGasEstimated += signed.Gas()
+	}
+	return utils.OrPanic1(payload.Build())
 }
 
 // GenLaneBlock generates a random LaneBlock.

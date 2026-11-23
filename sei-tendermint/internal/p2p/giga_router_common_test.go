@@ -14,9 +14,12 @@ import (
 	"time"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -27,15 +30,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
 )
 
 func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
@@ -50,14 +50,14 @@ func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator a
 }
 
 type fixedHeightApp struct {
-	proxy.EVMApplication
+	abevm.Application
 	height int64
 }
 
 func (a *fixedHeightApp) LastBlockHeight() int64 { return a.height }
 
-func (a *fixedHeightApp) Info() *proxy.ResponseInfo {
-	return &proxy.ResponseInfo{LastBlockHeight: a.height}
+func (a *fixedHeightApp) Info() *abevm.ResponseInfo {
+	return &abevm.ResponseInfo{LastBlockHeight: a.height}
 }
 
 // manualAppHashBuilder is an AppHashBuilder whose app hashes become available
@@ -167,11 +167,11 @@ func newAppHashTestRouter(
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
 		AppState:        testAppStateJSON(rng),
-		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	app := newTestApp()
+	app := newTestApp(genDoc.AppState)
 	hashBuilder := newManualAppHashBuilder()
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -181,18 +181,20 @@ func newAppHashTestRouter(
 		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.NewEVM(app),
+		App:                abevm.NewProxy(app),
 		AppHashBuilder:     hashBuilder,
 	}
 	registry := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
-	state, err := BuildDataState(cfg, db, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
+	signer := newTestSigner(cfg.App.EvmChainID(), 0)
 	router := &gigaRouterCommon{
-		cfg:  cfg,
-		data: state,
-		app:  cfg.App,
+		cfg:    cfg,
+		data:   state,
+		app:    cfg.App,
+		signer: signer,
 	}
-	return app, hashBuilder, state, router, newTestExecutor(cfg, db)
+	return app, hashBuilder, state, router, newTestExecutor(cfg, db, signer)
 }
 
 // testGenesisEpochs returns a registry whose genesis epochs start at genDoc's initial height with
@@ -218,9 +220,9 @@ func TestExecutionRunsAheadOfAppHashPush(t *testing.T) {
 	key := atypes.GenSecretKey(rng)
 	app, hashBuilder, state, router, executor := newAppHashTestRouter(t, rng, key)
 
-	qc, blocks := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
-	qc2, blocks2 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()))
-	qc3, blocks3 := data.TestCommitQC(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc2.QC()))
+	qc, blocks := data.TestCommitQCWithPayload(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.None[*atypes.CommitQC](), func() *atypes.Payload { return atypes.GenEthPayload(rng) })
+	qc2, blocks2 := data.TestCommitQCWithPayload(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc.QC()), func() *atypes.Payload { return atypes.GenEthPayload(rng) })
+	qc3, blocks3 := data.TestCommitQCWithPayload(rng, state.Anchor().Load().Epochs[0], []atypes.SecretKey{key}, utils.Some(qc2.QC()), func() *atypes.Payload { return atypes.GenEthPayload(rng) })
 	require.Equal(t, state.Anchor().Load().Epochs[0].RoadRange().First, qc.Height())
 	hashBuilder.publishOnReport = true
 
@@ -294,7 +296,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ChainID:         "restart-tip-test",
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
-		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
@@ -320,10 +322,10 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		ValidatorAddrs:     validatorAddrs,
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
-		App:                proxy.NewEVM(&fixedHeightApp{height: int64(last)}),
+		App:                abevm.NewProxy(&fixedHeightApp{height: int64(last)}),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
-	state, err := BuildDataState(cfg, db, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
@@ -402,7 +404,7 @@ func testRouterAtRoad(t *testing.T, registry *epoch.TestRegistry, keys []atypes.
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
 	require.NoError(t, store.Flush())
-	state, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, store)
+	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, err)
 	return &gigaRouterCommon{data: state}
 }
@@ -425,7 +427,7 @@ func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epo
 	require.NoError(t, err)
 	db := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	state, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, db)
+	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, db)
 	require.NoError(t, err)
 	return state, registry
 }
@@ -492,18 +494,18 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 	selfAddr := NodeAddress{NodeID: peerKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
 	dummy := atypes.GenSecretKey(rng)
 	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
-	app := proxy.NewEVM(newTestApp())
+	app := abevm.NewProxy(newTestApp(testAppStateJSON(rng)))
 	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
 		App:                     app,
 		ValidatorAddrs:          map[atypes.PublicKey]GigaNodeAddr{},
 		MaxInboundFullnodePeers: 10,
-	}, localKey, epochs.state)
+	}, localKey, epochs.state, newTestSigner(1, 0))
 	require.NoError(t, err)
 	cappedRouter, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
 		App:                     app,
 		ValidatorAddrs:          map[atypes.PublicKey]GigaNodeAddr{},
 		MaxInboundFullnodePeers: 0,
-	}, localKey, epochs.state)
+	}, localKey, epochs.state, newTestSigner(1, 0))
 	require.NoError(t, err)
 	gigaAddr := NodeAddress{NodeID: localKey.Public().NodeID(), Hostname: "giga.example", Port: 26656}
 	joinerKey := makeKey(rng)
@@ -855,7 +857,7 @@ func testStateAtRoad(t *testing.T, registry *epoch.TestRegistry, qc *atypes.Full
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	utils.OrPanic(db.WriteBlock(atypes.NewRoadBlock(qc, blocks)))
 	utils.OrPanic(db.Flush())
-	state, err := data.NewState(&data.Config{App: proxy.TestEpochApp(registry)}, db)
+	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, db)
 	require.NoError(t, err)
 	return state
 }
@@ -1050,7 +1052,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		ChainID:         "persistent-peer-cap",
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
-		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		ConsensusParams: testGigaConsensusParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 	db := blockstore.NewTestStore(t)
@@ -1060,7 +1062,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 			validator.Public(): {Key: makeKey(rng).Public()},
 		},
 		PersistentStateDir:      t.TempDir(),
-		App:                     proxy.NewEVM(&fixedHeightApp{height: 1}),
+		App:                     abevm.NewProxy(&fixedHeightApp{height: 1}),
 		AppHashBuilder:          newPublishingAppHashBuilder(),
 		GenDoc:                  genDoc,
 		MaxInboundFullnodePeers: 3,
@@ -1070,9 +1072,9 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		},
 	}
 	registry := testGenesisEpochs(t, genDoc, cfg.ValidatorAddrs)
-	state, err := BuildDataState(cfg, db, proxy.TestEpochApp(registry), genDoc.GenesisTime)
+	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
-	router, err := NewGigaFullnodeRouter(cfg, localKey, state)
+	router, err := NewGigaFullnodeRouter(cfg, localKey, state, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
 
 	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
@@ -1163,6 +1165,8 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 	}))
 }
 
+func (fixedHeightApp) EvmChainID() uint64 { return 1 }
+
 func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 	for _, endpoint := range []string{
 		"ws://localhost:8546", "ws://127.0.0.1:8546", "ws://[::1]:8546",
@@ -1173,8 +1177,8 @@ func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 			committee, keys := atypes.GenCommittee(rng, 1)
 			state, _ := testDataState(t, committee)
 			router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
-				App: proxy.NewEVM(newTestApp()),
-			}, makeKey(rng), state)
+				App: abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
+			}, makeKey(rng), state, newTestSigner(1, 0))
 			require.NoError(t, err)
 			require.NoError(t, router.runEvmProxy(t.Context(), validatorHandshake{
 				auth:   keys[0].Sign(atypes.Challenge{}),
@@ -1249,13 +1253,13 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 				},
 			},
 			DialInterval:       time.Second,
-			App:                proxy.NewEVM(newTestApp()),
+			App:                abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
 			AppHashBuilder:     newManualAppHashBuilder(),
 			GenDoc:             genDoc,
 			PersistentStateDir: dir,
 			EnableEvmProxy:     true,
 		}
-		fullnodeRouter := utils.OrPanic1(NewGigaFullnodeRouter(&cfg, localNodeKey, state))
+		fullnodeRouter := utils.OrPanic1(NewGigaFullnodeRouter(&cfg, localNodeKey, state, newTestSigner(1, 0)))
 		s.SpawnBg(func() error { return utils.IgnoreCancel(fullnodeRouter.Run(ctx)) })
 
 		validatorRouter := utils.OrPanic1(NewGigaValidatorRouter(&GigaValidatorConfig{
@@ -1271,7 +1275,7 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 				MaxTxsPerSecond:         utils.None[uint64](),
 				BlockInterval:           time.Second,
 			},
-		}, localNodeKey, validatorState))
+		}, localNodeKey, validatorState, newTestSigner(1, 0)))
 		s.SpawnBg(func() error { return utils.IgnoreCancel(validatorRouter.Run(ctx)) })
 
 		// This test is not fully robust: these checks may be void in case runEvmProxy has not run yet,
