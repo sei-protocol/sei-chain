@@ -17,14 +17,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-<<<<<<< HEAD
-=======
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
->>>>>>> origin/main
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -168,8 +164,8 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 		ValidatorAddrs:  addrs,
 		AllowLocalAddrs: true,
 		DialInterval:    time.Second,
-		App:             proxy.NewEVM(newTestApp()),
-	}, makeKey(rng), state)
+		App:             abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
+	}, makeKey(rng), state, newTestSigner(1, 0))
 	require.NoError(t, err)
 	subscribed := make(chan int, 2)
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {

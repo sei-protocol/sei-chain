@@ -46,14 +46,9 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-<<<<<<< HEAD
 	app             *abevm.Proxy
 	signer          *abevm.Signer
-	offer           utils.Option[handshakeOffer]
-=======
-	app             *proxy.EVMProxy
 	gigaSpec        gigaHandshakeSpec
->>>>>>> origin/main
 	selfAddr        utils.Option[NodeAddress]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
@@ -62,7 +57,6 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
-<<<<<<< HEAD
 // CheckTx checks a transaction for admission without inserting it into the mempool.
 func (r *gigaRouterCommon) CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error) {
 	return abevm.CheckTx(r.app, r.signer, raw)
@@ -78,12 +72,8 @@ func (r *gigaRouterCommon) ForgetEvmSender(hash common.Hash) {
 	r.signer.Forget(hash)
 }
 
-func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer]) {
-	spec.SeiGigaConnection = true
-=======
 func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) handshakeSpec {
 	spec.Giga = utils.Some(r.gigaSpec)
->>>>>>> origin/main
 	if r.selfAddr.IsPresent() {
 		spec.SelfAddr = r.selfAddr
 	}

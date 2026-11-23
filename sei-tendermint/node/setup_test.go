@@ -459,9 +459,8 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func (setupEVMApp) EvmChainID() uint64 { return 1 }
-=======
+
 func TestBuildGigaConfigLocalEVMRPC(t *testing.T) {
 	validator := makeValidator([]byte("local-rpc-validator"), []byte("local-rpc-node"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
@@ -484,7 +483,6 @@ func TestBuildGigaConfigLocalEVMRPC(t *testing.T) {
 	require.Equal(t, endpoint.String(), cfg.EVMRPC.String())
 	require.False(t, cfg.AllowLocalAddrs)
 }
->>>>>>> origin/main
 
 // storageContext returns the context a test opens Giga storage under. Closing the storage needs its components still
 // running, and t.Context() is cancelled before the cleanup that closes it runs.

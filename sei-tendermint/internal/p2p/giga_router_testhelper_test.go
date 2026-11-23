@@ -241,7 +241,6 @@ func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store, signe
 	})
 }
 
-<<<<<<< HEAD
 func testGigaConsensusParams() *tmtypes.ConsensusParams {
 	params := tmtypes.DefaultConsensusParams()
 	params.Block.MaxGas = 30_000_000
@@ -250,8 +249,8 @@ func testGigaConsensusParams() *tmtypes.ConsensusParams {
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {
 	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
-=======
+}
+
 func testEVMRPCURL() url.URL {
 	return url.URL{Scheme: "ws", Host: "127.0.0.1:1"}
->>>>>>> origin/main
 }

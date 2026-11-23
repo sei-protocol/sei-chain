@@ -494,18 +494,18 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 	selfAddr := NodeAddress{NodeID: peerKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
 	dummy := atypes.GenSecretKey(rng)
 	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
-	app := proxy.NewEVM(newTestApp())
+	app := abevm.NewProxy(newTestApp(testAppStateJSON(rng)))
 	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
 		App:                     app,
 		ValidatorAddrs:          map[atypes.PublicKey]GigaNodeAddr{},
 		MaxInboundFullnodePeers: 10,
-	}, localKey, epochs.state)
+	}, localKey, epochs.state, newTestSigner(1, 0))
 	require.NoError(t, err)
 	cappedRouter, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
 		App:                     app,
 		ValidatorAddrs:          map[atypes.PublicKey]GigaNodeAddr{},
 		MaxInboundFullnodePeers: 0,
-	}, localKey, epochs.state)
+	}, localKey, epochs.state, newTestSigner(1, 0))
 	require.NoError(t, err)
 	gigaAddr := NodeAddress{NodeID: localKey.Public().NodeID(), Hostname: "giga.example", Port: 26656}
 	joinerKey := makeKey(rng)
@@ -1165,9 +1165,8 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 	}))
 }
 
-<<<<<<< HEAD
 func (fixedHeightApp) EvmChainID() uint64 { return 1 }
-=======
+
 func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 	for _, endpoint := range []string{
 		"ws://localhost:8546", "ws://127.0.0.1:8546", "ws://[::1]:8546",
@@ -1178,8 +1177,8 @@ func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 			committee, keys := atypes.GenCommittee(rng, 1)
 			state, _ := testDataState(t, committee)
 			router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
-				App: proxy.NewEVM(newTestApp()),
-			}, makeKey(rng), state)
+				App: abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
+			}, makeKey(rng), state, newTestSigner(1, 0))
 			require.NoError(t, err)
 			require.NoError(t, router.runEvmProxy(t.Context(), validatorHandshake{
 				auth:   keys[0].Sign(atypes.Challenge{}),
@@ -1254,13 +1253,13 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 				},
 			},
 			DialInterval:       time.Second,
-			App:                proxy.NewEVM(newTestApp()),
+			App:                abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
 			AppHashBuilder:     newManualAppHashBuilder(),
 			GenDoc:             genDoc,
 			PersistentStateDir: dir,
 			EnableEvmProxy:     true,
 		}
-		fullnodeRouter := utils.OrPanic1(NewGigaFullnodeRouter(&cfg, localNodeKey, state))
+		fullnodeRouter := utils.OrPanic1(NewGigaFullnodeRouter(&cfg, localNodeKey, state, newTestSigner(1, 0)))
 		s.SpawnBg(func() error { return utils.IgnoreCancel(fullnodeRouter.Run(ctx)) })
 
 		validatorRouter := utils.OrPanic1(NewGigaValidatorRouter(&GigaValidatorConfig{
@@ -1276,7 +1275,7 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 				MaxTxsPerSecond:         utils.None[uint64](),
 				BlockInterval:           time.Second,
 			},
-		}, localNodeKey, validatorState))
+		}, localNodeKey, validatorState, newTestSigner(1, 0)))
 		s.SpawnBg(func() error { return utils.IgnoreCancel(validatorRouter.Run(ctx)) })
 
 		// This test is not fully robust: these checks may be void in case runEvmProxy has not run yet,
@@ -1375,4 +1374,3 @@ func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
 	}))
 	require.False(t, router.evmProxy(validatorKey.Public()).IsPresent())
 }
->>>>>>> origin/main
