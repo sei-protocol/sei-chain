@@ -446,7 +446,7 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng), endWeights); err != nil {
 			return err
 		}
-		qc1, blocks1 := commitQCAtRoad(ep1, keys, ep1.RoadRange().First)
+		qc1, blocks1 := TestCommitQCOnLane(ep1, keys, utils.Some(qc0.QC()), ep1.Committee().Lanes().At(0))
 		if err := state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)); err != nil {
 			return err
 		}

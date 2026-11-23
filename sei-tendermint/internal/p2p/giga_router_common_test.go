@@ -928,7 +928,8 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsNextEpoch(t *testing.T) {
 			}
 		}
 		// The first road of ep3 moves Anchor to (ep3, ep4): b leaves, d joins.
-		qc3, blocks3 := testRoadQC(registry.MustEpoch(3), []atypes.SecretKey{keyA, keyC}, registry.MustEpoch(3).RoadRange().First)
+		ep3 := registry.MustEpoch(3)
+		qc3, blocks3 := data.TestCommitQCOnLane(ep3, []atypes.SecretKey{keyA, keyC}, utils.Some(qc2.QC()), ep3.Committee().Lanes().At(0))
 		if err := testCertifyRoad(ctx, state, rng, []atypes.SecretKey{keyA, keyC}, qc3, blocks3); err != nil {
 			return err
 		}

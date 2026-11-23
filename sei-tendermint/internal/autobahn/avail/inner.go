@@ -157,6 +157,15 @@ func (i *inner) persistedCommitQC() utils.Option[*types.CommitQC] {
 	return i.anchor.CommitQC()
 }
 
+// lastCommitQC returns the CommitQC of the road before roads.next, from the retained roads or anchor.
+// It is None only when roads.next is the first road of the chain.
+func (i *inner) lastCommitQC() utils.Option[*types.CommitQC] {
+	if i.roads.next > i.roads.first {
+		return utils.Some(i.roads.q[i.roads.next-1].commitQC)
+	}
+	return i.anchor.CommitQC()
+}
+
 func (i *inner) applied() *types.Epoch {
 	return i.consensusSpec.Load().Epoch
 }

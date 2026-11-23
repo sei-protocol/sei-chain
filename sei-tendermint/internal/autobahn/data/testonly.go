@@ -16,6 +16,20 @@ func TestAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 	return types.NewAppQC(votes)
 }
 
+// TestCommitQCOnLane builds the CommitQC of the road block after parent that finalizes one empty
+// lane block on lane, and returns it with that lane block.
+func TestCommitQCOnLane(
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	parent utils.Option[*types.CommitQC],
+	lane types.LaneID,
+) (*types.FullCommitQC, []*types.LaneBlock) {
+	block := types.NewLaneBlock(lane, types.LaneRangeOpt(parent, lane).Next(), types.LaneBlockHeaderHash{}, &types.Payload{})
+	laneQCs := map[types.LaneID]*types.LaneQC{lane: TestLaneQC(ep.EpochIndex(), keys, block.Header())}
+	qc := types.BuildCommitQC(ep, keys, parent, laneQCs)
+	return types.NewFullCommitQC(qc, []*types.LaneBlockHeader{block.Header()}), []*types.LaneBlock{block}
+}
+
 func TestLaneQC(epochIndex types.EpochIndex, keys []types.SecretKey, header *types.LaneBlockHeader) *types.LaneQC {
 	vote := types.NewLaneVote(epochIndex, header)
 	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
