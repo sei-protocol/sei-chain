@@ -266,20 +266,21 @@ func TestRoadBlockHeaderWithoutParentOmitsTheField(t *testing.T) {
 func TestRoadBlockHeaderDecodeRejectsAParentHashOfTheWrongLength(t *testing.T) {
 	rng := utils.TestRng()
 	h := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), nil)
-	for _, n := range []int{0, 31, 32, 33} {
+	for _, n := range []int{0, 31} {
 		m := RoadBlockHeaderConv.Encode(h)
 		m.ParentHash = utils.GenBytes(rng, n)
 		decoded, err := protoutils.Unmarshal[*pb.RoadBlockHeader](protoutils.Marshal(m))
-		if n > 32 {
-			require.Error(t, err)
-			continue
-		}
 		require.NoError(t, err)
 		_, err = RoadBlockHeaderConv.Decode(decoded)
-		if n == 32 {
-			require.NoError(t, err)
-		} else {
-			require.Error(t, err)
-		}
+		require.Error(t, err)
 	}
+}
+
+func TestRoadBlockHeaderUnmarshalRejectsAParentHashLongerThanTheHash(t *testing.T) {
+	rng := utils.TestRng()
+	h := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), nil)
+	m := RoadBlockHeaderConv.Encode(h)
+	m.ParentHash = utils.GenBytes(rng, 33)
+	_, err := protoutils.Unmarshal[*pb.RoadBlockHeader](protoutils.Marshal(m))
+	require.Error(t, err)
 }
