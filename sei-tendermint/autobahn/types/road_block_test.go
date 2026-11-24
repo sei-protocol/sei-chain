@@ -263,20 +263,16 @@ func TestRoadBlockHeaderVerifyWithParent(t *testing.T) {
 	first := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
 	second := BuildCommitQC(ep, keys, utils.Some(first), nil)
 	lane := committee.Lanes().At(0)
-	laneRanges := func(r *LaneRange) []*LaneRange {
-		var out []*LaneRange
+	// secondWith is the header of second with the height, the parent hash, and the ranges of lane replaced.
+	// A call with no range omits lane.
+	secondWith := func(height RoadHeight, parentHash utils.Option[RoadBlockHeaderHash], rs ...*LaneRange) *RoadBlockHeader {
+		laneRanges := slices.Clone(rs)
 		for l := range committee.Lanes().All() {
-			if l == lane {
-				out = append(out, r)
-			} else {
-				out = append(out, second.Header().LaneRange(l))
+			if l != lane {
+				laneRanges = append(laneRanges, second.Header().LaneRange(l))
 			}
 		}
-		return out
-	}
-	// secondWith is the header of second with one field replaced.
-	secondWith := func(height RoadHeight, parentHash utils.Option[RoadBlockHeaderHash], r *LaneRange) *RoadBlockHeader {
-		return newRoadBlockHeader(ep.EpochIndex(), height, parentHash, second.Header().Timestamp(), laneRanges(r))
+		return newRoadBlockHeader(ep.EpochIndex(), height, parentHash, second.Header().Timestamp(), laneRanges)
 	}
 	h := second.Header()
 	parentHash := utils.Some(first.Header().Hash())
@@ -285,14 +281,16 @@ func TestRoadBlockHeaderVerifyWithParent(t *testing.T) {
 		parent   utils.Option[*CommitQC]
 		mismatch bool
 	}{
-		"first road block":                {first.Header(), utils.None[*CommitQC](), false},
-		"next road block":                 {h, utils.Some(first), false},
-		"wrong parent hash":               {secondWith(h.Height(), utils.Some(GenRoadBlockHeaderHash(rng)), h.LaneRange(lane)), utils.Some(first), true},
-		"missing parent hash":             {secondWith(h.Height(), utils.None[RoadBlockHeaderHash](), h.LaneRange(lane)), utils.Some(first), true},
-		"parent hash on first road block": {newRoadBlockHeader(ep.EpochIndex(), first.Height(), parentHash, first.Header().Timestamp(), nil), utils.None[*CommitQC](), true},
-		"height after a gap":              {secondWith(h.Height()+1, parentHash, h.LaneRange(lane)), utils.Some(first), true},
-		"lane range after a gap":          {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()+1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
-		"lane range overlaps the parent":  {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()-1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
+		"first road block":                          {first.Header(), utils.None[*CommitQC](), false},
+		"next road block":                           {h, utils.Some(first), false},
+		"wrong parent hash":                         {secondWith(h.Height(), utils.Some(GenRoadBlockHeaderHash(rng)), h.LaneRange(lane)), utils.Some(first), true},
+		"missing parent hash":                       {secondWith(h.Height(), utils.None[RoadBlockHeaderHash](), h.LaneRange(lane)), utils.Some(first), true},
+		"parent hash on first road block":           {newRoadBlockHeader(ep.EpochIndex(), first.Height(), parentHash, first.Header().Timestamp(), nil), utils.None[*CommitQC](), true},
+		"height after a gap":                        {secondWith(h.Height()+1, parentHash, h.LaneRange(lane)), utils.Some(first), true},
+		"lane range after a gap":                    {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()+1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
+		"lane range overlaps the parent":            {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()-1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
+		"lane omitted after the parent advanced it": {secondWith(h.Height(), parentHash), utils.Some(first), true},
+		"first road block above the first height":   {newRoadBlockHeader(ep.EpochIndex(), first.Height()+1, utils.None[RoadBlockHeaderHash](), first.Header().Timestamp(), nil), utils.None[*CommitQC](), true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := tc.header.VerifyWithParent(ep, tc.parent)

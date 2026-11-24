@@ -198,10 +198,11 @@ func GenLaneHeight(rng utils.Rng) LaneHeight {
 	return LaneHeight(rng.Uint64())
 }
 
-// GenLaneRangeFor generates a random LaneRange that starts at first and whose lane ID is drawn from c.
-func GenLaneRangeFor(rng utils.Rng, c *Committee, first LaneHeight) *LaneRange {
+// GenLaneRangeFor generates a random LaneRange that starts at 0 and whose lane ID is drawn from c.
+func GenLaneRangeFor(rng utils.Rng, c *Committee) *LaneRange {
 	lanes := c.Lanes()
 	lane := lanes.At(rng.Intn(lanes.Len()))
+	first := LaneHeight(0)
 	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
 	if length == 0 {
 		return NewLaneRange(lane, first, utils.None[*LaneBlockHeader]())
@@ -425,7 +426,7 @@ func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
 	// The lane ranges start at 0, so they continue from an empty parent.
-	laneRanges := rng.GenSlice(func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c, 0) })
+	laneRanges := rng.GenSlice(func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
 	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), laneRanges)}
 }
 

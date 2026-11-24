@@ -113,24 +113,30 @@ func (m *RoadBlockHeader) Height() RoadHeight { return m.height }
 // It is None only for the first road block of the chain.
 func (m *RoadBlockHeader) ParentHash() utils.Option[RoadBlockHeaderHash] { return m.parentHash }
 
-// VerifyWithParent checks the header against ep and against parent, the CommitQC of the
-// road block before it. A None parent means the header is the first road block of the chain.
+// nextRoadHeight returns the height of the road block after parent, or the first road height
+// of ep when parent is None.
+func nextRoadHeight(ep *Epoch, parent utils.Option[*CommitQC]) RoadHeight {
+	if qc, ok := parent.Get(); ok {
+		return qc.Height() + 1
+	}
+	return ep.RoadRange().First
+}
+
+// VerifyWithParent checks that the header is valid in ep and directly follows parent, the
+// CommitQC of the road block before it. The header must name the hash of the parent header,
+// sit at the next road height, and start each committee lane where parent stopped. A None
+// parent means the header is the first road block of the chain. The signatures of parent are
+// not checked, so the caller verifies parent.
 func (m *RoadBlockHeader) VerifyWithParent(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	if err := m.Verify(ep); err != nil {
 		return err
 	}
-	// The parent is taken as a CommitQC, not as a header, because only a finalized parent can
-	// be a parent. Its signatures are not checked here.
 	wantHash := parent.Map(func(qc *CommitQC) RoadBlockHeaderHash { return qc.Header().Hash() })
 	if m.parentHash != wantHash {
 		show := func(h utils.Option[RoadBlockHeaderHash]) string { return h.Map(RoadBlockHeaderHash.String).Or("none") }
 		return fmt.Errorf("%w: parentHash = %v, want %v", ErrParentMismatch, show(m.parentHash), show(wantHash))
 	}
-	wantHeight := ep.RoadRange().First
-	if qc, ok := parent.Get(); ok {
-		wantHeight = qc.Height() + 1
-	}
-	if m.height != wantHeight {
+	if wantHeight := nextRoadHeight(ep, parent); m.height != wantHeight {
 		return fmt.Errorf("%w: height = %v, want %v", ErrParentMismatch, m.height, wantHeight)
 	}
 	// Each lane continues where the parent stopped, so no lane block is skipped or included twice.

@@ -64,10 +64,7 @@ type ConsensusSpec struct {
 // Height is the RoadHeight of the next view: CommitQC.Height()+1, or the start of
 // the genesis epoch if there is no tip.
 func (s ConsensusSpec) Height() RoadHeight {
-	if qc, ok := s.CommitQC.Get(); ok {
-		return qc.Height() + 1
-	}
-	return s.Epoch.RoadRange().First
+	return nextRoadHeight(s.Epoch, s.CommitQC)
 }
 
 // ParentHeader returns the header of the road block before the next view's, or None
@@ -138,12 +135,6 @@ func (m *Proposal) View() View { return m.header.view(m.viewNumber) }
 
 // Header returns the road block header.
 func (m *Proposal) Header() *RoadBlockHeader { return m.header }
-
-// Verify checks epoch binding and lane-range bounds, lengths, committee membership,
-// and empty-range hashes. FullProposal.Verify additionally checks QC-chain continuity.
-func (m *Proposal) Verify(ep *Epoch) error {
-	return m.header.Verify(ep)
-}
 
 // FullProposal is a proposal with justification.
 type FullProposal struct {
