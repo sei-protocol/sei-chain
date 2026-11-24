@@ -381,11 +381,19 @@ func (t *TransactionAPI) encodeRPCTransaction(ctx context.Context, ethtx *ethtyp
 	height := int64(receipt.BlockNumber) // nolint:gosec
 	var baseFeePerGas *big.Int
 	if block.Block.Height > 1 {
-		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(ctxProvider(height - 1)).TruncateInt().BigInt()
+		parentCtx, err := ctxAtHeight(ctxProvider, height-1)
+		if err != nil {
+			return nil, err
+		}
+		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(parentCtx).TruncateInt().BigInt()
 	} else {
 		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
 	}
-	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(ctxProvider(height)))
+	sdkCtx, err := ctxAtHeight(ctxProvider, height)
+	if err != nil {
+		return nil, err
+	}
+	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx))
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
@@ -514,7 +522,11 @@ func encodeReceipt(
 	if err != nil {
 		return nil, err
 	}
-	positions := evmTxPositions(ctxProvider(block.Block.Height), block, msgs, k, cacheCreationMutex, globalBlockCache)
+	sdkCtx, err := ctxAtHeight(ctxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	positions := evmTxPositions(sdkCtx, block, msgs, k, cacheCreationMutex, globalBlockCache)
 	return encodeReceiptAt(receipt, block, positions)
 }
 

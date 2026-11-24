@@ -31,6 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -79,11 +80,13 @@ type evmOnlyApplication struct {
 	upgradeInfoPath utils.Option[string]
 	executor        utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// Lock order: executor before cursor. FinalizeBlock holds executor while
-	// the block's cursor encoder takes cursor.
-	cursor utils.Mutex[*evmOnlyCursorState]
-	// settler publishes the executor to readers of committed state, which settle
-	// its in-flight block commit before opening a store view without waiting for
-	// FinalizeBlock to release executor.
+	// the block's cursor encoder takes cursor, and waits on cursor for its turn
+	// before taking executor.
+	cursor utils.Watch[*evmOnlyCursorState]
+	// settler publishes the executor to code that must not wait for
+	// FinalizeBlock to release executor: readers of committed state, which
+	// settle its in-flight block commit before opening a store view, and
+	// FinalizeBlock preparing a block before its turn.
 	settler utils.AtomicSend[utils.Option[*evmonly.Executor]]
 	// settleFailureLogged is set once a committed-state reader has logged a
 	// failed commit; the failure is latched, so it is logged once.
@@ -100,14 +103,16 @@ const (
 	finalizeMeterName = "evmonly_app"
 	finalizeTimerName = "evmonly_finalize"
 
-	finalizePhasePrepareTxs = "prepare_txs"
-	finalizePhaseExecute    = "execute"
+	finalizePhaseExecute = "execute"
 )
 
 // evmOnlyCursorState holds the latest finalized cursor and the cursor being finalized.
 type evmOnlyCursorState struct {
 	committed evmOnlyCursor
 	pending   utils.Option[evmOnlyCursor]
+	// started holds the hash of each block above committed whose FinalizeBlock
+	// has started, so a block prepared before its turn knows its parent's hash.
+	started map[int64]common.Hash
 	// lastBlockTime is the Time of the most recently finalized block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -161,7 +166,7 @@ func NewEVMOnlyApplication(
 		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
+		cursor:            utils.NewWatch(&evmOnlyCursorState{started: map[int64]common.Hash{}}),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
@@ -206,10 +211,11 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		opts = append(opts, evmonly.WithMissingAccountState(evmOnlyFundedState{}))
 	}
 	return evmonly.NewExecutor(evmonly.Config{
-		ChainConfig:  a.chainConfig,
-		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
-		OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
-		ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
+		ChainConfig:             a.chainConfig,
+		MinGasPrice:             big.NewInt(evmOnlyBlockMinGasPrice),
+		OCCWorkers:              workersOrGOMAXPROCS(a.execution.OCCWorkers),
+		ParseWorkers:            workersOrGOMAXPROCS(a.execution.ParseWorkers),
+		EarlySpeculationWorkers: a.execution.EarlySpeculationWorkers,
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
@@ -852,6 +858,26 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 		return abevm.FinalizeBlockResp{}, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Time)
 	}
 	blockHash := req.Hash
+	executor, ok := a.settler.Load().Get()
+	if !ok {
+		return abevm.FinalizeBlockResp{}, fmt.Errorf("EVM-only block finalized before InitChain")
+	}
+	// Prepared before this block's turn, so it overlaps the previous block's execution.
+	parentHash, parentKnown := a.startBlock(height, blockHash)
+	prepared, err := executor.PrepareDecodedBlock(ctx,
+		a.blockContext(number, timestamp, a.EvmGasLimit(), parentHash, blockHash), req.Txs)
+	if err != nil {
+		return abevm.FinalizeBlockResp{}, err
+	}
+	executor.WarmAccounts(ctx, prepared)
+	if parentKnown {
+		executor.SpeculateEarly(ctx, prepared)
+	}
+	if err := a.waitTurn(ctx, height); err != nil {
+		return abevm.FinalizeBlockResp{}, err
+	}
+	// A cancel must not abort a block after some stores have taken its writes.
+	ctx = context.WithoutCancel(ctx)
 	for executor := range a.executor.Lock() {
 		executor, ok := executor.Get()
 		if !ok {
@@ -861,10 +887,11 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 		if err != nil {
 			return abevm.FinalizeBlockResp{}, err
 		}
-		// Closes the stage in flight, so the gap until the next block is charged to neither.
-		defer a.finalizePhases.Reset()
-		result, err := a.executeBlockPipelined(ctx, executor,
-			a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash), req.Txs)
+		a.finalizePhases.SetPhase(finalizePhaseExecute)
+		prepared.Context = a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash)
+		result, err := executor.ExecutePreparedBlock(ctx, prepared)
+		// Closed while executor is held: a deferred Reset would run after the next block's turn starts.
+		a.finalizePhases.Reset()
 		if err != nil {
 			return abevm.FinalizeBlockResp{}, errors.Join(err, a.abandonPending(executor, height))
 		}
@@ -909,9 +936,31 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	return commitErr
 }
 
+// startBlock records hash as the block at height and returns the hash of its
+// parent, if known.
+func (a *evmOnlyApplication) startBlock(height int64, hash common.Hash) (common.Hash, bool) {
+	for state := range a.cursor.Lock() {
+		state.started[height] = hash
+		if state.committed.height == height-1 {
+			return state.committed.blockHash, true
+		}
+		parent, ok := state.started[height-1]
+		return parent, ok
+	}
+	panic("unreachable")
+}
+
+// waitTurn waits until every block before height has finished finalizing.
+func (a *evmOnlyApplication) waitTurn(ctx context.Context, height int64) error {
+	for state, ctrl := range a.cursor.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool { return state.committed.height+1 >= height })
+	}
+	panic("unreachable")
+}
+
 // finishBlock publishes the cursor and timestamp of the finalized block.
 func (a *evmOnlyApplication) finishBlock(height int64) error {
-	for state := range a.cursor.Lock() {
+	for state, ctrl := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok || pending.height != height {
 			return fmt.Errorf("EVM-only block %d finalized without staging its cursor", height)
@@ -919,23 +968,13 @@ func (a *evmOnlyApplication) finishBlock(height int64) error {
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
+		delete(state.started, height)
+		// Under the cursor lock, so it precedes the next block's turn and its PhaseExecution.
+		gigametrics.SetPhase(gigametrics.PhaseConsensus)
+		ctrl.Updated()
 		return nil
 	}
 	panic("unreachable")
-}
-
-// executeBlockPipelined executes the block and returns once its state commit
-// has started, leaving the commit to land while the next block executes.
-// Readers of committed state settle it through AwaitCommits.
-func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, block evmonly.BlockContext, txs []abevm.EvmTx) (*evmonly.BlockResult, error) {
-	a.finalizePhases.SetPhase(finalizePhasePrepareTxs)
-	prepared, err := executor.PrepareDecodedBlock(ctx, block, txs)
-	if err != nil {
-		return nil, err
-	}
-	// The executor's own timer breaks execution down further.
-	a.finalizePhases.SetPhase(finalizePhaseExecute)
-	return executor.ExecutePreparedBlock(ctx, prepared)
 }
 
 func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {

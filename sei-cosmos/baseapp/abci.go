@@ -18,7 +18,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -474,7 +473,8 @@ func (app *BaseApp) GetValidators() []abci.ValidatorUpdate {
 	return nil
 }
 
-// ListSnapshots implements the ABCI interface. It delegates to app.snapshotManager if set.
+// ListSnapshots implements the ABCI interface. It delegates to app.snapshotManager if set,
+// and returns an ErrIO error when the snapshot metadata cannot be read.
 func (app *BaseApp) ListSnapshots(context context.Context, req *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error) {
 	resp := &abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{}}
 	if app.snapshotManager == nil {
@@ -484,14 +484,14 @@ func (app *BaseApp) ListSnapshots(context context.Context, req *abci.RequestList
 	snapshots, err := app.snapshotManager.List()
 	if err != nil {
 		logger.Error("failed to list snapshots", "err", err)
-		return resp, nil
+		return nil, sdkerrors.Wrap(sdkerrors.ErrIO, "failed to list snapshots")
 	}
 
 	for _, snapshot := range snapshots {
 		abciSnapshot, err := snapshot.ToABCI()
 		if err != nil {
 			logger.Error("failed to list snapshots", "err", err)
-			return resp, nil
+			return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "failed to list snapshots")
 		}
 		resp.Snapshots = append(resp.Snapshots, &abciSnapshot)
 	}
@@ -812,35 +812,6 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) (int64, error) {
 	return retentionHeight, nil
 }
 
-func (app *BaseApp) Simulate(goCtx context.Context, txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
-	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx)).WithContext(goCtx)
-	ctx, _ = ctx.CacheContext()
-	tx, err := app.txDecoder(txBytes)
-	if err != nil {
-		return sdk.GasInfo{}, nil, err
-	}
-	if err := checkSimulatedSignerModes(tx); err != nil {
-		return sdk.GasInfo{}, nil, err
-	}
-	runTxRes, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
-	return runTxRes.gasInfo, runTxRes.result, err
-}
-
-// checkSimulatedSignerModes returns an error if any signer of tx uses a multisig
-// sign mode, which simulation does not support.
-func checkSimulatedSignerModes(tx sdk.Tx) error {
-	protoTx, ok := tx.(interface{ GetProtoTx() *txtypes.Tx })
-	if !ok {
-		return nil
-	}
-	for i, signerInfo := range protoTx.GetProtoTx().GetAuthInfo().GetSignerInfos() {
-		if _, ok := signerInfo.GetModeInfo().GetSum().(*txtypes.ModeInfo_Multi_); ok {
-			return sdkerrors.Wrapf(sdkerrors.ErrNotSupported, "simulation of multisig signer %d", i)
-		}
-	}
-	return nil
-}
-
 func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	if len(path) >= 2 {
 		switch path[1] {
@@ -856,7 +827,7 @@ func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.R
 
 			response, err := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
 			if err != nil {
-				return sdkerrors.QueryResult(sdkerrors.Wrap(err, "list snapshots error"))
+				return sdkerrors.QueryResult(err)
 			}
 
 			responseValue, err = json.Marshal(response)
@@ -878,7 +849,7 @@ func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.R
 	return sdkerrors.QueryResultWithDebug(
 		sdkerrors.Wrap(
 			sdkerrors.ErrUnknownRequest,
-			"expected second parameter to be either 'simulate', 'version' or 'snapshot', neither was present",
+			"expected second parameter to be either 'version' or 'snapshots', neither was present",
 		), app.trace)
 }
 

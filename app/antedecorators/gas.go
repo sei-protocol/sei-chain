@@ -6,12 +6,12 @@ import (
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 )
 
-func GetGasMeterSetter(pk paramskeeper.Keeper) func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
-	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
+func GetGasMeterSetter(pk paramskeeper.Keeper) func(sdk.Context, uint64, sdk.Tx) sdk.Context {
+	return func(ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
 		cosmosGasParams := pk.GetCosmosGasParams(ctx)
 
-		// In simulation and genesis delivery, still use multiplier but with infinite gas limit.
-		if simulate || ctx.IsGenesis() {
+		// In genesis delivery, still use multiplier but with infinite gas limit.
+		if ctx.IsGenesis() {
 			return ctx.WithGasMeter(types.NewInfiniteMultiplierGasMeter(cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
 		}
 

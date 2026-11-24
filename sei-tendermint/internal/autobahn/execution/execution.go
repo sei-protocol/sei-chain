@@ -15,6 +15,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 )
@@ -33,6 +34,9 @@ type Config struct {
 	AppHashBuilder builder.AppHashBuilder
 	// BlockStore holds the blocks to execute.
 	BlockStore *blockstore.Store
+	// MaxBlocksInFlight is how many blocks Run may have in FinalizeBlock at once: one executing,
+	// and the rest being prepared. Values below 1 run blocks one at a time.
+	MaxBlocksInFlight int
 }
 
 // Executor executes durable blocks on the app, one at a time in road order.
@@ -57,39 +61,60 @@ func (e *Executor) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 }
 
 // Run initializes the app, then executes the durable blocks after its tip in
-// road order until ctx is canceled or a block fails. A cancel does not
-// interrupt a block in progress.
+// road order until ctx is canceled or a block fails. Up to MaxBlocksInFlight
+// blocks are in flight at once: one executing, and the rest being prepared.
 func (e *Executor) Run(ctx context.Context) error {
 	next, err := e.initApp(ctx)
 	if err != nil {
 		return err
 	}
-	for n := next; ; n++ {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
-		if err != nil {
-			logStopped(n-1, false)
-			return fmt.Errorf("WaitForBlock(%v): %w", n, err)
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		inFlightLimit := max(e.cfg.MaxBlocksInFlight, 1)
+		inFlight := utils.NewSemaphore(inFlightLimit)
+		results := make(chan scope.JoinHandle[atypes.ExecutedBlock], inFlightLimit)
+		s.Spawn(func() error {
+			for n := next; ; n++ {
+				release, err := inFlight.Acquire(ctx)
+				if err != nil {
+					return err
+				}
+				block, err := e.cfg.BlockStore.WaitForBlock(ctx, n)
+				if err != nil {
+					return fmt.Errorf("WaitForBlock(%v): %w", n, err)
+				}
+				b := block.SuperBlock()
+				// Reported here, in road order: the builder requires each height to follow the last.
+				if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
+					return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
+				}
+				result := s.Spawn1(func() (atypes.ExecutedBlock, error) {
+					defer release()
+					executed, err := e.executeBlock(ctx, b)
+					if err != nil {
+						return atypes.ExecutedBlock{}, fmt.Errorf("executeBlock(%v): %w", n, err)
+					}
+					return executed, nil
+				})
+				if err := utils.Send(ctx, results, result); err != nil {
+					return err
+				}
+			}
+		})
+		for {
+			result, err := utils.Recv(ctx, results)
+			if err != nil {
+				return err
+			}
+			executed, err := result.Join(ctx)
+			if err != nil {
+				return err
+			}
+			e.publishExecuted(executed)
 		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		if err := e.executeBlock(block.SuperBlock()); err != nil {
-			return fmt.Errorf("executeBlock(%v): %w", n, err)
-		}
-		if err := ctx.Err(); err != nil {
-			logStopped(n, true)
-			return fmt.Errorf("stopped after block %v: %w", n, err)
-		}
-	}
-}
-
-// logStopped reports where execution stopped on a cancel.
-func logStopped(
-	// The last block executed.
-	lastExecuted atypes.RoadHeight,
-	// Whether the cancel arrived while that block was executing.
-	blockInFlight bool,
-) {
-	logger.Info("Execution stopped", "last_executed", lastExecuted, "block_in_flight", blockInFlight)
+	})
+	// The app's height, not the executed window's: a block in flight at a cancel finishes unpublished.
+	logger.Info("Execution stopped", "last_executed", e.cfg.App.LastBlockHeight())
+	return err
 }
 
 // initApp brings the app to a state execution can extend: InitChain on a fresh
@@ -133,18 +158,13 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 	return last + 1, nil
 }
 
-// executeBlock reports b's hash, finalizes b, and publishes its execution result.
-// A cancel does not interrupt it.
-func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
-	// A cancel must not abort a block after some stores have taken its writes.
-	ctx := context.Background()
-	if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
-		return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
-	}
+// executeBlock finalizes b and returns its execution result. FinalizeBlock may
+// still be running for earlier blocks; the app finalizes them in road order.
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (atypes.ExecutedBlock, error) {
 	app := e.cfg.App
 	txs, err := e.cfg.Signer.ParseTxs(b.Txs)
 	if err != nil {
-		return fmt.Errorf("decode block transactions: %w", err)
+		return atypes.ExecutedBlock{}, fmt.Errorf("decode block transactions: %w", err)
 	}
 
 	e.cfg.Signer.ForgetTxs(txs)
@@ -156,17 +176,16 @@ func (e *Executor) executeBlock(b *atypes.SuperBlock) error {
 		Time:   b.Timestamp,
 	})
 	if err != nil {
-		return fmt.Errorf("app.FinalizeBlock(): %w", err)
+		return atypes.ExecutedBlock{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
-	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	gasUsed := resp.GasUsed
+	return atypes.ExecutedBlock{Height: b.Height, GasUsed: resp.GasUsed}, nil
+}
 
+// publishExecuted records b in the executed-block window and the gas metric.
+// Blocks must be published in road order.
+func (e *Executor) publishExecuted(b atypes.ExecutedBlock) {
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	metrics.GasUsed.Add(utils.Clamp[int64](gasUsed))
-	e.executed.Store(e.executed.Load().Push(atypes.ExecutedBlock{
-		Height:  b.Height,
-		GasUsed: gasUsed,
-	}))
+	metrics.GasUsed.Add(utils.Clamp[int64](b.GasUsed))
+	e.executed.Store(e.executed.Load().Push(b))
 	gigametrics.EndStoragePhase()
-	return nil
 }

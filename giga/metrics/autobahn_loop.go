@@ -16,7 +16,7 @@ const (
 	timerName        = "autobahn_main_loop"
 	storageTimerName = "autobahn_storage_tail"
 
-	// PhaseConsensus is time spent waiting for the next committed Autobahn block.
+	// PhaseConsensus is time between one block finishing and the next block starting to execute.
 	PhaseConsensus = "consensus"
 	// PhaseExecution is time spent executing that block's transactions.
 	PhaseExecution = "execution"
@@ -76,8 +76,7 @@ func SetPhase(phase string) {
 	MainLoop().SetPhase(phase)
 }
 
-// StorageTail is the phase timer splitting the execute loop's PhaseStorage into
-// the router's steps after FinalizeBlock returns.
+// StorageTail is the phase timer for the router's steps after FinalizeBlock returns.
 func StorageTail() *seidbmetrics.PhaseTimer {
 	storageOnce.Do(func() {
 		storage = seidbmetrics.NewPhaseTimer(otel.Meter(meterName), storageTimerName)

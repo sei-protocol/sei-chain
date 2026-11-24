@@ -19,7 +19,7 @@ func NewBasicDecorator(k *keeper.Keeper) *BasicDecorator {
 }
 
 // cherrypicked from go-ethereum:txpool:ValidateTransaction
-func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	etx, _ := msg.AsTransaction()
 
@@ -87,7 +87,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	//		return ctx, err
 	//	}
 	//}
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 // NOTE: if we re-enable blob support we can put this back.

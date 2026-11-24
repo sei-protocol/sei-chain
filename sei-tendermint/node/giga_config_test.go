@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/binary"
 	"math/big"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,7 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -154,6 +157,43 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
 	require.Equal(t, uint64(713701), app.EvmChainID())
+}
+
+func TestMakeEVMApplicationRefusesAPendingRestore(t *testing.T) {
+	psd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restore-pending"), []byte("7\n"), 0o600))
+
+	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+
+	require.ErrorIs(t, err, errPendingRestore)
+	_, err = os.Stat(filepath.Join(psd, "data"))
+	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a home with a pending restore")
+}
+
+func TestMakeEVMApplicationRemovesTheStagingDirOfAStoppedImport(t *testing.T) {
+	psd := t.TempDir()
+	layout := autobahnLayout(psd)
+	require.NoError(t, os.MkdirAll(filepath.Join(layout.ImportStagingDir, "download"), 0o750))
+
+	_, manager, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	_, err = os.Stat(layout.ImportStagingDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestRemoveStoppedImportKeepsTheStagingDirOfARunningImport(t *testing.T) {
+	layout := autobahnLayout(t.TempDir())
+	require.NoError(t, os.MkdirAll(layout.ImportStagingDir, 0o750))
+	lock, err := flatkv.LockRoot(layout.FlatKVDir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Unlock()) }()
+
+	require.ErrorIs(t, removeStoppedImport(layout), commonerrors.ErrFileLockUnavailable)
+
+	_, err = os.Stat(layout.ImportStagingDir)
+	require.NoError(t, err)
 }
 
 // The builder's first block is the genesis height. A chain that starts above 1

@@ -149,7 +149,7 @@ func TestRun(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, upgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, upgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)

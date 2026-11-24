@@ -1314,8 +1314,7 @@ func TestEVMOnlyApplicationServesStorageHistoryFromTheUndoLog(t *testing.T) {
 	require.Equal(t, common.BigToHash(big.NewInt(0x2c)), got)
 }
 
-// Every FinalizeBlock stage is charged to a phase, so the timer's total is the
-// time the block loop spent inside the application.
+// Every stage FinalizeBlock runs on its turn is charged to a phase.
 func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmOnlyApp, ok := app.(*evmOnlyApplication)
@@ -1349,7 +1348,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{finalizePhasePrepareTxs, finalizePhaseExecute} {
+	for _, want := range []string{finalizePhaseExecute} {
 		_, ok := phases[want]
 		require.True(t, ok, "phase %q not recorded", want)
 	}
@@ -1840,4 +1839,40 @@ func balanceAlloc(balances map[common.Address]*uint256.Int) map[common.Address]e
 		accounts[addr] = evmonly.GenesisAccount{Balance: balance}
 	}
 	return accounts
+}
+
+// A FinalizeBlock called before the previous block's returns waits for it, and
+// leaves the same state as finalizing the blocks one after the other.
+func TestEVMOnlyApplicationFinalizesTheNextBlockWhileTheCurrentOneRuns(t *testing.T) {
+	pipelined := newInitializedEVMOnlyTestApp(t)
+	sequential := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	tx0 := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
+	tx1 := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			_, err := pipelined.FinalizeBlock(ctx, evmOnlyTestBlock(pipelined, 2, tx1))
+			return err
+		})
+		_, err := pipelined.FinalizeBlock(ctx, evmOnlyTestBlock(pipelined, 1, tx0))
+		return err
+	}))
+	finalizeEVMOnlyTestBlock(t, sequential, evmOnlyTestBlock(sequential, 1, tx0))
+	require.Equal(t, finalizeEVMOnlyTestBlock(t, sequential, evmOnlyTestBlock(sequential, 2, tx1)), pipelined.Info().LastBlockAppHash)
+}
+
+// A cancel does not abort a block whose turn has come.
+func TestEVMOnlyApplicationFinalizesABlockWhoseTurnHasComeDespiteACancel(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = app.FinalizeBlock(ctx, evmOnlyTestBlock(app, 1,
+		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0),
+		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), app.LastBlockHeight())
 }

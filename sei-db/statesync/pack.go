@@ -24,8 +24,7 @@ const (
 )
 
 // BuildManifest returns the manifest of the FlatKV checkpoint in dir, at height of chain chainID.
-// dir holds one directory per FlatKV database, as FlatKV writes a checkpoint. It opens each database
-// read-only, which leaves a Pebble LOCK file in the database directory.
+// dir holds one directory per FlatKV database, as FlatKV writes a checkpoint.
 func BuildManifest(chainID string, height int64, dir string) (*Manifest, error) {
 	stats, err := flatkv.SnapshotDirStats(dir, height)
 	if err != nil {

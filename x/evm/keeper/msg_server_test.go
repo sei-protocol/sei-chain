@@ -2,16 +2,13 @@ package keeper_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"math/big"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -87,7 +84,7 @@ func TestEVMTransaction(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -125,7 +122,7 @@ func TestEVMTransaction(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -142,39 +139,6 @@ func TestEVMTransaction(t *testing.T) {
 	stateDB := state.NewDBImpl(ctx, k, false)
 	val := hex.EncodeToString(bytes.Trim(stateDB.GetState(contractAddr, common.Hash{}).Bytes(), "\x00")) // key is 0x0 since the contract only has one variable
 	require.Equal(t, "14", val)                                                                          // value is 0x14 = 20
-}
-
-func TestEVMTransactionSimulationCancellation(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper(t)
-	contractAddr := common.HexToAddress("0x1234")
-	k.SetCode(ctx, contractAddr, []byte{byte(vm.JUMPDEST), byte(vm.PUSH1), 0, byte(vm.JUMP)})
-
-	privKey := testkeeper.MockPrivateKey()
-	key, err := crypto.ToECDSA(privKey.Bytes())
-	require.NoError(t, err)
-	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		GasPrice: big.NewInt(0),
-		Gas:      math.MaxUint64,
-		To:       &contractAddr,
-	})
-	signer := ethtypes.MakeSigner(types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), big.NewInt(ctx.BlockHeight()), uint64(ctx.BlockTime().Unix()))
-	tx, err = ethtypes.SignTx(tx, signer, key)
-	require.NoError(t, err)
-	txwrapper, err := ethtx.NewLegacyTx(tx)
-	require.NoError(t, err)
-	msg, err := types.NewMsgEVMTransaction(txwrapper)
-	require.NoError(t, err)
-	require.NoError(t, ante.Preprocess(ctx, msg, k.ChainID(ctx), false))
-
-	deadlineCtx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
-	ctx = ctx.WithIsSimulation(true).WithContext(deadlineCtx)
-
-	started := time.Now()
-	res, err := keeper.NewMsgServerImpl(k).EVMTransaction(sdk.WrapSDKContext(ctx), msg)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Nil(t, res)
-	require.Less(t, time.Since(started), time.Second)
 }
 
 func TestEVMTransactionError(t *testing.T) {
@@ -210,7 +174,7 @@ func TestEVMTransactionError(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -265,7 +229,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 
 	// Deploy Simple Storage contract with insufficient gas
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -333,7 +297,7 @@ func TestEVMTransactionPrecompileOutOfGas(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -395,7 +359,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -452,7 +416,7 @@ func TestEVMPrecompiles(t *testing.T) {
 
 	// Deploy SendAll contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -501,7 +465,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -569,7 +533,7 @@ func TestEVMBlockEnv(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -610,7 +574,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)

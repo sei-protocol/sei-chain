@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -135,6 +136,11 @@ func (a *testApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq)
 		if !ok {
 			return abevm.FinalizeBlockResp{}, fmt.Errorf("app not initialized")
 		}
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			return init.InitialHeight+atypes.RoadHeight(len(state.Blocks)) >= req.Height
+		}); err != nil {
+			return abevm.FinalizeBlockResp{}, err
+		}
 		txs := make([][]byte, len(req.Txs))
 		for i, tx := range req.Txs {
 			txs[i] = utils.OrPanic1(tx.MarshalBinary())
@@ -233,11 +239,12 @@ func TestInitChainThenFinalize(t *testing.T) {
 // durable.
 func newTestExecutor(cfg *GigaRouterCommonConfig, store *blockstore.Store, signer *abevm.Signer) *execution.Executor {
 	return execution.New(&execution.Config{
-		GenDoc:         cfg.GenDoc,
-		App:            cfg.App,
-		AppHashBuilder: cfg.AppHashBuilder,
-		BlockStore:     store,
-		Signer:         signer,
+		GenDoc:            cfg.GenDoc,
+		App:               cfg.App,
+		AppHashBuilder:    cfg.AppHashBuilder,
+		BlockStore:        store,
+		Signer:            signer,
+		MaxBlocksInFlight: gigaconfig.DefaultConfig.Execution.MaxBlocksInFlight,
 	})
 }
 

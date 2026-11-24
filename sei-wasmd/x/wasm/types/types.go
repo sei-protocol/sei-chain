@@ -301,10 +301,7 @@ func NewWasmCoins(cosmosCoins sdk.Coins) (wasmCoins []wasmvmtypes.Coin) {
 
 // WasmConfig is the extra config required for wasm
 type WasmConfig struct {
-	// SimulationGasLimit is the max gas to be used in a tx simulation call.
-	// When not set the consensus max block gas is used instead
-	SimulationGasLimit *uint64
-	// SimulationGasLimit is the max gas to be used in a smart query contract call
+	// SmartQueryGasLimit is the max gas to be used in a smart query contract call
 	SmartQueryGasLimit uint64
 	// MemoryCacheSize in MiB not bytes
 	MemoryCacheSize uint32

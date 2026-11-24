@@ -18,10 +18,12 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -38,6 +40,7 @@ type Executor struct {
 	stateStore      gigatypes.StateDB
 	receiptStore    receiptdb.ReceiptStore
 	receiptHasher   *receipthash.ReceiptHasher
+	archive         archive.ArchivalStore
 	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
@@ -46,6 +49,13 @@ type Executor struct {
 	missingState           StateReader
 	genesis                genesisAlloc
 	closed                 atomic.Bool
+
+	// speculationSlots bounds how many early-speculation transactions run at once, across blocks.
+	// Nil when early speculation is off.
+	speculationSlots *utils.Semaphore
+	speculation      utils.Mutex[*speculationState]
+	// lastExecuted is the number of the last block whose commit has started.
+	lastExecuted atomic.Uint64
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -127,6 +137,13 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	if len(e.genesis.accounts) > 0 && e.missingState != nil {
 		panic("a genesis alloc cannot be combined with a missing account state")
 	}
+	if e.cfg.EarlySpeculationWorkers > 0 && e.stateStore != nil && e.occPool != nil {
+		e.speculationSlots = utils.NewSemaphore(e.cfg.EarlySpeculationWorkers)
+		e.speculation = utils.NewMutex(&speculationState{
+			blocks:        map[uint64]*earlySpeculation{},
+			recentChanges: map[uint64]*pendingIndex{},
+		})
+	}
 	return e
 }
 
@@ -137,6 +154,7 @@ func (e *Executor) Close() {
 		return
 	}
 	e.closed.Store(true)
+	e.stopEarlySpeculation()
 	// A block holding storeMu may still start a background commit, so wait it out before awaiting.
 	// A commit failure is kept for the next AwaitCommits rather than reported here.
 	e.storeMu.Lock()
@@ -172,6 +190,36 @@ func (e *Executor) MarkWaitingForBlock() {
 		return
 	}
 	e.blockPhases.SetPhase(phaseWaitingForBlock)
+}
+
+// WarmAccounts reads the account of every sender and recipient in b from the committed state, so that
+// executing b finds them cached rather than waiting on the database.
+func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
+	if e.stateStore == nil || len(b.Txs) == 0 {
+		return
+	}
+	view := e.stateStore.OpenView()
+	if view == nil {
+		return
+	}
+	defer view.Close()
+	workers := min(len(b.Txs), max(1, e.cfg.ParseWorkers))
+	chunk := (len(b.Txs) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(b.Txs); start += chunk {
+		wg.Go(func() {
+			for _, tx := range b.Txs[start:min(start+chunk, len(b.Txs))] {
+				if ctx.Err() != nil {
+					return
+				}
+				view.ReadAccount(tx.Sender)
+				if to := tx.Tx.To(); to != nil {
+					view.ReadAccount(*to)
+				}
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // ExecuteBlock prepares and executes a block, and returns once its state is committed.
@@ -255,7 +303,7 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, 
 	if err != nil {
 		return nil, err
 	}
-	result, err := e.executeBlockTxs(ctx, req, newPendingOverlay(source, &begin))
+	result, err := e.executeBlockTxs(ctx, req, newPendingOverlay(source, &begin), &begin)
 	if err != nil {
 		return nil, err
 	}
@@ -267,12 +315,14 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, 
 	return result, nil
 }
 
-func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+// executeBlockTxs executes req's transactions against source, which already holds begin, the
+// writes the block's begin blockers made.
+func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
 	if e.useOCC(len(req.Txs)) {
-		return e.executeBlockOCC(ctx, req, source)
+		return e.executeBlockOCC(ctx, req, source, begin)
 	}
 	return e.executeBlockSequential(ctx, req, source)
 }
