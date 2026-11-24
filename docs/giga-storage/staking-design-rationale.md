@@ -417,13 +417,12 @@ explicit enumeration set, and each set adds two or three slot writes whenever a
 member joins or leaves. The draft keeps three:
 
 - `delegationsByDelegator`, which gov's tally walks for each voter.
-- `delegationsByValidator`, which V2's staking precompile serves to contracts
-  as `validatorDelegations`. Its members are found only through the delegations
-  themselves, so it could not be filled after launch, and it is kept from the
-  start for a later method to page through.
-- `validatorSet`, every validator record. Nothing on chain walks it while
-  `validatorsByPower` holds the unjailed validators, so whether it stays is
-  open.
+- `delegationsByValidator`, which `validatorDelegations` pages through, as V2's
+  staking precompile serves it to contracts. Its members are found only through
+  the delegations themselves, so it could not be filled after launch.
+- `validatorSet`, every validator record, which `validators` pages through.
+  Nothing else walks it while `validatorsByPower` holds the unjailed
+  validators, so whether it stays is open.
 
 V2's other walks have no on-chain reader in giga:
 

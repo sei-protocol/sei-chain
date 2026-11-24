@@ -46,7 +46,7 @@ contract StakingStorage {
         uint256 minSelfDelegation;
     }
 
-    /// @dev A bonded validator and the consensus power last sent for it.
+    /// @dev A bonded validator and its consensus power.
     struct ValidatorPower {
         address operator;
         uint64 power;
@@ -118,7 +118,7 @@ contract StakingStorage {
         uint256 maxVotingPowerEnforcementThreshold;
     }
 
-    ValidatorPower[] internal lastValidators; // 0x11: the bonded set, as last sent to consensus
+    ValidatorPower[] internal lastValidators; // 0x11: the bonded set
     uint256 internal lastTotalPower; // 0x12
     /// @dev The bonded set as it will be once the operations staged by the latest
     /// epoch's end take effect, with each member's consensus key. The app derives
