@@ -1,4 +1,4 @@
-package undo
+package undolog
 
 import (
 	"testing"
@@ -22,10 +22,10 @@ func TestHistoricalStateViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
 		exists bool
 	}{
 		{"nothing stored", nil, gigatypes.Account{}, false},
-		{"zero nonce alone", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonce(0)}, gigatypes.Account{}, false},
-		{"balance", map[keys.EVMKeyKind][]byte{keys.EVMKeyBalance: common.Hash{31: 5}.Bytes(), keys.EVMKeyNonce: nonce(0)},
+		{"zero nonce alone", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonceValue(0)}, gigatypes.Account{}, false},
+		{"balance", map[keys.EVMKeyKind][]byte{keys.EVMKeyBalance: common.Hash{31: 5}.Bytes(), keys.EVMKeyNonce: nonceValue(0)},
 			gigatypes.Account{Balance: common.Hash{31: 5}, CodeHash: gigatypes.EmptyCodeHash}, true},
-		{"nonce", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonce(3)},
+		{"nonce", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonceValue(3)},
 			gigatypes.Account{Nonce: 3, CodeHash: gigatypes.EmptyCodeHash}, true},
 		{"code hash", map[keys.EVMKeyKind][]byte{keys.EVMKeyCodeHash: codeHash.Bytes()},
 			gigatypes.Account{CodeHash: codeHash}, true},

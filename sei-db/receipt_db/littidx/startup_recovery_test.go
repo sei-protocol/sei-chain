@@ -53,10 +53,7 @@ func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, throu
 // builder has published, then waits until it publishes the state version's app hash. It returns nil when
 // the state version is 0.
 func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
-	version, err := manager.StateDB().SC().GetLatestVersion()
-	if err != nil {
-		return fmt.Errorf("read state height: %w", err)
-	}
+	version := manager.StateDB().LiveStateDB().Version()
 	if version <= 0 {
 		return nil
 	}
@@ -172,7 +169,7 @@ func TestStartupRecoveryRollsBackToTheLowerReceiptHead(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, uint64(6), blockHead, "recovery never cuts the block store")
 			require.Equal(t, int64(4), manager.ReceiptDB().LatestVersion())
-			require.Equal(t, int64(4), manager.StateDB().SC().Version(),
+			require.Equal(t, int64(4), manager.StateDB().LiveStateDB().Version(),
 				"state must follow the receipt store back")
 
 			executeBlocks(t, manager, ctx, 5, 6)

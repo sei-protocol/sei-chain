@@ -260,7 +260,7 @@ func TestEpochRegistryRestartReadsTheRowOfTheClosingRoad(t *testing.T) {
 // epochRegistryRow returns the registry row storage holds.
 func epochRegistryRow(t *testing.T, storage *bootstrap.GigaStorageManager) []byte {
 	t.Helper()
-	raw, found := storage.StateDB().SC().Get(epochRegistryModule, []byte(epochRegistryKey))
+	raw, found := storage.StateDB().LiveStateDB().Get(epochRegistryModule, []byte(epochRegistryKey))
 	require.True(t, found)
 	return raw
 }
@@ -322,7 +322,7 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
-	require.NotNil(t, app.(*evmOnlyApplication).storage.StateDB().UndoSS())
+	require.NotNil(t, app.(*evmOnlyApplication).storage.StateDB().HistoricalStateDB())
 	init := evmOnlyTestInitChain()
 	init.InitialHeight = atypes.RoadHeight(initialHeight)
 	err = app.InitChain(init)
@@ -393,10 +393,7 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 // reportMissingBlockHashes reports a block hash for each committed height above the newest app hash the
 // builder has published, so the builder can build the app hash of every committed block.
 func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
-	version, err := manager.StateDB().SC().GetLatestVersion()
-	if err != nil {
-		return fmt.Errorf("read state height: %w", err)
-	}
+	version := manager.StateDB().LiveStateDB().Version()
 	//nolint:gosec // state heights are non-negative
 	height := uint64(version)
 	_, published, ok, err := manager.AppHashBuilder().Bounds()
@@ -1115,7 +1112,7 @@ func TestEVMOnlyApplicationServesHistoryFromTheUndoLog(t *testing.T) {
 		history = append(history, observe())
 	}
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	for height, want := range history {
 		nonce, err := app.EvmNonceAt(sender, int64(height))
@@ -1144,7 +1141,7 @@ func TestEVMOnlyApplicationCommitsEmptyBlocksOnTheUndoLog(t *testing.T) {
 	}
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 4, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
 	require.NoError(t, app.AwaitCommits())
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	for height, want := range []uint64{0, 0, 0, 0, 1} {
 		nonce, err := app.EvmNonceAt(sender, int64(height))
@@ -1166,7 +1163,7 @@ func TestEVMOnlyApplicationServesHistoryFromASeededHeightOnTheUndoLog(t *testing
 		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, nonce)))
 	}
 	require.NoError(t, app.AwaitCommits())
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	for height, want := range map[int64]uint64{4: 0, 5: 1, 6: 2, 7: 3} {
 		nonce, err := app.EvmNonceAt(sender, height)
@@ -1197,7 +1194,7 @@ func TestEVMOnlyApplicationServesStorageHistoryFromTheUndoLog(t *testing.T) {
 	require.Equal(t, common.BigToHash(big.NewInt(0x2b)), got)
 
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 	for _, tc := range []struct {
 		contract common.Address
 		height   int64
@@ -1293,9 +1290,7 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
 	require.NoError(t, settler.AwaitCommits())
-	latest, err := settler.storage.StateDB().SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(4), latest)
+	require.Equal(t, int64(4), settler.storage.StateDB().LiveStateDB().Version())
 }
 
 // installUnwritableEVMExecutor replaces app's executor with one that also writes, with every block, a misc change
@@ -1370,9 +1365,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 		require.False(t, state.pending.IsPresent())
 	}
 	require.Equal(t, int64(1), app.LastBlockHeight())
-	latest, err := storage.StateDB().SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(0), latest)
+	require.Equal(t, int64(0), storage.StateDB().LiveStateDB().Version())
 }
 
 // Committed-state readers running alongside FinalizeBlock observe every block

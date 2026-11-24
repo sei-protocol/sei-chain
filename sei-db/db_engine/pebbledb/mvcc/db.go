@@ -33,8 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
-var _ types.ContextIteratorStore = (*Database)(nil)
-
 var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "mvcc")
 
 const (
@@ -66,11 +64,7 @@ const (
 	maxConcurrentCompactions = 4
 )
 
-var (
-	_ types.StateStore = (*Database)(nil)
-
-	defaultWriteOpts = pebble.NoSync
-)
+var defaultWriteOpts = pebble.NoSync
 
 type Database struct {
 	storage      *pebble.DB
@@ -192,7 +186,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 	return opts
 }
 
-func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, error) {
+func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 

@@ -10,84 +10,39 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	dbm "github.com/tendermint/tm-db"
 
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// failingEVMStore is a mock gigatypes.LiveStateStore whose loads always fail.
-type failingEVMStore struct{}
-
-var _ gigatypes.LiveStateStore = (*failingEVMStore)(nil)
-
-type importerFailingEVMStore struct {
-	failingEVMStore
+// readOnlyFlatKV returns a read-only FlatKV view over an empty store. Loading a version from it and creating an
+// importer on it always fail. The caller closes the view.
+func readOnlyFlatKV(t *testing.T) *flatkv.CommitStore {
+	t.Helper()
+	cfg := config.DefaultStateCommitConfig().FlatKVConfig
+	cfg.DataDir = t.TempDir()
+	wal, err := flatkv.OpenStateWAL(&cfg)
+	require.NoError(t, err)
+	// Not t.Context(): it is cancelled before cleanups run, and the primary is closed in one.
+	primary, err := flatkv.NewCommitStore(context.Background(), &cfg, wal)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, primary.Close()) })
+	require.NoError(t, primary.LoadLatest())
+	view, err := primary.LoadVersionReadOnly(0)
+	require.NoError(t, err)
+	return view
 }
-
-func (f *importerFailingEVMStore) Importer(int64) (types.Importer, error) {
-	return nil, errors.New("flatkv importer unavailable")
-}
-
-func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavailable") }
-
-func (f *failingEVMStore) LoadVersionReadOnly(int64) (gigatypes.LiveStateStore, error) {
-	return nil, fmt.Errorf("flatkv unavailable")
-}
-func (f *failingEVMStore) CheckVersionReachable(int64) error { return nil }
-func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
-	return nil
-}
-func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
-func (f *failingEVMStore) CommitStateChanges(int64, []mutation.Mutation) error {
-	return nil
-}
-func (f *failingEVMStore) OpenView() gigatypes.StateView     { return nil }
-func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
-func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
-func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
-	return -1, false, nil
-}
-func (f *failingEVMStore) Has(string, []byte) bool                  { return false }
-func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil, nil }
-func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
-	return nil, nil
-}
-func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
-	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
-}
-func (f *failingEVMStore) FlushHashes() error                             { return nil }
-func (f *failingEVMStore) Flush() error                                   { return nil }
-func (f *failingEVMStore) CommitPendingBlock() error                      { return nil }
-func (f *failingEVMStore) Version() int64                                 { return 0 }
-func (f *failingEVMStore) PendingVersion() int64                          { return 0 }
-func (f *failingEVMStore) GetLatestVersion() (int64, error)               { return 0, nil }
-func (f *failingEVMStore) Rollback(int64) error                           { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)         { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error)         { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer             { return nil }
-func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error             { return nil }
-func (f *failingEVMStore) OldestSnapshotAbove(int64) (int64, bool, error) { return 0, false, nil }
-func (f *failingEVMStore) Close() error                                   { return nil }
 
 // flatKVRootHash returns the root hash of the store's flatkv backend once hashing has caught up with
-// what was committed. Hashing is asynchronous, so that barrier is what stops an assertion racing the
-// pipeline. Tests that care about the height assert on it directly rather than through this.
+// what was committed. Tests that care about the height assert on it directly rather than through this.
 func flatKVRootHash(cs *CompositeCommitStore) []byte {
-	if err := cs.loadFlatKV().FlushHashes(); err != nil {
-		panic(fmt.Sprintf("composite: flush flatkv hashes: %v", err))
-	}
-	current, err := cs.loadFlatKV().RegisterHashListener(nil)
+	current, err := cs.loadFlatKV().CommittedHash()
 	if err != nil {
 		panic(fmt.Sprintf("composite: read the flatkv hash: %v", err))
 	}
@@ -204,11 +159,9 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, newCS)
 
-	compositeCS, ok := newCS.(*CompositeCommitStore)
-	require.True(t, ok)
-	require.NotSame(t, cs, compositeCS)
+	require.NotSame(t, cs, newCS)
 
-	require.NoError(t, compositeCS.Close())
+	require.NoError(t, newCS.Close())
 }
 
 func TestWorkingAndLastCommitInfo(t *testing.T) {
@@ -892,9 +845,9 @@ func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
-	// Inject a failing EVM committer. The read-only load must surface
+	// Inject a FlatKV that cannot load a version. The read-only load must surface
 	// the error rather than swallow it.
-	cs.storeFlatKV(&failingEVMStore{})
+	cs.storeFlatKV(readOnlyFlatKV(t))
 
 	_, err = cs.LoadVersionReadOnly(0)
 	require.Error(t, err, "readonly LoadVersion must fail loud when FlatKV is unavailable")
@@ -959,12 +912,10 @@ func TestLoadVersionFlatKVOnlyReadOnly(t *testing.T) {
 	ro, err := cs.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer func() { _ = ro.Close() }()
-	roComposite, ok := ro.(*CompositeCommitStore)
-	require.True(t, ok)
-	require.Nil(t, roComposite.memIAVL, "FlatKVOnly read-only must not have memIAVL")
-	require.NotNil(t, roComposite.loadRouter(), "read-only handle must have its own router")
+	require.Nil(t, ro.memIAVL, "FlatKVOnly read-only must not have memIAVL")
+	require.NotNil(t, ro.loadRouter(), "read-only handle must have its own router")
 
-	got, ok, err := roComposite.Get(keys.EVMStoreKey, []byte("k1"))
+	got, ok, err := ro.Get(keys.EVMStoreKey, []byte("k1"))
 	require.NoError(t, err, "read-only handle must serve reads without nil-dereferencing router")
 	require.True(t, ok)
 	require.Equal(t, []byte("v1"), got)
@@ -1259,7 +1210,7 @@ func TestExporterFailsLoudOnFlatKVLoadFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Inject a flatkv whose load always fails; the failure must surface.
-	cs.storeFlatKV(&failingEVMStore{})
+	cs.storeFlatKV(readOnlyFlatKV(t))
 
 	_, err = cs.Exporter(1)
 	require.Error(t, err, "Exporter must fail loud on an in-history flatkv load failure")
@@ -1278,7 +1229,8 @@ func TestCompositeImporterAbortsMemIAVLWhenFlatKVImporterFails(t *testing.T) {
 	require.NoError(t, cs.LoadLatest())
 	require.NoError(t, cs.Close())
 
-	cs.storeFlatKV(&importerFailingEVMStore{})
+	// A read-only FlatKV refuses to create an importer.
+	cs.storeFlatKV(readOnlyFlatKV(t))
 
 	const importVersion = int64(7)
 	_, err = cs.Importer(importVersion)
@@ -2370,31 +2322,19 @@ func TestCopyProducesUsableSnapshot(t *testing.T) {
 
 	snap := cs.Copy()
 	require.NotNil(t, snap, "Copy must return a non-nil snapshot in MemiavlOnly mode")
-	defer func() {
-		releaser, ok := snap.(interface{ ReleaseSnapshotRefs() error })
-		require.True(t, ok)
-		require.NoError(t, releaser.ReleaseSnapshotRefs())
-	}()
+	defer func() { require.NoError(t, snap.ReleaseSnapshotRefs()) }()
 
-	snapComposite, ok := snap.(*CompositeCommitStore)
-	require.True(t, ok)
-	bankSnap := snapComposite.GetChildStoreByName(keys.BankStoreKey)
+	bankSnap := snap.GetChildStoreByName(keys.BankStoreKey)
 	require.NotNil(t, bankSnap)
 	require.NotPanics(t, func() {
 		require.Equal(t, []byte("v"), bankSnap.Get([]byte("k")))
 		require.True(t, bankSnap.Has([]byte("k")))
 	}, "snapshot reads must not nil-deref on the snapshot's router")
 
-	leased := snapComposite.Copy()
+	leased := snap.Copy()
 	require.NotNil(t, leased, "Copy of a snapshot must also produce a usable snapshot (Lease path)")
-	defer func() {
-		releaser, ok := leased.(interface{ ReleaseSnapshotRefs() error })
-		require.True(t, ok)
-		require.NoError(t, releaser.ReleaseSnapshotRefs())
-	}()
-	leasedComposite, ok := leased.(*CompositeCommitStore)
-	require.True(t, ok)
-	bankLeased := leasedComposite.GetChildStoreByName(keys.BankStoreKey)
+	defer func() { require.NoError(t, leased.ReleaseSnapshotRefs()) }()
+	bankLeased := leased.GetChildStoreByName(keys.BankStoreKey)
 	require.NotNil(t, bankLeased)
 	require.NotPanics(t, func() {
 		require.Equal(t, []byte("v"), bankLeased.Get([]byte("k")))
@@ -2653,20 +2593,18 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 		"read-only LoadVersion in MigrateEVM mode must succeed during the pre-first-commit window")
 	defer func() { _ = ro.Close() }()
 
-	roComposite, ok := ro.(*CompositeCommitStore)
-	require.True(t, ok)
-	require.NotSame(t, cs2, roComposite, "read-only LoadVersion returns an isolated handle")
-	require.NotNil(t, roComposite.loadRouter(), "read-only handle must have its own router")
+	require.NotSame(t, cs2, ro, "read-only LoadVersion returns an isolated handle")
+	require.NotNil(t, ro.loadRouter(), "read-only handle must have its own router")
 
 	// The read-only memiavl also must not have a migration tree.
-	require.Nil(t, roComposite.memIAVL.GetChildStoreByName(migration.MigrationStore),
+	require.Nil(t, ro.memIAVL.GetChildStoreByName(migration.MigrationStore),
 		"read-only handle must not materialize a migration tree on memiavl")
 
 	// The router on the read-only handle came up with boundary=NotStarted
 	// (flatkv is empty, no MigrationVersionKey, default to startVersion=0
 	// = Version0_MemiavlOnly). All evm/ reads route to memiavl, which
 	// still has the pre-migration value.
-	got, found, err := roComposite.Get(keys.EVMStoreKey, []byte(evmKey))
+	got, found, err := ro.Get(keys.EVMStoreKey, []byte(evmKey))
 	require.NoError(t, err, "evm/ read must not fail with store-not-found on the read-only handle")
 	require.True(t, found, "pre-migration evm/ value must be visible to the read-only handle")
 	require.Equal(t, []byte(evmVal), got)
@@ -2739,7 +2677,9 @@ func TestNewCompositeCommitStoreKeepsFlatKVKeepRecent(t *testing.T) {
 }
 
 func TestPrecedesMigrationFalseWithoutLaterSnapshot(t *testing.T) {
-	require.False(t, precedesMigration(&failingEVMStore{}, 5))
+	flatKV := readOnlyFlatKV(t)
+	defer func() { require.NoError(t, flatKV.Close()) }()
+	require.False(t, precedesMigration(flatKV, 5))
 }
 
 func TestCompositeApplyUpgradesRefusesRemovingFlatKVStores(t *testing.T) {

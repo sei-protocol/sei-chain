@@ -1,4 +1,4 @@
-package undo
+package undolog
 
 import (
 	"encoding/binary"
@@ -13,17 +13,7 @@ import (
 
 var _ gigatypes.StateView = (*historicalStateView)(nil)
 
-// OpenStateView returns the state after block version as a gigatypes.StateView, and false when the store
-// is closed or does not serve version. Like a View, it holds back pruning until it is closed.
-func (db *Database) OpenStateView(version int64) (gigatypes.StateView, bool) {
-	view, ok := db.OpenView(version)
-	if !ok {
-		return nil, false
-	}
-	return &historicalStateView{height: version, read: view.Get, release: view.Close}, true
-}
-
-// historicalStateView serves the Giga read API at a past height from this store's history. Its EVM
+// historicalStateView serves the Giga read API at a past height from the undo log's history. Its EVM
 // accessors read the logical keys the executor writes, so they answer what those keys held after the
 // view's block.
 type historicalStateView struct {
@@ -41,27 +31,27 @@ func (v *historicalStateView) GetBlockHeight() int64 {
 	return v.height
 }
 
-// Get serves only the EVM module, the one this store keeps the history of.
+// Get serves only the EVM module, the one the undo log keeps the history of.
 func (v *historicalStateView) Get(module string, key []byte) ([]byte, bool) {
 	if module != keys.EVMStoreKey {
-		panic(fmt.Sprintf("undo: the store keeps no history of module %q", module))
+		panic(fmt.Sprintf("undolog: the undo log keeps no history of module %q", module))
 	}
 	value, err := v.read(key)
 	if err != nil {
 		// A view has no recoverable errors: a read it cannot serve is fatal to its caller.
-		panic(fmt.Sprintf("undo: historical read of %s/%x at height %d: %v", module, key, v.height, err))
+		panic(fmt.Sprintf("undolog: historical read of %s/%x at height %d: %v", module, key, v.height, err))
 	}
 	return value, value != nil
 }
 
 // GetRaw panics: a historical view holds no physical rows.
 func (v *historicalStateView) GetRaw([]byte) ([]byte, bool) {
-	panic("undo: a historical view holds no physical rows")
+	panic("undolog: a historical view holds no physical rows")
 }
 
 // BatchGetRaw panics: a historical view holds no physical rows.
 func (v *historicalStateView) BatchGetRaw([][]byte) map[string][]byte {
-	panic("undo: a historical view holds no physical rows")
+	panic("undolog: a historical view holds no physical rows")
 }
 
 func (v *historicalStateView) Close() {

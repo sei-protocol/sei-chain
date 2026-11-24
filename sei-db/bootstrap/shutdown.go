@@ -13,7 +13,7 @@ import (
 // flushStores fully processes all work sent to anything the storage manager manages before the call.
 func (m *GigaStorageManager) flushStores() error {
 	ctx := context.Background()
-	height := uint64(m.stateDB.SC().Version()) //nolint:gosec // live state DB versions are never negative
+	height := uint64(m.stateDB.LiveStateDB().Version()) //nolint:gosec // live state DB versions are never negative
 	timer := utils.NewLoggingPhaseTimer(logger)
 
 	// Producers are flushed before their consumers, so each component has received all of its work by the time
@@ -22,14 +22,14 @@ func (m *GigaStorageManager) flushStores() error {
 	if err := m.stateDB.WAL().Flush(); err != nil {
 		return fmt.Errorf("flush the state WAL: %w", err)
 	}
-	if historicalStateDB := m.stateDB.UndoSS(); historicalStateDB != nil {
+	if historicalStateDB := m.stateDB.HistoricalStateDB(); historicalStateDB != nil {
 		timer.SetPhase("historical_state_db")
 		historicalStateDB.WaitForPendingWrites()
 	}
 	timer.SetPhase("live_state_db")
 	// Hands each block's state hash to the app hash builder. The live state DB writes its blocks to the data DBs
 	// when it closes.
-	if err := m.stateDB.SC().FlushHashes(); err != nil {
+	if err := m.stateDB.LiveStateDB().FlushHashes(); err != nil {
 		return fmt.Errorf("flush the live state DB's hashes: %w", err)
 	}
 	if m.receiptDB != nil {
@@ -71,7 +71,7 @@ func (m *GigaStorageManager) verifyStoreAlignment(height uint64) error {
 	if walHead != height {
 		return fmt.Errorf("the state WAL stands at block %d", walHead)
 	}
-	if historicalStateDB := m.stateDB.UndoSS(); historicalStateDB != nil {
+	if historicalStateDB := m.stateDB.HistoricalStateDB(); historicalStateDB != nil {
 		head, err := historicalStateDB.GetLatestBlock()
 		if err != nil {
 			return fmt.Errorf("read the historical state DB's head: %w", err)

@@ -38,7 +38,7 @@ func OpenEpochRegistry(
 	if err != nil {
 		return nil, err
 	}
-	row, found := storage.StateDB().SC().Get(epochRegistryModule, []byte(epochRegistryKey))
+	row, found := storage.StateDB().LiveStateDB().Get(epochRegistryModule, []byte(epochRegistryKey))
 	var registry *atypes.EpochRegistry
 	if found {
 		registry, err = epoch.Decode(row)

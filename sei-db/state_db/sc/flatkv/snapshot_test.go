@@ -2325,7 +2325,7 @@ func TestOutOfBandSnapshotOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	err = ro.(*CommitStore).outOfBandSnapshot()
+	err = ro.outOfBandSnapshot()
 	require.Error(t, err)
 	require.ErrorIs(t, err, errReadOnly)
 	require.NoError(t, s.Close())
