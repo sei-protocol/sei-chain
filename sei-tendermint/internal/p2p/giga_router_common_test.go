@@ -341,6 +341,27 @@ func TestGigaRouterCommon_TranslateSuperBlockNamesTheParentAsLastBlockID(t *test
 	require.Equal(t, common.Hash(parent).Bytes(), []byte(got))
 }
 
+// The block RPC of a later road block names the previous road block as its parent, and that of the
+// first road block names none.
+func TestGigaRouterCommon_BlockByNumberLinksConsecutiveRoadBlocks(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := atypes.GenCommittee(rng, 3)
+	state, registry := testDataState(t, committee)
+	ep := registry.MustEpoch(0)
+	first, firstBlocks := data.TestCommitQCOnLane(ep, keys, utils.None[*atypes.CommitQC](), ep.Committee().Lanes().At(0))
+	second, secondBlocks := data.TestCommitQCOnLane(ep, keys, utils.Some(first.QC()), ep.Committee().Lanes().At(1))
+	require.NoError(t, state.PushPartialBlock(t.Context(), first, data.TestBlockMap(firstBlocks)))
+	require.NoError(t, state.PushPartialBlock(t.Context(), second, data.TestBlockMap(secondBlocks)))
+	router := &gigaRouterCommon{data: state, cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+
+	gotFirst, err := router.BlockByNumber(t.Context(), first.Height())
+	require.NoError(t, err)
+	gotSecond, err := router.BlockByNumber(t.Context(), second.Height())
+	require.NoError(t, err)
+	require.True(t, gotFirst.Block.LastBlockID.IsNil())
+	require.Equal(t, gotFirst.BlockID.Hash, gotSecond.Block.LastBlockID.Hash)
+}
+
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	rng := utils.TestRng()
 	low := atypes.GenSecretKey(rng)
