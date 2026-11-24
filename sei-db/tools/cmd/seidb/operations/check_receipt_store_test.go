@@ -15,7 +15,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -55,7 +54,7 @@ func newReceiptStore(t *testing.T, earliest int64, receipts ...storedReceipt) st
 	return dir
 }
 
-func putReceiptStoreEntry(t *testing.T, store seidbtypes.StateStore, version int64, key, value []byte) {
+func putReceiptStoreEntry(t *testing.T, store *mvcc.Database, version int64, key, value []byte) {
 	t.Helper()
 	require.NoError(t, store.ApplyChangesetSync(version, []*proto.NamedChangeSet{{
 		Name:      receiptStoreKey,

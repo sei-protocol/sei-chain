@@ -29,7 +29,7 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
-	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	sccomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -96,8 +96,8 @@ type Keeper struct {
 	// traceSnapshotStore + traceSnapshotCapture, when set, capture an O(1)
 	// memiavl snapshot of the SC tree at EndBlock so the baker replays
 	// against in-memory state instead of SS-pebble. nil-safe.
-	traceSnapshotStore   *TraceSnapshotStore
-	traceSnapshotCapture func() sctypes.Committer
+	traceSnapshotStore   *TraceSnapshotStore[*sccomposite.CompositeCommitStore]
+	traceSnapshotCapture func() *sccomposite.CompositeCommitStore
 }
 
 // only used during ETH replay
@@ -175,9 +175,15 @@ func NewKeeper(
 func (k *Keeper) SetTraceDB(c *TraceDB) { k.traceDB = c }
 func (k *Keeper) TraceDB() *TraceDB     { return k.traceDB }
 
-func (k *Keeper) SetTraceSnapshotStore(s *TraceSnapshotStore) { k.traceSnapshotStore = s }
-func (k *Keeper) TraceSnapshotStore() *TraceSnapshotStore     { return k.traceSnapshotStore }
-func (k *Keeper) SetTraceSnapshotCapture(f func() sctypes.Committer) {
+func (k *Keeper) SetTraceSnapshotStore(s *TraceSnapshotStore[*sccomposite.CompositeCommitStore]) {
+	k.traceSnapshotStore = s
+}
+
+func (k *Keeper) TraceSnapshotStore() *TraceSnapshotStore[*sccomposite.CompositeCommitStore] {
+	return k.traceSnapshotStore
+}
+
+func (k *Keeper) SetTraceSnapshotCapture(f func() *sccomposite.CompositeCommitStore) {
 	k.traceSnapshotCapture = f
 }
 

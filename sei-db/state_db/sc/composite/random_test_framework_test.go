@@ -1618,10 +1618,8 @@ func stateSyncClone(
 // randomTestConfig), so version need not be snapshot-aligned.
 func readHistoricalSnapshot(t *testing.T, cs *CompositeCommitStore, version int64, snap *storeOracle, stores []string) {
 	t.Helper()
-	committer, err := cs.LoadVersionReadOnly(version)
+	ro, err := cs.LoadVersionReadOnly(version)
 	require.NoError(t, err, "read-only LoadVersion at historical version %d", version)
-	ro, ok := committer.(*CompositeCommitStore)
-	require.True(t, ok, "read-only LoadVersion must return *CompositeCommitStore")
 	defer func() { require.NoError(t, ro.Close()) }()
 	require.Equal(t, version, ro.Version(), "read-only handle must report the historical version")
 	verifyOracle(t, ro, snap)

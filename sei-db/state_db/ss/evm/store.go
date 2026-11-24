@@ -19,20 +19,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/seilog"
 )
 
 var logger = seilog.NewLogger("db", "state-db", "ss", "evm")
 
-var _ types.StateStore = (*EVMStateStore)(nil)
-var _ types.ContextIteratorStore = (*EVMStateStore)(nil)
+var _ sstypes.StateStore = (*EVMStateStore)(nil)
+var _ sstypes.ContextIteratorStore = (*EVMStateStore)(nil)
 
 // EVMStateStore manages either a single MVCC DB for all EVM data or one DB per
 // EVM sub-type, depending on config. In both modes, the logical store key and
 // key encoding remain unchanged.
 type EVMStateStore struct {
-	subDBs      map[EVMStoreType]types.StateStore
-	managedDBs  []types.StateStore
+	subDBs      map[EVMStoreType]sstypes.StateStore
+	managedDBs  []sstypes.StateStore
 	dir         string
 	ssConfig    config.StateStoreConfig
 	separateDBs bool
@@ -56,7 +57,7 @@ type EVMStateStore struct {
 // or one MVCC DB per EVM sub-type.
 func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateStore, error) {
 	store := &EVMStateStore{
-		subDBs:          make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
+		subDBs:          make(map[EVMStoreType]sstypes.StateStore, NumEVMStoreTypes),
 		dir:             dir,
 		ssConfig:        ssConfig,
 		separateDBs:     ssConfig.SeparateEVMSubDBs,
@@ -73,7 +74,7 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 
 func (s *EVMStateStore) openDBs() error {
 	opener := backend.ResolveBackend(s.ssConfig.Backend)
-	s.subDBs = make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes)
+	s.subDBs = make(map[EVMStoreType]sstypes.StateStore, NumEVMStoreTypes)
 	s.managedDBs = nil
 
 	if s.separateDBs {
@@ -114,7 +115,7 @@ func (s *EVMStateStore) closeDBs() error {
 		}
 	}
 	s.managedDBs = nil
-	s.subDBs = make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes)
+	s.subDBs = make(map[EVMStoreType]sstypes.StateStore, NumEVMStoreTypes)
 	return lastErr
 }
 
@@ -125,7 +126,7 @@ func subDBConfig(parent config.StateStoreConfig, dbDir string) config.StateStore
 	return cfg
 }
 
-func (s *EVMStateStore) primaryDB() types.StateStore {
+func (s *EVMStateStore) primaryDB() sstypes.StateStore {
 	if len(s.managedDBs) == 0 {
 		return nil
 	}
@@ -136,7 +137,7 @@ func (s *EVMStateStore) Dir() string {
 	return s.dir
 }
 
-func (s *EVMStateStore) routeKey(key []byte) types.StateStore {
+func (s *EVMStateStore) routeKey(key []byte) sstypes.StateStore {
 	storeType, _ := commonevm.ParseEVMKey(key)
 	if storeType == StoreEmpty {
 		return nil
@@ -184,24 +185,24 @@ func (s *EVMStateStore) ReverseIterator(_ string, version int64, start, end []by
 
 func (s *EVMStateStore) IteratorWithContext(ctx context.Context, _ string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if !s.separateDBs {
-		return types.IterateWithContext(s.primaryDB(), ctx, EVMStoreKey, version, start, end, false)
+		return sstypes.IterateWithContext(s.primaryDB(), ctx, EVMStoreKey, version, start, end, false)
 	}
 	db := s.routeKey(start)
 	if db == nil {
 		return nil, fmt.Errorf("EVMStateStore: cannot route iteration for key")
 	}
-	return types.IterateWithContext(db, ctx, EVMStoreKey, version, start, end, false)
+	return sstypes.IterateWithContext(db, ctx, EVMStoreKey, version, start, end, false)
 }
 
 func (s *EVMStateStore) ReverseIteratorWithContext(ctx context.Context, _ string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if !s.separateDBs {
-		return types.IterateWithContext(s.primaryDB(), ctx, EVMStoreKey, version, start, end, true)
+		return sstypes.IterateWithContext(s.primaryDB(), ctx, EVMStoreKey, version, start, end, true)
 	}
 	db := s.routeKey(start)
 	if db == nil {
 		return nil, fmt.Errorf("EVMStateStore: cannot route reverse iteration for key")
 	}
-	return types.IterateWithContext(db, ctx, EVMStoreKey, version, start, end, true)
+	return sstypes.IterateWithContext(db, ctx, EVMStoreKey, version, start, end, true)
 }
 
 func (s *EVMStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool) (bool, error) {
@@ -275,7 +276,7 @@ func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChan
 	// apply and names the sub-DBs the block never reached. A unified store routes nothing by sub-type —
 	// its one database takes the whole changeset and stamps the version marker in the same batch, so
 	// only a block that wrote nothing leaves that marker to be moved on its own.
-	var unwritten []types.StateStore
+	var unwritten []sstypes.StateStore
 	switch {
 	case s.separateDBs:
 		grouped := s.groupBySubType(evmChangesets)
@@ -310,7 +311,7 @@ func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChan
 // across all of them, so one left behind holds the head — and the GC floor taken from it — below the
 // committed height. Going through the queue rather than around it keeps the marker from overtaking
 // blocks still queued behind it, which stamp their own lower version as they drain.
-func (s *EVMStateStore) advanceUnwrittenHeads(version int64, dbs []types.StateStore) error {
+func (s *EVMStateStore) advanceUnwrittenHeads(version int64, dbs []sstypes.StateStore) error {
 	for _, db := range dbs {
 		barrier, ok := db.(types.DrainBarrier)
 		if !ok {
@@ -333,8 +334,8 @@ func (s *EVMStateStore) advanceUnwrittenHeads(version int64, dbs []types.StateSt
 //
 // Separate-DB mode only. A unified store keys every sub-type to the same database, so it would report
 // that one database once per sub-type the block missed.
-func (s *EVMStateStore) dbsWithoutWrites(grouped map[EVMStoreType][]*proto.KVPair) []types.StateStore {
-	unwritten := make([]types.StateStore, 0, len(s.managedDBs))
+func (s *EVMStateStore) dbsWithoutWrites(grouped map[EVMStoreType][]*proto.KVPair) []sstypes.StateStore {
+	unwritten := make([]sstypes.StateStore, 0, len(s.managedDBs))
 	for storeType, db := range s.subDBs {
 		if len(grouped[storeType]) == 0 {
 			unwritten = append(unwritten, db)
@@ -526,7 +527,7 @@ func (s *EVMStateStore) Prune(version int64) error {
 
 	for _, db := range s.managedDBs {
 		wg.Add(1)
-		go func(db types.StateStore) {
+		go func(db sstypes.StateStore) {
 			defer wg.Done()
 			if err := db.Prune(version); err != nil {
 				errCh <- err

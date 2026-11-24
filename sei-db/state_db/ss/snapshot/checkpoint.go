@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 // Checkpointer is the backend side of an SS member snapshot: the Manager owns the
@@ -28,7 +29,7 @@ var ErrCheckpointCanceled = errors.New("state store checkpoint canceled")
 // SupportsCheckpoint reports whether db carries every engine capability a scheduled checkpoint needs.
 // A store built from several engines answers for the set: one engine short of the capabilities makes
 // the whole snapshot unpublishable.
-func SupportsCheckpoint(db types.StateStore) bool {
+func SupportsCheckpoint(db sstypes.StateStore) bool {
 	_, checkpointable := db.(types.Checkpointable)
 	_, barrier := db.(types.DrainBarrier)
 	_, versionSetter := db.(types.CheckpointVersionSetter)
@@ -61,7 +62,7 @@ func FanIn(n int, done func(error)) func(error) {
 
 // ScheduleCheckpoint checkpoints an engine after all writes already enqueued
 // on it have been applied.
-func ScheduleCheckpoint(db types.StateStore, destDir string, shouldRun func() bool, done func(error)) {
+func ScheduleCheckpoint(db sstypes.StateStore, destDir string, shouldRun func() bool, done func(error)) {
 	cp, ok := db.(types.Checkpointable)
 	if !ok {
 		done(fmt.Errorf("state store backend %T does not support checkpoints", db))
@@ -83,7 +84,7 @@ func ScheduleCheckpoint(db types.StateStore, destDir string, shouldRun func() bo
 
 // SetCheckpointVersion makes a completed checkpoint self-describing without
 // changing the live database.
-func SetCheckpointVersion(db types.StateStore, destDir string, version int64) error {
+func SetCheckpointVersion(db sstypes.StateStore, destDir string, version int64) error {
 	setter, ok := db.(types.CheckpointVersionSetter)
 	if !ok {
 		return fmt.Errorf("state store backend %T cannot set checkpoint version", db)

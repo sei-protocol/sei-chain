@@ -112,9 +112,7 @@ func TestCompositeExportBelowFlatKVFloorAfterKickoffFailsLoud(t *testing.T) {
 		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
-	flatKVStore, ok := cs.loadFlatKV().(*flatkv.CommitStore)
-	require.True(t, ok)
-	require.NoError(t, flatKVStore.FlushSnapshots())
+	require.NoError(t, cs.loadFlatKV().FlushSnapshots())
 
 	// The migration had started at this height, so FlatKV is in its AppHash and can't be left out.
 	target := int64(rollbackFloorKickoff + 1)

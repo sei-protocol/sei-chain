@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/utils"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -35,7 +36,7 @@ var _ receiptdb.ReceiptStore = (*receiptStore)(nil)
 
 type receiptStore struct {
 	writeMu     sync.Mutex
-	db          seidbtypes.StateStore
+	db          sstypes.StateStore
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
 	pruneWg     sync.WaitGroup
@@ -261,7 +262,7 @@ func (s *receiptStore) Close() error {
 	return err
 }
 
-func recoverReceiptStore(changelogPath string, db seidbtypes.StateStore) error {
+func recoverReceiptStore(changelogPath string, db sstypes.StateStore) error {
 	ssLatestVersion := db.GetLatestVersion()
 	logger.Info("Recovering from changelog with latest receipt version", "changelog-path", changelogPath, "version", ssLatestVersion)
 	streamHandler, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
@@ -314,7 +315,7 @@ func recoverReceiptStore(changelogPath string, db seidbtypes.StateStore) error {
 	return nil
 }
 
-func startReceiptPruning(db seidbtypes.StateStore, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
+func startReceiptPruning(db sstypes.StateStore, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if keepRecent <= 0 || pruneInterval <= 0 {
 		return
 	}

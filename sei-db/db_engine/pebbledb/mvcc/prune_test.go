@@ -49,7 +49,7 @@ func newTestDB(t *testing.T, keepLast bool) *Database {
 	cfg.KeepLastVersion = keepLast
 	store, err := OpenDB(t.TempDir(), cfg)
 	require.NoError(t, err)
-	db := store.(*Database)
+	db := store
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }

@@ -125,17 +125,22 @@ func writeState(t *testing.T, cfg *config.GigaStorageConfig, through byte) {
 // too.
 func snapshotLiveStateDBAt(t *testing.T, stateDB *giga.StateDB, height byte) {
 	t.Helper()
-	require.NoError(t, stateDB.SC().FlushSnapshots())
-	stateDB.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(
+	require.NoError(t, liveFlatKV(stateDB).FlushSnapshots())
+	liveFlatKV(stateDB).SetCheckpointScheduler(controller.NewCheckpointScheduler(
 		config.CheckpointConfig{BlockInterval: 1}))
 	require.NoError(t, stateDB.CommitStateChanges(int64(height), evmBlock(height, height)))
-	require.NoError(t, stateDB.SC().FlushSnapshots())
+	require.NoError(t, liveFlatKV(stateDB).FlushSnapshots())
 }
 
 // stopSnapshotting gives stateDB's live state DB a schedule that takes no snapshot in any test.
 func stopSnapshotting(stateDB *giga.StateDB) {
-	stateDB.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(
+	liveFlatKV(stateDB).SetCheckpointScheduler(controller.NewCheckpointScheduler(
 		config.CheckpointConfig{BlockInterval: 1_000_000}))
+}
+
+// liveFlatKV returns stateDB's live state DB as the FlatKV store bootstrap opens it as.
+func liveFlatKV(stateDB *giga.StateDB) *flatkv.CommitStore {
+	return stateDB.LiveStateDB().(*flatkv.CommitStore)
 }
 
 // liveStateDBSnapshotDir returns where the live state DB keeps its snapshot of version under dataDir.
@@ -215,7 +220,7 @@ func canonicalHashes(t *testing.T, through byte) (stateHashes [][32]byte, budHas
 	_, err = stateDB.RegisterHashListener(recordStateHash(&stateHashes))
 	require.NoError(t, err)
 	commitStateBlocks(t, stateDB, 1, through)
-	require.NoError(t, stateDB.SC().FlushHashes())
+	require.NoError(t, stateDB.LiveStateDB().FlushHashes())
 	require.NoError(t, stateDB.Close())
 	require.NoError(t, budHasher.Close())
 	return stateHashes, budHashes
