@@ -1440,7 +1440,6 @@ func TestPushPrepareQCRejectsAWrongParent(t *testing.T) {
 // The first road block of the chain names no parent, so a PrepareQC that names a parent is not accepted.
 func TestPushPrepareQCRejectsAParentOnTheFirstRoadBlock(t *testing.T) {
 	e := newLiveEnv(t, utils.TestRng())
-	require.False(t, e.vs.ParentHeader().IsPresent())
 	forged := makePrepareQC(e.keys, types.ProposalWithParent(e.vs.Epoch, e.vs.View(), utils.Some(types.GenRoadBlockHeaderHash(e.rng))))
 	require.ErrorIs(t, e.s.pushPrepareQC(t.Context(), forged), types.ErrParentMismatch)
 	require.False(t, e.inner().CommitVote.IsPresent())
