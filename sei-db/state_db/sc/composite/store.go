@@ -46,7 +46,7 @@ type CompositeCommitStore struct {
 	flatKV atomic.Pointer[flatkv.CommitStore]
 
 	// Manages routing of traffic between the memiavl and flatkv backends.
-	// Built (and rebuilt) inside LoadVersion against the just-opened
+	// Built (and rebuilt) on every load against the just-opened
 	// backends so that lazily-eager constructors like
 	// NewMemiavlMigrationIterator see a non-nil memiavl DB. SetWriteMode
 	// replaces it while views from GetChildStoreByName may be reading it, so
@@ -63,7 +63,7 @@ type CompositeCommitStore struct {
 
 	// routerCancel cancels the child context handed to the current
 	// router. Called before installing a new router on reload, and on
-	// Close. Nil before the first LoadVersion and after Close.
+	// Close. Nil before the first load and after Close.
 	routerCancel context.CancelFunc
 
 	// homeDir is the base directory for the store
@@ -76,7 +76,7 @@ type CompositeCommitStore struct {
 	// mode-dependent gating. It equals the configured WriteMode unless the
 	// configured mode is types.Auto, in which case it is derived from
 	// the migration metadata persisted in flatkv (see
-	// migration.DeriveWriteMode) during LoadVersion and advanced at
+	// migration.DeriveWriteMode) during a load and advanced at
 	// runtime by SetWriteMode. Views from GetChildStoreByName and latest-height
 	// queries read it concurrently with SetWriteMode, so access it only through
 	// loadWriteMode and storeWriteMode.
@@ -151,7 +151,7 @@ type CompositeCommitStore struct {
 }
 
 // NewCompositeCommitStore creates a new composite commit store.
-// Note: The store is NOT opened yet. Call LoadVersion to open and initialize the DBs.
+// Note: The store is NOT opened yet. Call LoadLatest to open and initialize the DBs.
 // This matches the memiavl.NewCommitStore pattern.
 func NewCompositeCommitStore(
 	ctx context.Context,
@@ -240,7 +240,7 @@ func (cs *CompositeCommitStore) Initialize(initialStores []string) error {
 // validateInitialStores enforces the rules described on Initialize.
 //
 // Keyed on the configured (not effective) mode: Initialize runs before
-// LoadVersion, when the effective mode is not yet derivable. types.Auto
+// any load, when the effective mode is not yet derivable. types.Auto
 // therefore takes the strict canonical-store-names branch below, which is
 // the desired behavior since the mode may become mixed at any time.
 func validateInitialStores(mode types.WriteMode, initialStores []string) error {
@@ -305,23 +305,6 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 	// way and a seeded flatkv still hashes to the identity — so this is the rule holding uniformly rather
 	// than a case with a test behind it.
 	return cs.refreshLastCommitInfo()
-}
-
-// LoadVersion opens the store at targetVersion.
-//
-// Deprecated: call LoadLatest or LoadVersionReadOnly.
-//
-// A non-zero targetVersion always yields a read-only view, whatever readOnly says. Serving one writably meant
-// rewinding the flatkv data directory — and it produced a store that could not commit anyway — so callers that
-// ask for a past version get a view and must use the returned store rather than this one.
-func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (*CompositeCommitStore, error) {
-	if cs.derived {
-		return nil, errDerivedStore
-	}
-	if readOnly || targetVersion != 0 {
-		return cs.LoadVersionReadOnly(targetVersion)
-	}
-	return cs, cs.LoadLatest()
 }
 
 // LoadLatest opens both backends at their latest persisted versions, reconciles a torn commit between them,
@@ -522,9 +505,9 @@ func (cs *CompositeCommitStore) adoptPersistedWriteMode() error {
 // MemiavlOnly — a MigrateEVM transition created the directory but crashed
 // before its first commit advanced the migration boundary — the handle is
 // closed again and the transition trigger is expected to re-fire
-// (transitions must be level-triggered; see SetWriteMode). The writable
-// LoadVersion path passes true; the read-only path passes false because
-// its clone is also tracked by LoadVersion's error-cleanup defer (closing
+// (transitions must be level-triggered; see SetWriteMode). LoadLatest
+// passes true; the read-only path passes false because its clone is also
+// tracked by loadVersionReadOnly's error-cleanup defer (closing
 // here would double-close) and an idle clone is released at handle Close
 // anyway.
 func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) error {
@@ -624,7 +607,7 @@ func (cs *CompositeCommitStore) storeWriteMode(mode types.WriteMode) {
 	cs.currentWriteMode.Store(&mode)
 }
 
-// loadRouter returns the installed router, or nil before LoadVersion and
+// loadRouter returns the installed router, or nil before the first load and
 // after Close.
 func (cs *CompositeCommitStore) loadRouter() migration.Router {
 	if router := cs.router.Load(); router != nil {
@@ -643,7 +626,7 @@ func (cs *CompositeCommitStore) storeRouter(router migration.Router) {
 
 // buildRouter constructs the migration router against the currently-opened
 // backends and installs it. Must be called after memIAVL and flatKV (if any)
-// have been opened via LoadVersion and after the effective mode has been
+// have been opened by a load and after the effective mode has been
 // resolved.
 func (cs *CompositeCommitStore) buildRouter() error {
 	router, cancel, err := cs.newRouter(cs.loadWriteMode(), cs.loadFlatKV())
@@ -781,7 +764,7 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 			cs.config.WriteMode, types.Auto)
 	}
 	if cs.loadRouter() == nil {
-		return errors.New("SetWriteMode called before LoadVersion")
+		return errors.New("SetWriteMode called before the store was loaded")
 	}
 	prev := cs.loadWriteMode()
 	if targetWriteMode == prev {
@@ -873,7 +856,7 @@ func (cs *CompositeCommitStore) newFlatKVInstance() (*flatkv.CommitStore, error)
 // never opened (lazy-open found no directory at construction, or the
 // directory was created by an interrupted transition and closed again by
 // resolveCurrentWriteMode). Seeding mirrors the migration-entry seeding in
-// LoadVersion and is idempotent: a flatkv left at a non-zero version by an
+// LoadLatest and is idempotent: a flatkv left at a non-zero version by an
 // interrupted transition is not re-seeded.
 func (cs *CompositeCommitStore) materializeFlatKV() (*flatkv.CommitStore, error) {
 	created, err := cs.newFlatKVInstance()
@@ -1150,7 +1133,7 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 // info whenever the flatkv backend is participating in the AppHash. The
 // one exception is the brief NotStarted window of a live
 // MemiavlOnly -> MigrateEVM transition: between the time flatkv is
-// opened (LoadVersion seeds it to memiavl's version) and the first
+// opened (LoadLatest seeds it to memiavl's version) and the first
 // post-transition commit (which advances the migration boundary), the
 // chain's stored AppHash at the just-loaded height still reflects the
 // memiavl-only era. Adding an evm_lattice entry at that height would
@@ -1623,7 +1606,7 @@ func (cs *CompositeCommitStore) requireRollbackReachable(targetVersion int64) er
 //
 //   - Auto: flatkv may be open but pre-consensus (interrupted transition
 //     windows, seeded snapshots), memiavl may be open past version 2.
-//   - MigrateEVM: flatkv is open from LoadVersion but only joins the hash
+//   - MigrateEVM: flatkv is open from the load but only joins the hash
 //     once the boundary advances; older versions predate flatkv entirely.
 //   - MigrateCosmos: memiavl leaves the hash at the version-2 commit while
 //     remaining open.
@@ -1761,7 +1744,7 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 // that flatkv participates at that height. A factory is therefore handed
 // to the SnapshotImporter to materialize flatkv on demand when (and only
 // when) the stream presents its section; the created instance is adopted
-// as cs.flatKV so the post-restore LoadVersion opens it normally.
+// as cs.flatKV so the post-restore LoadLatest opens it normally.
 func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) {
 	var memIAVLImporter types.Importer
 	if cs.memIAVL != nil {

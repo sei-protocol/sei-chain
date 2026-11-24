@@ -72,18 +72,18 @@ func TestDerivedStoreRefusesLoads(t *testing.T) {
 	defer func() { _ = fresh.Close() }()
 	require.NoError(t, fresh.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
-	view, err := fresh.LoadVersion(2, false)
+	view, err := fresh.LoadVersionReadOnly(2)
 	require.NoError(t, err)
 	defer func() { _ = view.Close() }()
 	require.True(t, view.derived, "a read-only view must be marked derived")
 
 	// Every load path must refuse, so a caller that adopted the view cannot keep loading through it.
 	require.ErrorIs(t, view.LoadLatest(), errDerivedStore)
-	_, err = view.LoadVersion(0, false)
-	require.ErrorIs(t, err, errDerivedStore)
-	_, err = view.LoadVersion(2, false)
-	require.ErrorIs(t, err, errDerivedStore)
 	_, err = view.LoadVersionReadOnly(0)
+	require.ErrorIs(t, err, errDerivedStore)
+	_, err = view.LoadVersionReadOnly(2)
+	require.ErrorIs(t, err, errDerivedStore)
+	_, err = view.LoadVersionReadOnlyForExport(2)
 	require.ErrorIs(t, err, errDerivedStore)
 
 	// The view still serves the height it was built at.

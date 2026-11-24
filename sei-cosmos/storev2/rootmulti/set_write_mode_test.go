@@ -548,7 +548,7 @@ func TestRootMultiCacheMultiStoreForExport_PreKickoffHeightAfterKickoff(t *testi
 		simulateCosmosOnlyBlock(t, store, storeKeys, i)
 	}
 
-	_, err := store.scStore.LoadVersion(pre, true)
+	_, err := store.scStore.LoadVersionReadOnly(pre)
 	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 
 	cms, err := store.CacheMultiStoreForExport(pre)

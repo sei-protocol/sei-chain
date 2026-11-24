@@ -888,7 +888,7 @@ func TestLoadVersionFlatKVOnlyReadWrite(t *testing.T) {
 }
 
 // TestLoadVersionFlatKVOnlyReadOnly verifies the read-only handle
-// returned by LoadVersion(_, true) in FlatKVOnly mode is fully usable:
+// returned by LoadVersionReadOnly in FlatKVOnly mode is fully usable:
 // it has its own router (Problem 3 of section 4) and sees the data
 // committed on the writable handle.
 func TestLoadVersionFlatKVOnlyReadOnly(t *testing.T) {
