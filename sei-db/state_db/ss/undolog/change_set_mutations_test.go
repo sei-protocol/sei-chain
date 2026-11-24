@@ -27,21 +27,21 @@ func evmKey(kind keys.EVMKeyKind, parts ...[]byte) string {
 	return string(keys.BuildEVMKey(kind, bytes.Join(parts, nil)))
 }
 
-// collect returns every pair priors yields, keyed by logical key, and fails on a key yielded twice.
+// collect returns each mutation's previous value keyed by its logical key, and fails on a key returned twice.
 func collect(t *testing.T, changes *gigatypes.StateChangeSet) map[string][]byte {
 	t.Helper()
-	priors := priorsOf(changes)
-	pairs := map[string][]byte{}
-	for key, prior := range priors.All() {
-		_, dup := pairs[string(key)]
-		require.False(t, dup, "key %x yielded twice", key)
-		pairs[string(key)] = bytes.Clone(prior)
+	mutations := changeSetMutations(changes)
+	require.Len(t, mutations, mutationCount(changes))
+	priors := map[string][]byte{}
+	for _, m := range mutations {
+		_, dup := priors[string(m.Key)]
+		require.False(t, dup, "key %x returned twice", m.Key)
+		priors[string(m.Key)] = m.PreviousValue
 	}
-	require.Len(t, pairs, priors.Len())
-	return pairs
+	return priors
 }
 
-func TestChangeSetPriorsYieldEveryFamily(t *testing.T) {
+func TestChangeSetMutationsCoverEveryFamily(t *testing.T) {
 	slot := common.Hash{31: 1}
 	code := []byte{0x60, 0x00}
 	changes := &gigatypes.StateChangeSet{
@@ -65,9 +65,9 @@ func TestChangeSetPriorsYieldEveryFamily(t *testing.T) {
 	}, collect(t, changes), "a code change records its code hash too")
 }
 
-// A field the block left alone yields nothing, and a zero prior is no value, except for code, which is
+// A field the block left alone has no mutation, and a zero prior is no value, except for code, which is
 // none only when empty.
-func TestChangeSetPriorsYieldOnlyChangedFieldsAndAbsentZeros(t *testing.T) {
+func TestChangeSetMutationsCoverOnlyChangedFieldsAndAbsentZeros(t *testing.T) {
 	slot := common.Hash{31: 1}
 	changes := &gigatypes.StateChangeSet{
 		Accounts: []gigatypes.AccountChange{{
@@ -92,18 +92,6 @@ func TestChangeSetPriorsYieldOnlyChangedFieldsAndAbsentZeros(t *testing.T) {
 	}, collect(t, changes))
 }
 
-func TestChangeSetPriorsStopWhenTheConsumerDoes(t *testing.T) {
-	changes := &gigatypes.StateChangeSet{
-		Storage: []gigatypes.StorageChange{{Address: contract, Key: common.Hash{1}}, {Address: contract, Key: common.Hash{2}}},
-	}
-	seen := 0
-	for range priorsOf(changes).All() {
-		seen++
-		break
-	}
-	require.Equal(t, 1, seen)
-}
-
-func TestNilChangeSetHasNoPriors(t *testing.T) {
-	require.Nil(t, priorsOf(nil))
+func TestNilChangeSetHasNoMutations(t *testing.T) {
+	require.Nil(t, changeSetMutations(nil))
 }

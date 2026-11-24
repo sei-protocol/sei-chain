@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"iter"
 	"math"
 	"os"
 	"path/filepath"
@@ -38,6 +37,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "undo")
@@ -90,18 +90,8 @@ type LiveStateView interface {
 	Close()
 }
 
-// PriorValues is the value each key a block changed held before the block.
-type PriorValues interface {
-	// Len returns how many pairs All yields.
-	Len() int
-
-	// All yields each changed EVM key with its value before the block, nil when it held none. Both
-	// slices are valid only until the next pair is requested.
-	All() iter.Seq2[[]byte, []byte]
-}
-
-// Database is an undo-log state store. Blocks arrive in height order, each with the prior values of
-// the keys it changed and a view of current state after it.
+// Database is an undo-log state store. Blocks arrive in height order, each with its mutations and a view
+// of current state after it.
 type Database struct {
 	storage    *pebble.DB
 	bucketSize uint64
@@ -138,10 +128,10 @@ type Database struct {
 
 // pendingBlock is one entry of the write queue: a block, or, with done set, a barrier.
 type pendingBlock struct {
-	version int64
-	priors  PriorValues
-	current LiveStateView
-	done    chan struct{}
+	version   int64
+	mutations []mutation.Mutation
+	current   LiveStateView
+	done      chan struct{}
 }
 
 // OpenDB opens the undo-log database in dataDir, creating it when there is none. A dataDir holding no
@@ -356,11 +346,11 @@ func (db *Database) resume(version int64) (uint64, error) {
 	return height, nil
 }
 
-// ApplyBlock queues block version's prior values for recording and takes ownership of current, the
-// state after the block. priors is read in the background, so it must not change afterwards; nil means
-// the block changed nothing. It panics before a successful Resume or after Close.
-func (db *Database) ApplyBlock(version int64, priors PriorValues, current LiveStateView) {
-	if err := db.enqueue(pendingBlock{version: version, priors: priors, current: current}); err != nil {
+// ApplyBlock queues block version's mutations for recording and takes ownership of current, the state
+// after the block. mutations must not be modified afterwards. It panics before a successful Resume or
+// after Close.
+func (db *Database) ApplyBlock(version int64, mutations []mutation.Mutation, current LiveStateView) {
+	if err := db.enqueue(pendingBlock{version: version, mutations: mutations, current: current}); err != nil {
 		current.Close()
 		panic(err)
 	}
@@ -397,7 +387,7 @@ func (db *Database) writeInBackground() {
 			close(block.done)
 			continue
 		}
-		if err := db.applyBlock(block.version, block.priors, block.current); err != nil {
+		if err := db.applyBlock(block.version, block.mutations, block.current); err != nil {
 			// A block that cannot be written leaves a gap every later read below it would answer wrongly.
 			panic(err)
 		}
@@ -405,8 +395,8 @@ func (db *Database) writeInBackground() {
 }
 
 // applyBlock writes block version and makes current the view reads fall back to.
-func (db *Database) applyBlock(version int64, priors PriorValues, current LiveStateView) error {
-	height, err := db.writeBlock(version, priors)
+func (db *Database) applyBlock(version int64, mutations []mutation.Mutation, current LiveStateView) error {
+	height, err := db.writeBlock(version, mutations)
 	if err != nil {
 		current.Close()
 		return err
@@ -418,12 +408,11 @@ func (db *Database) applyBlock(version int64, priors PriorValues, current LiveSt
 // writeBlock writes block version's records, then moves the latest-height marker to it, and returns
 // the block's height. A crash in between leaves records only above the marker, which the block
 // rewrites when it is applied again.
-func (db *Database) writeBlock(version int64, priors PriorValues) (height uint64, err error) {
+func (db *Database) writeBlock(version int64, mutations []mutation.Mutation) (height uint64, err error) {
 	start := time.Now()
-	records := recordCount(priors)
 	defer func() {
 		otelMetrics.applyLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
-		otelMetrics.applyRecords.Record(context.Background(), int64(records))
+		otelMetrics.applyRecords.Record(context.Background(), int64(len(mutations)))
 	}()
 	if height, err = heightOf(version); err != nil {
 		return 0, err
@@ -433,7 +422,7 @@ func (db *Database) writeBlock(version int64, priors PriorValues) (height uint64
 	if latest := db.latestHeight.Load(); height != latest+1 {
 		return 0, fmt.Errorf("undo: block %d does not follow the latest applied block %d", height, latest)
 	}
-	if err := db.writeRecords(priors, records, height/db.bucketSize, height); err != nil {
+	if err := db.writeRecords(mutations, height/db.bucketSize, height); err != nil {
 		return 0, err
 	}
 	if err := writeMarker(db.storage, latestVersionKey, height, pebble.NoSync); err != nil {
@@ -442,28 +431,17 @@ func (db *Database) writeBlock(version int64, priors PriorValues) (height uint64
 	return height, nil
 }
 
-// recordCount returns how many records priors writes, one per key.
-func recordCount(priors PriorValues) int {
-	if priors == nil {
-		return 0
-	}
-	return priors.Len()
-}
-
-// writeRecords writes a record at height of every key priors holds, absent for a key whose prior is
-// nil; records is how many that is, as recordCount reports.
-func (db *Database) writeRecords(priors PriorValues, records int, bucket, height uint64) error {
-	if priors == nil {
-		return nil
-	}
+// writeRecords writes a record at height of each mutation's key holding its previous value, absent when that
+// is nil.
+func (db *Database) writeRecords(mutations []mutation.Mutation, bucket, height uint64) error {
 	w := &recordWriter{
 		db:     db,
 		bucket: bucket,
 		height: height,
-		size:   max(minBatchRecords, (records+writeParallelism-1)/writeParallelism),
+		size:   max(minBatchRecords, (len(mutations)+writeParallelism-1)/writeParallelism),
 	}
-	for key, prior := range priors.All() {
-		w.add(key, prior)
+	for i := range mutations {
+		w.add(mutations[i].Key, mutations[i].PreviousValue)
 	}
 	return w.finish()
 }

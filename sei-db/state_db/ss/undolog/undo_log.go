@@ -40,7 +40,7 @@ func (l *undoLog) Resume(version int64, current gigatypes.StateView) error {
 }
 
 func (l *undoLog) ApplyBlock(version int64, changes *gigatypes.StateChangeSet, current gigatypes.StateView) {
-	l.Database.ApplyBlock(version, priorsOf(changes), current)
+	l.Database.ApplyBlock(version, changeSetMutations(changes), current)
 }
 
 func (l *undoLog) OpenView(version int64) (gigatypes.StateView, bool) {
