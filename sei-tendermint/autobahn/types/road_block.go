@@ -288,16 +288,12 @@ var RoadBlockHeaderConv = protoutils.Conv[*RoadBlockHeader, *pb.RoadBlockHeader]
 			laneRanges = append(laneRanges, r)
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
-		var parentHash []byte
-		if h, ok := m.parentHash.Get(); ok {
-			parentHash = h.Bytes()
-		}
 		return &pb.RoadBlockHeader{
 			EpochIndex: new(uint64(m.epochIndex)),
 			Height:     new(uint64(m.height)),
 			Timestamp:  TimeConv.Encode(m.timestamp),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
-			ParentHash: parentHash,
+			ParentHash: m.parentHash.Map(RoadBlockHeaderHash.Bytes).Or(nil),
 		}
 	},
 	Decode: func(m *pb.RoadBlockHeader) (*RoadBlockHeader, error) {
