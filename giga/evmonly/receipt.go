@@ -44,9 +44,7 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receip
 		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d is nil", i)
 	}
 	txResult := result.Txs[i]
-	// A rejection the sender can still cure (nonce too high, insufficient funds)
-	// leaves the hash unclaimed so a later execution can store its receipt.
-	if txResult.Rejected && !errors.Is(txResult.Err, core.ErrNonceTooLow) {
+	if !claimsHash(&txResult) {
 		return receipttypes.ReceiptRecord{}, false, nil
 	}
 	transactionIndex, ok := utils.SafeCast[uint32](ethReceipt.TransactionIndex)
@@ -91,6 +89,13 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receip
 		TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
 		KeepExisting: txResult.Rejected,
 	}, true, nil
+}
+
+// claimsHash reports whether tx's hash resolves to this execution of it: every executed transaction,
+// and a rejection for a stale nonce. A rejection the sender can still cure (nonce too high,
+// insufficient funds) leaves the hash unclaimed so a later execution can store its receipt.
+func claimsHash(tx *TxResult) bool {
+	return !tx.Rejected || errors.Is(tx.Err, core.ErrNonceTooLow)
 }
 
 // receiptRecordsParallel builds the block's records across the executor's worker pool, returning

@@ -336,13 +336,30 @@ func TestVerifySnapshotDir(t *testing.T) {
 	require.ErrorContains(t, VerifySnapshotDir(dir, h+1), "want")
 	require.ErrorContains(t, VerifySnapshotDir(dir, h-1), "want")
 	for _, name := range dataDBDirs {
-		require.FileExists(t, filepath.Join(dir, name, lockFileName), "a read-only open leaves a LOCK file")
+		require.NoFileExists(t, filepath.Join(dir, name, lockFileName))
 	}
 
 	require.NoError(t, os.RemoveAll(filepath.Join(dir, codeDBDir)))
 	err := VerifySnapshotDir(dir, h)
 	require.ErrorIs(t, err, os.ErrNotExist)
 	require.ErrorContains(t, err, codeDBDir)
+}
+
+func TestVerifySnapshotDirKeepsALockFileItDidNotCreate(t *testing.T) {
+	s := setupSnapshottingStore(t, 10)
+	defer func() { require.NoError(t, s.Close()) }()
+	h := commitToEveryDB(t, s, 1)
+	dir := filepath.Join(t.TempDir(), "linked")
+	require.NoError(t, HardLinkSnapshot(s.flatkvDir(), h, dir))
+	lock := filepath.Join(dir, accountDBDir, lockFileName)
+	require.NoError(t, os.WriteFile(lock, nil, 0o600))
+
+	require.NoError(t, VerifySnapshotDir(dir, h))
+
+	require.FileExists(t, lock)
+	for _, name := range dataDBDirs[1:] {
+		require.NoFileExists(t, filepath.Join(dir, name, lockFileName))
+	}
 }
 
 func TestVerifySnapshotDirRefusesSymlinks(t *testing.T) {

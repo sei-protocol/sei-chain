@@ -33,6 +33,7 @@ type Config struct {
 	Execution ExecutionConfig `mapstructure:"execution"`
 	RPC       RPCConfig       `mapstructure:"rpc"`
 	StateSync StateSyncConfig `mapstructure:"state_sync"`
+	Archive   ArchiveConfig   `mapstructure:"archive"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -66,6 +67,12 @@ type ExecutionConfig struct {
 	OCCWorkers int `mapstructure:"occ_workers"`
 	// ParseWorkers is the number of parallel transaction decoding workers; 0 uses GOMAXPROCS.
 	ParseWorkers int `mapstructure:"parse_workers"`
+	// EarlySpeculationWorkers, when positive, speculates a block's transactions before the block
+	// executes. Zero disables early speculation.
+	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
+	// MaxBlocksInFlight is how many blocks the node works on at once: one executing, and the rest
+	// being prepared, and speculated when early speculation is on. 1 runs blocks one at a time.
+	MaxBlocksInFlight int `mapstructure:"max_blocks_in_flight"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
 	// EvmRpcPort is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
@@ -225,6 +232,22 @@ type StateSyncConfig struct {
 	SnapshotUploadInterval time.Duration `mapstructure:"snapshot_upload_interval"`
 }
 
+// ArchiveConfig is the [giga.archive] sub-table: the ClickHouse history archive this node writes
+// its blocks to.
+type ArchiveConfig struct {
+	// ClickHouseAddr is the archive's ClickHouse native-protocol address, host:port. Empty
+	// disables the archive.
+	ClickHouseAddr string `mapstructure:"clickhouse_addr"`
+	// Database is the ClickHouse database holding this chain's archive.
+	Database string `mapstructure:"database"`
+	// User and Password authenticate to ClickHouse.
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+}
+
+// Enabled reports whether an archive is configured.
+func (c ArchiveConfig) Enabled() bool { return c.ClickHouseAddr != "" }
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -233,6 +256,7 @@ var DefaultConfig = Config{
 		MinGasPrice:         1_000_000_000,
 		OCCWorkers:          0,
 		ParseWorkers:        0,
+		MaxBlocksInFlight:   3,
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
@@ -266,6 +290,10 @@ var DefaultConfig = Config{
 		Enabled:                false,
 		SnapshotUploadInterval: time.Hour,
 	},
+	Archive: ArchiveConfig{
+		Database: "sei_archive",
+		User:     "default",
+	},
 }
 
 func defaultStorageConfig() StorageConfig {
@@ -294,6 +322,8 @@ const (
 	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
 	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
+	FlagExecutionEarlySpeculationWorkers = "giga.execution.early_speculation_workers"
+	FlagExecutionMaxBlocksInFlight       = "giga.execution.max_blocks_in_flight"
 	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
@@ -325,6 +355,10 @@ const (
 	FlagStateSyncSnapshotRegion          = "giga.state_sync.snapshot_region"
 	FlagStateSyncSnapshotUpload          = "giga.state_sync.snapshot_upload"
 	FlagStateSyncSnapshotUploadInterval  = "giga.state_sync.snapshot_upload_interval"
+	FlagArchiveClickHouseAddr            = "giga.archive.clickhouse_addr"
+	FlagArchiveDatabase                  = "giga.archive.database"
+	FlagArchiveUser                      = "giga.archive.user"
+	FlagArchivePassword                  = "giga.archive.password" //nolint:gosec // a config key, not a credential
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -379,6 +413,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionParseWorkers); v != nil {
 		if cfg.Execution.ParseWorkers, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionParseWorkers, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionEarlySpeculationWorkers); v != nil {
+		if cfg.Execution.EarlySpeculationWorkers, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEarlySpeculationWorkers, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxBlocksInFlight); v != nil {
+		if cfg.Execution.MaxBlocksInFlight, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxBlocksInFlight, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionBlockResultPoolSize); v != nil {
@@ -536,6 +580,26 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUploadInterval, err)
 		}
 	}
+	if v := opts.Get(FlagArchiveClickHouseAddr); v != nil {
+		if cfg.Archive.ClickHouseAddr, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveClickHouseAddr, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveDatabase); v != nil {
+		if cfg.Archive.Database, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveDatabase, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveUser); v != nil {
+		if cfg.Archive.User, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveUser, err)
+		}
+	}
+	if v := opts.Get(FlagArchivePassword); v != nil {
+		if cfg.Archive.Password, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchivePassword, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -567,6 +631,12 @@ func (c Config) Validate() error {
 	}
 	if c.Execution.ParseWorkers < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionParseWorkers, c.Execution.ParseWorkers)
+	}
+	if c.Execution.EarlySpeculationWorkers < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionEarlySpeculationWorkers, c.Execution.EarlySpeculationWorkers)
+	}
+	if c.Execution.MaxBlocksInFlight < 1 {
+		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionMaxBlocksInFlight, c.Execution.MaxBlocksInFlight)
 	}
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
@@ -639,6 +709,9 @@ func (c Config) Validate() error {
 	if c.StateSync.SnapshotUploadInterval < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %s", FlagStateSyncSnapshotUploadInterval, c.StateSync.SnapshotUploadInterval)
 	}
+	if c.Archive.Enabled() && c.Archive.Database == "" {
+		return fmt.Errorf("%s: must be set when %s is", FlagArchiveDatabase, FlagArchiveClickHouseAddr)
+	}
 	deadlines, err := c.RPC.DeadlineConfig()
 	if err != nil {
 		return err
@@ -692,6 +765,14 @@ occ_workers = {{ .Giga.Execution.OCCWorkers }}
 
 # parse_workers is the number of parallel transaction decoding workers; 0 uses GOMAXPROCS.
 parse_workers = {{ .Giga.Execution.ParseWorkers }}
+
+# early_speculation_workers, when positive, speculates a block's transactions before the block
+# executes. Zero disables early speculation.
+early_speculation_workers = {{ .Giga.Execution.EarlySpeculationWorkers }}
+
+# max_blocks_in_flight is how many blocks the node works on at once: one executing, and the rest
+# being prepared, and speculated when early speculation is on. 1 runs blocks one at a time.
+max_blocks_in_flight = {{ .Giga.Execution.MaxBlocksInFlight }}
 
 # block_result_pool_size is the number of block results kept pooled between executions.
 block_result_pool_size = {{ .Giga.Execution.BlockResultPoolSize }}
@@ -822,6 +903,20 @@ snapshot_upload = {{ .Giga.StateSync.SnapshotUpload }}
 # snapshot_upload_interval is the least time between two snapshot uploads of this chain, measured
 # from the last write of latest.txt by any node. 0 uploads each checkpoint.
 snapshot_upload_interval = "{{ .Giga.StateSync.SnapshotUploadInterval }}"
+
+[giga.archive]
+# clickhouse_addr is the ClickHouse native-protocol address (host:port) of the history archive
+# this node writes its blocks to. Empty disables the archive. Block execution waits for an
+# archive that falls behind, so do not enable it on a validator.
+clickhouse_addr = "{{ .Giga.Archive.ClickHouseAddr }}"
+
+# database is the ClickHouse database holding this chain's archive: letters, digits and
+# underscores.
+database = "{{ .Giga.Archive.Database }}"
+
+# user and password authenticate to ClickHouse.
+user = "{{ .Giga.Archive.User }}"
+password = {{ printf "%q" .Giga.Archive.Password }}
 `
 
 // requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one

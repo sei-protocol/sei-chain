@@ -1,6 +1,7 @@
 package statesync
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,10 +16,16 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-// abortTimeout bounds the abort of a failed multipart upload, which runs after the upload context
-// is canceled. Close of the storage waits for it; the bucket lifecycle rule removes the parts of
-// an abort that does not complete.
+// abortTimeout bounds the abort of a multipart upload, which can run after the context of the
+// caller is canceled. Close of the storage waits for it; the bucket lifecycle rule removes the
+// parts of an abort that does not complete.
 const abortTimeout = 5 * time.Second
+
+// unmatchedVersion is an ETag that no object has.
+const unmatchedVersion = `"00000000000000000000000000000000"`
+
+// errConditionsIgnored is the error of a bucket that writes an object whose If-Match is not met.
+var errConditionsIgnored = errors.New("the bucket ignores If-Match, which the archive upload needs")
 
 // S3Store is an ObjectStore in one S3 bucket.
 type S3Store struct {
@@ -140,6 +147,66 @@ func (s *S3Store) Stat(ctx context.Context, key string) (ObjectInfo, error) {
 		return ObjectInfo{}, fmt.Errorf("stat %s: %w", s.url(key), err)
 	}
 	return ObjectInfo{Version: aws.ToString(out.ETag), Modified: aws.ToTime(out.LastModified)}, nil
+}
+
+// Region returns the AWS region of the store.
+func (s *S3Store) Region() string {
+	return s.client.Options().Region
+}
+
+// CredentialSource retrieves the AWS credentials of the store and returns the name of their
+// provider.
+func (s *S3Store) CredentialSource(ctx context.Context) (string, error) {
+	provider := s.client.Options().Credentials
+	if provider == nil {
+		return "", errors.New("no AWS credentials provider")
+	}
+	creds, err := provider.Retrieve(ctx)
+	if err != nil {
+		return "", fmt.Errorf("retrieve aws credentials: %w", err)
+	}
+	return creds.Source, nil
+}
+
+// CheckWrite checks that the store can upload an archive: it starts a multipart upload at key and
+// aborts it, then puts key with an If-Match that no object meets. It needs s3:PutObject and
+// s3:AbortMultipartUpload, and leaves no object on a bucket that honors If-Match. It returns an
+// error wrapping errConditionsIgnored when the bucket writes the object anyway.
+func (s *S3Store) CheckWrite(ctx context.Context, key string) error {
+	if err := s.checkMultipartUpload(ctx, key); err != nil {
+		return err
+	}
+	err := s.Put(ctx, key, bytes.NewReader(nil), 0, Precondition{Version: unmatchedVersion})
+	switch {
+	case errors.Is(err, ErrPreconditionFailed):
+		return nil
+	case err == nil:
+		return fmt.Errorf("%w; remove %s", errConditionsIgnored, s.url(key))
+	default:
+		return fmt.Errorf("conditional put at %s: %w", s.url(key), err)
+	}
+}
+
+// checkMultipartUpload starts a multipart upload at key and aborts it.
+func (s *S3Store) checkMultipartUpload(ctx context.Context, key string) error {
+	out, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("start a multipart upload at %s: %w", s.url(key), err)
+	}
+	abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+	defer cancel()
+	_, err = s.client.AbortMultipartUpload(abortCtx, &s3.AbortMultipartUploadInput{
+		Bucket:   aws.String(s.bucket),
+		Key:      aws.String(key),
+		UploadId: out.UploadId,
+	})
+	if err != nil {
+		return fmt.Errorf("abort the multipart upload at %s: %w", s.url(key), err)
+	}
+	return nil
 }
 
 func (s *S3Store) url(key string) string {

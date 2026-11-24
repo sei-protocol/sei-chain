@@ -32,11 +32,7 @@ func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper, upgradeKeeper *upgrade
 	}
 }
 
-func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	if simulate {
-		return next(ctx, tx, simulate)
-	}
-
+func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	txData, err := evmtypes.UnpackTxData(msg.Data)
 	if err != nil {
@@ -107,7 +103,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	priority := fc.CalculatePriority(ctx, txData)
 	ctx = ctx.WithPriority(priority.Int64())
 
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 // minimum fee per gas required for a tx to be processed

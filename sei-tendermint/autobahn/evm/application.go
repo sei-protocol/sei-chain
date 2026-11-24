@@ -32,6 +32,8 @@ type Application interface {
 	// EvmCommittedNonce returns addr's nonce in the last committed EVM state without waiting for a
 	// commit in flight, so it can trail EvmNonce by the most recently finalized block.
 	EvmCommittedNonce(common.Address) uint64
+	// FinalizeBlock executes the block at req.Height. It may be called before the call for the
+	// previous block returns; it then waits for it, and ctx cancels only that wait.
 	FinalizeBlock(context.Context, FinalizeBlockReq) (FinalizeBlockResp, error)
 	// AwaitCommits waits for finalized blocks to reach the store and returns any commit failure.
 	AwaitCommits() error

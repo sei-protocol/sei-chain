@@ -126,9 +126,12 @@ func TestMockAppFinalizeBlockRequiresSequentialHeight(t *testing.T) {
 	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{})
 	require.Error(t, err)
 
-	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+	// A later height waits for the blocks before it.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
 		Height: 5})
-	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 
 	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 		Height: 4})

@@ -137,6 +137,21 @@ func TestConfigTemplateRendersSkipUpgrades(t *testing.T) {
 	require.Equal(t, want, cfg)
 }
 
+func TestConfigTemplateRendersArchivePassword(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	want := gigaconfig.DefaultConfig
+	want.Archive.ClickHouseAddr = "ch:9000"
+	want.Archive.Password = `p"a\ss#word`
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, want, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                         "full",
@@ -149,6 +164,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.min_gas_price":              "7",
 		"giga.execution.occ_workers":                "3",
 		"giga.execution.parse_workers":              "2",
+		"giga.execution.early_speculation_workers":  "5",
+		"giga.execution.max_blocks_in_flight":       "4",
 		"giga.execution.block_result_pool_size":     "4",
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
@@ -180,6 +197,10 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.state_sync.snapshot_region":           "eu-central-1",
 		"giga.state_sync.snapshot_upload":           "true",
 		"giga.state_sync.snapshot_upload_interval":  "6h",
+		"giga.archive.clickhouse_addr":              "ch:9000",
+		"giga.archive.database":                     "arch",
+		"giga.archive.user":                         "writer",
+		"giga.archive.password":                     "secret",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -193,14 +214,16 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			CheckpointBlockInterval: 5000,
 		},
 		Execution: gigaconfig.ExecutionConfig{
-			MinGasPrice:         7,
-			OCCWorkers:          3,
-			ParseWorkers:        2,
-			BlockResultPoolSize: 4,
-			EvmRpcPort:          8600,
-			EvmWsPort:           8601,
-			GCPercent:           200,
-			UnsafeSkipUpgrades:  []uint64{100, 101},
+			MinGasPrice:             7,
+			OCCWorkers:              3,
+			ParseWorkers:            2,
+			EarlySpeculationWorkers: 5,
+			MaxBlocksInFlight:       4,
+			BlockResultPoolSize:     4,
+			EvmRpcPort:              8600,
+			EvmWsPort:               8601,
+			GCPercent:               200,
+			UnsafeSkipUpgrades:      []uint64{100, 101},
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
@@ -232,6 +255,12 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			SnapshotUpload:         true,
 			SnapshotUploadInterval: 6 * time.Hour,
 		},
+		Archive: gigaconfig.ArchiveConfig{
+			ClickHouseAddr: "ch:9000",
+			Database:       "arch",
+			User:           "writer",
+			Password:       "secret",
+		},
 	}
 	require.Equal(t, want, cfg)
 }
@@ -251,6 +280,8 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"lookback below -1":               {"giga.storage.lookback_window": "-2"},
 		"zero prune interval":             {"giga.storage.prune_interval": "0s"},
 		"negative occ workers":            {"giga.execution.occ_workers": "-1"},
+		"negative early speculation":      {"giga.execution.early_speculation_workers": "-1"},
+		"zero max blocks in flight":       {"giga.execution.max_blocks_in_flight": "0"},
 		"negative gc percent":             {"giga.execution.gc_percent": "-1"},
 		"empty result pool":               {"giga.execution.block_result_pool_size": "0"},
 		"non-numeric gas price":           {"giga.execution.min_gas_price": "cheap"},
@@ -326,6 +357,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-boolean upload":           {"giga.state_sync.snapshot_upload": "maybe"},
 		"negative upload interval":     {"giga.state_sync.snapshot_upload_interval": "-1s"},
 		"non-duration upload interval": {"giga.state_sync.snapshot_upload_interval": "daily"},
+		"archive without database":     {"giga.archive.clickhouse_addr": "ch:9000", "giga.archive.database": ""},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

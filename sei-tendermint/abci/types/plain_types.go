@@ -35,7 +35,6 @@ type RequestBeginBlock struct {
 	Header              tmproto.Header
 	LastCommitInfo      LastCommitInfo
 	ByzantineValidators []Evidence
-	Simulate            bool
 }
 
 type RequestEndBlock struct {

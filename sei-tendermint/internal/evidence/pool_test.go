@@ -2,12 +2,12 @@ package evidence_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 
@@ -102,7 +103,7 @@ func TestEvidencePoolBasic(t *testing.T) {
 	}
 
 	next := pool.EvidenceFront()
-	require.Equal(t, ev, next.Value())
+	require.Equal(t, types.Evidence(ev), next.Value())
 
 	const evidenceBytes int64 = 372
 	evs, size = pool.PendingEvidence(evidenceBytes)
@@ -413,10 +414,10 @@ func TestLightClientAttackEvidenceLifecycle(t *testing.T) {
 
 	pendingEv, _ := pool.PendingEvidence(state.ConsensusParams.Evidence.MaxBytes)
 	require.Equal(t, 1, len(pendingEv))
-	require.Equal(t, ev, pendingEv[0])
+	require.Equal(t, types.Evidence(ev), pendingEv[0])
 
 	require.NoError(t, pool.CheckEvidence(ctx, pendingEv))
-	require.Equal(t, ev, pendingEv[0])
+	require.Equal(t, types.Evidence(ev), pendingEv[0])
 
 	state.LastBlockHeight++
 	state.LastBlockTime = state.LastBlockTime.Add(1 * time.Minute)
@@ -506,7 +507,109 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	require.Equal(t, 1, len(evList))
 
 	next := newPool.EvidenceFront()
-	require.Equal(t, goodEvidence, next.Value())
+	require.Equal(t, types.Evidence(goodEvidence), next.Value())
+}
+
+// TestAddEvidenceRejectsWrongABCIField checks that AddEvidence rejects a
+// DuplicateVoteEvidence with a wrong ABCI field and writes nothing to the pool.
+func TestAddEvidenceRejectsWrongABCIField(t *testing.T) {
+	const height int64 = 10
+	ctx := t.Context()
+
+	pool, val, _ := defaultTestPool(ctx, t, height)
+
+	// defaultTestPool stores the block at height with time defaultEvidenceTime + height
+	// minutes, so this evidence carries the correct ABCI fields for its height.
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+	require.NoError(t, err)
+	require.NoError(t, pool.AddEvidence(ctx, ev))
+
+	// commit the evidence
+	state := pool.State()
+	state.LastBlockHeight++
+	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
+	pool.Update(ctx, state, types.EvidenceList{ev})
+	pendingEvs, _ := pool.PendingEvidence(defaultEvidenceMaxBytes)
+	require.Empty(t, pendingEvs)
+	require.Zero(t, pool.Size())
+
+	// the copy differs from the committed evidence in one ABCI field
+	copied := copyDuplicateVoteEvidence(ev)
+	copied.Timestamp = copied.Timestamp.Add(time.Nanosecond)
+	require.NotEqual(t, ev.Hash(), copied.Hash())
+
+	err = pool.AddEvidence(ctx, copied)
+	require.Error(t, err)
+	// the error is not ErrInvalidEvidence, so the reactor keeps the sender connected.
+	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
+	require.False(t, isInvalidEvidence)
+
+	// CheckEvidence rejects a second copy with the same wrong timestamp
+	checked := copyDuplicateVoteEvidence(ev)
+	checked.Timestamp = checked.Timestamp.Add(time.Nanosecond)
+	require.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{checked}))
+
+	// nothing reached the pending bucket
+	pendingEvs, _ = pool.PendingEvidence(defaultEvidenceMaxBytes)
+	require.Empty(t, pendingEvs)
+	require.Zero(t, pool.Size())
+
+	// CheckEvidence still rejects the committed evidence
+	err = pool.CheckEvidence(ctx, types.EvidenceList{ev})
+	_, isInvalidEvidence = errors.AsType[*types.ErrInvalidEvidence](err)
+	require.True(t, isInvalidEvidence)
+}
+
+// TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged checks that CheckEvidence rejects
+// a DuplicateVoteEvidence with one wrong ABCI field and leaves the pending bucket and
+// the size of the pool as they were.
+func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
+	const height int64 = 10
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+
+	testCases := []struct {
+		name string
+		// wrong returns the evidence under test, which has one wrong ABCI field.
+		wrong func(t *testing.T, pendingEv *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence
+	}{
+		{"new evidence with wrong total voting power", func(t *testing.T, _ *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence {
+			ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(t.Context(), height, blockTime, val, evidenceChainID)
+			require.NoError(t, err)
+			ev.TotalVotingPower++
+			return ev
+		}},
+		{"copy of pending evidence with wrong validator power", func(_ *testing.T, pendingEv *types.DuplicateVoteEvidence, _ types.MockPV) *types.DuplicateVoteEvidence {
+			ev := copyDuplicateVoteEvidence(pendingEv)
+			ev.ValidatorPower++
+			return ev
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			pool, val, _ := defaultTestPool(ctx, t, height)
+			pendingEv, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+			require.NoError(t, err)
+			require.NoError(t, pool.AddEvidence(ctx, pendingEv))
+
+			wrongEv := tc.wrong(t, pendingEv, val)
+			wrongHash := wrongEv.Hash()
+			require.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{wrongEv}))
+			require.Equal(t, wrongHash, wrongEv.Hash())
+
+			pendingEvs, _ := pool.PendingEvidence(defaultEvidenceMaxBytes)
+			require.Equal(t, []types.Evidence{pendingEv}, pendingEvs)
+			require.Equal(t, uint32(1), pool.Size())
+		})
+	}
+}
+
+// copyDuplicateVoteEvidence returns a shallow copy of ev. The copy has its own ABCI fields
+// and shares the votes of ev.
+func copyDuplicateVoteEvidence(ev *types.DuplicateVoteEvidence) *types.DuplicateVoteEvidence {
+	copied := *ev
+	return &copied
 }
 
 func initializeStateFromValidatorSet(t *testing.T, valSet *types.ValidatorSet, height int64) sm.Store {
