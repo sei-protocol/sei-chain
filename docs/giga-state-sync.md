@@ -46,7 +46,8 @@ seid start
 
 If the home is not `~/.sei`, add `--home <dir>` to both commands.
 
-`seid statesync import` takes the snapshot in `latest.txt`. To take another one:
+`seid statesync import` takes the newest snapshot. The uploading nodes write its height to the
+object `latest.txt` in the bucket. To take another snapshot:
 
 ```sh
 seid statesync import --height 120000
@@ -57,7 +58,14 @@ seid statesync import --from s3://my-sei-snapshots/giga-state-sync/my-chain-1/00
 
 After `seid start`, the node gets the blocks above the snapshot height from its peers. When the
 snapshot is too old, the peers no longer keep those blocks. The node then stays at the snapshot
-height, and it does not log an error.
+height. It does not stop, and it logs this warning for each peer that no longer keeps the blocks:
+
+```text
+A peer no longer keeps the road blocks that this node needs next
+```
+
+One warning is not a failure, because another peer can still send the blocks. If the height does
+not increase, no peer keeps them.
 
 To recover, stop the node and delete the contents of the persistent state dir. This is
 `persistent_state_dir` in the Autobahn config file. `seid statesync import` refuses a persistent

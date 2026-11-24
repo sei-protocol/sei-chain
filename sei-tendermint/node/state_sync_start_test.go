@@ -7,6 +7,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -27,6 +28,14 @@ func newStateSyncStartTest(t *testing.T) *stateSyncStartTest {
 	return &stateSyncStartTest{conf: conf, giga: giga, layout: layout}
 }
 
+// readStart runs readStateSyncStart on the home, as makeEVMApplication does.
+func (s *stateSyncStartTest) readStart(t *testing.T) (p2p.StateSyncStart, error) {
+	t.Helper()
+	fc, _, err := loadAutobahnCommittee(s.conf.AutobahnConfigFile)
+	require.NoError(t, err)
+	return readStateSyncStart(s.conf, fc, s.giga, genesisAt(1))
+}
+
 // mark writes the state sync restore marker for height and the restore anchor of height.
 func (s *stateSyncStartTest) mark(t *testing.T, height int64) {
 	t.Helper()
@@ -38,7 +47,7 @@ func TestReadStateSyncStartWithoutAMarker(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		s := newStateSyncStartTest(t)
 		s.giga.StateSync.Enabled = enabled
-		start, err := readStateSyncStart(s.conf, s.giga, genesisAt(1))
+		start, err := s.readStart(t)
 		require.NoError(t, err)
 		require.Equal(t, enabled, start.Enabled)
 		require.False(t, start.PendingRestore.IsPresent())
@@ -83,7 +92,7 @@ func TestReadStateSyncStartRefusesAPendingRestoreItCannotFinish(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newStateSyncStartTest(t)
 			tc.setup(t, s)
-			_, err := readStateSyncStart(s.conf, s.giga, genesisAt(1))
+			_, err := s.readStart(t)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantMsg)
 			require.FileExists(t, s.layout.RestoreMarkerFile)

@@ -43,6 +43,9 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			recordFetch(ctx, resFullCommitQC, "out_of_order")
 			return fmt.Errorf("qc.Height() = %v, want >= %v: %w", qc.Height(), next, types.ErrUnexpectedHeight)
 		}
+		if qc.Height() > next {
+			s.reportSkippedRoads(ctx, qc.Height())
+		}
 		next = qc.Height() + 1
 		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
 			recordFetch(ctx, resFullCommitQC, "process")
@@ -51,6 +54,20 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 		recordFetch(ctx, resFullCommitQC, "ok")
 	}
 	return ctx.Err()
+}
+
+// reportSkippedRoads counts and logs a FullCommitQC stream that skips to road sent, unless this
+// node already holds every road below sent.
+func (s *Service) reportSkippedRoads(ctx context.Context, sent types.RoadHeight) {
+	need := s.data.NextQC()
+	if need >= sent {
+		return
+	}
+	// A peer skips the roads that it pruned. PushPartialBlock then waits for another peer to send
+	// them, with no error, so this line is the only sign of a node that no peer can serve.
+	recordFetch(ctx, resFullCommitQC, "skipped")
+	logger.Warn("A peer no longer keeps the road blocks that this node needs next; the node continues only if another peer keeps them, and if it stays at this height, restore it from a newer state sync snapshot",
+		"need", need, "peer_sends_from", sent)
 }
 
 func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {

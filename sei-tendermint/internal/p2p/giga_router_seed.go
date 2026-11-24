@@ -111,28 +111,33 @@ func writeSeedRecords(
 	// A flush after each record keeps the durable records a prefix of the three, which the next
 	// start completes. An AppQC without its AppProposal would fail the BlockDB on reopen.
 	if missing.block {
-		if err := blockStore.WriteBlock(proof.RoadBlock()); err != nil {
-			return fmt.Errorf("write road block %d: %w", road, err)
-		}
-		if err := blockStore.Flush(); err != nil {
-			return fmt.Errorf("flush road block %d: %w", road, err)
+		write := func() error { return blockStore.WriteBlock(proof.RoadBlock()) }
+		if err := writeAndFlush(blockStore, fmt.Sprintf("road block %d", road), write); err != nil {
+			return err
 		}
 	}
 	if missing.appProposal {
-		if err := blockStore.WriteAppProposal(proof.AppQC().Proposal()); err != nil {
-			return fmt.Errorf("write AppProposal %d: %w", road, err)
-		}
-		if err := blockStore.Flush(); err != nil {
-			return fmt.Errorf("flush AppProposal %d: %w", road, err)
+		write := func() error { return blockStore.WriteAppProposal(proof.AppQC().Proposal()) }
+		if err := writeAndFlush(blockStore, fmt.Sprintf("AppProposal %d", road), write); err != nil {
+			return err
 		}
 	}
 	if missing.appQC {
-		if err := blockStore.WriteAppQC(proof.AppQC()); err != nil {
-			return fmt.Errorf("write AppQC %d: %w", road, err)
+		write := func() error { return blockStore.WriteAppQC(proof.AppQC()) }
+		if err := writeAndFlush(blockStore, fmt.Sprintf("AppQC %d", road), write); err != nil {
+			return err
 		}
-		if err := blockStore.Flush(); err != nil {
-			return fmt.Errorf("flush AppQC %d: %w", road, err)
-		}
+	}
+	return nil
+}
+
+// writeAndFlush runs write, which writes record to blockStore, and makes record durable.
+func writeAndFlush(blockStore *ablockstore.Store, record string, write func() error) error {
+	if err := write(); err != nil {
+		return fmt.Errorf("write %s: %w", record, err)
+	}
+	if err := blockStore.Flush(); err != nil {
+		return fmt.Errorf("flush %s: %w", record, err)
 	}
 	return nil
 }

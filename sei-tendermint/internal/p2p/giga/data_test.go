@@ -246,6 +246,73 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	}
 }
 
+func TestFullCommitQCStreamReportsSkippedRoadsThatTheNodeNeeds(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	node := newTestEnv(registry).AddNode(t, keys[0])
+	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 3)
+	// The node holds qcs[0], so the client requests qcs[1].
+	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
+	skipped := fetchCount(resFullCommitQC, "skipped")
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		serverConn, clientConn := conn.NewTestConn()
+		server := rpc.NewServer[API]()
+		client := rpc.NewClient[API]()
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+		// The server sends qcs[2], as a peer that pruned qcs[1] does. No other peer sends qcs[1].
+		s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, []*types.FullCommitQC{qcs[2]}) })
+		// The client under test. It waits for qcs[1] until the test ends.
+		s.SpawnBg(func() error {
+			return utils.IgnoreAfterCancel(ctx, node.service.clientStreamFullCommitQCs(ctx, client))
+		})
+		return utils.WaitFor(ctx, time.Millisecond, func() bool {
+			return fetchCount(resFullCommitQC, "skipped") == skipped+1
+		})
+	})
+	require.NoError(t, err)
+	// The node did not store qcs[2], because it still needs qcs[1].
+	require.Equal(t, qcs[1].Height(), node.data.NextQC())
+}
+
+func TestFullCommitQCStreamDoesNotReportSkippedRoadsThatTheNodeHolds(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	node := newTestEnv(registry).AddNode(t, keys[0])
+	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 3)
+	// The node holds qcs[0], so the client requests qcs[1].
+	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
+	skipped := fetchCount(resFullCommitQC, "skipped")
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		serverConn, clientConn := conn.NewTestConn()
+		server := rpc.NewServer[API]()
+		client := rpc.NewClient[API]()
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+		s.SpawnBg(func() error {
+			return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
+				// The request shows that the client fixed qcs[1] as the next QC of this stream.
+				if _, err := stream.Recv(ctx); err != nil {
+					return fmt.Errorf("stream.Recv(): %w", err)
+				}
+				// Another peer sends qcs[1] before this stream sends a QC.
+				if err := node.data.PushPartialBlock(ctx, qcs[1], nil); err != nil {
+					return fmt.Errorf("PushPartialBlock(): %w", err)
+				}
+				// The stream skips qcs[1], which the node now holds. Returning closes the stream.
+				return stream.Send(ctx, types.FullCommitQCConv.Encode(qcs[2]))
+			}))
+		})
+		// The client under test.
+		return node.service.clientStreamFullCommitQCs(ctx, client)
+	})
+	require.ErrorIs(t, err, mux.ErrRemoteClosed)
+	require.Equal(t, qcs[2].Height()+1, node.data.NextQC())
+	require.Equal(t, skipped, fetchCount(resFullCommitQC, "skipped"))
+}
+
 func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 	for _, tc := range []struct {
 		name string

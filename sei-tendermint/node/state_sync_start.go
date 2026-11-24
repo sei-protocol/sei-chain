@@ -15,16 +15,18 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// readStateSyncStart returns the giga state sync state of the home that conf, giga and genDoc
-// configure. It must run before the Giga storage opens. It returns an error for a home with a
-// pending restore that this start cannot finish: the switch is off, the node runs as a validator,
-// or FlatKV and the app-hash vault are not both at the road of the restore.
-func readStateSyncStart(conf *config.Config, giga gigaconfig.Config, genDoc *types.GenesisDoc) (p2p.StateSyncStart, error) {
+// readStateSyncStart returns the giga state sync state of the home that conf, the Autobahn config
+// file fc, giga and genDoc configure. It must run before the Giga storage opens. It returns an
+// error for a home with a pending restore that this start cannot finish: the switch is off, the
+// node runs as a validator, or FlatKV and the app-hash vault are not both at the road of the
+// restore.
+func readStateSyncStart(
+	conf *config.Config,
+	fc *config.AutobahnFileConfig,
+	giga gigaconfig.Config,
+	genDoc *types.GenesisDoc,
+) (p2p.StateSyncStart, error) {
 	start := p2p.StateSyncStart{Enabled: giga.StateSync.Enabled}
-	fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
-	if err != nil {
-		return p2p.StateSyncStart{}, fmt.Errorf("load Autobahn committee: %w", err)
-	}
 	psd, err := resolvePersistentStateDir(conf.RootDir, fc.PersistentStateDir)
 	if err != nil {
 		return p2p.StateSyncStart{}, err

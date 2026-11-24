@@ -60,9 +60,9 @@ with [giga.state_sync] enabled, seeds the BlockDB with the restored height and s
 
 The persistent state dir must hold no data, or only the data of an earlier import and of a start
 that did not finish it, which import replaces: it deletes that data before it downloads the new
-archive. If import fails or stops, run the same command again. The persistent state dir and the FlatKV dir must be on one
-filesystem, and import refuses when that filesystem has less free space than twice the archived
-checkpoint.`,
+archive. If import fails or stops, run the same command again. The persistent state dir and the
+FlatKV dir must be on one filesystem, and import refuses when that filesystem has less free space
+than twice the archived checkpoint.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if height < 0 {
 				return fmt.Errorf("%w: %d", errNegativeHeight, height)

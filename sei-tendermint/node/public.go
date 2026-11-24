@@ -168,13 +168,13 @@ func makeEVMApplication(
 	giga gigaconfig.Config,
 	genDoc *tmtypes.GenesisDoc,
 ) (_ abevm.Application, _ *bootstrap.GigaStorageManager, _ p2p.StateSyncStart, err error) {
-	start, err := readStateSyncStart(conf, giga, genDoc)
-	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, err
-	}
 	committee, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
 		return nil, nil, p2p.StateSyncStart{}, fmt.Errorf("load Autobahn committee: %w", err)
+	}
+	start, err := readStateSyncStart(conf, committee, giga, genDoc)
+	if err != nil {
+		return nil, nil, p2p.StateSyncStart{}, err
 	}
 	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, giga.Archive, genDoc)
 	if err != nil {
