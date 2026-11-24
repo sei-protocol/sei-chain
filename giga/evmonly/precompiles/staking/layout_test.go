@@ -75,11 +75,10 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"stagedQueue":                 slotStagedQueue,
 		"stagedDelegations":           slotStagedDelegations,
 		"stagedInbound":               slotStagedInbound,
-		"stagedWork":                  slotStagedWork,
 		"params":                      slotParams,
-		"migrating":                   30,
-		"migrationCursor":             31,
-		"migrationFailures":           32,
+		"migrating":                   29,
+		"migrationCursor":             30,
+		"migrationFailures":           31,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and

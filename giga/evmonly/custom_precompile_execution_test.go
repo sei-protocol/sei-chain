@@ -136,38 +136,6 @@ func TestRegisteredCustomPrecompileReportsGas(t *testing.T) {
 	require.Equal(t, []change{{10_000, 9_000}, {9_000, left}}, changes, "tracers see the storage reads")
 }
 
-// gasUser records the block's gas limit and charges its call a thousand gas
-// for each unit its input's first byte names.
-type gasUser struct{ gasLimit *uint64 }
-
-func (gasUser) RequiredGas([]byte) uint64 { return 1_000 }
-
-func (g gasUser) Run(ctx *precompiles.Context, input []byte) ([]byte, error) {
-	*g.gasLimit = ctx.Block.GasLimit
-	if !ctx.Gas.UseGas(uint64(input[0]) * 1_000) {
-		return nil, vm.ErrOutOfGas
-	}
-	return nil, nil
-}
-
-func TestRegisteredCustomPrecompileChargesTheGasItsContractUses(t *testing.T) {
-	var gasLimit uint64
-	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: gasUser{&gasLimit}}
-	stateDB := newNativeStateDB(NewMemoryState())
-	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(blockContext(big.NewInt(testChainID))), stateDB, params.AllDevChainProtocolChanges, vm.Config{}, nil)
-	stateDB.SetEVM(evm)
-
-	_, left, err := contract.RunAndCalculateGas(evm, common.Address{}, common.Address{}, []byte{5}, 10_000, nil, nil, true, false)
-	require.NoError(t, err)
-	require.Equal(t, uint64(4_000), left)
-	require.NotZero(t, gasLimit)
-	require.Equal(t, evm.Context.GasLimit, gasLimit, "Run sees the block's gas limit")
-
-	_, left, err = contract.RunAndCalculateGas(evm, common.Address{}, common.Address{}, []byte{10}, 10_000, nil, nil, true, false)
-	require.ErrorIs(t, err, vm.ErrOutOfGas)
-	require.Zero(t, left, "a call that cannot pay uses all its gas")
-}
-
 func TestRegisteredCustomPrecompileRejectsOversizedInput(t *testing.T) {
 	contract := registeredCustomPrecompile{address: registeredPrecompileAddress, contract: echoPrecompile{}}
 	stateDB := newNativeStateDB(NewMemoryState())

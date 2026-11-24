@@ -169,7 +169,6 @@ contract StakingStorage {
     mapping(uint64 => StagedOperation) internal stagedQueue; // index =>
     mapping(address => mapping(address => StagedDelegation)) internal stagedDelegations; // delegator => validator =>
     mapping(address => uint64) internal stagedInbound; // validator => staged delegates and redelegates to it
-    uint64 internal stagedWork; // work staged during the current epoch: one unit per delegation an operation changes
 
     /// @dev ParamsStorage.staking as of the latest epoch's end, or as genesis
     /// wrote it before any.

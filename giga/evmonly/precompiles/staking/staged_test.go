@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -362,7 +361,7 @@ func TestEveryOperationStagedInAnEpochTakesEffectAtTheNextEpochsEnd(t *testing.T
 	for i := range n {
 		d := common.BigToAddress(big.NewInt(int64(0x10000 + i)))
 		h.fund(StagedEscrow, sei(1))
-		_, err := stage(h.context(d, callOpts{}, &meter{left: math.MaxUint64}), s, stagedOperation{kind: stagedDelegate, delegator: d, validator: val3, amount: sei(1)})
+		_, err := stage(s, stagedOperation{kind: stagedDelegate, delegator: d, validator: val3, amount: sei(1)})
 		require.NoError(t, err)
 	}
 	h.endEpoch(0)
@@ -376,67 +375,6 @@ func TestEveryOperationStagedInAnEpochTakesEffectAtTheNextEpochsEnd(t *testing.T
 	require.Equal(t, q.head(), q.tail(), "every one takes effect")
 	require.Equal(t, new(big.Int).Add(sei(10), sei(int64(n))), h.validator(val3).tokens)
 	require.Equal(t, power, h.lastValidators()[0].power)
-}
-
-func TestStagingIsFreeUntilAnEpochHasStagedItsFreeWork(t *testing.T) {
-	h := newHarness(t, testParams)
-	s := h.store()
-	s.setStagedWork(stagedFreeWork - 1)
-	require.NoError(t, h.stageDelegate(alice, val1, sei(1)))
-	require.Zero(t, h.surcharge, "the last free unit")
-	require.NoError(t, h.stageDelegate(bob, val1, sei(1)))
-	require.Equal(t, uint64(stagedSurchargeBase), h.surcharge)
-	require.Equal(t, uint64(stagedFreeWork+1), s.stagedWork())
-}
-
-func TestAStagedRedelegationIsTwoUnitsOfWork(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val1, sei(5)))
-	s := h.store()
-	s.setStagedWork(stagedFreeWork + stagedSurchargeDoubling - 1)
-	require.NoError(t, h.stageRedelegate(alice, val1, val2, sei(1)))
-	require.Equal(t, uint64(3*stagedSurchargeBase), h.surcharge, "one unit before the price doubles and one after")
-	require.Equal(t, uint64(stagedFreeWork+stagedSurchargeDoubling+1), s.stagedWork())
-}
-
-func TestStagingGasDoublesUpToAQuarterOfTheBlock(t *testing.T) {
-	require.Zero(t, stagingGas(0, 1, testGasLimit))
-	require.Zero(t, stagingGas(stagedFreeWork-1, 1, testGasLimit))
-	require.Equal(t, uint64(stagedSurchargeBase), stagingGas(stagedFreeWork, 1, testGasLimit))
-	require.Equal(t, uint64(stagedSurchargeBase), stagingGas(stagedFreeWork+stagedSurchargeDoubling-1, 1, testGasLimit))
-	require.Equal(t, uint64(2*stagedSurchargeBase), stagingGas(stagedFreeWork+stagedSurchargeDoubling, 1, testGasLimit))
-	require.Equal(t, uint64(128*stagedSurchargeBase), stagingGas(stagedFreeWork+7*stagedSurchargeDoubling, 1, testGasLimit))
-	require.Equal(t, uint64(testGasLimit/4), stagingGas(stagedFreeWork+8*stagedSurchargeDoubling, 1, testGasLimit),
-		"256 times the base is past a quarter of the block")
-	require.Equal(t, uint64(testGasLimit/4), stagingGas(math.MaxUint64-1, 1, testGasLimit))
-	require.Equal(t, uint64(testGasLimit/2), stagingGas(math.MaxUint64-2, 2, testGasLimit))
-}
-
-func TestTheStagedWorkCountStartsAfreshEachEpoch(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.stageDelegate(alice, val1, sei(1)))
-	require.NoError(t, h.stageDelegate(bob, val1, sei(1)))
-	require.Equal(t, uint64(2), h.store().stagedWork())
-	h.endCurrentEpoch()
-	require.Zero(t, h.store().stagedWork(), "what was staged before takes effect at the end of this epoch, not the next")
-}
-
-func TestACallThatCannotPayForItsStagingStagesNothing(t *testing.T) {
-	h := newHarness(t, testParams)
-	s := h.store()
-	s.setStagedWork(stagedFreeWork)
-	h.callGas = stagedSurchargeBase - 1
-	require.ErrorIs(t, h.stageDelegate(alice, val1, sei(1)), vm.ErrOutOfGas)
-	q := s.stagedQueue()
-	require.Equal(t, q.head(), q.tail())
-	require.Equal(t, uint64(stagedFreeWork), s.stagedWork())
-	require.Equal(t, sei(1), h.state.GetBalance(alice), "the value stays with alice")
-}
-
-func TestStagingWithoutAGasMeterFails(t *testing.T) {
-	h := newHarness(t, testParams)
-	_, err := stage(h.context(alice, callOpts{}, nil), h.store(), stagedOperation{kind: stagedDelegate, delegator: alice, validator: val1, amount: sei(1)})
-	require.ErrorIs(t, err, errUnmetered)
 }
 
 func TestTheEpochAdvancesWhenItsSnapshotFails(t *testing.T) {

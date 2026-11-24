@@ -98,7 +98,6 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 		ReadOnly:      readOnly,
 		DelegateCall:  isFromDelegateCall,
 		GasRemaining:  start,
-		Gas:           state,
 		Block:         precompileBlockContext(evm),
 		State:         state,
 		Logs:          state,
@@ -136,7 +135,6 @@ func precompileBlockContext(evm *vm.EVM) precompiles.BlockContext {
 		BaseFee:     cloneOptionalBig(evm.Context.BaseFee),
 		BlobBaseFee: cloneOptionalBig(evm.Context.BlobBaseFee),
 		Coinbase:    evm.Context.Coinbase,
-		GasLimit:    evm.Context.GasLimit,
 	}
 	if evm.Context.Random != nil {
 		block.PrevRandao = *evm.Context.Random
@@ -165,9 +163,8 @@ type precompileState struct {
 }
 
 var (
-	_ precompiles.State    = (*precompileState)(nil)
-	_ precompiles.LogSink  = (*precompileState)(nil)
-	_ precompiles.GasMeter = (*precompileState)(nil)
+	_ precompiles.State   = (*precompileState)(nil)
+	_ precompiles.LogSink = (*precompileState)(nil)
 )
 
 func (s *precompileState) GetBalance(addr common.Address) *big.Int {
@@ -240,11 +237,6 @@ func (s *precompileState) Snapshot() int {
 
 func (s *precompileState) RevertToSnapshot(id int) {
 	s.db.RevertToSnapshot(id)
-}
-
-// UseGas pays gas as a storage access does, failing the call when it cannot.
-func (s *precompileState) UseGas(gas uint64) bool {
-	return s.err == nil && s.charge(gas)
 }
 
 func (s *precompileState) AddLog(log *ethtypes.Log) {

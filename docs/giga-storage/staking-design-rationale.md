@@ -213,7 +213,7 @@ Staking:
 | `0x34`–`0x36` | redelegations and their indexes | `redelegationEntryCounts` and `redelegationsByValDst`; entries live in the redelegation queue, and `0x35` is not carried over |
 | `0x41`–`0x43` | unbonding, redelegation, validator queues | three queues |
 | none | delegates, undelegates and redelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue`, `stagedDelegations` and `stagedInbound` (see *Staged operations*) |
-| none | the work staged during the current epoch, which prices the next call | `stagedWork` (see *Staged operations*) |
+
 | none | the params staking applies | `params`, a copy of the params precompile's staking params (see *Staged operations*) |
 | `0x50` | historical info | not carried over (see below) |
 
@@ -374,17 +374,8 @@ Genesis writes both.
 
 Every operation staged during an epoch takes effect at the end of the next,
 however many there are, and the projection counts every one, so neither runs
-under EndBlock's budget. The calls pay for that work instead. `stagedWork`
-counts the work staged during the current epoch, one unit per delegation an
-operation changes, so a redelegation is two. The first 10,000 units an epoch
-stages cost nothing extra. Past them each unit charges 100,000 gas through the
-call's gas meter, doubling every 2,000 units up to a quarter of the block's gas
-limit, so no operation needs more than half a block. From there the gas an
-epoch can spend bounds its work: with a base fee that rises once blocks use more
-than half their gas limit, about two units fit a block before block space gets
-dearer, so an epoch of 108,000 blocks stages about 240,000 units at most for
-the price of every block's target gas. An epoch's end applies one epoch's
-operations and projects the next's, so it does at most twice that.
+under EndBlock's budget. An epoch's end applies one epoch's operations and
+projects the next's, so its work grows with what the two epochs stage.
 
 The tokens a delegate sends wait in `StagedEscrow`, apart from any validator's,
 and count toward no power until the delegation takes effect. Stake an
