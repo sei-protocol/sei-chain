@@ -21,8 +21,7 @@ const (
 	metadataBucket = math.MaxUint64
 )
 
-// Comparer orders bucket | key length | key | height byte-wise. The length leads the key, so no key's prefix is a
-// prefix of another's, and each key's records sort together by height.
+// Comparer orders record keys, bucket | key length | key | height, byte-wise.
 var Comparer = func() *pebble.Comparer {
 	c := *pebble.DefaultComparer
 	c.Name = "ss_undolog_comparator_v3"

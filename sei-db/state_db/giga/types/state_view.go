@@ -57,18 +57,13 @@ type RawStateView interface {
 	Close()
 }
 
-// StateView is a RawStateView that also decodes what it reads: module key reads and (via the embedded
-// EVMStateView) EVM-specific accessors for account/storage/code/balance/nonce reads. It carries the
-// RawStateView contract.
+// StateView is a RawStateView that also decodes module keys and EVM state.
 type StateView interface {
 	RawStateView
 	EVMStateView
 
-	// Get returns the value stored under key in this view, and whether it
-	// was found. It never observes writes made after the view was opened.
-	//
-	// Get reports what is stored, not what EVM semantics substitute for it: a code-hash key for an
-	// account that exists with no code is not found, where GetCodeHash reports EmptyCodeHash.
+	// Get returns the value stored under module's key, and whether it was found. The code-hash key of an
+	// account with no code is not found.
 	Get(module string, key []byte) ([]byte, bool)
 }
 

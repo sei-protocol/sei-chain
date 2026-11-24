@@ -1,13 +1,11 @@
-// Package undo is a Pebble state store that keeps recent history as a bucketed undo log.
+// Package undo is a Pebble state store that keeps recent history as an undo log.
 //
-// When block h changes a key, the store records the value the key held before h, under
+// When block h changes a key, the store records the value the key held before h under
 //
 //	bucket(h) | len(key) | key | h        with bucket(h) = h / bucketSize
 //
-// and nothing else: the value after the latest block lives in the live state store, which this
-// store reads through a LiveStateView. The state after block T is the first record above T, or the
-// current value when there is none. Buckets are contiguous key ranges, so dropping history is one
-// Excise per expired bucket rather than a scan and a tombstone per version.
+// A key's value after block T is its first record above T, or its value in the live state store when
+// there is none. History is dropped one bucket at a time.
 package undo
 
 import (
@@ -78,8 +76,8 @@ var (
 	bucketSizeKey      = metadataKey("bucket_size")
 )
 
-// LiveStateView is a read-only view of the live state store at one committed block, read by the keys this store
-// records. It remains unchanged as the store advances.
+// LiveStateView is a read-only view of the live state store at one committed block. It must not change as the
+// store advances.
 type LiveStateView interface {
 	GetRaw(key []byte) (value []byte, found bool)
 	Close()

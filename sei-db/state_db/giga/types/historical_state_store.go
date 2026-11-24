@@ -7,25 +7,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// HistoricalStateStore records the blocks the live state store commits and serves the state after
-// past ones. Reading the head of a closed store and discarding its blocks above a recovery target are not
-// part of it: the implementing package provides them alongside its opener.
+// HistoricalStateStore records the blocks the live state store commits and serves the state after past ones.
 type HistoricalStateStore interface {
 	controllertypes.PrunableStore
 	io.Closer
 
-	// Resume binds current, a view of the live state store at version, and enables ApplyBlock. It must
-	// succeed once before ApplyBlock is called. version must be at or above GetLatestVersion. It takes
-	// ownership of current whether or not it succeeds.
+	// Resume binds current, the live state store's view at version, and must succeed once before ApplyBlock.
+	// version must be at or above GetLatestVersion. It takes ownership of current whether or not it succeeds.
 	Resume(version int64, current RawStateView) error
 
 	// Resumed reports whether a Resume has succeeded and the store is not closed.
 	Resumed() bool
 
-	// ApplyBlock records block version's mutations, the ones the live state store committed, and takes ownership
-	// of current, the live state store's view after the block. It may write in the background, so mutations must
-	// not be modified afterwards; nil means the block changed nothing. It panics before a successful Resume or
-	// after Close.
+	// ApplyBlock records block version's mutations and takes ownership of current, the live state store's view
+	// after the block. mutations must not be modified afterwards. It panics before a successful Resume, after
+	// Close, or on a mutation the live state store could not have committed.
 	ApplyBlock(version int64, mutations []mutation.Mutation, current RawStateView)
 
 	// WaitForPendingWrites blocks until every block passed to ApplyBlock so far is written.

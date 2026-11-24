@@ -97,9 +97,7 @@ func (v *stateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 	}
 	codeHash := gigatypes.Hash(account.CodeHash())
 	if codeHash == (gigatypes.Hash{}) {
-		// An account is only stored while some field is non-zero (see AccountData.IsDelete), and the code
-		// hash is not that field here, so this account has a nonce or a balance and no code — the case EVM
-		// semantics answer with the empty-code hash rather than with zero.
+		// A stored account with a zero code hash exists and has no code.
 		return gigatypes.EmptyCodeHash
 	}
 	return codeHash
@@ -113,7 +111,7 @@ func (v *stateView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool
 	}
 	codeHash := gigatypes.Hash(account.CodeHash())
 	if codeHash == (gigatypes.Hash{}) {
-		// The account is stored, so some field is non-zero and it is not this one: no code. See GetCodeHash.
+		// A stored account with a zero code hash exists and has no code.
 		codeHash = gigatypes.EmptyCodeHash
 	}
 	return gigatypes.Account{
@@ -239,8 +237,7 @@ func (v *stateView) readEVM(kind keys.EVMKeyKind, keyParts ...[]byte) ([]byte, b
 		physKey = append(physKey, keyPart...)
 	}
 	value, found := v.GetRaw(physKey)
-	// Not deferred: GetRaw panics when the store shuts down while a read worker may still hold physKey,
-	// and a buffer that may still be read must not go back to the pool.
+	// Not deferred: after a GetRaw panic, a read worker may still hold physKey, so buf must not be reused.
 	physKeyBufs.Put(buf)
 	return value, found
 }

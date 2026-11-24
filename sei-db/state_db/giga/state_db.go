@@ -261,8 +261,7 @@ func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 	return stateview.New(raw), true
 }
 
-// RegisterHashListener forwards to the live state DB, which is the layer that hashes blocks and so is the
-// layer that dispatches them.
+// RegisterHashListener registers listener for the block hashes the live state DB produces.
 func (s *StateDB) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
 	mostRecentHash, err := s.liveStateDB.RegisterHashListener(listener)
 	if err != nil {

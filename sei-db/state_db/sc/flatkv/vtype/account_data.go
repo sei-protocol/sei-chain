@@ -177,13 +177,8 @@ func (a *AccountData) GetCodeHash() *CodeHash {
 	return (*CodeHash)(a.data[accountCodeHashStart:accountDataLength])
 }
 
-// FieldValue returns the field that kind names, encoded the way the logical EVM key for that field carries it:
-// eight big-endian bytes for a nonce, thirty-two for a code hash or a balance. The second return reports whether
-// that field is set.
-//
-// A zero code hash and a zero balance both report false. A deletion is stored by zeroing the field rather than by
-// removing anything (see PendingAccountWrite.SetField()), so answering "present" for a zero would hand back a key the
-// block deleted. The nonce is the exception: it answers for every row that exists.
+// FieldValue returns the account field kind names, encoded as its logical EVM key's value, and whether it is set.
+// A zero code hash or balance is unset; the nonce is always set.
 func (a *AccountData) FieldValue(kind keys.EVMKeyKind) ([]byte, bool) {
 	switch kind {
 	case keys.EVMKeyNonce:

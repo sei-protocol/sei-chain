@@ -2,6 +2,8 @@
 package undolog
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -10,8 +12,7 @@ import (
 
 var _ gigatypes.HistoricalStateStore = (*undoLogStore)(nil)
 
-// undoLogStore is a HistoricalStateStore that keeps the recent history of the live state store's key-values in a
-// bucketed undo log.
+// undoLogStore is a HistoricalStateStore backed by the undo-log engine.
 type undoLogStore struct {
 	*undo.Database
 }
@@ -42,6 +43,12 @@ func (s *undoLogStore) Resume(version int64, current gigatypes.RawStateView) err
 }
 
 func (s *undoLogStore) ApplyBlock(version int64, mutations []mutation.Mutation, current gigatypes.RawStateView) {
+	for _, m := range mutations {
+		if err := checkRecord(m.Key, m.PreviousValue); err != nil {
+			current.Close()
+			panic(fmt.Errorf("undolog: block %d: key %x: %w", version, m.Key, err))
+		}
+	}
 	s.Database.ApplyBlock(version, mutationPriors(mutations), current)
 }
 

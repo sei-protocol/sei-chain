@@ -61,7 +61,6 @@ func (v *liveStateView) GetRaw(key []byte) ([]byte, bool) {
 // BatchGetRaw returns the bytes stored in this block under each found physical key, keyed by string(key).
 // It panics on a key under the store's metadata prefix.
 func (v *liveStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
-	// There are at most four databases, so a list searched linearly beats a map keyed by database.
 	var batches []dbBatch
 	for k, key := range keys {
 		dbView, err := v.dbFor(key)
@@ -71,14 +70,11 @@ func (v *liveStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
 		i := slices.IndexFunc(batches, func(b dbBatch) bool { return b.dbView == dbView })
 		if i < 0 {
 			i = len(batches)
-			// Sized for every remaining key, since a batch's keys usually all belong to one database.
 			batches = append(batches, dbBatch{dbView: dbView, keys: make([][]byte, 0, len(keys)-k)})
 		}
 		batches[i].keys = append(batches[i].keys, key)
 	}
 
-	// Each database's answer is a map of its own, so the largest one collects the others rather than all of
-	// them being copied into a new one. A batch within one database returns that database's answer as is.
 	var values map[string][]byte
 	for _, batch := range batches {
 		found, err := batch.dbView.BatchGet(batch.keys)
@@ -105,8 +101,8 @@ type dbBatch struct {
 	keys [][]byte
 }
 
-// dbFor returns the view of the database that holds physKey. It returns an error for a metadata key, since the
-// store's own metadata is not part of any block's state, and for a key no database holds.
+// dbFor returns the view of the database that holds physKey. It returns an error for a metadata key or a key no
+// database holds.
 func (v *liveStateView) dbFor(physKey []byte) (view.View, error) {
 	if ktype.IsMetaKey(physKey) {
 		return nil, fmt.Errorf("flatkv: raw key %x is store metadata, not block state", physKey)

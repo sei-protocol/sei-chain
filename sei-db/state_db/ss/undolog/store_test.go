@@ -14,22 +14,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// fakeLiveView is the live state store's view of one block: its rows by physical key. Methods it does not override
-// panic.
+// fakeLiveView is the live state store's view of one block: its values by physical key. Methods it does not
+// override panic.
 type fakeLiveView struct {
 	gigatypes.StateView
-	rows map[string][]byte
+	values map[string][]byte
 }
 
 func (v fakeLiveView) GetRaw(key []byte) ([]byte, bool) {
-	value, found := v.rows[string(key)]
+	value, found := v.values[string(key)]
 	return value, found
 }
 
 func (fakeLiveView) Close() {}
 
-// accountRow returns the live state store's row for an account with balance and nonce.
-func accountRow(balance byte, nonce uint64) []byte {
+// accountValue returns the live state store's stored value for an account with balance and nonce.
+func accountValue(balance byte, nonce uint64) []byte {
 	var b vtype.Balance
 	b[len(b)-1] = balance
 	return vtype.NewAccountData().SetBalance(&b).SetNonce(nonce).Serialize()
@@ -39,21 +39,21 @@ func TestUndoLogServesEveryModuleAsOfEachHeight(t *testing.T) {
 	addr := gigatypes.Address{0x42}
 	accountKey := ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:])
 	miscKey := ktype.BuildPhysicalKey("bank", []byte("supply"))
-	account1, account2 := accountRow(1, 1), accountRow(2, 2)
+	account1, account2 := accountValue(1, 1), accountValue(2, 2)
 	supply1 := []byte("supply-1")
 
 	log, err := Open(t.TempDir(), config.DefaultStateStoreConfig())
 	require.NoError(t, err)
 	defer func() { require.NoError(t, log.Close()) }()
-	require.NoError(t, log.Resume(0, fakeLiveView{rows: map[string][]byte{}}))
+	require.NoError(t, log.Resume(0, fakeLiveView{values: map[string][]byte{}}))
 	log.ApplyBlock(1, []mutation.Mutation{
 		{Key: accountKey, NewValue: account1},
 		{Key: miscKey, NewValue: supply1},
-	}, fakeLiveView{rows: map[string][]byte{string(accountKey): account1, string(miscKey): supply1}})
+	}, fakeLiveView{values: map[string][]byte{string(accountKey): account1, string(miscKey): supply1}})
 	log.ApplyBlock(2, []mutation.Mutation{
 		{Key: accountKey, PreviousValue: account1, NewValue: account2},
 		{Key: miscKey, PreviousValue: supply1},
-	}, fakeLiveView{rows: map[string][]byte{string(accountKey): account2}})
+	}, fakeLiveView{values: map[string][]byte{string(accountKey): account2}})
 	log.WaitForPendingWrites()
 
 	for height, want := range []struct{ account, misc []byte }{{nil, nil}, {account1, supply1}, {account2, nil}} {
@@ -68,11 +68,28 @@ func TestUndoLogServesEveryModuleAsOfEachHeight(t *testing.T) {
 		view.Close()
 	}
 
-	// A past row decodes as the live state store's does.
+	// A past value decodes as the live state store's does.
 	view, ok := log.OpenView(1)
 	require.True(t, ok)
 	defer view.Close()
 	account, exists := stateview.New(view).ReadAccount(addr)
 	require.True(t, exists)
 	require.Equal(t, gigatypes.Account{Balance: common.Hash{31: 1}, Nonce: 1, CodeHash: gigatypes.EmptyCodeHash}, account)
+}
+
+func TestApplyBlockRefusesAMutationTheLiveStateStoreCouldNotCommit(t *testing.T) {
+	addr := gigatypes.Address{0x42}
+	accountKey := ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:])
+	log, err := Open(t.TempDir(), config.DefaultStateStoreConfig())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, log.Close()) }()
+	require.NoError(t, log.Resume(0, fakeLiveView{values: map[string][]byte{}}))
+
+	require.Panics(t, func() {
+		log.ApplyBlock(1, []mutation.Mutation{
+			{Key: accountKey, PreviousValue: make([]byte, vtype.BalanceLength), NewValue: accountValue(1, 1)},
+		}, fakeLiveView{values: map[string][]byte{string(accountKey): accountValue(1, 1)}})
+	})
+	log.WaitForPendingWrites()
+	require.Equal(t, int64(0), log.GetLatestVersion())
 }
