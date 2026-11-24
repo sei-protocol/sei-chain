@@ -1405,3 +1405,24 @@ func TestPushCommitQCRejectsARoadFromAnotherHistory(t *testing.T) {
 	require.ErrorIs(t, fork.PushCommitQC(t.Context(), d.QC()), types.ErrParentMismatch)
 	require.Equal(t, cFork.Height()+1, nextRoad(fork))
 }
+
+// roadWithForgedParent returns the CommitQC of the road after parentHeight, built on a parent
+// CommitQC that no honest chain holds at that height.
+func roadWithForgedParent(ep *types.Epoch, keys []types.SecretKey, parentHeight types.RoadHeight) *types.CommitQC {
+	at := types.NewEpoch(ep.EpochIndex(), types.RoadRange{First: parentHeight, Next: ep.RoadRange().Next}, ep.Committee())
+	parent := types.BuildCommitQC(at, keys, utils.None[*types.CommitQC](), nil)
+	qc, _ := data.TestCommitQCOnLane(ep, keys, utils.Some(parent), ep.Committee().Lanes().At(0))
+	return qc.QC()
+}
+
+// The first road block of the chain names no parent, so one that names a parent is not admitted.
+func TestPushCommitQCRejectsAParentOnTheFirstRoadOfTheChain(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	ep := registry.MustEpoch(0)
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
+	bad := roadWithForgedParent(ep, keys, ep.RoadRange().First-1)
+	require.Equal(t, ep.RoadRange().First, bad.Height())
+	require.ErrorIs(t, state.PushCommitQC(t.Context(), bad), types.ErrParentMismatch)
+	require.Equal(t, ep.RoadRange().First, nextRoad(state))
+}

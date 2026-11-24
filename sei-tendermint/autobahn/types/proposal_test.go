@@ -843,6 +843,29 @@ func TestProposalVerifyRejectsAWrongParent(t *testing.T) {
 	}
 }
 
+// A proposal for the first road block of the chain names no parent, so one that names a parent is rejected.
+func TestProposalVerifyRejectsAParentOnTheFirstRoadBlock(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep, GenesisTimestamp: utils.GenTimestamp(rng)}}
+	leader := leaderKey(committee, keys, vs.View())
+	fp := utils.OrPanic1(NewProposal(leader, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
+	require.NoError(t, fp.Verify(vs, testViewTimeout))
+	p := fp.Proposal().Msg()
+	var ranges []*LaneRange
+	for _, r := range p.header.laneRanges {
+		ranges = append(ranges, r)
+	}
+	header := newRoadBlockHeader(p.View().EpochIndex, p.View().Height, utils.Some(GenRoadBlockHeaderHash(rng)), p.header.timestamp, ranges)
+	bad := &FullProposal{
+		proposal:  Sign(leader, &Proposal{viewNumber: p.View().Number, header: header}),
+		laneQCs:   fp.laneQCs,
+		timeoutQC: fp.timeoutQC,
+	}
+	require.ErrorIs(t, bad.Verify(vs, testViewTimeout), ErrParentMismatch)
+}
+
 // A TimeoutQC whose highest PrepareQC locks a header with the wrong parent would make the next leader
 // repropose that header, so TimeoutQC.Verify rejects it.
 func TestTimeoutQCVerifyRejectsALockedHeaderWithAWrongParent(t *testing.T) {
@@ -862,4 +885,24 @@ func TestTimeoutQCVerifyRejectsALockedHeaderWithAWrongParent(t *testing.T) {
 	}
 	require.NoError(t, timeoutQC(utils.Some(prev.Header().Hash())).Verify(ep, utils.Some(prev)))
 	require.ErrorIs(t, timeoutQC(utils.Some(GenRoadBlockHeaderHash(rng))).Verify(ep, utils.Some(prev)), ErrParentMismatch)
+}
+
+// A TimeoutQC for the first road block of the chain cannot lock a header that names a parent.
+func TestTimeoutQCVerifyRejectsALockedParentOnTheFirstRoadBlock(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	view := View{Height: ep.RoadRange().First, Number: 0, EpochIndex: ep.EpochIndex()}
+	timeoutQC := func(parentHash utils.Option[RoadBlockHeaderHash]) *TimeoutQC {
+		locked := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, parentHash, utils.GenTimestamp(rng), nil)}
+		prepareQC := BuildPrepareQC(keys, locked)
+		var votes []*FullTimeoutVote
+		for _, k := range keys {
+			votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(prepareQC)))
+		}
+		return NewTimeoutQC(votes)
+	}
+	none := utils.None[*CommitQC]()
+	require.NoError(t, timeoutQC(utils.None[RoadBlockHeaderHash]()).Verify(ep, none))
+	require.ErrorIs(t, timeoutQC(utils.Some(GenRoadBlockHeaderHash(rng))).Verify(ep, none), ErrParentMismatch)
 }

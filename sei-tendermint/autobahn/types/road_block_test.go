@@ -255,6 +255,35 @@ func TestRoadBlockHeaderParentHashRoundTrips(t *testing.T) {
 	}
 }
 
+func TestRoadBlockHeaderVerifyParent(t *testing.T) {
+	rng := utils.TestRng()
+	parent := newRoadBlockHeader(GenEpochIndex(rng), 1, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
+	other := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
+	headerWith := func(parentHash utils.Option[RoadBlockHeaderHash]) *RoadBlockHeader {
+		return newRoadBlockHeader(GenEpochIndex(rng), 3, parentHash, utils.GenTimestamp(rng), nil)
+	}
+	for name, tc := range map[string]struct {
+		header *RoadBlockHeader
+		parent utils.Option[*RoadBlockHeader]
+		ok     bool
+	}{
+		"no parent expected, none named": {headerWith(utils.None[RoadBlockHeaderHash]()), utils.None[*RoadBlockHeader](), true},
+		"parent expected, same named":    {headerWith(utils.Some(parent.Hash())), utils.Some(parent), true},
+		"parent expected, other named":   {headerWith(utils.Some(other.Hash())), utils.Some(parent), false},
+		"parent expected, none named":    {headerWith(utils.None[RoadBlockHeaderHash]()), utils.Some(parent), false},
+		"no parent expected, one named":  {headerWith(utils.Some(parent.Hash())), utils.None[*RoadBlockHeader](), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := tc.header.VerifyParent(tc.parent)
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrParentMismatch)
+			}
+		})
+	}
+}
+
 // A header with no parent omits field 6 from its canonical encoding.
 func TestRoadBlockHeaderWithoutParentOmitsTheField(t *testing.T) {
 	rng := utils.TestRng()

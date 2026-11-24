@@ -251,6 +251,15 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		_, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{qc0.QC(), qc1.QC()}})
 		require.ErrorIs(t, err, types.ErrParentMismatch)
 	})
+	t.Run("first road names a parent", func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 4)
+		ep0 := registry.MustEpoch(0)
+		ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
+		bad := roadWithForgedParent(ep0, keys, ep0.RoadRange().First-1)
+		_, err := newInner(ds.Anchor().Load(), ds.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{bad}})
+		require.ErrorIs(t, err, types.ErrParentMismatch)
+	})
 }
 
 func TestNewInnerAdvancesAtPersistedSeal(t *testing.T) {
