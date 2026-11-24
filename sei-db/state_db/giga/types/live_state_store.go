@@ -9,6 +9,8 @@ import (
 )
 
 // LiveStateStore holds the state after the latest committed block and commits each new block on top of it.
+// Reading the version of a closed store and rolling it back to a recovery target are not part of it: the
+// implementing package provides them alongside its opener.
 //
 // There are no recoverable errors: on the first error the caller must stop rather than proceed on state the
 // store cannot vouch for. Byte slices passed to or received from any method must not be modified.

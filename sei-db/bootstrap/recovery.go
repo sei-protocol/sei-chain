@@ -12,10 +12,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/archive/chstore"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/littidx"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/undolog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -63,7 +63,7 @@ func readStoreHeads(cfg *config.GigaStorageConfig) (storeHeads, error) {
 	heads.liveStateDB = uint64(liveStateVersion) //nolint:gosec // live state DB versions are never negative
 	if cfg.SSConfig.Enable {
 		logger.Info("Reading a store head", "store", "historical state DB")
-		_, heads.historicalStateDB, err = undo.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
+		heads.historicalStateDB, err = undolog.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
 		if err != nil {
 			return storeHeads{}, fmt.Errorf("read historical state DB head: %w", err)
 		}
@@ -263,7 +263,7 @@ func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint
 	}
 	if cfg.SSConfig.Enable {
 		timer.SetPhase("historical_state_db")
-		if err := undo.DiscardStateAbove(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, target); err != nil {
+		if err := undolog.PruneAfter(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, target); err != nil {
 			return fmt.Errorf("roll back the historical state DB: %w", err)
 		}
 	}

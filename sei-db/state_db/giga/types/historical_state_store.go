@@ -7,7 +7,8 @@ import (
 )
 
 // HistoricalStateStore records the blocks the live state store commits and serves the state after
-// past ones.
+// past ones. Reading the head of a closed store and discarding its blocks above a recovery target are not
+// part of it: the implementing package provides them alongside its opener.
 type HistoricalStateStore interface {
 	controllertypes.PrunableStore
 	io.Closer

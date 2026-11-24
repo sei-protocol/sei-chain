@@ -23,6 +23,18 @@ func Open(dataDir string, cfg config.StateStoreConfig) (gigatypes.HistoricalStat
 	return &undoLog{Database: db}, nil
 }
 
+// GetLatestBlock returns the newest block the closed undo log in dataDir holds, or 0 when it holds none.
+func GetLatestBlock(dataDir string) (uint64, error) {
+	_, head, err := undo.GetLatestBlock(dataDir)
+	return head, err
+}
+
+// PruneAfter removes every block above target from the closed undo log in dataDir. A missing directory is left
+// as it is.
+func PruneAfter(dataDir string, cfg config.StateStoreConfig, target uint64) error {
+	return undo.DiscardStateAbove(dataDir, cfg, target)
+}
+
 func (l *undoLog) Resume(version int64, current gigatypes.StateView) error {
 	return l.Database.Resume(version, current)
 }
