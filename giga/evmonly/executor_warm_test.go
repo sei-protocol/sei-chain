@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // readRecordingSnapshot records every account ReadAccount is asked for.
@@ -33,9 +34,9 @@ func TestWarmAccountsReadsEverySenderAndRecipient(t *testing.T) {
 
 	recipient := testAddress(0xc1)
 	transferSender, creationSender := testAddress(0xa1), testAddress(0xa2)
-	executor.WarmAccounts(t.Context(), PreparedBlock{Txs: []PreparedTx{
-		{Tx: ethtypes.NewTx(&ethtypes.LegacyTx{To: &recipient}), Sender: transferSender},
-		{Tx: ethtypes.NewTx(&ethtypes.LegacyTx{}), Sender: creationSender},
+	executor.WarmAccounts(t.Context(), PreparedBlock{Txs: []abevm.EvmTx{
+		abevm.TestEvmTx(ethtypes.NewTx(&ethtypes.LegacyTx{To: &recipient}), transferSender),
+		abevm.TestEvmTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), creationSender),
 	}})
 
 	require.ElementsMatch(t, []common.Address{transferSender, recipient, creationSender}, snapshot.reads)
@@ -46,7 +47,7 @@ func TestWarmAccountsSkipsANilView(t *testing.T) {
 	defer executor.Close()
 
 	recipient := testAddress(0xc1)
-	executor.WarmAccounts(t.Context(), PreparedBlock{Txs: []PreparedTx{
-		{Tx: ethtypes.NewTx(&ethtypes.LegacyTx{To: &recipient}), Sender: testAddress(0xa1)},
+	executor.WarmAccounts(t.Context(), PreparedBlock{Txs: []abevm.EvmTx{
+		abevm.TestEvmTx(ethtypes.NewTx(&ethtypes.LegacyTx{To: &recipient}), testAddress(0xa1)),
 	}})
 }

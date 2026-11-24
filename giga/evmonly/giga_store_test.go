@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -461,7 +462,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		store := &recordingGigaStore{snapshot: snapshot}
 		executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()))
 		blockCtx := blockContext(big.NewInt(testChainID))
-		blockCtx.Number = maxGigaStoreBlockNumber + 1
+		blockCtx.Number = uint64(utils.Max[int64]()) + 1
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockCtx})
 

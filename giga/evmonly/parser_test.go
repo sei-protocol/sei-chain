@@ -25,7 +25,7 @@ func TestExecutorPrepareBlockResolvesSender(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, prepared.Txs, 1)
-	require.Equal(t, sender, prepared.Txs[0].Sender)
+	require.Equal(t, sender, prepared.Txs[0].Sender())
 
 	wrongChain := signLegacyTx(t, key, big.NewInt(testChainID+1), 0, &recipient, big.NewInt(1), nil)
 	_, err = executor.PrepareBlock(BlockRequest{
@@ -39,10 +39,10 @@ func TestExecutorPrepareBlockResolvesSender(t *testing.T) {
 		Txs:     [][]byte{rawTx},
 	})
 	require.NoError(t, err)
-	require.Equal(t, sender, prepared.Txs[0].Sender)
+	require.Equal(t, sender, prepared.Txs[0].Sender())
 }
 
-func TestExecutorDecodeResolvesSenders(t *testing.T) {
+func TestExecutorPrepareDecodedBlockPreservesSenders(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	recipient := testAddress(0xc7)
 	const n = 40
@@ -57,25 +57,22 @@ func TestExecutorDecodeResolvesSenders(t *testing.T) {
 	req := BlockRequest{Context: blockContext(chainID), Txs: raws}
 	executor := NewExecutor(Config{ParseWorkers: 4}, withTestState(NewMemoryState()))
 
-	decoded, err := executor.DecodeBlock(req)
-	require.NoError(t, err)
-	require.Len(t, decoded.txs, n)
-	for i, tx := range decoded.txs {
-		require.Equal(t, senders[i], tx.Sender())
-	}
-	recovered, err := executor.PrepareDecodedBlock(t.Context(), decoded.context, decoded.txs)
-	require.NoError(t, err)
 	prepared, err := executor.PrepareBlock(req)
 	require.NoError(t, err)
-
+	require.Len(t, prepared.Txs, n)
+	for i, tx := range prepared.Txs {
+		require.Equal(t, senders[i], tx.Sender())
+	}
+	recovered, err := executor.PrepareDecodedBlock(t.Context(), prepared.Context, prepared.Txs)
+	require.NoError(t, err)
 	require.Equal(t, prepared.Context, recovered.Context)
 	require.Len(t, recovered.Txs, n)
 	for i := range n {
-		require.Equal(t, senders[i], recovered.Txs[i].Sender)
-		require.Equal(t, prepared.Txs[i].Sender, recovered.Txs[i].Sender)
-		require.Equal(t, prepared.Txs[i].Tx.Hash(), recovered.Txs[i].Tx.Hash())
+		require.Equal(t, senders[i], recovered.Txs[i].Sender())
+		require.Equal(t, prepared.Txs[i].Sender(), recovered.Txs[i].Sender())
+		require.Equal(t, prepared.Txs[i].Transaction().Hash(), recovered.Txs[i].Transaction().Hash())
 	}
 
-	_, err = executor.DecodeBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{{0x01}}})
+	_, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{{0x01}}})
 	require.Error(t, err)
 }

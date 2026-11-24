@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/utils"
+	tutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -133,12 +134,11 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipttypes
 		if record.Receipt == nil {
 			continue
 		}
-		if record.Receipt.BlockNumber > maxGigaStoreBlockNumber {
+		blockVersion, ok := tutils.SafeCast[int64](record.Receipt.BlockNumber)
+		if !ok {
 			return fmt.Errorf("receipt block number %d exceeds int64", record.Receipt.BlockNumber)
 		}
-		if blockVersion := int64(record.Receipt.BlockNumber); blockVersion > latestVersion { //nolint:gosec // bounded above.
-			latestVersion = blockVersion
-		}
+		latestVersion = max(latestVersion, blockVersion)
 		stored = append(stored, receipttypes.ReceiptRecord{
 			TxHash:       record.TxHash,
 			Receipt:      cloneStoredReceipt(record.Receipt),
@@ -386,8 +386,8 @@ func (s *MemoryReceiptStore) PruneHistory(blockNumber uint64) error {
 			delete(s.blockStats, height)
 		}
 	}
-	if blockNumber <= maxGigaStoreBlockNumber && int64(blockNumber) > s.earliestVersion { //nolint:gosec // bounded above.
-		s.earliestVersion = int64(blockNumber) //nolint:gosec // bounded above.
+	if n, ok := tutils.SafeCast[int64](blockNumber); ok {
+		s.earliestVersion = max(s.earliestVersion, n)
 	}
 	return nil
 }

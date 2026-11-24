@@ -190,7 +190,7 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += workers {
 			for i := ranges[rangeIndex].start; i < ranges[rangeIndex].end; i++ {
 				switch {
-				case !s.done[i].Load() || s.block.Txs[i].Tx.Hash() != req.Txs[i].Tx.Hash():
+				case !s.done[i].Load() || s.block.Txs[i].Transaction().Hash() != req.Txs[i].Transaction().Hash():
 					unfinished.Add(1)
 				// A write without a read carries the old value as its prior, so writes are checked too.
 				case touchesAnyChange(s.results[i].readSet, between) || touchesAnyChange(s.results[i].writeSet, between):

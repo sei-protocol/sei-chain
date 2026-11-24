@@ -53,7 +53,7 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 			return nil, err
 		}
 		if _, _, err := e.executeTx(evm, stateDB, gasPool, prepared.Context, p, txIndex, uint(txIndex), baseFee); err != nil { //nolint:gosec // G115: txIndex is non-negative.
-			return nil, fmt.Errorf("replay tx %d %s: %w", txIndex, p.Tx.Hash(), err)
+			return nil, fmt.Errorf("replay tx %d %s: %w", txIndex, p.Transaction().Hash(), err)
 		}
 	}
 	// A canceled EVM stops a transaction part way, leaving a state no block produced.
