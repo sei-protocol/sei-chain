@@ -118,19 +118,22 @@ func (w *writer) write(ctx context.Context, b *batch) error {
 	return nil
 }
 
-// claimChain records chainID in the archive's metadata when it has none, and refuses an archive whose metadata
-// records another chain.
+// claimChain records chainID in the metadata of an empty archive, and refuses an archive whose metadata records
+// another chain or none.
 func (w *writer) claimChain(ctx context.Context, chainID uint64) error {
-	rows, recorded, err := w.readMeta(ctx)
-	if err == nil && rows == 0 {
+	rows, recorded, commits, err := w.readMeta(ctx)
+	if err == nil && rows == 0 && commits == 0 {
 		// Read back, so that nodes recording at once both see both rows.
 		if err = w.insertMeta(ctx, chainID); err == nil {
-			rows, recorded, err = w.readMeta(ctx)
+			rows, recorded, _, err = w.readMeta(ctx)
 		}
 	}
 	switch {
 	case err != nil:
 		return err
+	case rows == 0:
+		return fmt.Errorf("the archive is not empty but records no chain in %s; once its chain is known, restore "+
+			"it with INSERT INTO %s VALUES (<evm chain id>)", tableMeta, tableMeta)
 	case rows != 1:
 		return fmt.Errorf("%s holds %d rows, recorded by nodes that opened the empty archive at once; it must "+
 			"hold one", tableMeta, rows)
@@ -141,23 +144,25 @@ func (w *writer) claimChain(ctx context.Context, chainID uint64) error {
 	return nil
 }
 
-// readMeta returns how many rows archive_meta holds, and the chain one of them records.
-func (w *writer) readMeta(ctx context.Context) (rows, chainID uint64, err error) {
-	var n, id proto.ColUInt64
+// readMeta returns how many rows archive_meta holds, the chain one of them records, and how many rows
+// archive_commits holds.
+func (w *writer) readMeta(ctx context.Context) (rows, chainID, commits uint64, err error) {
+	var n, id, c proto.ColUInt64
 	err = w.client.Do(ctx, ch.Query{
-		Body:   "SELECT count() AS n, any(chain_id) AS id FROM " + tableMeta,
-		Result: proto.Results{{Name: "n", Data: &n}, {Name: "id", Data: &id}},
+		Body: "SELECT count() AS n, any(chain_id) AS id, assumeNotNull((SELECT count() FROM " + tableCommits +
+			")) AS c FROM " + tableMeta,
+		Result: proto.Results{{Name: "n", Data: &n}, {Name: "id", Data: &id}, {Name: "c", Data: &c}},
 		OnResult: func(context.Context, proto.Block) error {
 			if n.Rows() > 0 {
-				rows, chainID = n[0], id[0]
+				rows, chainID, commits = n[0], id[0], c[0]
 			}
 			return nil
 		},
 	})
 	if err != nil {
-		return 0, 0, fmt.Errorf("read %s: %w", tableMeta, err)
+		return 0, 0, 0, fmt.Errorf("read %s: %w", tableMeta, err)
 	}
-	return rows, chainID, nil
+	return rows, chainID, commits, nil
 }
 
 // insertMeta records the archive's metadata row, holding chainID.

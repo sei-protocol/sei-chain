@@ -186,6 +186,7 @@ func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
 	cfg := testConfig(t)
 	require.NoError(t, migrate(t.Context(), cfg))
 	w := testWriter(t, cfg)
+	require.NoError(t, w.insertMeta(t.Context(), testChain))
 	require.NoError(t, w.write(t.Context(), testBatch(t, 1, 2)))
 
 	// Blocks 3-4 stop after their pending row and one table, as a crash part way leaves them.
@@ -297,5 +298,16 @@ func TestArchiveRefusesAnotherChain(t *testing.T) {
 	require.ErrorContains(t, err, "the archive holds EVM chain 1329, not 1328")
 	exporter, err = StartExporter(t.Context(), cfg, 1329, 1)
 	require.NoError(t, err, "the chain the archive records reopens it")
+	require.NoError(t, exporter.Close())
+
+	// A lost or removed metadata row leaves an archive no chain can claim, until the row is restored.
+	exec(t, cfg, cfg.Database, "TRUNCATE TABLE "+tableMeta)
+	for _, chain := range []uint64{1328, 1329} {
+		_, err = StartExporter(t.Context(), cfg, chain, 1)
+		require.ErrorContains(t, err, "the archive is not empty but records no chain")
+	}
+	exec(t, cfg, cfg.Database, "INSERT INTO "+tableMeta+" VALUES (1329)")
+	exporter, err = StartExporter(t.Context(), cfg, 1329, 1)
+	require.NoError(t, err, "the restored row reopens the archive")
 	require.NoError(t, exporter.Close())
 }
