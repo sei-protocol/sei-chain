@@ -198,25 +198,6 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 	}, nil
 }
 
-// EvmTransactionCount returns the committed application nonce for address.
-func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
-	return env.abciApplication().EvmNonce(address)
-}
-
-// EvmBlockNumber returns the height of the most recently committed block.
-func (env *Environment) EvmBlockNumber() uint64 {
-	return utils.Clamp[uint64](env.lastBlockHeight())
-}
-
-// GenesisInitialHeight returns the height of the chain's first block from the genesis doc, or 0
-// when there is none.
-func (env *Environment) GenesisInitialHeight() int64 {
-	if env.GenDoc == nil {
-		return 0
-	}
-	return env.GenDoc.InitialHeight
-}
-
 // CheckTx checks the transaction without executing it. The transaction won't
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx

@@ -65,7 +65,7 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return hash, nil
 	}
 
-	if err := api.broadcast(ctx, input); err != nil {
+	if err := api.insertTx(ctx, input); err != nil {
 		api.backend.ForgetEvmSender(hash)
 		return hash, err
 	}
@@ -83,9 +83,9 @@ func checkChainID(tx *ethtypes.Transaction, chainID *big.Int) error {
 	return nil
 }
 
-// broadcast submits input to the local mempool.
-func (api *sendAPI) broadcast(ctx context.Context, input hexutil.Bytes) error {
-	return api.backend.BroadcastTx(ctx, append(tmtypes.Tx(nil), input...))
+// insertTx submits input to the local mempool.
+func (api *sendAPI) insertTx(ctx context.Context, input hexutil.Bytes) error {
+	return api.backend.InsertTx(ctx, append(tmtypes.Tx(nil), input...))
 }
 
 // shardProxy returns the RPC client of the validator owning tx's sender shard,

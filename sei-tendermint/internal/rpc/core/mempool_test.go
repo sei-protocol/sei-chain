@@ -5,9 +5,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -41,17 +38,4 @@ func TestEvmPendingNonceFollowsMempool(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, mp.EvmNextPendingNonce(address), got)
 	})
-}
-
-func TestEnvironmentEvmRPCWrappers(t *testing.T) {
-	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	env := &Environment{App: utils.Some(proxy.New(abci.BaseApplication{}))}
-
-	// Test: the EVM accessors backed by the ABCI application.
-	nonce := env.EvmTransactionCount(address)
-	height := env.EvmBlockNumber()
-
-	// Verify: nonce and height hit the ABCI application.
-	require.Equal(t, uint64(0), nonce)
-	require.Equal(t, uint64(0), height)
 }

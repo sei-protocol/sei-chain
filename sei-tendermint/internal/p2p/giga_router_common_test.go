@@ -34,7 +34,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -191,7 +190,6 @@ func newAppHashTestRouter(
 	router := &gigaRouterCommon{
 		cfg:    cfg,
 		data:   state,
-		app:    cfg.App,
 		signer: signer,
 	}
 	return app, hashBuilder, state, router, newTestExecutor(cfg, db, signer)
@@ -330,95 +328,6 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
-}
-
-func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
-	rng := utils.TestRng()
-	low := atypes.GenSecretKey(rng)
-	mid := atypes.GenSecretKey(rng)
-	high := atypes.GenSecretKey(rng)
-	keys := []atypes.SecretKey{low, mid, high}
-	router, registry := testGigaRouterWithData(t, map[atypes.PublicKey]GigaNodeAddr{
-		low.Public():  {},
-		mid.Public():  {},
-		high.Public(): {},
-	})
-	first := router.data.Anchor().Load().Epochs[0].RoadRange().First
-
-	got, err := router.Validators(first)
-	require.NoError(t, err)
-	require.Len(t, got, 3)
-	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
-
-	_, err = router.Validators(0)
-	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
-
-	_, err = router.Validators(first + 100)
-	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
-
-	weights := map[atypes.PublicKey]uint64{
-		low.Public():  1,
-		mid.Public():  5,
-		high.Public(): 10,
-	}
-	require.NoError(t, registry.TestPushEpoch(0, weights))
-	ep2 := registry.MustEpoch(2)
-	got, err = router.Validators(first)
-	require.NoError(t, err)
-	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
-
-	require.NoError(t, registry.TestPushEpoch(1, weights))
-	n := ep2.RoadRange().First
-	router = testRouterAtRoad(t, registry, keys, ep2, n)
-	got, err = router.Validators(n)
-	require.NoError(t, err)
-	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
-	require.Equal(t, high.Public().Bytes(), got[0].PubKey.Bytes())
-	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
-	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
-	_, err = router.Validators(n + 1)
-	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
-
-	require.NoError(t, registry.TestPushEpoch(2, weights))
-	require.NoError(t, registry.TestPushEpoch(3, weights))
-	ep4 := registry.MustEpoch(4)
-	router = testRouterAtRoad(t, registry, keys, ep4, ep4.RoadRange().First)
-	_, err = router.Validators(n)
-	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
-}
-
-func testRouterAtRoad(t *testing.T, registry *epoch.TestRegistry, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadHeight) *gigaRouterCommon {
-	t.Helper()
-	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Height: road, Number: 0}, 1)
-	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
-	prepareQC := atypes.BuildPrepareQC(keys, proposal)
-	for _, k := range keys {
-		votes = append(votes, k.Sign(atypes.NewCommitVote(prepareQC)))
-	}
-	headers := make([]*atypes.LaneBlockHeader, len(blocks))
-	for i, b := range blocks {
-		headers[i] = b.Header()
-	}
-	qc := atypes.NewFullCommitQC(atypes.NewCommitQC(votes), headers)
-	store := blockstore.NewTestStore(t)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
-	require.NoError(t, store.Flush())
-	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
-	require.NoError(t, err)
-	return &gigaRouterCommon{data: state}
-}
-
-func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr) (*gigaRouterCommon, *epoch.TestRegistry) {
-	t.Helper()
-	weights := make(map[atypes.PublicKey]uint64, len(addrs))
-	for key := range addrs {
-		weights[key] = 1
-	}
-	committee, err := atypes.NewCommittee(weights)
-	require.NoError(t, err)
-	state, registry := testDataState(t, committee)
-	return &gigaRouterCommon{data: state}, registry
 }
 
 func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.TestRegistry) {

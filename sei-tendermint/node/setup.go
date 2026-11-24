@@ -570,8 +570,7 @@ func buildFullnodeGigaConfig(
 	if err != nil {
 		return nil, err
 	}
-	// MaxGasEstimatedPerBlock reads through to genDoc; validate the source
-	// so a malformed genesis can't silently expose 0 to clients.
+	// Validate the block gas budget before constructing the router.
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}

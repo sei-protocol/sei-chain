@@ -40,7 +40,7 @@ type testBackend struct {
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
-	broadcast        func(context.Context, tmtypes.Tx) error
+	insertTx         func(context.Context, tmtypes.Tx) error
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
 	chainConfig      func() *params.ChainConfig
 	chainID          func() uint64
@@ -95,8 +95,8 @@ func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks],
 	return b.executedBlocks()
 }
 
-func (b *testBackend) BroadcastTx(ctx context.Context, tx tmtypes.Tx) error {
-	return b.broadcast(ctx, tx)
+func (b *testBackend) InsertTx(ctx context.Context, tx tmtypes.Tx) error {
+	return b.insertTx(ctx, tx)
 }
 
 func (b *testBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {

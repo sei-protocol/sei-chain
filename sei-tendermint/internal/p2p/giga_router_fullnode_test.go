@@ -116,12 +116,6 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// expect to have hit every shard owner at least once.
 	require.Equal(t, expectedRemoteClients, returnedRemoteClients)
 
-	// Read-path methods source from local data.State + genesis doc — no
-	// sentinels. Before any block is pushed (and InitChain hasn't run),
-	// app.LastBlockHeight() is 0, so LastCommittedHeight returns 0.
-	// MaxGasEstimatedPerBlock reflects the genesis consensus param.
-	require.Equal(t, int64(0), router.LastCommittedHeight())
-	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
 	// BlockByHash returns None for an unknown hash on both router roles.
 	rb, err := router.BlockByHash(t.Context(), common.Hash{})
 	require.NoError(t, err)

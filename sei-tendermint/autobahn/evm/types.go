@@ -11,12 +11,8 @@ import (
 
 // ResponseInfo describes the application's committed state.
 type ResponseInfo struct {
-	Data             string
-	Version          string
-	AppVersion       uint64
 	LastBlockHeight  int64
 	LastBlockAppHash []byte
-	MinimumGasPrices string
 }
 
 // CommitteeWeights maps Autobahn validator keys to voting weights.

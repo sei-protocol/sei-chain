@@ -28,7 +28,7 @@ func TestSendRawTransaction(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	var broadcastRaw []byte
 	backend := &testBackend{
-		broadcast: func(_ context.Context, req tmtypes.Tx) error {
+		insertTx: func(_ context.Context, req tmtypes.Tx) error {
 			broadcastRaw = append([]byte(nil), req...)
 			return nil
 		},
@@ -57,7 +57,7 @@ func TestSendRawTransaction(t *testing.T) {
 
 func TestRejectsInvalidTransaction(t *testing.T) {
 	backend := &testBackend{
-		broadcast: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) error {
 			t.Fatal("invalid transaction reached broadcaster")
 			return nil
 		},
@@ -70,7 +70,7 @@ func TestRejectsInvalidTransaction(t *testing.T) {
 func TestReturnsCheckTxRejection(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	backend := &testBackend{
-		broadcast: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) error {
 			return errors.New("bad nonce")
 		},
 		proxy: utils.None[*ethrpc.Client](),
@@ -83,13 +83,13 @@ func TestSendRawTransactionBroadcastError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("mempool full")
 	backend := &testBackend{
-		broadcast: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) error {
 			return want
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
 
-	// Test: BroadcastTx fails.
+	// Test: InsertTx fails.
 	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
 
 	// Verify: that error is returned as-is.
@@ -110,7 +110,7 @@ func TestSendRawTransactionKeepsTheSenderOfAnAdmittedTxOnly(t *testing.T) {
 		{code: 1, want: map[common.Hash]common.Address{}},
 	} {
 		backend := &testBackend{
-			broadcast: func(context.Context, tmtypes.Tx) error {
+			insertTx: func(context.Context, tmtypes.Tx) error {
 				if tc.code != 0 {
 					return errors.New("rejected")
 				}
@@ -138,7 +138,7 @@ func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(remoteClient.Close)
 	backend := &testBackend{
-		broadcast: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) error {
 			t.Fatal("failed proxy reached local broadcaster")
 			return nil
 		},
@@ -169,7 +169,7 @@ func TestRejectsUnprotectedTransaction(t *testing.T) {
 	for name, proxyEnabled := range map[string]bool{"local": false, "proxied": true} {
 		t.Run(name, func(t *testing.T) {
 			backend := &testBackend{
-				broadcast: func(context.Context, tmtypes.Tx) error {
+				insertTx: func(context.Context, tmtypes.Tx) error {
 					t.Fatal("unprotected transaction reached local broadcaster")
 					return nil
 				},
@@ -203,7 +203,7 @@ func TestRejectsForeignChainTransaction(t *testing.T) {
 		for _, proxyEnabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s proxy %t", name, proxyEnabled), func(t *testing.T) {
 				backend := &testBackend{
-					broadcast: func(context.Context, tmtypes.Tx) error {
+					insertTx: func(context.Context, tmtypes.Tx) error {
 						t.Fatal("foreign chain transaction reached local broadcaster")
 						return nil
 					},
@@ -250,7 +250,7 @@ func TestProxiesTransactionToShardOwner(t *testing.T) {
 	t.Cleanup(remoteClient.Close)
 
 	backend := &testBackend{
-		broadcast: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) error {
 			t.Fatal("proxied transaction reached local broadcaster")
 			return nil
 		},
@@ -291,7 +291,7 @@ func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Trans
 func TestSkipsShardLookupWithoutProxies(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	backend := &testBackend{
-		broadcast: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) error {
 			return nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
@@ -309,7 +309,7 @@ func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(gate) }) }
 	backend := &testBackend{
-		broadcast: func(ctx context.Context, _ tmtypes.Tx) error {
+		insertTx: func(ctx context.Context, _ tmtypes.Tx) error {
 			started <- struct{}{}
 			select {
 			case <-ctx.Done():
@@ -365,7 +365,7 @@ func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("broadcast failed")
 	backend := &testBackend{
-		broadcast: func(ctx context.Context, _ tmtypes.Tx) error {
+		insertTx: func(ctx context.Context, _ tmtypes.Tx) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -390,7 +390,7 @@ func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	var broadcasts atomic.Int64
 	backend := &testBackend{
-		broadcast: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) error {
 			broadcasts.Add(1)
 			return nil
 		},

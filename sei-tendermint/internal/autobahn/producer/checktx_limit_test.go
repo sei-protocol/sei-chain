@@ -184,40 +184,6 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	}))
 }
 
-// TryInsertTx on a full mempool fails with errMempoolFull without running CheckTx.
-func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app)
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return env.Run(ctx) })
-		if _, err := env.waitForMempool(ctx); err != nil {
-			return err
-		}
-		if err := env.fillMempool(ctx, rng, app); err != nil {
-			return err
-		}
-
-		// On a full mempool, the capacity error wins over the app's rejection: an invalid tx
-		// gets the retryable errMempoolFull, not the CheckTx response it would get with room.
-		for _, tx := range [][]byte{env.fullTx(rng, app).encode(), {1}} {
-			calls := app.checked.Load()
-			resp, err := env.state.TryInsertTx(ctx, tx)
-			if resp != (abevm.AdmittedTx{}) {
-				return fmt.Errorf("expected nil response")
-			}
-			if !errors.Is(err, errMempoolFull) {
-				return fmt.Errorf("unexpected error: got %v, want %v", err, errMempoolFull)
-			}
-			if err := utils.TestDiff(calls, app.checked.Load()); err != nil {
-				return err
-			}
-		}
-		return nil
-	}))
-}
-
 // An absent or zero limit resolves to at least one permit so inserts proceed.
 func TestConfig_MaxConcurrentCheckTxDefault(t *testing.T) {
 	cfg := &Config{}

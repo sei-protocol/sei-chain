@@ -368,7 +368,7 @@ func makeNode(
 		node.gigaRPCEnv = utils.Some(&rpccore.GigaEnvironment{
 			Proxy:    evmApp.OrPanic("Autobahn RPC requires an EVM application"),
 			Router:   node.giga.OrPanic("Autobahn RPC requires a router"),
-			Executor: node.executor,
+			Executor: node.executor.OrPanic("Autobahn RPC requires an executor"),
 			GenDoc:   genDoc,
 		})
 	}

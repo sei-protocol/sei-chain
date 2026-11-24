@@ -57,29 +57,21 @@ func TestGigaEnvironmentCachesSendersThroughGigaRouter(t *testing.T) {
 		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
 			app := &senderCacheApp{}
 			proxy := abevm.NewProxy(app)
-			env := newAutobahnEnvWithApp(t, validator, proxy)
+			signer := newTestSigner(proxy.EvmChainID(), 0)
+			env := newAutobahnEnvWithSigner(t, validator, proxy, signer)
 			tx := signedEVMStateTestTx(t, 0)
 			sender := common.Address{2}
 			env.RememberEvmSender(tx.Hash(), sender)
 			raw := utils.OrPanic1(tx.MarshalBinary())
-			_, _, err := env.Router.CheckTx(raw)
+			_, _, err := abevm.CheckTx(proxy, signer, raw)
 			require.NoError(t, err)
 			require.Equal(t, utils.Some(sender), app.sender)
 			env.ForgetEvmSender(tx.Hash())
-			_, _, err = env.Router.CheckTx(raw)
+			_, _, err = abevm.CheckTx(proxy, signer, raw)
 			require.NoError(t, err)
 			require.Equal(t, utils.Some(utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))), app.sender)
 		})
 	}
-}
-
-func TestGigaEnvironmentRejectsInvalidSignatureBeforeAdmission(t *testing.T) {
-	app := &senderCacheApp{}
-	env := newAutobahnEnvWithApp(t, false, abevm.NewProxy(app))
-	raw := utils.OrPanic1(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(1)}).MarshalBinary())
-	_, _, err := env.Router.CheckTx(raw)
-	require.ErrorIs(t, err, abevm.ErrTxRejected)
-	require.False(t, app.sender.IsPresent())
 }
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {

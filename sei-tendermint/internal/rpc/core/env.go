@@ -431,7 +431,3 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 func (env *Environment) abciApplication() *proxy.Proxy {
 	return env.App.OrPanic("ABCI application is unavailable in this RPC environment")
 }
-
-func (env *Environment) lastBlockHeight() int64 {
-	return env.abciApplication().LastBlockHeight()
-}

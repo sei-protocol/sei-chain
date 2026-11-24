@@ -77,20 +77,15 @@ type GigaValidatorConfig struct {
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
-	LastCommittedHeight() int64
-	MaxGasEstimatedPerBlock() uint64
 	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*abevm.EvmBlock, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
-	// CheckTx checks a transaction for admission without inserting it into the mempool.
-	CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error)
 	// RememberEvmSender records a verified sender for local admission.
 	RememberEvmSender(hash common.Hash, sender common.Address)
 	// ForgetEvmSender removes the cached sender for hash.
 	ForgetEvmSender(hash common.Hash)
 	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
 	fillInboundHandshake(spec handshakeSpec) handshakeSpec
 }

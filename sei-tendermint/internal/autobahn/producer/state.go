@@ -28,7 +28,7 @@ type Config struct {
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
 	MaxTxsPerSecond utils.Option[uint64]
-	// Max number of CheckTx calls executed concurrently by InsertTx/TryInsertTx.
+	// Max number of CheckTx calls executed concurrently by InsertTx.
 	// None or Some(0) means half of GOMAXPROCS, at least 1.
 	MaxConcurrentCheckTx utils.Option[uint64]
 }

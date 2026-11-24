@@ -20,8 +20,8 @@ import (
 type GigaEnvironment struct {
 	*abevm.Proxy
 	Router p2p.GigaRouter
-	// Executor runs the Autobahn blocks. None when execution is unavailable.
-	Executor utils.Option[*execution.Executor]
+	// Executor runs the Autobahn blocks.
+	Executor *execution.Executor
 	GenDoc   *types.GenesisDoc
 }
 
@@ -47,8 +47,8 @@ func (env *GigaEnvironment) BlockByHash(ctx context.Context, hash common.Hash) (
 	return env.Router.BlockByHash(ctx, hash)
 }
 
-// BroadcastTx submits tx to the local mempool and returns its admission error, if any.
-func (env *GigaEnvironment) BroadcastTx(ctx context.Context, tx types.Tx) error {
+// InsertTx submits tx to the local mempool and returns its admission error, if any.
+func (env *GigaEnvironment) InsertTx(ctx context.Context, tx types.Tx) error {
 	mempool, ok := env.Router.Mempool().Get()
 	if !ok {
 		return errors.New("autobahn fullnode has no local mempool; transactions must be sent to a validator")

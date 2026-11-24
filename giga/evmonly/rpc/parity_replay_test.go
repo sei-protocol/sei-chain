@@ -187,7 +187,7 @@ func (b *replayBackend) rpcBlockByHash(req *coretypes.RequestBlockByHash) (*core
 	return &coretypes.ResultBlock{}, nil
 }
 
-func (*replayBackend) BroadcastTx(context.Context, tmtypes.Tx) error { return errNotReplayed }
+func (*replayBackend) InsertTx(context.Context, tmtypes.Tx) error { return errNotReplayed }
 
 func (b *replayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
 	req := &coretypes.RequestBlockInfo{}

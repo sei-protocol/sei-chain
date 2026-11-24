@@ -33,7 +33,6 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			poolInCommittee:      giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:              giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:              utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:                  cfg.App,
 			signer:               signer,
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),

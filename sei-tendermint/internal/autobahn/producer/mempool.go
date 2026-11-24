@@ -17,13 +17,10 @@ import (
 
 var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
-var errMempoolFull = errors.New("mempool is full")
 var ErrNotProducing = errors.New("not producing")
 
 type pendingTx struct {
-	raw          tmtypes.Tx
 	addr         common.Address
-	hash         common.Hash
 	nonceRangeID nonceRangeID
 }
 
@@ -67,7 +64,6 @@ type mempoolInner struct {
 	nextBlock        *blockSpec
 	nextNonceRangeID nonceRangeID
 	evmNonces        map[common.Address]*nonceRange // ranges of pending txs by sender.
-	evmTxs           map[common.Hash]*pendingTx     // pendingTxs by hash.
 }
 
 func newMempool(capacity uint64, lane types.LaneID, n types.LaneHeight) *mempool {
@@ -80,7 +76,6 @@ func newMempool(capacity uint64, lane types.LaneID, n types.LaneHeight) *mempool
 			blocks:    map[types.LaneHeight]*blockSpec{},
 			nextBlock: &blockSpec{},
 			evmNonces: map[common.Address]*nonceRange{},
-			evmTxs:    map[common.Hash]*pendingTx{},
 		}),
 	}
 }
@@ -97,22 +92,6 @@ func (m *mempoolInner) SealBlock() {
 	m.blocks[m.next] = m.nextBlock
 	m.next += 1
 	m.nextBlock = &blockSpec{}
-}
-
-// TODO(gprusak): this rpc is probably unused, but if it is
-// consider whether unsequenced/unexecuted lane txs should be included here.
-func (s *State) UnconfirmedTxs() [][]byte {
-	mp, ok := s.mempool.Load().Get()
-	if !ok {
-		return nil
-	}
-	for m := range mp.inner.Lock() {
-		if m.closed {
-			return nil
-		}
-		return m.nextBlock.rawTxs
-	}
-	panic("unreachable")
 }
 
 func (m *mempool) pendingNonces(addr common.Address) (nonceRange, bool) {
@@ -159,17 +138,6 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 	return s.evmNextPendingNonce(mp, addr)
 }
 
-func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
-	if m, ok := s.mempool.Load().Get(); ok {
-		for inner := range m.inner.Lock() {
-			if tx, ok := inner.evmTxs[hash]; ok {
-				return tx.raw, ok
-			}
-		}
-	}
-	return nil, false
-}
-
 // Removes txs from mempool assigned to lane blocks <n.
 func (s *State) pruneMempool(mp *mempool, n types.LaneHeight) {
 	for m, ctrl := range mp.inner.Lock() {
@@ -182,11 +150,6 @@ func (s *State) pruneMempool(mp *mempool, n types.LaneHeight) {
 			delete(m.blocks, m.first)
 			m.first += 1
 			for _, tx := range b.txs {
-				// evmTxs entry could be overridden in case
-				// invalidated pending txs are submitted again.
-				if m.evmTxs[tx.hash] == tx {
-					delete(m.evmTxs, tx.hash)
-				}
 				// evmNonces entry could be overridden in case
 				// pending txs were invalidated, and new pending txs were added.
 				if r, ok := m.evmNonces[tx.addr]; ok && r.id == tx.nonceRangeID {
@@ -212,22 +175,6 @@ func (s *State) WaitForMempool(ctx context.Context) error {
 	return err
 }
 
-// TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full.
-func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx, error) {
-	return s.insertTx(ctx, tx, false)
-}
-
-// InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
-// admitted in arrival order relative to each other, but TryInsertTx calls do not queue and may
-// take freed capacity ahead of them.
-// The blocked calls are effectively the "unsequenced" part of the mempool.
-// After InsertTx returns, the sequence is already scheduled to be included in a lane.
-// TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
-// than the lane throughput.
-func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx, error) {
-	return s.insertTx(ctx, tx, true)
-}
-
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
 // for the duration of the call. Waiting for a permit is cancelled with ctx.
 func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (abevm.EvmTx, abevm.AdmittedTx, error) {
@@ -241,15 +188,14 @@ func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (abevm.EvmTx, abevm.
 	return abevm.CheckTx(s.app, s.signer, tx)
 }
 
-// insertTx inserts a transaction and records its outcome.
-func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (abevm.AdmittedTx, error) {
-	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
+// InsertTx inserts tx into the mempool, waiting for capacity when full.
+// Concurrent calls waiting for capacity are admitted in arrival order.
+func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx, error) {
+	resp, err := s.doInsertTx(ctx, tx)
 	var result string
 	switch {
 	case errors.Is(err, errTooLarge):
 		result = "too_large"
-	case errors.Is(err, errMempoolFull):
-		result = "full"
 	case errors.Is(err, ErrNotProducing):
 		result = "not_producing"
 	case errors.Is(err, errBadNonce):
@@ -266,21 +212,13 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (a
 }
 
 // Inserts transaction. Blocks until there is capacity in the mempool.
-func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (abevm.AdmittedTx, error) {
+func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx, error) {
 	mp, ok := s.mempool.Load().Get()
 	if !ok {
 		return abevm.AdmittedTx{}, ErrNotProducing
 	}
 	if uint64(len(tx)) > types.MaxTxsBytesPerLaneBlock {
 		return abevm.AdmittedTx{}, errTooLarge
-	}
-	// Early exit if mempool is full and we won't wait.
-	if !waitIfFull {
-		for m := range mp.inner.Lock() {
-			if m.IsFull() {
-				return abevm.AdmittedTx{}, errMempoolFull
-			}
-		}
 	}
 	decoded, resp, err := s.checkTx(ctx, tx)
 	if err != nil {
@@ -312,31 +250,23 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	if err := s.insertTxLimiter.Wait(ctx); err != nil {
 		return abevm.AdmittedTx{}, err
 	}
-	var capacityWaitStart time.Time
-	if waitIfFull {
-		capacityWaitStart = time.Now()
-		// In case there are many concurrent insertTx calls waiting for capacity,
-		// it gets CPU heavy to wake all of them every time mempool gets updated.
-		// Therefore we guard the inner mutex with a semaphore which wakes 1 task at a time.
-		// It is ok, because all waiting insertTx calls wait on exactly the same condition (capacity).
-		release, err := s.insertTxSem.Acquire(ctx)
-		if err != nil {
+	capacityWaitStart := time.Now()
+	// In case there are many concurrent insertTx calls waiting for capacity,
+	// it gets CPU heavy to wake all of them every time mempool gets updated.
+	// Therefore we guard the inner mutex with a semaphore which wakes 1 task at a time.
+	// It is ok, because all waiting insertTx calls wait on exactly the same condition (capacity).
+	release, err := s.insertTxSem.Acquire(ctx)
+	if err != nil {
+		return abevm.AdmittedTx{}, err
+	}
+	defer release()
+	for m, ctrl := range mp.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return m.closed || !m.IsFull() }); err != nil {
 			return abevm.AdmittedTx{}, err
 		}
-		defer release()
-	}
-	for m, ctrl := range mp.inner.Lock() {
-		if waitIfFull {
-			if err := ctrl.WaitUntil(ctx, func() bool { return m.closed || !m.IsFull() }); err != nil {
-				return abevm.AdmittedTx{}, err
-			}
-			metrics.ObserveCapacityWait(time.Since(capacityWaitStart))
-		}
+		metrics.ObserveCapacityWait(time.Since(capacityWaitStart))
 		if m.closed {
 			return abevm.AdmittedTx{}, ErrNotProducing
-		}
-		if m.IsFull() {
-			return abevm.AdmittedTx{}, errMempoolFull
 		}
 		// Verify the nonce again under lock.
 		// Here we have a race condition between app execution and evmNonces updates.
@@ -371,13 +301,10 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		b.sizeBytes += uint64(len(tx))
 		b.rawTxs = append(b.rawTxs, tx)
 		p := &pendingTx{
-			raw:          tx,
 			addr:         addr,
-			hash:         decoded.Hash(),
 			nonceRangeID: m.evmNonces[addr].id,
 		}
 		b.txs = append(b.txs, p)
-		m.evmTxs[decoded.Hash()] = p
 	}
 	return resp, nil
 }

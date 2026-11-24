@@ -219,16 +219,12 @@ func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
 	require.Equal(t, int64(2), app.LastBlockHeight())
 }
 
-func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
-	app := NewMockApp(mockAppInfoTarget{})
+func TestMockAppInfoReportsMockState(t *testing.T) {
+	app := NewMockApp(mockAppFixture{})
 	err := app.InitChain(abevm.InitConfig{InitialHeight: 9})
 	require.NoError(t, err)
 
 	info := app.Info()
-	require.Equal(t, "wrapped-data", info.Data)
-	require.Equal(t, "wrapped-version", info.Version)
-	require.Equal(t, uint64(17), info.AppVersion)
-	require.Equal(t, "1usei", info.MinimumGasPrices)
 	require.Equal(t, int64(8), info.LastBlockHeight)
 	require.Empty(t, info.LastBlockAppHash)
 }
@@ -330,21 +326,6 @@ func (app *mockAppForwardTarget) RestoreBlockTime(lastHeader time.Time) {
 	app.lastHeader = utils.Some(lastHeader)
 }
 
-type mockAppInfoTarget struct {
-	mockAppFixture
-}
-
-func (mockAppInfoTarget) Info() *abevm.ResponseInfo {
-	return &abevm.ResponseInfo{
-		Data:             "wrapped-data",
-		Version:          "wrapped-version",
-		AppVersion:       17,
-		LastBlockHeight:  123,
-		LastBlockAppHash: []byte("wrapped-hash"),
-		MinimumGasPrices: "1usei",
-	}
-}
-
 type mockAppValidatorsTarget struct {
 	mockAppFixture
 	validators abevm.CommitteeWeights
@@ -427,7 +408,6 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 
 	mock, ok := app.(*MockApp)
 	require.True(t, ok)
-	require.Equal(t, "evmonly", mock.Info().Data)
 
 	err = mock.InitChain(abevm.InitConfig{InitialHeight: 1, GasLimit: 30_000_000})
 	require.NoError(t, err)

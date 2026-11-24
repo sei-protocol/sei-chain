@@ -184,13 +184,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("state mismatch app[%v]: %w", i, err)
 			}
 		}
-		// Covers GigaRouter.LastCommittedHeight() — after blocks have
-		// been finalized every node should report a non-zero
-		// consensus-committed height through the accessor used by /status.
 		for i, giga := range gigas {
-			committed := giga.LastCommittedHeight()
+			committed := apps[i].LastBlockHeight()
 			if committed <= 0 {
-				return fmt.Errorf("router[%v].LastCommittedHeight(): got %v, want positive", i, committed)
+				return fmt.Errorf("app[%v].LastBlockHeight(): got %v, want positive", i, committed)
 			}
 			// Covers Executor.ExecutedBlocks — the watch behind
 			// eth_subscribe("newHeads"). It must reach the committed height,
@@ -240,7 +237,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// where producers placed the test txs. Reaches into giga0.data
 		// directly — internal same-package access.
 		giga0 := gigas[0]
-		latest := giga0.LastCommittedHeight()
+		latest := apps[0].LastBlockHeight()
 		for h := int64(1); h <= latest; h++ {
 			gbn := atypes.RoadHeight(h) //nolint:gosec // h is positive
 			gb, err := giga0.data.SuperBlock(ctx, gbn)

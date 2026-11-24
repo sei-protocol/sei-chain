@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -21,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // maxInboundFullnodePeers caps GigaRouterCommonConfig.MaxInboundFullnodePeers.
@@ -45,7 +43,6 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	app             *abevm.Proxy
 	signer          *abevm.Signer
 	gigaSpec        gigaHandshakeSpec
 	selfAddr        utils.Option[NodeAddress]
@@ -54,11 +51,6 @@ type gigaRouterCommon struct {
 	// block-sync subset. Persistent and block-sync peers do not consume it.
 	inboundFullnodeCount utils.Mutex[*int64]
 	inboundFullnodeCap   int64
-}
-
-// CheckTx checks a transaction for admission without inserting it into the mempool.
-func (r *gigaRouterCommon) CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error) {
-	return abevm.CheckTx(r.app, r.signer, raw)
 }
 
 // RememberEvmSender records a verified sender for local admission.
@@ -125,18 +117,6 @@ func BuildDataState(
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
 	return ds, nil
-}
-
-func (r *gigaRouterCommon) LastCommittedHeight() int64 {
-	return r.app.LastBlockHeight()
-}
-
-// MaxGasEstimatedPerBlock reflects the network-wide block gas budget. Both
-// roles ultimately resolve to genDoc.ConsensusParams.Block.MaxGas — the
-// validator's producer.Config.MaxGasEstimatedPerBlock is also sourced from
-// it at setup time, so read directly from genDoc here and skip the cache.
-func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
-	return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
 }
 
 // BlockByNumber returns the finalized EVM block at road n.
@@ -518,51 +498,6 @@ func (r *gigaRouterCommon) runInboundMux(
 		}
 		return nil
 	})
-}
-
-// Validators returns the Autobahn validator set that certified global height n.
-// Before the first CommitQC, the genesis road resolves to the genesis committee.
-func (r *gigaRouterCommon) Validators(n atypes.RoadHeight) ([]*types.Validator, error) {
-	qc, err := r.data.TryQC(n)
-	anchor := r.data.Anchor().Load()
-	if err != nil {
-		if errors.Is(err, atypes.ErrNotFound) {
-			if genesis, ok := anchor.EpochAt(n).Get(); ok && genesis.EpochIndex() == 0 && n == genesis.RoadRange().First {
-				return committeeValidators(genesis.Committee())
-			}
-		}
-		return nil, heightLookupError(n, err)
-	}
-	ep, ok := anchor.EpochAt(qc.Height()).Get()
-	if !ok {
-		return nil, heightLookupError(n, atypes.ErrPruned)
-	}
-	return committeeValidators(ep.Committee())
-}
-
-// heightLookupError returns the RPC error for a data lookup at global height n.
-func heightLookupError(n atypes.RoadHeight, err error) error {
-	switch {
-	case errors.Is(err, atypes.ErrPruned):
-		return coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
-	case errors.Is(err, atypes.ErrNotFound):
-		return fmt.Errorf("%w (requested height: %d)", coretypes.ErrHeightExceedsChainHead, utils.Clamp[int64](n))
-	default:
-		return err
-	}
-}
-
-func committeeValidators(committee *atypes.Committee) ([]*types.Validator, error) {
-	vs := make([]*types.Validator, 0, committee.Lanes().Len())
-	for lane := range committee.Lanes().All() {
-		power, ok := utils.SafeCast[int64](committee.Weight(lane.Validator))
-		if !ok {
-			return nil, fmt.Errorf("committee member %v: weight %d does not fit int64", lane.Validator, committee.Weight(lane.Validator))
-		}
-		vs = append(vs, types.NewValidator(lane.Validator.ED25519(), power))
-	}
-	sort.Sort(types.ValidatorsByVotingPower(vs))
-	return vs, nil
 }
 
 // EvmProxy returns the shard owner's EVMRPC client for an EVM tx sender, or

@@ -317,7 +317,6 @@ func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error 
 func (a *evmOnlyApplication) Info() *abevm.ResponseInfo {
 	for state := range a.cursor.Lock() {
 		return &abevm.ResponseInfo{
-			Data:             "evmonly",
 			LastBlockHeight:  state.committed.height,
 			LastBlockAppHash: append([]byte(nil), state.committed.appHash[:]...),
 		}

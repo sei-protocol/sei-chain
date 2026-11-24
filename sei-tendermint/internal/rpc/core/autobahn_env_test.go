@@ -14,6 +14,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -65,6 +66,11 @@ func newAutobahnEnv(t *testing.T, validator bool) *GigaEnvironment {
 
 func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *GigaEnvironment {
 	t.Helper()
+	return newAutobahnEnvWithSigner(t, validator, app, newTestSigner(app.EvmChainID(), 0))
+}
+
+func newAutobahnEnvWithSigner(t *testing.T, validator bool, app *abevm.Proxy, signer *abevm.Signer) *GigaEnvironment {
+	t.Helper()
 	rng := utils.TestRng()
 	committee, keys := atypes.GenCommittee(rng, 1)
 	valKey := keys[0]
@@ -84,7 +90,6 @@ func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Giga
 	}
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	signer := newTestSigner(app.EvmChainID(), 0)
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -126,6 +131,13 @@ func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Giga
 		Proxy:  app,
 		GenDoc: genDoc,
 		Router: giga,
+		Executor: execution.New(&execution.Config{
+			GenDoc:         genDoc,
+			App:            app,
+			Signer:         signer,
+			AppHashBuilder: commonCfg.AppHashBuilder,
+			BlockStore:     blockStore,
+		}),
 	}
 }
 

@@ -50,7 +50,7 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 type Backend interface {
 	BlockByNumber(context.Context, utils.Option[int64]) (*abevm.EvmBlock, error)
 	BlockByHash(context.Context, common.Hash) (utils.Option[*abevm.EvmBlock], error)
-	BroadcastTx(context.Context, tmtypes.Tx) error
+	InsertTx(context.Context, tmtypes.Tx) error
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int
