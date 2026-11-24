@@ -27,11 +27,11 @@ const (
 // testServerConfig is a test server's configuration: its data in a directory, its native protocol alone on a
 // port of the loopback interface, a default user without a password, and memory limits suited to tests.
 const testServerConfig = `<clickhouse>
-    <logger><level>warning</level><console>true</console></logger>
+    <logger><level>information</level><console>true</console></logger>
     <listen_host>127.0.0.1</listen_host>
     <tcp_port>%d</tcp_port>
     <path>%s/</path>
-    <max_server_memory_usage>1073741824</max_server_memory_usage>
+    <max_server_memory_usage>17179869184</max_server_memory_usage>
     <mark_cache_size>67108864</mark_cache_size>
     <users>
         <default>
@@ -143,8 +143,9 @@ func startTestServer() (addr string, stop func(), err error) {
 	}
 	addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	if err := waitTestServer(addr, exited); err != nil {
-		stop()
+		// Read the log before stop removes the directory holding it.
 		out, _ := os.ReadFile(logPath) //nolint:gosec // the log written above
+		stop()
 		if waitErr != nil {
 			err = fmt.Errorf("%w (%w)", err, waitErr)
 		}
