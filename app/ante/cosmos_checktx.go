@@ -464,8 +464,6 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 		return nil, err
 	}
 
-	// stdSigs contains the sequence number, account number, and signatures.
-	// When simulating, this would just be a 0-length slice.
 	signerAddrs := sigTx.GetSigners()
 	// check that signer length and signature length are the same
 	if len(sigs) != len(signerAddrs) {

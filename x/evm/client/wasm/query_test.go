@@ -538,7 +538,7 @@ func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -599,7 +599,7 @@ func TestHandleStaticCall(t *testing.T) {
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, func(sdk.Context, sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)

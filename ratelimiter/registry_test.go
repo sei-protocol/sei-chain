@@ -157,6 +157,28 @@ func TestAllow_IPv6_DifferentPrefixOwnBucket(t *testing.T) {
 	require.True(t, r.Allow(t.Context(), "2001:db8:0:2::1", "evm", "eth_call"), "different /64 has its own bucket")
 }
 
+func TestAllowN_RejectionChargesOneToken(t *testing.T) {
+	for name, tc := range map[string]struct {
+		spent, n, left int
+	}{
+		"larger than burst":    {spent: 0, n: 4, left: 2},
+		"larger than leftover": {spent: 1, n: 3, left: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := mustNew(t, cfg(0.001, 3))
+			ip := "10.0.0.1"
+			for range tc.spent {
+				require.True(t, r.Allow(t.Context(), ip, "evm", "eth_call"))
+			}
+			require.False(t, r.AllowN(t.Context(), ip, "evm", "eth_call", tc.n))
+			for range tc.left {
+				require.True(t, r.Allow(t.Context(), ip, "evm", "eth_call"))
+			}
+			require.False(t, r.Allow(t.Context(), ip, "evm", "eth_call"))
+		})
+	}
+}
+
 // --- IPFromHTTPRequest ---
 
 func TestIPFromHTTPRequest_DirectConnection(t *testing.T) {

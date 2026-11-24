@@ -605,6 +605,75 @@ func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
 	}
 }
 
+// TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending checks that CheckEvidence
+// rejects committed evidence when the pool also holds it as pending.
+func TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending(t *testing.T) {
+	const height int64 = 10
+	ctx := t.Context()
+
+	val := types.NewMockPV()
+	evidenceDB := dbm.NewMemDB()
+	// newPool starts a pool over evidenceDB with val as its only validator
+	newPool := func() *evidence.Pool {
+		stateStore := initializeValidatorState(ctx, t, val, height)
+		state, err := stateStore.Load()
+		require.NoError(t, err)
+		blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, val.PrivKey.Public().Address())
+		require.NoError(t, err)
+		eventBus := eventbus.NewDefault()
+		require.NoError(t, eventBus.Start(ctx))
+		pool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
+		startPool(t, pool, stateStore)
+		return pool
+	}
+	pool := newPool()
+
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+	require.NoError(t, err)
+	require.NoError(t, pool.AddEvidence(ctx, ev))
+	pendingEntries := dbEntries(t, evidenceDB)
+
+	// commit the evidence
+	state := pool.State()
+	state.LastBlockHeight++
+	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
+	pool.Update(ctx, state, types.EvidenceList{ev})
+
+	// restore the entries that Update deleted, so the database holds the evidence as
+	// pending and as committed
+	for key, value := range pendingEntries {
+		has, err := evidenceDB.Has([]byte(key))
+		require.NoError(t, err)
+		if !has {
+			require.NoError(t, evidenceDB.Set([]byte(key), value))
+		}
+	}
+
+	// a pool started over the same database holds the evidence as pending
+	restarted := newPool()
+	pendingEvs, _ := restarted.PendingEvidence(defaultEvidenceMaxBytes)
+	require.Equal(t, []types.Evidence{ev}, pendingEvs)
+
+	err = restarted.CheckEvidence(ctx, types.EvidenceList{ev})
+	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
+	require.True(t, isInvalidEvidence, "CheckEvidence returned %v", err)
+}
+
+// dbEntries returns a copy of every key and value in db.
+func dbEntries(t *testing.T, db dbm.DB) map[string][]byte {
+	t.Helper()
+	it, err := db.Iterator(nil, nil)
+	require.NoError(t, err)
+	defer func() { _ = it.Close() }()
+	entries := map[string][]byte{}
+	for ; it.Valid(); it.Next() {
+		entries[string(it.Key())] = append([]byte(nil), it.Value()...)
+	}
+	require.NoError(t, it.Error())
+	return entries
+}
+
 // copyDuplicateVoteEvidence returns a shallow copy of ev. The copy has its own ABCI fields
 // and shares the votes of ev.
 func copyDuplicateVoteEvidence(ev *types.DuplicateVoteEvidence) *types.DuplicateVoteEvidence {

@@ -3,6 +3,8 @@ package baseapp
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"strings"
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -12,10 +14,12 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
 )
 
@@ -164,4 +168,41 @@ func TestListSnapshots(t *testing.T) {
 		s.Metadata = nil
 	}
 	assert.Equal(t, expected, *resp)
+}
+
+func TestListSnapshotsStorageFailure(t *testing.T) {
+	dir := t.TempDir()
+	metadata, err := dbm.NewGoLevelDB("metadata", dir)
+	require.NoError(t, err)
+	snapshotStore, err := snapshots.NewStore(metadata, dir)
+	require.NoError(t, err)
+	chunks := make(chan io.ReadCloser, 1)
+	chunks <- io.NopCloser(strings.NewReader("chunk"))
+	close(chunks)
+	_, err = snapshotStore.Save(1, snapshottypes.CurrentFormat, chunks)
+	require.NoError(t, err)
+	app := setupBaseApp(t, SetSnapshotStore(snapshotStore))
+	require.NoError(t, metadata.Close())
+
+	resp, err := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
+	require.ErrorIs(t, err, sdkerrors.ErrIO)
+	require.Nil(t, resp)
+
+	queryResponse, err := app.Query(context.Background(), &abci.RequestQuery{Path: "/app/snapshots"})
+	require.NoError(t, err)
+	require.Equal(t, sdkerrors.RootCodespace, queryResponse.Codespace)
+	require.Equal(t, sdkerrors.ErrIO.ABCICode(), queryResponse.Code)
+	require.Empty(t, queryResponse.Value)
+	require.NotContains(t, queryResponse.Log, "leveldb", "the storage error belongs in the node log, not the query response")
+}
+
+func TestQuerySnapshotsEmptyStore(t *testing.T) {
+	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), t.TempDir())
+	require.NoError(t, err)
+	app := setupBaseApp(t, SetSnapshotStore(snapshotStore))
+
+	queryResponse, err := app.Query(context.Background(), &abci.RequestQuery{Path: "/app/snapshots"})
+	require.NoError(t, err)
+	require.Zero(t, queryResponse.Code)
+	require.JSONEq(t, `{"Snapshots":[]}`, string(queryResponse.Value))
 }

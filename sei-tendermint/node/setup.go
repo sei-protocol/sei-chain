@@ -379,14 +379,15 @@ func buildGigaRouter(
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
-// BlockStore on app.
-func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+// BlockStore on app, with up to maxBlocksInFlight blocks in flight at once.
+func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager, maxBlocksInFlight int) *execution.Executor {
 	return execution.New(&execution.Config{
-		GenDoc:         genDoc,
-		App:            app,
-		Signer:         signer,
-		AppHashBuilder: manager.AppHashBuilder(),
-		BlockStore:     manager.BlockStore(),
+		GenDoc:            genDoc,
+		App:               app,
+		Signer:            signer,
+		AppHashBuilder:    manager.AppHashBuilder(),
+		BlockStore:        manager.BlockStore(),
+		MaxBlocksInFlight: maxBlocksInFlight,
 	})
 }
 

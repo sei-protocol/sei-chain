@@ -9,8 +9,6 @@ import (
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	wasm "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
-	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
@@ -19,7 +17,6 @@ import (
 type HandlerOptions struct {
 	ante.HandlerOptions
 
-	WasmConfig        *wasmtypes.WasmConfig
 	WasmKeeper        *wasm.Keeper
 	EVMKeeper         *evmkeeper.Keeper
 	UpgradeKeeper     *upgradekeeper.Keeper
@@ -38,9 +35,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 	}
 	if options.SignModeHandler == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "sign mode handler is required for ante builder")
-	}
-	if options.WasmConfig == nil {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
 	}
 	if options.WasmKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm keeper is required for ante builder")
@@ -68,7 +62,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 	anteDecorators := []sdk.AnteDecorator{
 		ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(options.ParamsKeeper.(paramskeeper.Keeper))), // outermost AnteDecorator. SetUpContext must be called first
 		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.ParamsKeeper.(paramskeeper.Keeper), options.TxFeeChecker),
-		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit, wasmkeeper.DefaultGasMeterSetter()), // after setup context to enforce limits early
 		ante.NewRejectExtensionOptionsDecorator(),
 		ante.NewValidateBasicDecorator(),
 		ante.NewTxTimeoutHeightDecorator(),

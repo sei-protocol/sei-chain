@@ -221,14 +221,6 @@ func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	app.anteHandler = ah
 }
 
-func (app *BaseApp) SetFauxMerkleMode() {
-	if app.sealed {
-		panic("SetFauxMerkleMode() on sealed BaseApp")
-	}
-
-	app.fauxMerkleMode = true
-}
-
 // SetCommitMultiStoreTracer sets the store tracer on the BaseApp's underlying
 // CommitMultiStore.
 func (app *BaseApp) SetCommitMultiStoreTracer(w io.Writer) {
@@ -304,7 +296,6 @@ func (app *BaseApp) SetSnapshotDirectory(dir string) {
 
 // SetInterfaceRegistry sets the InterfaceRegistry.
 func (app *BaseApp) SetInterfaceRegistry(registry types.InterfaceRegistry) {
-	app.interfaceRegistry = registry
 	app.queryServiceRouter.SetInterfaceRegistry(registry)
 	app.msgServiceRouter.SetInterfaceRegistry(registry)
 }
