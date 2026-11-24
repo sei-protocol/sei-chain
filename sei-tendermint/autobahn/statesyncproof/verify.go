@@ -1,6 +1,7 @@
 package statesyncproof
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -27,6 +28,9 @@ func DecodeAndVerify(registry *types.EpochRegistry, data []byte, road types.Road
 	return proof, [32]byte(appHash), nil
 }
 
+// errNoEpoch is returned for a road that no epoch of the epoch registry holds.
+var errNoEpoch = errors.New("the epoch registry holds no epoch of road")
+
 // epochOfRoad returns the epoch of registry that holds road.
 func epochOfRoad(registry *types.EpochRegistry, road types.RoadHeight) (*types.Epoch, error) {
 	for _, ep := range registry.Epochs() {
@@ -34,5 +38,5 @@ func epochOfRoad(registry *types.EpochRegistry, road types.RoadHeight) (*types.E
 			return ep, nil
 		}
 	}
-	return nil, fmt.Errorf("the epoch registry holds no epoch of road %d", road)
+	return nil, fmt.Errorf("%w %d", errNoEpoch, road)
 }

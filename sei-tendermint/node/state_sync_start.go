@@ -15,6 +15,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+var (
+	// errRestoreNeedsStateSync is returned for a home with a pending restore and giga state sync
+	// disabled.
+	errRestoreNeedsStateSync = errors.New("this home has a pending giga state sync restore, which needs giga state sync enabled")
+	// errRestoreNeedsFullnode is returned for a home with a pending restore that starts as a
+	// validator.
+	errRestoreNeedsFullnode = errors.New("this home has a pending giga state sync restore, which a validator cannot finish")
+)
+
 // readStateSyncStart returns the giga state sync state of the home that conf, the Autobahn config
 // file fc, giga and genDoc configure. It must run before the Giga storage opens. It returns an
 // error for a home with a pending restore that this start cannot finish: the switch is off, the
@@ -41,10 +50,10 @@ func readStateSyncStart(
 	}
 	marker := p2p.RestoreMarkerFile(psd)
 	if !giga.StateSync.Enabled {
-		return p2p.StateSyncStart{}, fmt.Errorf("this home has a pending giga state sync restore; set [giga.state_sync] enabled = true, or remove %s and the restored data", marker)
+		return p2p.StateSyncStart{}, fmt.Errorf("%w; set [giga.state_sync] enabled = true, or remove %s and the restored data", errRestoreNeedsStateSync, marker)
 	}
 	if conf.Mode == config.ModeValidator {
-		return p2p.StateSyncStart{}, fmt.Errorf("this home has a pending giga state sync restore and must start once as a fullnode, which finishes it and removes %s", marker)
+		return p2p.StateSyncStart{}, fmt.Errorf("%w; start it once as a fullnode, which finishes the restore and removes %s", errRestoreNeedsFullnode, marker)
 	}
 	storageConfig, err := buildGigaStorageConfig(psd, conf.Mode, giga.Storage, genDoc)
 	if err != nil {

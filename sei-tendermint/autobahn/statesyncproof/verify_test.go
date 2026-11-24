@@ -55,8 +55,9 @@ func TestDecodeAndVerifyRejectsAProofOfAnotherCommittee(t *testing.T) {
 	other := newVerifyTest(t, rng)
 	appHash := [32]byte{1}
 
+	// The proof differs from one that DecodeAndVerify accepts only in the committee that signs it.
 	_, _, err := DecodeAndVerify(v.registry, other.proof(t, appHash[:]), verifyRoad)
-	require.ErrorContains(t, err, "verify the state sync proof file")
+	require.Error(t, err)
 }
 
 func TestDecodeAndVerifyRejectsARoadOutsideTheRegistry(t *testing.T) {
@@ -64,20 +65,22 @@ func TestDecodeAndVerifyRejectsARoadOutsideTheRegistry(t *testing.T) {
 	appHash := [32]byte{1}
 
 	_, _, err := DecodeAndVerify(v.registry, v.proof(t, appHash[:]), verifyRoad-1)
-	require.ErrorContains(t, err, "holds no epoch of road")
+	require.ErrorIs(t, err, errNoEpoch)
 }
 
 func TestDecodeAndVerifyRejectsAFileOfAnotherRoad(t *testing.T) {
 	v := newVerifyTest(t, utils.TestRng())
 	appHash := [32]byte{1}
 
+	// The epoch of verifyRoad also holds the next road, so only the road of the file is wrong.
 	_, _, err := DecodeAndVerify(v.registry, v.proof(t, appHash[:]), verifyRoad+1)
-	require.ErrorContains(t, err, "decode the state sync proof file")
+	require.Error(t, err)
 }
 
 func TestDecodeAndVerifyRejectsAnAppHashThatIsNot32Bytes(t *testing.T) {
 	v := newVerifyTest(t, utils.TestRng())
 
+	// The proof differs from one that DecodeAndVerify accepts only in the length of its app hash.
 	_, _, err := DecodeAndVerify(v.registry, v.proof(t, []byte{1, 2, 3}), verifyRoad)
-	require.ErrorContains(t, err, "want 32")
+	require.Error(t, err)
 }

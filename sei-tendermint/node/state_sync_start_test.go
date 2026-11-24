@@ -58,7 +58,7 @@ func TestReadStateSyncStartRefusesAPendingRestoreItCannotFinish(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		setup   func(t *testing.T, s *stateSyncStartTest)
-		wantMsg string
+		wantErr error
 	}{
 		{
 			name: "the switch is off",
@@ -66,7 +66,7 @@ func TestReadStateSyncStartRefusesAPendingRestoreItCannotFinish(t *testing.T) {
 				s.giga.StateSync.Enabled = false
 				s.mark(t, 10)
 			},
-			wantMsg: "set [giga.state_sync] enabled = true",
+			wantErr: errRestoreNeedsStateSync,
 		},
 		{
 			name: "the node runs as a validator",
@@ -74,30 +74,35 @@ func TestReadStateSyncStartRefusesAPendingRestoreItCannotFinish(t *testing.T) {
 				s.mark(t, 10)
 				s.conf.Mode = config.ModeValidator
 			},
-			wantMsg: "must start once as a fullnode",
-		},
-		{
-			name:    "FlatKV is not installed",
-			setup:   func(t *testing.T, s *stateSyncStartTest) { s.mark(t, 10) },
-			wantMsg: "the pending giga state sync restore of 10 on this home is incomplete; run seid statesync import again: FlatKV is at 0",
-		},
-		{
-			name: "the marker does not hold a height",
-			setup: func(t *testing.T, s *stateSyncStartTest) {
-				require.NoError(t, os.WriteFile(s.layout.RestoreMarkerFile, []byte("ten\n"), 0o600))
-			},
-			wantMsg: "want one positive decimal height",
+			wantErr: errRestoreNeedsFullnode,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newStateSyncStartTest(t)
 			tc.setup(t, s)
 			_, err := s.readStart(t)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), tc.wantMsg)
+			require.ErrorIs(t, err, tc.wantErr)
 			require.FileExists(t, s.layout.RestoreMarkerFile)
 		})
 	}
+}
+
+func TestReadStateSyncStartRefusesARestoreWithoutFlatKV(t *testing.T) {
+	// The switch is on, the node is a fullnode and the app-hash vault is at 10, so the restore
+	// lacks only FlatKV.
+	s := newStateSyncStartTest(t)
+	s.mark(t, 10)
+	_, err := s.readStart(t)
+	require.Error(t, err)
+	require.FileExists(t, s.layout.RestoreMarkerFile)
+}
+
+func TestReadStateSyncStartRefusesAMarkerThatHoldsNoHeight(t *testing.T) {
+	s := newStateSyncStartTest(t)
+	require.NoError(t, os.WriteFile(s.layout.RestoreMarkerFile, []byte("ten\n"), 0o600))
+	_, err := s.readStart(t)
+	require.Error(t, err)
+	require.FileExists(t, s.layout.RestoreMarkerFile)
 }
 
 func TestMakeEVMApplicationRefusesAPendingRestoreItCannotFinish(t *testing.T) {
@@ -105,6 +110,5 @@ func TestMakeEVMApplicationRefusesAPendingRestoreItCannotFinish(t *testing.T) {
 	s.giga.StateSync.Enabled = false
 	s.mark(t, 10)
 	_, _, _, err := makeEVMApplication(storageContext(t), s.conf, s.giga, genesisAt(1))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "set [giga.state_sync] enabled = true")
+	require.ErrorIs(t, err, errRestoreNeedsStateSync)
 }

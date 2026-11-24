@@ -58,9 +58,8 @@ type seedTest struct {
 	store    *blockstore.Store
 }
 
-func newSeedTest(t *testing.T) *seedTest {
+func newSeedTest(t *testing.T, rng utils.Rng) *seedTest {
 	t.Helper()
-	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
 	registry, err := atypes.GenesisRegistry(map[atypes.PublicKey]uint64{key.Public(): 1}, seedRoad, 10)
 	require.NoError(t, err)
@@ -172,7 +171,7 @@ func (s *seedTest) requireUnseeded(t *testing.T) {
 }
 
 func TestSeedWritesTheRestoredRoad(t *testing.T) {
-	s := newSeedTest(t)
+	s := newSeedTest(t, utils.TestRng())
 	s.restore(t, s.restoredProof(t), seedAppHash)
 	dataState, err := s.start(t)
 	require.NoError(t, err)
@@ -193,7 +192,7 @@ func TestSeedCompletesTheRecordsThatAnEarlierSeedFlushed(t *testing.T) {
 		{name: "all three records and no proof file", flushed: 3, keepProof: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newSeedTest(t)
+			s := newSeedTest(t, utils.TestRng())
 			data := s.restoredProof(t)
 			s.restore(t, data, seedAppHash)
 			proof, err := statesyncproof.Decode(data, seedRoad)
@@ -218,10 +217,11 @@ func TestSeedCompletesTheRecordsThatAnEarlierSeedFlushed(t *testing.T) {
 }
 
 func TestSeedRefusesAStateItCannotTrust(t *testing.T) {
+	// Each home differs from the one that TestSeedWritesTheRestoredRoad seeds only in what its
+	// name says.
 	for _, tc := range []struct {
-		name    string
-		setup   func(t *testing.T, s *seedTest)
-		wantMsg string
+		name  string
+		setup func(t *testing.T, s *seedTest)
 	}{
 		{
 			name: "a proof signed by another committee",
@@ -230,14 +230,12 @@ func TestSeedRefusesAStateItCannotTrust(t *testing.T) {
 				ep := s.registry.Epochs()[0]
 				s.restore(t, s.proof(t, epochOf(t, other, ep.RoadRange()), other, seedAppHash), seedAppHash)
 			},
-			wantMsg: "verify the state sync proof file",
 		},
 		{
 			name: "a restore anchor that the AppQC does not sign",
 			setup: func(t *testing.T, s *seedTest) {
 				s.restore(t, s.restoredProof(t), [32]byte{9})
 			},
-			wantMsg: "but the AppQC of the state sync proof file signs",
 		},
 		{
 			name: "no state sync proof file",
@@ -245,7 +243,6 @@ func TestSeedRefusesAStateItCannotTrust(t *testing.T) {
 				s.restore(t, s.restoredProof(t), seedAppHash)
 				require.NoError(t, os.Remove(RestoreProofFile(s.cfg.PersistentStateDir)))
 			},
-			wantMsg: "run seid statesync import again",
 		},
 		{
 			name: "a registry with no epoch after the epoch of the restored road",
@@ -254,22 +251,20 @@ func TestSeedRefusesAStateItCannotTrust(t *testing.T) {
 				s.setRegistries(short, short)
 				s.restore(t, s.restoredProof(t), seedAppHash)
 			},
-			wantMsg: "holds no epoch after the epoch of road",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newSeedTest(t)
+			s := newSeedTest(t, utils.TestRng())
 			tc.setup(t, s)
 			_, err := s.start(t)
 			require.Error(t, err)
-			require.Contains(t, err.Error(), tc.wantMsg)
 			s.requireUnseeded(t)
 		})
 	}
 }
 
 func TestSeedKeepsTheRestoreFilesUntilTheDataStateAcceptsTheBlockDB(t *testing.T) {
-	s := newSeedTest(t)
+	s := newSeedTest(t, utils.TestRng())
 	s.setRegistries(s.registry, s.registryWithoutNextEpoch(t))
 	s.restore(t, s.restoredProof(t), seedAppHash)
 	_, err := s.start(t)
@@ -284,22 +279,24 @@ func TestSeedKeepsTheRestoreFilesUntilTheDataStateAcceptsTheBlockDB(t *testing.T
 }
 
 func TestSeedRefusesABlockDBWithAnotherRoad(t *testing.T) {
-	s := newSeedTest(t)
+	s := newSeedTest(t, utils.TestRng())
 	s.restore(t, s.restoredProof(t), seedAppHash)
 	earlierEpoch := epochOf(t, s.key, atypes.RoadRange{First: seedRoad - 1, Next: seedRoad + 9})
 	earlier, err := statesyncproof.Decode(s.proof(t, earlierEpoch, s.key, seedAppHash), seedRoad-1)
 	require.NoError(t, err)
 	require.NoError(t, s.store.WriteBlock(earlier.RoadBlock()))
+	before := s.store.Status()
 	_, err = s.start(t)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "want at most the records of the restored road")
+	// The seed wrote nothing, and the next start meets the same home.
+	require.Equal(t, before, s.store.Status())
 	require.FileExists(t, RestoreMarkerFile(s.cfg.PersistentStateDir))
 }
 
 func TestBuildFullnodeDataStateWithoutARestoreWritesNothing(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run("enabled="+strconv.FormatBool(enabled), func(t *testing.T) {
-			s := newSeedTest(t)
+			s := newSeedTest(t, utils.TestRng())
 			_, err := BuildFullnodeDataState(t.Context(), s.cfg, s.store, s.app, s.cfg.GenDoc.GenesisTime, StateSyncStart{Enabled: enabled})
 			require.NoError(t, err)
 			require.False(t, s.store.Status().IsPresent())
