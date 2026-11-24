@@ -74,9 +74,11 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"stagedQueueBounds":           slotStagedQueueBounds,
 		"stagedQueue":                 slotStagedQueue,
 		"stagedDelegations":           slotStagedDelegations,
-		"migrating":                   25,
-		"migrationCursor":             26,
-		"migrationFailures":           27,
+		"stagedWork":                  slotStagedWork,
+		"params":                      slotParams,
+		"migrating":                   29,
+		"migrationCursor":             30,
+		"migrationFailures":           31,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and
@@ -166,6 +168,13 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"redelegationsOut": stagedRedelegationsOut,
 			"redelegationsIn":  stagedRedelegationsIn,
 		}, stagedDelegationSlots},
+		"struct StakingStorage.Params": {map[string]member{
+			"unbondingTime":                      paramsUnbondingTime,
+			"maxValidators":                      paramsMaxValidators,
+			"maxEntries":                         paramsMaxEntries,
+			"maxVotingPowerRatio":                paramsMaxVotingPowerRatio,
+			"maxVotingPowerEnforcementThreshold": paramsMaxVotingPowerEnforcementThreshold,
+		}, 3},
 		"struct AddressSet": {map[string]member{
 			"values":    {0, 0},
 			"positions": {1, 0},

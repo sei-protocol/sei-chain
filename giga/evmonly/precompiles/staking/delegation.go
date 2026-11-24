@@ -48,7 +48,7 @@ func (p Precompile) delegateCall(ctx *precompiles.Context, s store, method *abi.
 	if err := transfer(s.State, ctx.Address, StagedEscrow, amount); err != nil {
 		return nil, err
 	}
-	epoch, err := stage(s, stagedOperation{kind: stagedDelegate, delegator: ctx.Caller, validator: op, amount: amount})
+	epoch, err := stage(ctx, s, stagedOperation{kind: stagedDelegate, delegator: ctx.Caller, validator: op, amount: amount})
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (p Precompile) undelegateCall(ctx *precompiles.Context, s store, method *ab
 	if err := checkUnbondingEntries(s, s.params(), ctx.Caller, op, s.stagedDelegation(ctx.Caller, op)); err != nil {
 		return nil, err
 	}
-	epoch, err := stage(s, stagedOperation{kind: stagedUndelegate, delegator: ctx.Caller, validator: op, amount: shares})
+	epoch, err := stage(ctx, s, stagedOperation{kind: stagedUndelegate, delegator: ctx.Caller, validator: op, amount: shares})
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (p Precompile) redelegateCall(ctx *precompiles.Context, s store, method *ab
 	if err := checkDelegation(ctx.Block, s.lastTotalPower(), params, &dstValidator, tokens); err != nil {
 		return nil, err
 	}
-	epoch, err := stage(s, stagedOperation{kind: stagedRedelegate, delegator: ctx.Caller, validator: src, dstValidator: dst, amount: shares})
+	epoch, err := stage(ctx, s, stagedOperation{kind: stagedRedelegate, delegator: ctx.Caller, validator: src, dstValidator: dst, amount: shares})
 	if err != nil {
 		return nil, err
 	}

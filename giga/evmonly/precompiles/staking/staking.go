@@ -1,19 +1,22 @@
 // Package staking is the EVM-only staking precompile. Its ABI is Staking.sol
 // and its state is docs/giga-storage/StakingStorage.sol, held as contract
-// storage at Address. Its params are the params precompile's staking subspace.
+// storage at Address. It applies its own copy of the params precompile's
+// staking subspace.
 //
 // It serves delegate, redelegate and undelegate, and queries of validators,
 // delegations, unbonding delegations, staged operations, the pool and its
 // params. A delegate, redelegate or undelegate is staged when called and takes
-// effect at the end of the epoch after the one it is called in. Delegations and
-// the validator set change only at an epoch's end, where EndBlock applies the
-// staged operations due, updates the bonded set, completes matured validators
-// and snapshots the bonded set; every EndBlock completes matured unbondings and
-// redelegations. Unlike x/staking, it never jails a validator, so an operator
-// may hold less than its minimum self-delegation; a validator finishes
-// unbonding at the first epoch's end after its unbonding time; its queues are
-// first-in first-out, so an entry never completes before one queued ahead of
-// it; and it does not slash unbonding or redelegation entries.
+// effect at the end of the epoch after the one it is called in. Delegations,
+// the validator set and the params staking applies change only at an epoch's
+// end, where EndBlock applies the staged operations due, updates the bonded
+// set, completes matured validators, adopts the params precompile's staking
+// params and snapshots the bonded set; every EndBlock completes matured
+// unbondings and redelegations. Unlike x/staking, it never jails a validator,
+// so an operator may hold less than its minimum self-delegation; a validator
+// finishes unbonding at the first epoch's end after its unbonding time; a
+// param change takes effect at the first epoch's end after it is made; its
+// queues are first-in first-out, so an entry never completes before one queued
+// ahead of it; and it does not slash unbonding or redelegation entries.
 package staking
 
 import (

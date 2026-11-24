@@ -121,6 +121,7 @@ func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockCont
 		BlobBaseFee:  cloneOptionalBig(block.BlobBaseFee),
 		Coinbase:     block.Coinbase,
 		PrevRandao:   block.PrevRandao,
+		GasLimit:     block.GasLimit,
 		ClosingEpoch: block.ClosingEpoch,
 	}
 }

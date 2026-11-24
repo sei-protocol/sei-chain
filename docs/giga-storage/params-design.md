@@ -37,8 +37,9 @@ subspace.
   signed type needs a decoder before a param can use it.
 
 - Owners read their params from 0x1013's storage with the `params` package's
-  Go readers (`ReadGov`, `ReadStaking`). Gov reads `gov` and staking reads
-  `staking`. Nothing keeps a second copy.
+  Go readers (`ReadGov`, `ReadStaking`). Gov applies `gov` as it reads it.
+  Staking reads `staking` into a copy of its own at each epoch's end and
+  applies the copy (see *Staking*).
   Planned readers for other subspaces are in *Later subspaces*.
 - Params are written only at genesis (`WriteGov` and `WriteStaking`, which
   refuse once their subspace's params exist) and by a passed gov proposal
@@ -180,6 +181,10 @@ naming `param`.
   most members an autobahn committee holds.
 - `HasStaking` reads `UnbondingTime`, which the check keeps nonzero. Staking
   refuses calls, and its EndBlock does nothing, until the params are written.
+- Staking applies `StakingStorage.params`, the `staking` params as of the
+  latest epoch's end, so a passed change takes effect at the end of the epoch
+  it passes in. Each epoch's snapshot is projected under the params the next
+  epoch's end applies (`staking-design-rationale.md`, *Staged operations*).
 
 ## Tests
 

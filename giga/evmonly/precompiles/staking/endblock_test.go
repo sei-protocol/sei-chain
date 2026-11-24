@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
@@ -167,8 +166,8 @@ func TestAShorterUnbondingTimeQueuesBehindTheLongerOnes(t *testing.T) {
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	require.NoError(t, h.undelegate(alice, val1, sei(1)))
 	first := h.time + testParams.UnbondingTime
-	require.NoError(t, chainparams.Apply(h.state, []chainparams.Change{{Subspace: "staking", Key: "UnbondingTime", Value: common.BigToHash(new(big.Int).SetUint64(10 * second)).Bytes()}}))
-	h.endBlock()
+	h.govern("UnbondingTime", new(big.Int).SetUint64(10*second))
+	h.endCurrentEpoch()
 	require.NoError(t, h.undelegate(alice, val1, sei(1)))
 	entries := must(h.store().unbondingEntries(alice, val1))
 	require.Equal(t, first, entries[1].completionTime, "the new entry waits for the one ahead of it")

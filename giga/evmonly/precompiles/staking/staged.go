@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
@@ -21,11 +22,26 @@ const (
 var (
 	errUnknownStagedKind = errors.New("unknown staged operation kind")
 	errStagedNotCounted  = errors.New("staged operation is not counted in its delegation's staged totals")
+	errUnmetered         = errors.New("staking call has no gas meter")
 )
 
-// stage queues op to take effect at the end of the epoch after the current one,
-// counts it in its delegations' staged totals, and returns that epoch.
-func stage(s store, op stagedOperation) (uint64, error) {
+// The gas staging charges for the work it adds to an epoch's end, beyond the
+// call's own storage: none for the first stagedFreeWork units staged during an
+// epoch, then stagedSurchargeBase a unit, doubling every stagedSurchargeDoubling
+// units, up to a quarter of the block's gas limit.
+const (
+	stagedFreeWork          = 10_000
+	stagedSurchargeBase     = 100_000
+	stagedSurchargeDoubling = 2_000
+)
+
+// stage charges the call stagingGas for op's work, queues op to take effect at
+// the end of the epoch after the current one, counts it in its delegations'
+// staged totals, and returns that epoch.
+func stage(ctx *precompiles.Context, s store, op stagedOperation) (uint64, error) {
+	if err := chargeStaging(ctx, s, op.work()); err != nil {
+		return 0, err
+	}
 	q := s.stagedQueue()
 	op.epoch = q.clamp(s.currentEpoch() + 1)
 	e, err := q.push(op.epoch)
@@ -35,6 +51,48 @@ func stage(s store, op stagedOperation) (uint64, error) {
 	s.setStagedOperation(e, op)
 	countStaged(s, op)
 	return op.epoch, nil
+}
+
+// chargeStaging charges the call stagingGas for units of work staged after the
+// work already staged this epoch, and adds them to it.
+func chargeStaging(ctx *precompiles.Context, s store, units uint64) error {
+	if ctx.Gas == nil {
+		return errUnmetered
+	}
+	staged := s.stagedWork()
+	if !ctx.Gas.UseGas(stagingGas(staged, units, ctx.Block.GasLimit)) {
+		return vm.ErrOutOfGas
+	}
+	s.setStagedWork(staged + units)
+	return nil
+}
+
+// stagingGas returns the gas units of work pay when staged units were staged
+// before them this epoch, in a block whose gas limit is gasLimit.
+func stagingGas(staged, units, gasLimit uint64) uint64 {
+	// A unit pays at most a quarter of the block, so an operation of two units
+	// leaves room in its block for the call's own gas.
+	ceiling := gasLimit / 4
+	var gas uint64
+	for i := range units {
+		gas += unitGas(staged+i, ceiling)
+	}
+	return gas
+}
+
+// unitGas returns the gas the unit of work staged after staged others pays:
+// none within the free tier, then stagedSurchargeBase doubling every
+// stagedSurchargeDoubling units, up to ceiling.
+func unitGas(staged, ceiling uint64) uint64 {
+	if staged < stagedFreeWork {
+		return 0
+	}
+	doublings := (staged - stagedFreeWork) / stagedSurchargeDoubling
+	gas := uint64(stagedSurchargeBase)
+	for i := uint64(0); i < doublings && gas < ceiling; i++ {
+		gas *= 2
+	}
+	return min(gas, ceiling)
 }
 
 // countStaged adds op to the staged totals of the delegations it changes: the
@@ -84,7 +142,7 @@ func uncountStaged(s store, op stagedOperation) error {
 	return nil
 }
 
-// applyStaged applies, in the order they were staged, the staged operations
+// applyStaged applies, in the order they were staged, every staged operation
 // due by the end of epoch ended. One that fails is dropped: a delegation's
 // tokens go back to its delegator, and the stake an undelegation or
 // redelegation would have moved stays where it is.
@@ -93,8 +151,9 @@ func (p Precompile) applyStaged(block precompiles.BlockContext, s store, params 
 	// stored power is only updated once they all are, and a delegation checked
 	// against it would not see the stake an earlier one moved.
 	bondedPower := s.lastTotalPower()
-	drain(s.stagedQueue(), ended, "staged", failures,
-		func(common.Hash) uint64 { return 1 },
+	// No budget: the calls that staged these operations paid stagingGas for
+	// this work.
+	drain(s.stagedQueue(), ended, "staged", failures, nil,
 		func(e common.Hash) error {
 			return p.applyStagedOperation(block, s, params, bondedPower, s.stagedOperationAt(e))
 		},
@@ -135,6 +194,15 @@ func (p Precompile) carryOutStaged(block precompiles.BlockContext, s store, para
 		return err
 	}
 	return fmt.Errorf("%w: %d", errUnknownStagedKind, op.kind)
+}
+
+// work returns the units of epoch-end work op stages: one per delegation it
+// changes.
+func (op stagedOperation) work() uint64 {
+	if op.kind == stagedRedelegate {
+		return 2
+	}
+	return 1
 }
 
 // validators returns the validators op moves stake to or from.

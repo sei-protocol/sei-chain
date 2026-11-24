@@ -378,6 +378,7 @@ func TestDefaultParamsAreValid(t *testing.T) {
 	require.NoError(t, SetParams(state, DefaultParams()))
 	require.True(t, HasParams(state))
 	require.Equal(t, DefaultParams(), chainparams.ReadStaking(state))
+	require.Equal(t, DefaultParams(), newStore(state).params(), "they are the params staking applies")
 }
 
 func TestRequiredGas(t *testing.T) {

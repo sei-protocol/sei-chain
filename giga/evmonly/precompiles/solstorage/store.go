@@ -61,15 +61,23 @@ func (s Store) SetInt64(slot common.Hash, offset int, v int64) {
 	s.SetUint64(slot, offset, uint64(v)) //nolint:gosec // two's complement reinterpretation
 }
 
-func (s Store) Int32(slot common.Hash, offset int) int32 {
+func (s Store) Uint32(slot common.Hash, offset int) uint32 {
 	w := s.Word(slot)
-	return int32(binary.BigEndian.Uint32(w[32-offset-4 : 32-offset])) //nolint:gosec // two's complement reinterpretation
+	return binary.BigEndian.Uint32(w[32-offset-4 : 32-offset])
+}
+
+func (s Store) SetUint32(slot common.Hash, offset int, v uint32) {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], v)
+	s.setPacked(slot, offset, b[:])
+}
+
+func (s Store) Int32(slot common.Hash, offset int) int32 {
+	return int32(s.Uint32(slot, offset)) //nolint:gosec // two's complement reinterpretation
 }
 
 func (s Store) SetInt32(slot common.Hash, offset int, v int32) {
-	var b [4]byte
-	binary.BigEndian.PutUint32(b[:], uint32(v)) //nolint:gosec // two's complement reinterpretation
-	s.setPacked(slot, offset, b[:])
+	s.SetUint32(slot, offset, uint32(v)) //nolint:gosec // two's complement reinterpretation
 }
 
 func (s Store) Uint8(slot common.Hash, offset int) uint8 {

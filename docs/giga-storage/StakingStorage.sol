@@ -6,10 +6,10 @@ import "./Sets.sol";
 /// @notice Storage schema of the evmonly staking precompile (0x1005), held as that
 /// address's contract storage. Each state variable is an x/staking store prefix,
 /// named in its comment.
-/// @dev Params are `ParamsStorage.staking`. Bonded tokens sit in the balance of
-/// `BondedEscrow`, unbonded and unbonding tokens in `NotBondedEscrow`, and staged
-/// delegations' tokens in `StagedEscrow`, derived addresses in
-/// `staking/layout.go`. Tokens and balances are wei; shares and
+/// @dev Staking applies `params`, its copy of `ParamsStorage.staking`. Bonded
+/// tokens sit in the balance of `BondedEscrow`, unbonded and unbonding tokens in
+/// `NotBondedEscrow`, and staged delegations' tokens in `StagedEscrow`, derived
+/// addresses in `staking/layout.go`. Tokens and balances are wei; shares and
 /// rates are 1e18-scaled; times are Unix nanoseconds. Accounts are EVM addresses,
 /// and a validator is keyed by its operator's. An enumeration is kept only where an
 /// on-chain path walks it.
@@ -124,6 +124,15 @@ contract StakingStorage {
         uint64 redelegationsIn; // redelegated to this delegation's validator
     }
 
+    /// @dev ParamsStorage.Staking's members.
+    struct Params {
+        uint64 unbondingTime;
+        uint32 maxValidators;
+        uint32 maxEntries;
+        uint256 maxVotingPowerRatio;
+        uint256 maxVotingPowerEnforcementThreshold;
+    }
+
     ValidatorPower[] internal lastValidators; // 0x11: the bonded set, as last sent to consensus
     uint256 internal lastTotalPower; // 0x12
     /// @dev The bonded set at the end of each epoch's last block, with each
@@ -159,6 +168,11 @@ contract StakingStorage {
     QueueBounds internal stagedQueueBounds;
     mapping(uint64 => StagedOperation) internal stagedQueue; // index =>
     mapping(address => mapping(address => StagedDelegation)) internal stagedDelegations; // delegator => validator =>
+    uint64 internal stagedWork; // work staged during the current epoch: one unit per delegation an operation changes
+
+    /// @dev ParamsStorage.staking as of the latest epoch's end, or as genesis
+    /// wrote it before any.
+    Params internal params;
 
     /// @dev V2 to giga migration. The phase runs from the cutover height until
     /// migrationCursor passes the last V2 key.
