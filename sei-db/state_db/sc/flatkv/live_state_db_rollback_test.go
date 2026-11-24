@@ -58,7 +58,7 @@ func reopenWithoutWAL(t *testing.T, cfg *config.Config) *CommitStore {
 }
 
 // nonceMutations returns block's mutations setting the nonce of the account addr names, converted against prior.
-func nonceMutations(t *testing.T, block uint64, addr byte, prior gigatypes.StateView) []mutation.Mutation {
+func nonceMutations(t *testing.T, block uint64, addr byte, prior gigatypes.RawStateView) []mutation.Mutation {
 	t.Helper()
 	changes := &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
 		Address: gigatypes.Address{addr},
@@ -153,7 +153,7 @@ func TestRollBackLiveStateDBToZero(t *testing.T) {
 
 	rolledBack := reopenWithoutWAL(t, cfg)
 	require.Zero(t, rolledBack.Version())
-	view := rolledBack.OpenView()
+	view := openStateView(rolledBack)
 	defer view.Close()
 	_, ok := view.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, gigatypes.Address{1}.Bytes()))
 	require.False(t, ok, "block 1's state must be gone")
@@ -200,7 +200,7 @@ func TestRollBackLiveStateDBReplaysForwardFromItsOwnHeight(t *testing.T) {
 	rolledBack := reopenWithoutWAL(t, cfg)
 	require.Equal(t, int64(9), rolledBack.Version())
 	require.DirExists(t, filepath.Join(cfg.DataDir, snapshotName(1)))
-	view := rolledBack.OpenView()
+	view := openStateView(rolledBack)
 	defer view.Close()
 	got, ok := view.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, gigatypes.Address{108}.Bytes()))
 	require.True(t, ok, "the live state DB replayed forward from 8, so the working copy it held there is kept")

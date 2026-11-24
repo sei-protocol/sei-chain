@@ -4,7 +4,7 @@
 //
 //	bucket(h) | len(key) | key | h        with bucket(h) = h / bucketSize
 //
-// and nothing else: the value after the latest block lives in the state commit store, which this
+// and nothing else: the value after the latest block lives in the live state store, which this
 // store reads through a LiveStateView. The state after block T is the first record above T, or the
 // current value when there is none. Buckets are contiguous key ranges, so dropping history is one
 // Excise per expired bucket rather than a scan and a tombstone per version.

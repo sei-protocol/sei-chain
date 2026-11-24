@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/stateview"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -71,7 +72,7 @@ func TestUndoLogServesEveryModuleAsOfEachHeight(t *testing.T) {
 	view, ok := log.OpenView(1)
 	require.True(t, ok)
 	defer view.Close()
-	account, exists := view.ReadAccount(addr)
+	account, exists := stateview.New(view).ReadAccount(addr)
 	require.True(t, exists)
 	require.Equal(t, gigatypes.Account{Balance: common.Hash{31: 1}, Nonce: 1, CodeHash: gigatypes.EmptyCodeHash}, account)
 }

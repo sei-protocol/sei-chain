@@ -1,11 +1,11 @@
 package flatkv
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -14,7 +14,7 @@ import (
 // OpenView returns a read-only view of the most recently committed block, which the caller must Close. It
 // panics while the data DBs hold different blocks, which they may from opening until CatchUpToStateWAL()
 // returns.
-func (s *CommitStore) OpenView() gigatypes.StateView {
+func (s *CommitStore) OpenView() gigatypes.RawStateView {
 	blockView, err := s.lastSealed.Get()
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: OpenView: %v", err))
@@ -23,7 +23,9 @@ func (s *CommitStore) OpenView() gigatypes.StateView {
 		// The views themselves are healthy, so the reservation goes back rather than pinning the block.
 		panic(fmt.Sprintf("flatkv: OpenView: %v", errors.Join(err, blockView.Release())))
 	}
-	return newRowStateView(liveRows{blockView: blockView})
+	v := &liveStateView{dbs: blockView}
+	v.closed = utils.MustClose(v, "flatkv state view")
+	return v
 }
 
 // Get returns the value for the given key within the specified module.
@@ -68,7 +70,7 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 		if accountData == nil || accountData.IsDelete() {
 			return nil, false
 		}
-		return accountFieldValue(kind, accountData)
+		return accountData.FieldValue(kind)
 
 	case keys.EVMKeyCode:
 		value, err := s.getCodeValue(keyBytes)
@@ -160,39 +162,6 @@ func parseRow[T vtype.VType](raw []byte, found bool, parse func([]byte) (T, erro
 		return zero, nil
 	}
 	return parse(raw)
-}
-
-// accountFieldValue projects the field that kind names out of an account row, encoded the way the
-// logical EVM key for that field carries it: eight big-endian bytes for a nonce, thirty-two for a code
-// hash or a balance. The second return reports whether that field is set.
-//
-// A zero code hash and a zero balance both report false. A deletion is stored by zeroing the field
-// rather than by removing anything (see PendingAccountWrite.SetField()), so answering "present" for a zero would
-// hand back a key the block deleted. The nonce is the exception: it answers for every row that exists.
-func accountFieldValue(kind keys.EVMKeyKind, account *vtype.AccountData) ([]byte, bool) {
-	switch kind {
-	case keys.EVMKeyNonce:
-		nonceBytes := make([]byte, vtype.NonceLen)
-		binary.BigEndian.PutUint64(nonceBytes, account.GetNonce())
-		return nonceBytes, true
-
-	case keys.EVMKeyCodeHash:
-		codeHash := account.GetCodeHash()
-		if *codeHash == (vtype.CodeHash{}) {
-			return nil, false
-		}
-		return codeHash[:], true
-
-	case keys.EVMKeyBalance:
-		balance := account.GetBalance()
-		if *balance == (vtype.Balance{}) {
-			return nil, false
-		}
-		return balance[:], true
-
-	default:
-		panic(fmt.Sprintf("flatkv: %v does not name an account field", kind))
-	}
 }
 
 func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error) {

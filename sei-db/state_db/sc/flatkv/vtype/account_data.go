@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
 type AccountDataVersion uint8
@@ -173,6 +175,39 @@ func (a *AccountData) GetCodeHash() *CodeHash {
 		return &zero
 	}
 	return (*CodeHash)(a.data[accountCodeHashStart:accountDataLength])
+}
+
+// FieldValue returns the field that kind names, encoded the way the logical EVM key for that field carries it:
+// eight big-endian bytes for a nonce, thirty-two for a code hash or a balance. The second return reports whether
+// that field is set.
+//
+// A zero code hash and a zero balance both report false. A deletion is stored by zeroing the field rather than by
+// removing anything (see PendingAccountWrite.SetField()), so answering "present" for a zero would hand back a key the
+// block deleted. The nonce is the exception: it answers for every row that exists.
+func (a *AccountData) FieldValue(kind keys.EVMKeyKind) ([]byte, bool) {
+	switch kind {
+	case keys.EVMKeyNonce:
+		nonceBytes := make([]byte, NonceLen)
+		binary.BigEndian.PutUint64(nonceBytes, a.GetNonce())
+		return nonceBytes, true
+
+	case keys.EVMKeyCodeHash:
+		codeHash := a.GetCodeHash()
+		if *codeHash == (CodeHash{}) {
+			return nil, false
+		}
+		return codeHash[:], true
+
+	case keys.EVMKeyBalance:
+		balance := a.GetBalance()
+		if *balance == (Balance{}) {
+			return nil, false
+		}
+		return balance[:], true
+
+	default:
+		panic(fmt.Sprintf("flatkv: %v does not name an account field", kind))
+	}
 }
 
 // Check if this account data signifies a deletion operation. A deletion operation is automatically

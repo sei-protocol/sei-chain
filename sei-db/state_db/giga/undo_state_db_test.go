@@ -23,7 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
-// undoTestHome holds the configs a StateDB over an undo-log SS reopens from.
+// undoTestHome holds the configs a StateDB over an undo-log historical state DB reopens from.
 type undoTestHome struct {
 	flatkv *flatkvconfig.Config
 	ss     config.StateStoreConfig
@@ -165,7 +165,7 @@ func TestUndoStateDBServesHistoryAcrossReopen(t *testing.T) {
 	require.False(t, ok, "a height above the applied head is not served")
 	require.NoError(t, db.Close())
 
-	// A clean close drains the log onto SC's height, so reopening keeps every block readable.
+	// A clean close drains the log onto the live state DB's height, so reopening keeps every block readable.
 	db = home.open(t)
 	require.Equal(t, int64(30), db.HistoricalStateDB().GetLatestVersion())
 	model.requireHistory(t, db, 0, 30, keyList)
@@ -377,7 +377,7 @@ func TestUndoStateDBServesHistoryOutsideTheEVMModule(t *testing.T) {
 	}
 }
 
-// Seeding an empty SC to a later height, as InitChain does for a chain that starts above block 1, leaves
+// Seeding an empty live state DB to a later height, as InitChain does for a chain that starts above block 1, leaves
 // the undo log to resume on the seeded height at the first block.
 func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
@@ -400,7 +400,8 @@ func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 	}
 }
 
-// An undo log that holds blocks over an empty SC, as left by wiping SC alone, is refused at open.
+// An undo log that holds blocks over an empty live state DB, as left by wiping the live state DB alone, is
+// refused at open.
 func TestUndoStateDBRefusesAnUndoLogOverAnEmptySC(t *testing.T) {
 	home := newUndoTestHome(t)
 	db := home.open(t)

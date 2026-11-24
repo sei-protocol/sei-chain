@@ -1,6 +1,6 @@
 // Package types declares the contracts the Giga EVM executor reads and writes state through —
-// StateDB, LiveStateStore, HistoricalStateStore and StateView — together with the EVM value types in
-// their signatures.
+// StateDB, LiveStateStore, HistoricalStateStore, RawStateView and StateView — together with the EVM
+// value types in their signatures.
 // It holds no implementation, so a store and its callers can both depend on it.
 package types
 
@@ -13,16 +13,15 @@ import (
 // A callback function for getting the hash of each block.
 type HashListener func(ctx context.Context, blockNum int64, hash *lthash.BlockHash) error
 
-// StateDB is the top-level API used by the Giga EVM executor for
-// read and write. Writes commit into both SC and SS; reads can be served for
-// the current block or for a past block (if retained by the SS).
+// StateDB is the top-level API the Giga EVM executor reads and writes state through. A commit goes to the
+// live state store and, when it is enabled, the historical state store; reads are served for the latest
+// block, or for a past block the historical state store holds.
 type StateDB interface {
 
 	// Ingest a block's state changes.
 	CommitStateChanges(blockNum int64, changes *StateChangeSet) error
 
-	// OpenView returns a read-only StateView of the current block
-	// (backed by an SC ephemeral snapshot). The caller must Close it when done.
+	// OpenView returns a read-only view of the latest committed block. The caller must Close it.
 	OpenView() StateView
 
 	// OpenViewAt returns a read-only StateView for the given
@@ -31,7 +30,7 @@ type StateDB interface {
 	// returned view when done.
 	OpenViewAt(blockNum int64) (StateView, bool)
 
-	// Register a callback function that that gets called for each hash produced by the database. Will be called for
+	// Register a callback function that gets called for each hash produced by the database. Will be called for
 	// each block in order with no gaps. Returning an error from the listener bricks the DB and will eventually
 	// crash the node.
 	//

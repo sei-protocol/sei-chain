@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/stateview"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
@@ -68,7 +69,7 @@ func TestStateViewReadsBuildExactPhysicalKeys(t *testing.T) {
 	misc := &recordingView{}
 	sv, err := sview.NewStoreView(1, acct, code, storage, misc)
 	require.NoError(t, err)
-	v := &rowStateView{rows: liveRows{blockView: sv}}
+	v := stateview.New(&liveStateView{dbs: sv})
 
 	addr := gigatypes.Address{
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,

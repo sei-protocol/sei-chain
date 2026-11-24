@@ -17,7 +17,7 @@ type HistoricalStateStore interface {
 	// Resume binds current, a view of the live state store at version, and enables ApplyBlock. It must
 	// succeed once before ApplyBlock is called. version must be at or above GetLatestVersion. It takes
 	// ownership of current whether or not it succeeds.
-	Resume(version int64, current StateView) error
+	Resume(version int64, current RawStateView) error
 
 	// Resumed reports whether a Resume has succeeded and the store is not closed.
 	Resumed() bool
@@ -26,14 +26,14 @@ type HistoricalStateStore interface {
 	// of current, the live state store's view after the block. It may write in the background, so mutations must
 	// not be modified afterwards; nil means the block changed nothing. It panics before a successful Resume or
 	// after Close.
-	ApplyBlock(version int64, mutations []mutation.Mutation, current StateView)
+	ApplyBlock(version int64, mutations []mutation.Mutation, current RawStateView)
 
 	// WaitForPendingWrites blocks until every block passed to ApplyBlock so far is written.
 	WaitForPendingWrites()
 
 	// OpenView returns a view of the state after block version, and false when the store is closed or
 	// does not serve version. The view holds back pruning until it is closed.
-	OpenView(version int64) (StateView, bool)
+	OpenView(version int64) (RawStateView, bool)
 
 	// GetLatestVersion returns the latest block whose records are written and readable.
 	GetLatestVersion() int64
