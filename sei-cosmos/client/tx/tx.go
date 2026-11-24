@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 
-	gogogrpc "github.com/gogo/protobuf/grpc"
 	"github.com/spf13/pflag"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -19,7 +18,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 )
@@ -27,7 +25,10 @@ import (
 // GenerateOrBroadcastTxCLI will either generate and print and unsigned transaction
 // or sign it and broadcast it returning an error upon failure.
 func GenerateOrBroadcastTxCLI(ctx context.Context, clientCtx client.Context, flagSet *pflag.FlagSet, msgs ...sdk.Msg) error {
-	txf := NewFactoryCLI(clientCtx, flagSet)
+	txf, err := NewFactoryCLI(clientCtx, flagSet)
+	if err != nil {
+		return err
+	}
 	return GenerateOrBroadcastTxWithFactory(ctx, clientCtx, txf, msgs...)
 }
 
@@ -52,24 +53,8 @@ func GenerateOrBroadcastTxWithFactory(ctx context.Context, clientCtx client.Cont
 }
 
 // GenerateTx will generate an unsigned transaction and print it to the writer
-// specified by ctx.Output. If simulation was requested, the gas will be
-// simulated and also printed to the same writer before the transaction is
-// printed.
+// specified by ctx.Output.
 func GenerateTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
-	if txf.SimulateAndExecute() {
-		if clientCtx.Offline {
-			return errors.New("cannot estimate gas in offline mode")
-		}
-
-		_, adjusted, err := CalculateGas(clientCtx, txf, msgs...)
-		if err != nil {
-			return err
-		}
-
-		txf = txf.WithGas(adjusted)
-		_, _ = fmt.Fprintf(os.Stderr, "%s\n", GasEstimateResponse{GasEstimate: txf.Gas()})
-	}
-
 	tx, err := BuildUnsignedTx(txf, msgs...)
 	if err != nil {
 		return err
@@ -84,26 +69,11 @@ func GenerateTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 }
 
 // BroadcastTx attempts to generate, sign and broadcast a transaction with the
-// given set of messages. It will also simulate gas requirements if necessary.
-// It will return an error upon failure.
+// given set of messages. It will return an error upon failure.
 func broadcastTx(ctx context.Context, clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 	txf, err := prepareFactory(clientCtx, txf)
 	if err != nil {
 		return err
-	}
-
-	if txf.SimulateAndExecute() || clientCtx.Simulate {
-		_, adjusted, err := CalculateGas(clientCtx, txf, msgs...)
-		if err != nil {
-			return err
-		}
-
-		txf = txf.WithGas(adjusted)
-		_, _ = fmt.Fprintf(os.Stderr, "%s\n", GasEstimateResponse{GasEstimate: txf.Gas()})
-	}
-
-	if clientCtx.Simulate {
-		return nil
 	}
 
 	tx, err := BuildUnsignedTx(txf, msgs...)
@@ -158,20 +128,15 @@ func broadcastTx(ctx context.Context, clientCtx client.Context, txf Factory, msg
 }
 
 // WriteGeneratedTxResponse writes a generated unsigned transaction to the
-// provided http.ResponseWriter. It will simulate gas costs if requested by the
-// BaseReq. Upon any error, the error will be written to the http.ResponseWriter.
+// provided http.ResponseWriter. Upon any error, the error will be written to the
+// http.ResponseWriter.
 // Note that this function returns the legacy StdTx Amino JSON format for compatibility
 // with legacy clients.
 // Deprecated: We are removing Amino soon.
 func WriteGeneratedTxResponse(
 	clientCtx client.Context, w http.ResponseWriter, br rest.BaseReq, msgs ...sdk.Msg,
 ) {
-	gasAdj, ok := rest.ParseFloat64OrReturnBadRequest(w, br.GasAdjustment, flags.DefaultGasAdjustment)
-	if !ok {
-		return
-	}
-
-	gasSetting, err := flags.ParseGasSetting(br.Gas)
+	gas, err := flags.ParseGasSetting(br.Gas)
 	if rest.CheckBadRequestError(w, err) {
 		return
 	}
@@ -179,32 +144,11 @@ func WriteGeneratedTxResponse(
 	txf := Factory{fees: br.Fees, gasPrices: br.GasPrices}.
 		WithAccountNumber(br.AccountNumber).
 		WithSequence(br.Sequence).
-		WithGas(gasSetting.Gas).
-		WithGasAdjustment(gasAdj).
+		WithGas(gas).
 		WithMemo(br.Memo).
 		WithChainID(br.ChainID).
-		WithSimulateAndExecute(br.Simulate).
 		WithTxConfig(clientCtx.TxConfig).
 		WithTimeoutHeight(br.TimeoutHeight)
-
-	if br.Simulate || gasSetting.Simulate {
-		if gasAdj < 0 {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, sdkerrors.ErrorInvalidGasAdjustment.Error())
-			return
-		}
-
-		_, adjusted, err := CalculateGas(clientCtx, txf, msgs...)
-		if rest.CheckInternalServerError(w, err) {
-			return
-		}
-
-		txf = txf.WithGas(adjusted)
-
-		if br.Simulate {
-			rest.WriteSimulationResponse(w, clientCtx.LegacyAmino, txf.Gas())
-			return
-		}
-	}
 
 	tx, err := BuildUnsignedTx(txf, msgs...)
 	if rest.CheckBadRequestError(w, err) {
@@ -231,34 +175,6 @@ func WriteGeneratedTxResponse(
 // created, the fee, memo, and messages are set.
 func BuildUnsignedTx(txf Factory, msgs ...sdk.Msg) (client.TxBuilder, error) {
 	return txf.BuildUnsignedTx(msgs...)
-}
-
-// BuildSimTx creates an unsigned tx with an empty single signature and returns
-// the encoded transaction or an error if the unsigned transaction cannot be
-// built.
-func BuildSimTx(txf Factory, msgs ...sdk.Msg) ([]byte, error) {
-	return txf.BuildSimTx(msgs...)
-}
-
-// CalculateGas simulates the execution of a transaction and returns the
-// simulation response obtained by the query and the adjusted gas amount.
-func CalculateGas(
-	clientCtx gogogrpc.ClientConn, txf Factory, msgs ...sdk.Msg,
-) (*tx.SimulateResponse, uint64, error) {
-	txBytes, err := BuildSimTx(txf, msgs...)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	txSvcClient := tx.NewServiceClient(clientCtx)
-	simRes, err := txSvcClient.Simulate(context.Background(), &tx.SimulateRequest{
-		TxBytes: txBytes,
-	})
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return simRes, uint64(txf.GasAdjustment() * float64(simRes.GasInfo.GasUsed)), nil
 }
 
 // prepareFactory ensures the account defined by ctx.GetFromAddress() exists and
@@ -422,13 +338,4 @@ func Sign(txf Factory, name string, txBuilder client.TxBuilder, overwriteSig boo
 	}
 	prevSignatures = append(prevSignatures, sig)
 	return txBuilder.SetSignatures(prevSignatures...)
-}
-
-// GasEstimateResponse defines a response definition for tx gas estimation.
-type GasEstimateResponse struct {
-	GasEstimate uint64 `json:"gas_estimate" yaml:"gas_estimate"`
-}
-
-func (gr GasEstimateResponse) String() string {
-	return fmt.Sprintf("gas estimate: %d", gr.GasEstimate)
 }

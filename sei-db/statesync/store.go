@@ -79,6 +79,11 @@ func ClaimKey(chainID string) string {
 	return path.Join(keyDir, chainID, "upload-claim")
 }
 
+// WriteCheckKey returns the key that a write check of chain chainID uses. No object stays at it.
+func WriteCheckKey(chainID string) string {
+	return path.Join(keyDir, chainID, "write-check")
+}
+
 // ReadLatest returns the newest archive height of chain chainID in store. It returns an error
 // wrapping ErrObjectNotFound when store has no archive height for the chain.
 func ReadLatest(ctx context.Context, store ObjectStore, chainID string) (int64, error) {

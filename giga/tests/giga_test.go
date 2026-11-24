@@ -229,7 +229,7 @@ func RunBlock(t testing.TB, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, 
 		Header: &header,
 	}
 
-	events, results, _, err := tCtx.TestApp.ProcessBlock(tCtx.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, false, nil)
+	events, results, _, err := tCtx.TestApp.ProcessBlock(tCtx.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, nil)
 	return events, results, err
 }
 

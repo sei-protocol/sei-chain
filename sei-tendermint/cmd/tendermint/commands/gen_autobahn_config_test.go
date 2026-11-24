@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+
 	"github.com/sei-protocol/sei-chain/app/upgradenames"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/stretchr/testify/require"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands/preinstalls"
@@ -35,7 +36,6 @@ func genNodeDir(t *testing.T, name string, voter string) string {
 		"validator_pubkey.txt": string(valKey),
 		"node_pubkey.txt":      string(nodeKey),
 		"autobahn_address.txt": "127.0.0.1:26656",
-		"evmrpc_url.txt":       "ws://127.0.0.1:8546",
 	}
 	if voter != "" {
 		files["evm_voter.txt"] = voter + "\n"
@@ -106,6 +106,14 @@ func TestGenAutobahnConfigRejectsBadFlags(t *testing.T) {
 		_, err := runGenAutobahnConfig(t, args...)
 		require.Error(t, err, name)
 	}
+}
+
+func TestGenAutobahnConfigLocalEVMRPC(t *testing.T) {
+	cfg, err := runGenAutobahnConfig(t, "--evmrpc", "ws://local.example:8546", genNodeDir(t, "node0", ""))
+	require.NoError(t, err)
+	endpoint, ok := cfg.EVMRPC.Get()
+	require.True(t, ok)
+	require.Equal(t, "ws://local.example:8546", endpoint.String())
 }
 
 var genFunder = common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")

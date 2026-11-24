@@ -15,11 +15,14 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -36,6 +39,7 @@ type Executor struct {
 	stateStore      gigatypes.StateDB
 	receiptStore    receiptdb.ReceiptStore
 	receiptHasher   *receipthash.ReceiptHasher
+	archive         archive.ArchivalStore
 	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
@@ -178,7 +182,7 @@ func (e *Executor) MarkWaitingForBlock() {
 // execute in separate stages instead, where ExecutePreparedBlock leaves the commit running behind
 // the next block rather than waiting for it here.
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
-	prepared, err := e.PrepareBlock(ctx, req)
+	prepared, err := e.PrepareBlock(req)
 	if err != nil {
 		return nil, err
 	}
@@ -193,41 +197,42 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 	return result, nil
 }
 
-func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	decoded, err := e.DecodeBlock(ctx, req)
+func (e *Executor) PrepareBlock(req BlockRequest) (PreparedBlock, error) {
+	decoded, err := e.DecodeBlock(req)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
-	return e.RecoverSenders(ctx, decoded)
+	return decoded.prepared(), nil
 }
 
-// DecodeBlock decodes and validates req's transactions, leaving their senders unresolved.
-func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
+// DecodeBlock decodes and validates req's transactions and resolves their senders.
+func (e *Executor) DecodeBlock(req BlockRequest) (DecodedBlock, error) {
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return DecodedBlock{}, err
 	}
-	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
-		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
-	}
-	txs, err := decodeBlockTxs(ctx, req.Txs, e.cfg.ParseWorkers)
+	signer := ethtypes.MakeSigner(e.chainConfig(req.Context), new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
+	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(req.Txs)
 	if err != nil {
 		return DecodedBlock{}, err
 	}
-	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
+	return DecodedBlock{context: req.Context, txs: resolved}, nil
 }
 
-// RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
-// b carries an already verified sender for it.
-func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
-	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
-	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
-	if err != nil {
+// PrepareDecodedBlock validates transactions with verified senders for block and prepares them for execution.
+func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, txs []abevm.EvmTx) (PreparedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(block), block); err != nil {
 		return PreparedBlock{}, err
 	}
-	return PreparedBlock{
-		Context: b.context,
-		Txs:     parsed,
-	}, nil
+	signer := abevm.NewSigner(ethtypes.MakeSigner(e.chainConfig(block), new(big.Int).SetUint64(block.Number), block.Time), 0, e.cfg.ParseWorkers)
+	for i, tx := range txs {
+		if err := validateSupportedTx(tx.Transaction()); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+		if err := signer.Admits(tx.Transaction()); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+	}
+	return (DecodedBlock{context: block, txs: txs}).prepared(), nil
 }
 
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {

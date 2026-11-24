@@ -72,6 +72,7 @@ func TestConv(t *testing.T) {
 			msgTest(rng, GenCommitVote(rng), CommitVoteConv, SignedCommitVoteConv),
 			msgTest(rng, GenTimeoutVote(rng), TimeoutVoteConv, SignedTimeoutVoteConv),
 			msgTest(rng, GenAppVote(rng), AppVoteConv, SignedAppVoteConv),
+			msgTest(rng, GetChallenge(rng), ChallengeConv, SignedChallengeConv),
 		); err != nil {
 			t.Error(err)
 		}
@@ -102,7 +103,7 @@ func TestMarshal(t *testing.T) {
 func makePrepareQC(keys []SecretKey, vote *PrepareVote) *PrepareQC {
 	var votes []*Signed[*PrepareVote]
 	for _, k := range keys {
-		votes = append(votes, Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return NewPrepareQC(votes)
 }
@@ -119,7 +120,7 @@ func TestNewTimeoutQC(t *testing.T) {
 			Number:     GenViewNumber(rng) % view.Number,
 			EpochIndex: view.EpochIndex,
 		}
-		p := &Proposal{viewNumber: pView.Number, header: newRoadBlockHeader(pView.EpochIndex, pView.Height, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
+		p := &Proposal{viewNumber: pView.Number, header: newRoadBlockHeader(pView.EpochIndex, pView.Height, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), rng.GenSlice(GenLaneRange))}
 		if wantView.Less(pView) {
 			wantView = pView
 		}

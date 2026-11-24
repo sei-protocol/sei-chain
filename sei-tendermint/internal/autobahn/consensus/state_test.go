@@ -88,7 +88,7 @@ func makeFullProposalAt(rng utils.Rng, keys []types.SecretKey, vs types.ViewSpec
 	laneVote := types.NewLaneVote(vs.Epoch.EpochIndex(), header)
 	laneVotes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, key := range types.TestKeysWithWeight(c, keys, c.LaneQuorum()) {
-		laneVotes = append(laneVotes, types.Sign(key, laneVote))
+		laneVotes = append(laneVotes, key.Sign(laneVote))
 	}
 	laneQCs := map[types.LaneID]*types.LaneQC{lane: types.NewLaneQC(laneVotes)}
 
@@ -188,7 +188,7 @@ func (e liveEnv) seedLaneQC(ctx context.Context) error {
 	h := b.Msg().Block().Header()
 	c := e.committee()
 	for _, k := range types.TestKeysWithWeight(c, e.keys, c.LaneQuorum()) {
-		if err := av.PushVote(ctx, types.Sign(k, types.NewLaneVote(e.vs.Epoch.EpochIndex(), h))); err != nil {
+		if err := av.PushVote(ctx, k.Sign(types.NewLaneVote(e.vs.Epoch.EpochIndex(), h))); err != nil {
 			return fmt.Errorf("PushVote: %w", err)
 		}
 	}
@@ -225,7 +225,7 @@ func (e liveEnv) enterEpoch1(ctx context.Context) error {
 	votes := make([]*types.Signed[*types.CommitVote], len(e.keys))
 	prepareQC := types.BuildPrepareQC(e.keys, proposal)
 	for i, k := range e.keys {
-		votes[i] = types.Sign(k, types.NewCommitVote(prepareQC))
+		votes[i] = k.Sign(types.NewCommitVote(prepareQC))
 	}
 	if err := e.s.pushSpec(ctx, types.ConsensusSpec{
 		CommitQC: utils.Some(types.NewCommitQC(votes)),
@@ -502,7 +502,7 @@ func pushVoteCases() []pushVoteCase {
 			name:   "prepare",
 			quorum: (*types.Committee).PrepareQuorum,
 			push: func(e liveEnv, k types.SecretKey, p *types.Proposal) error {
-				return e.s.PushPrepareVote(e.t.Context(), types.Sign(k, types.NewPrepareVote(p)))
+				return e.s.PushPrepareVote(e.t.Context(), k.Sign(types.NewPrepareVote(p)))
 			},
 			badSig: utils.Some(func(e liveEnv, p *types.Proposal) error {
 				return e.s.PushPrepareVote(e.t.Context(), types.SignedForTesting(types.NewPrepareVote(p), fakeSig(e.keys[0].Public())))
@@ -519,7 +519,7 @@ func pushVoteCases() []pushVoteCase {
 			name:   "commit",
 			quorum: (*types.Committee).CommitQuorum,
 			push: func(e liveEnv, k types.SecretKey, p *types.Proposal) error {
-				return e.s.PushCommitVote(e.t.Context(), types.Sign(k, types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
+				return e.s.PushCommitVote(e.t.Context(), k.Sign(types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
 			},
 			badSig: utils.Some(func(e liveEnv, p *types.Proposal) error {
 				return e.s.PushCommitVote(e.t.Context(), types.SignedForTesting(types.NewCommitVote(types.BuildPrepareQC(e.keys, p)), fakeSig(e.keys[0].Public())))
@@ -612,7 +612,7 @@ func epochVoteCases() []epochVoteCase {
 			name:   "prepare",
 			quorum: (*types.Committee).PrepareQuorum,
 			push: func(ctx context.Context, e liveEnv, p *types.Proposal, k types.SecretKey) error {
-				return e.s.PushPrepareVote(ctx, types.Sign(k, types.NewPrepareVote(p)))
+				return e.s.PushPrepareVote(ctx, k.Sign(types.NewPrepareVote(p)))
 			},
 			qcView: func(s *State) (types.View, bool) {
 				qc, ok := s.prepareQC().Load().Get()
@@ -640,7 +640,7 @@ func epochVoteCases() []epochVoteCase {
 			name:   "commit",
 			quorum: (*types.Committee).CommitQuorum,
 			push: func(ctx context.Context, e liveEnv, p *types.Proposal, k types.SecretKey) error {
-				return e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
+				return e.s.PushCommitVote(ctx, k.Sign(types.NewCommitVote(types.BuildPrepareQC(e.keys, p))))
 			},
 			qcView: func(s *State) (types.View, bool) {
 				qc, ok := s.commitQC().Load().Get()
@@ -931,7 +931,7 @@ func TestRun(t *testing.T) {
 			e.spawnRun(ctx, sc)
 			c := e.committee()
 			for _, k := range types.TestKeysWithWeight(c, e.keys, c.PrepareQuorum()) {
-				if err := e.s.PushPrepareVote(ctx, types.Sign(k, types.NewPrepareVote(p))); err != nil {
+				if err := e.s.PushPrepareVote(ctx, k.Sign(types.NewPrepareVote(p))); err != nil {
 					return err
 				}
 			}
@@ -964,7 +964,7 @@ func TestRun(t *testing.T) {
 			e.spawnRun(ctx, sc)
 			c := e.committee()
 			for _, k := range types.TestKeysWithWeight(c, e.keys, c.PrepareQuorum()) {
-				if err := e.s.PushPrepareVote(ctx, types.Sign(k, types.NewPrepareVote(p))); err != nil {
+				if err := e.s.PushPrepareVote(ctx, k.Sign(types.NewPrepareVote(p))); err != nil {
 					return err
 				}
 			}
@@ -974,7 +974,7 @@ func TestRun(t *testing.T) {
 			}
 			prepareQC := prepared.PrepareQC.OrPanic("missing prepare QC")
 			for _, k := range types.TestKeysWithWeight(c, e.keys, c.CommitQuorum()) {
-				if err := e.s.PushCommitVote(ctx, types.Sign(k, types.NewCommitVote(prepareQC))); err != nil {
+				if err := e.s.PushCommitVote(ctx, k.Sign(types.NewCommitVote(prepareQC))); err != nil {
 					return err
 				}
 			}
@@ -1339,7 +1339,7 @@ func TestVoteTimeout_RecordsPhases(t *testing.T) {
 	leader = ep0.Committee().Leader(view).ED25519().Address().String()
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
-		i.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal)))
+		i.PrepareVote = utils.Some(keys[0].Sign(types.NewPrepareVote(proposal)))
 		isend.Store(i)
 	}
 	noPrepareQC := phaseCount(t, leader, "no_prepare_qc")

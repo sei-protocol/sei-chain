@@ -40,7 +40,7 @@ func (api *stateAPI) GetBalance(ctx context.Context, address common.Address, blo
 	}
 	balance, err := readState(ctx, func() (uint256.Int, error) {
 		if latest {
-			return api.backend.EvmBalance(address, nil), nil
+			return api.backend.EvmBalance(address), nil
 		}
 		return api.backend.EvmBalanceAt(address, height)
 	})
@@ -110,7 +110,7 @@ func stateHeight(ctx context.Context, backend Backend, store receiptdb.ReceiptSt
 			height = number.Int64()
 		}
 	}
-	head := backend.EvmBlockNumber()
+	head := committedHead(ctx, backend)
 	if uint64(height) > head { //nolint:gosec // non-negative
 		return 0, false, fmt.Errorf("%w: block %d, latest %d", errBlockAboveHead, height, head)
 	}

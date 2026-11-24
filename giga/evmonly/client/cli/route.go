@@ -19,8 +19,14 @@ const (
 	// FlagGasFeeCap is the gas price, in wei, of a transaction sent with
 	// --evm-rpc.
 	FlagGasFeeCap = "gas-fee-cap"
+	// FlagGasAdjustment is the factor the gas estimate of a transaction sent
+	// with --evm-rpc is multiplied by.
+	FlagGasAdjustment = "gas-adjustment"
 	// FlagName is the plan cancel-software-upgrade cancels.
 	FlagName = "name"
+
+	// gasAuto is the --gas value that asks for an estimate, as an unset --gas does.
+	gasAuto = "auto"
 )
 
 // handler runs a command against the precompiles.
@@ -78,6 +84,7 @@ func Route(root *cobra.Command) {
 		tree.PersistentFlags().String(FlagEVMRPC, "", "EVM JSON-RPC endpoint of an EVM-only (giga) chain, used instead of --node")
 		if path[0] == "tx" {
 			tree.PersistentFlags().Uint64(FlagGasFeeCap, 0, "Gas price in wei with --evm-rpc; 0 uses the node's suggested price")
+			tree.PersistentFlags().Float64(FlagGasAdjustment, 0, fmt.Sprintf("Factor the gas estimate is multiplied by with --evm-rpc; 0 uses %v", defaultGasAdjustment))
 		}
 		wrapTree(tree)
 	}

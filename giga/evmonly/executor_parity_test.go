@@ -842,12 +842,12 @@ func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.BlobBaseFee = big.NewInt(1)
 
-	prepared, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}).PrepareBlock(t.Context(), BlockRequest{
+	prepared, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}).PrepareBlock(BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
 
-	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 	require.Empty(t, prepared.Txs)
 }
 

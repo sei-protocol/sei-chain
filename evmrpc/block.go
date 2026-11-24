@@ -315,7 +315,11 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		}
 		txHashes := typedTxHashesOf(block, msgs)
 		// Place every receipt from one walk; a walk per receipt is quadratic in the block's tx count.
-		positions := evmTxPositions(ctxProvider(height), block, msgs, a.keeper, a.cacheCreationMutex, a.globalBlockCache)
+		sdkCtx, err := ctxAtHeight(ctxProvider, height)
+		if err != nil {
+			return nil, err
+		}
+		positions := evmTxPositions(sdkCtx, block, msgs, a.keeper, a.cacheCreationMutex, a.globalBlockCache)
 
 		// Get tx receipts for all hashes in parallel, with a hard cap on the
 		// goroutine fan-out, so a block with a very large number of txs

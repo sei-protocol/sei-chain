@@ -33,6 +33,7 @@ const (
 	// drop reason values for newHeadsDroppedBlockCount.
 	newHeadsDropMissed             = "missed"               // the event never reached the newHeads goroutine
 	newHeadsDropBaseFeeUnavailable = "base_fee_unavailable" // the parent's state could not be read
+	newHeadsDropStateUnavailable   = "state_unavailable"    // the block's own state could not be read
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"

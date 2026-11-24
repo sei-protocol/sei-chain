@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -22,7 +22,7 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
-	ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
+	ds := newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	defer func() {
@@ -37,7 +37,7 @@ func TestSubscribeLaneProposals_WaitsForPersistence(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 1)
-		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
+		state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)}), utils.None[string]()))
 		defer func() { require.NoError(t, state.Close()) }()
 		lane := state.LocalLane().OrPanic("genesis")
 		var blocks []*types.Signed[*types.LaneProposal]
@@ -74,7 +74,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
 	peer := a.Public()
-	ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
+	ds := newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	lane0 := state.LocalLane().OrPanic("genesis")
@@ -181,7 +181,7 @@ func TestLaneRevoteOnEpochAdvance(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
-	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)}), utils.None[string]()))
 	defer func() { _ = state.Close() }()
 	lane := state.LocalLane().OrPanic("lane")
 	var headers []*types.LaneBlockHeader
@@ -195,21 +195,21 @@ func TestLaneRevoteOnEpochAdvance(t *testing.T) {
 	// Receive 2 blocks.
 	sub := state.SubscribeLaneVotes()
 	requireLaneVotes(t, ctx, sub,
-		types.Sign(keys[0], types.NewLaneVote(0, headers[0])),
-		types.Sign(keys[0], types.NewLaneVote(0, headers[1])),
+		keys[0].Sign(types.NewLaneVote(0, headers[0])),
+		keys[0].Sign(types.NewLaneVote(0, headers[1])),
 	)
 
 	// Prune 1st, advance epoch, receive 2nd again.
 	pruneToHeader(state, keys, headers[0])
 	utils.OrPanic(TestAdvanceToEpoch(ctx, state, keys, registry, 1))
 	requireLaneVotes(t, ctx, sub,
-		types.Sign(keys[0], types.NewLaneVote(1, headers[1])),
+		keys[0].Sign(types.NewLaneVote(1, headers[1])),
 	)
 
 	// Persist 3rd and receive it.
 	state.setNextBlockToPersist(lane, 3)
 	requireLaneVotes(t, ctx, sub,
-		types.Sign(keys[0], types.NewLaneVote(1, headers[2])),
+		keys[0].Sign(types.NewLaneVote(1, headers[2])),
 	)
 }
 
@@ -230,7 +230,7 @@ func TestSubscribeLaneVotes_PreviousAndCurrentEpochs(t *testing.T) {
 				registry, keys := epoch.GenRegistry(rng, 2)
 				keys = append(keys, types.GenSecretKey(rng))
 				require.NoError(t, registry.TestPushEpoch(0, map[types.PublicKey]uint64{keys[0].Public(): 1, keys[2].Public(): 1}))
-				state := utils.OrPanic1(NewState(keys[tc.voter], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
+				state := utils.OrPanic1(NewState(keys[tc.voter], newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)}), utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
 				lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("staying lane")
 				first := testSignedBlock(keys[0], lane, 0, types.LaneBlockHeaderHash{}, rng)
@@ -244,7 +244,7 @@ func TestSubscribeLaneVotes_PreviousAndCurrentEpochs(t *testing.T) {
 					var votes []*types.Signed[*types.LaneVote]
 					for _, epochIndex := range tc.epochs {
 						for _, header := range headers {
-							votes = append(votes, types.Sign(keys[tc.voter], types.NewLaneVote(epochIndex, header)))
+							votes = append(votes, keys[tc.voter].Sign(types.NewLaneVote(epochIndex, header)))
 						}
 					}
 					return votes
@@ -253,7 +253,7 @@ func TestSubscribeLaneVotes_PreviousAndCurrentEpochs(t *testing.T) {
 				requireLaneVotes(t, ctx, sub, expected(first.Msg().Block().Header())...)
 				state.setNextBlockToPersist(lane, 2)
 				if tc.voter != 1 {
-					requireLaneVotes(t, ctx, sub, types.Sign(keys[tc.voter], types.NewLaneVote(2, second.Msg().Block().Header())))
+					requireLaneVotes(t, ctx, sub, keys[tc.voter].Sign(types.NewLaneVote(2, second.Msg().Block().Header())))
 				}
 
 				require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
@@ -290,7 +290,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 	joiner := types.GenSecretKey(rng)
 	allKeys := append(keys, joiner)
 	// An empty store loads from epoch 0, so the state is built before the registry moves on.
-	ds := newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)})
+	ds := newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)})
 	// The registry retains three epochs, so each epoch is captured as it is derived.
 	epochs := slices.Clone(registry.Epochs())
 	for _, weights := range []map[types.PublicKey]uint64{
@@ -317,7 +317,7 @@ func TestBlock_WaitForFutureLane(t *testing.T) {
 				rng := utils.TestRng()
 				state := utils.OrPanic1(NewState(joiner, ds, utils.None[string]()))
 				defer func() { require.NoError(t, state.Close()) }()
-				want := types.Sign(joiner, types.NewLaneProposal(types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))))
+				want := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng))))
 				require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 					// PushBlock should succeed in both cases.
 					sc.Spawn(func() error { return state.PushBlock(ctx, want) })

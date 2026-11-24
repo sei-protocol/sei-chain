@@ -31,7 +31,7 @@ func TestRoadBlockVerify(t *testing.T) {
 			var votes []*Signed[*CommitVote]
 			prepareQC := BuildPrepareQC(keys, proposal)
 			for _, key := range signingKeys {
-				votes = append(votes, Sign(key, NewCommitVote(prepareQC)))
+				votes = append(votes, key.Sign(NewCommitVote(prepareQC)))
 			}
 			headers := make([]*LaneBlockHeader, len(blocks))
 			for i, block := range blocks {
@@ -92,8 +92,8 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	require.NotEqual(t, NewHashed(proposal).Hash(), NewHashed(reproposal).Hash())
 
 	key := GenSecretKey(rng)
-	qc := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(BuildPrepareQC([]SecretKey{key}, proposal)))})
-	reproposalQC := NewCommitQC([]*Signed[*CommitVote]{Sign(key, NewCommitVote(BuildPrepareQC([]SecretKey{key}, reproposal)))})
+	qc := NewCommitQC([]*Signed[*CommitVote]{key.Sign(NewCommitVote(BuildPrepareQC([]SecretKey{key}, proposal)))})
+	reproposalQC := NewCommitQC([]*Signed[*CommitVote]{key.Sign(NewCommitVote(BuildPrepareQC([]SecretKey{key}, reproposal)))})
 	require.Equal(t, proposal.Header().Hash(), qc.Header().Hash())
 	require.Equal(t, qc.Header().Hash(), reproposalQC.Header().Hash())
 	headers := make([]*LaneBlockHeader, len(blocks))
@@ -198,7 +198,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 		}
 		votes := make([]*Signed[*LaneVote], len(keys))
 		for i, key := range keys {
-			votes[i] = Sign(key, NewLaneVote(ep.EpochIndex(), headers[len(headers)-1]))
+			votes[i] = key.Sign(NewLaneVote(ep.EpochIndex(), headers[len(headers)-1]))
 		}
 		laneQCs[lane] = NewLaneQC(votes)
 	}
@@ -221,7 +221,7 @@ func TestSuperBlockNamesTheParentOfItsRoadBlock(t *testing.T) {
 		prepareQC := BuildPrepareQC(keys, proposal)
 		var votes []*Signed[*CommitVote]
 		for _, key := range keys {
-			votes = append(votes, Sign(key, NewCommitVote(prepareQC)))
+			votes = append(votes, key.Sign(NewCommitVote(prepareQC)))
 		}
 		qc := NewFullCommitQC(NewCommitQC(votes), []*LaneBlockHeader{blocks[0].Header()})
 		require.Equal(t, parent, NewRoadBlock(qc, blocks).SuperBlock().ParentHash)
@@ -247,7 +247,7 @@ func TestRoadBlockHeaderParentHashRoundTrips(t *testing.T) {
 		utils.None[RoadBlockHeaderHash](),
 		utils.Some(GenRoadBlockHeaderHash(rng)),
 	} {
-		h := newRoadBlockHeader(GenEpochIndex(rng), RoadHeight(rng.Uint64()), parentHash, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))
+		h := newRoadBlockHeader(GenEpochIndex(rng), RoadHeight(rng.Uint64()), parentHash, utils.GenTimestamp(rng), rng.GenSlice(GenLaneRange))
 		got, err := RoadBlockHeaderConv.Decode(RoadBlockHeaderConv.Encode(h))
 		require.NoError(t, err)
 		require.Equal(t, parentHash, got.ParentHash())

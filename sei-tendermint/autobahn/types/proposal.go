@@ -168,7 +168,7 @@ func NewReproposal(
 		return nil, false
 	}
 	return &FullProposal{
-		proposal:  Sign(key, p),
+		proposal:  key.Sign(p),
 		timeoutQC: utils.Some(timeoutQC),
 	}, true
 }
@@ -193,7 +193,7 @@ func NewProposal(
 		return nil, err
 	}
 	return &FullProposal{
-		proposal:  Sign(key, proposal),
+		proposal:  key.Sign(proposal),
 		laneQCs:   laneQCs,
 		timeoutQC: viewSpec.TimeoutQC,
 	}, nil

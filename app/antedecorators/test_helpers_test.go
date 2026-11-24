@@ -10,23 +10,23 @@ var output = ""
 
 type FakeAnteDecoratorOne struct{}
 
-func (ad FakeAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad FakeAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%sone", output)
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 type FakeAnteDecoratorTwo struct{}
 
-func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%stwo", output)
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 type FakeAnteDecoratorThree struct{}
 
-func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	output = fmt.Sprintf("%sthree", output)
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 type FakeTx struct {

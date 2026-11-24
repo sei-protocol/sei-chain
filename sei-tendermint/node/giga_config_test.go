@@ -3,15 +3,20 @@ package node
 import (
 	"encoding/binary"
 	"math/big"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -154,6 +159,43 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	require.Equal(t, uint64(713701), app.EvmChainID())
 }
 
+func TestMakeEVMApplicationRefusesAPendingRestore(t *testing.T) {
+	psd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restore-pending"), []byte("7\n"), 0o600))
+
+	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+
+	require.ErrorIs(t, err, errPendingRestore)
+	_, err = os.Stat(filepath.Join(psd, "data"))
+	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a home with a pending restore")
+}
+
+func TestMakeEVMApplicationRemovesTheStagingDirOfAStoppedImport(t *testing.T) {
+	psd := t.TempDir()
+	layout := autobahnLayout(psd)
+	require.NoError(t, os.MkdirAll(filepath.Join(layout.ImportStagingDir, "download"), 0o750))
+
+	_, manager, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	_, err = os.Stat(layout.ImportStagingDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestRemoveStoppedImportKeepsTheStagingDirOfARunningImport(t *testing.T) {
+	layout := autobahnLayout(t.TempDir())
+	require.NoError(t, os.MkdirAll(layout.ImportStagingDir, 0o750))
+	lock, err := flatkv.LockRoot(layout.FlatKVDir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Unlock()) }()
+
+	require.ErrorIs(t, removeStoppedImport(layout), commonerrors.ErrFileLockUnavailable)
+
+	_, err = os.Stat(layout.ImportStagingDir)
+	require.NoError(t, err)
+}
+
 // The builder's first block is the genesis height. A chain that starts above 1
 // still publishes the app hash of that first block.
 func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
@@ -168,24 +210,18 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, err = app.InitChain(&proxy.RequestInitChain{
-		InitialHeight: initialHeight,
-		MaxGas:        30_000_000,
-	})
+	err = app.InitChain(abevm.InitConfig{
+		InitialHeight: atypes.RoadHeight(initialHeight),
+		GasLimit:      30_000_000})
 	require.NoError(t, err)
 
 	var blockHash [32]byte
 	binary.BigEndian.PutUint64(blockHash[:], uint64(initialHeight))
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), uint64(initialHeight), blockHash))
-	_, err = app.FinalizeBlock(t.Context(), &proxy.RequestFinalizeBlock{
-		Hash: blockHash[:],
-		Header: &proxy.Header{
-			Height: initialHeight,
-			Time:   time.Unix(1_700_000_000+initialHeight, 0),
-		},
-	})
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Hash:   common.BytesToHash(blockHash[:]),
+		Height: atypes.RoadHeight(initialHeight),
+		Time:   time.Unix(1_700_000_000+initialHeight, 0)})
 	require.NoError(t, err)
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
