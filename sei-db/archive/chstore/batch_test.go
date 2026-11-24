@@ -85,8 +85,8 @@ func TestBatchAdd(t *testing.T) {
 	require.Equal(t, u256(big.NewInt(7)), txs.price[0])
 
 	// The block and the locatable transaction are located; the rejection is not.
-	require.Equal(t, proto.ColUInt8{locatorBlock, locatorTx}, b.locatorRows.kind)
-	require.Equal(t, proto.ColUInt64{3, 3 << txIndexBits}, b.locatorRows.location)
+	require.Equal(t, proto.ColUInt64{3}, b.blockLocatorRows.location)
+	require.Equal(t, proto.ColUInt64{3 << txIndexBits}, b.txLocatorRows.location)
 
 	logs := &b.logRows
 	require.Equal(t, 1, logs.number.Rows())
@@ -113,7 +113,7 @@ func TestBatchLocatesALocatableRejection(t *testing.T) {
 	b := newBatch()
 	require.NoError(t, b.add(&block))
 	require.Equal(t, proto.ColUInt8{1, 0}, b.txRows.executed)
-	require.Equal(t, proto.ColUInt64{3, 3 << txIndexBits, 3<<txIndexBits | 1}, b.locatorRows.location)
+	require.Equal(t, proto.ColUInt64{3 << txIndexBits, 3<<txIndexBits | 1}, b.txLocatorRows.location)
 }
 
 func TestBatchOwnsItsRows(t *testing.T) {
