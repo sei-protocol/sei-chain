@@ -526,6 +526,36 @@ func TestInsertTx_BadNonceRejected(t *testing.T) {
 	}))
 }
 
+func TestInsertTx_ResubmissionAlreadyKnown(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(t, rng, app.Cfg(), app)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		if _, err := env.waitForMempool(ctx); err != nil {
+			return err
+		}
+
+		addr, nonce := app.NewAccount(rng)
+		tx := env.genTx(rng, addr, nonce).encode()
+		if _, err := env.state.InsertTx(ctx, tx); err != nil {
+			return err
+		}
+		if _, err := env.state.InsertTx(ctx, tx); !errors.Is(err, errAlreadyKnown) {
+			return fmt.Errorf("InsertTx() of the same transaction: got %v, want %v", err, errAlreadyKnown)
+		}
+		if _, err := env.state.TryInsertTx(ctx, tx); !errors.Is(err, errAlreadyKnown) {
+			return fmt.Errorf("TryInsertTx() of the same transaction: got %v, want %v", err, errAlreadyKnown)
+		}
+		// A different transaction at the same nonce is still a bad nonce.
+		if _, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode()); !errors.Is(err, errBadNonce) {
+			return fmt.Errorf("unexpected error: got %v, want %v", err, errBadNonce)
+		}
+		return nil
+	}))
+}
+
 type blockStats struct {
 	count        uint64
 	sizeBytes    uint64
