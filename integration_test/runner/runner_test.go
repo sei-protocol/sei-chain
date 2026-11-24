@@ -37,7 +37,6 @@ func TestStakingModule(t *testing.T) {
 func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
 	runner.RunFile(t, "../bank_module/multi_sig_send_test.yaml")
-	runner.RunFile(t, "../bank_module/simulation_tx.yaml")
 }
 
 func TestMintModule(t *testing.T) {

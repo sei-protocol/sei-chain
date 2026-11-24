@@ -29,22 +29,22 @@ func (s *handlerTestSuite) TestChainAnteDecorators() {
 	ctx, tx := sdk.Context{}, sdk.Tx(nil)
 	mockCtrl := gomock.NewController(s.T())
 	mockAnteDecorator1 := mocks.NewMockAnteDecorator(mockCtrl)
-	mockAnteDecorator1.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), true, gomock.Any()).Times(1)
+	mockAnteDecorator1.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), gomock.Any()).Times(1)
 	handler := sdk.ChainAnteDecorators(mockAnteDecorator1)
-	_, err := handler(ctx, tx, true)
+	_, err := handler(ctx, tx)
 	s.Require().NoError(err)
 
 	mockAnteDecorator2 := mocks.NewMockAnteDecorator(mockCtrl)
 	// NOTE: we can't check that mockAnteDecorator2 is passed as the last argument because
 	// ChainAnteDecorators wraps the decorators into closures, so each decorator is
 	// receving a closure.
-	mockAnteDecorator1.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), true, gomock.Any()).Times(1)
-	mockAnteDecorator2.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), true, gomock.Any()).Times(1)
+	mockAnteDecorator1.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), gomock.Any()).Times(1)
+	mockAnteDecorator2.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), gomock.Any()).Times(1)
 
 	handler = sdk.ChainAnteDecorators(
 		mockAnteDecorator1,
 		mockAnteDecorator2,
 	)
-	_, err = handler(ctx, tx, true)
+	_, err = handler(ctx, tx)
 	s.Require().NoError(err)
 }

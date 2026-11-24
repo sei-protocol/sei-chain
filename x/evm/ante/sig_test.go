@@ -49,13 +49,13 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.Nil(t, err)
 
 	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
 
 	// should return error because nonce is incorrect
-	resCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	resCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -75,7 +75,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.Nil(t, err)
 
 	require.Panics(t, func() {
-		handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 			return ctx, nil
 		})
 	})
@@ -89,11 +89,11 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	msg, err = types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -131,13 +131,13 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	require.Nil(t, err)
 
 	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
 
 	// should not return error but include the required balance threshold
-	newCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	newCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -153,13 +153,13 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 
 	// should return error because current nonce is larger than tx nonce
 	k.SetNonce(ctx, evmAddr, 2)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
 }
 
-func TestEVMSimulationBeforeFirstCommitIsNotGenesis(t *testing.T) {
+func TestEVMCheckBeforeFirstCommitIsNotGenesis(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetCheckCtx().WithBlockTime(time.Now())
 	require.False(t, ctx.IsGenesis())
@@ -191,13 +191,13 @@ func TestEVMSimulationBeforeFirstCommitIsNotGenesis(t *testing.T) {
 	require.NoError(t, err)
 
 	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, true, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		require.False(t, ctx.IsGenesis())
 		return ctx, nil
 	})
 	require.NoError(t, err)
 
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, true, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		require.False(t, ctx.IsGenesis())
 		return ctx, nil
 	})

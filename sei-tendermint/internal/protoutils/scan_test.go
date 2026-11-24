@@ -55,13 +55,13 @@ func TestScan(t *testing.T) {
 			BSize:               utils.GenBytes(rng, 5),
 			SSize:               utils.GenString(rng, 5),
 			NSize:               genNotSized(rng, 18),
-			U64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) uint64 { return rng.Uint64() }),
-			I64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) int64 { return int64(rng.Uint64()) }),
-			S64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) int64 { return int64(rng.Uint64()) }),
-			F64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) uint64 { return rng.Uint64() }),
+			U64Count:            rng.GenSliceN(4, func(rng utils.Rng) uint64 { return rng.Uint64() }),
+			I64Count:            rng.GenSliceN(4, func(rng utils.Rng) int64 { return int64(rng.Uint64()) }),
+			S64Count:            rng.GenSliceN(4, func(rng utils.Rng) int64 { return int64(rng.Uint64()) }),
+			F64Count:            rng.GenSliceN(4, func(rng utils.Rng) uint64 { return rng.Uint64() }),
 			FCount:              []float32{1.25, 2.5, 3.75, 4.125},
 			DCount:              []float64{1.5, 2.25, 3.125, 4.0625},
-			SCount:              utils.GenSliceN(rng, 4, genSized),
+			SCount:              rng.GenSliceN(4, genSized),
 			BoolCountUnpacked:   []bool{true},
 			BCountSize:          genBytes(rng, 5, 5, 5),
 			SCountSize:          genStrings(rng, 5, 5, 5),
@@ -79,11 +79,11 @@ func TestScan(t *testing.T) {
 	baseSizedOk := genSizedOk(rng)
 	baseOuterSized := &pb.OuterSized{
 		A: protoutils.Clone(baseSizedOk),
-		B: utils.GenSliceN(rng, 7, func(rng utils.Rng) *pb.SizedOk { return genSizedOk(rng) }),
+		B: rng.GenSliceN(7, func(rng utils.Rng) *pb.SizedOk { return genSizedOk(rng) }),
 	}
 	baseOuterNotSized := &pb.OuterNotSized{
 		A: protoutils.Clone(baseSizedOk),
-		B: utils.GenSliceN(rng, 7, func(rng utils.Rng) *pb.SizedOk { return genSizedOk(rng) }),
+		B: rng.GenSliceN(7, func(rng utils.Rng) *pb.SizedOk { return genSizedOk(rng) }),
 		C: genNotSized(rng, 256),
 	}
 

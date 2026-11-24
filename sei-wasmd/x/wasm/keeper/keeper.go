@@ -76,7 +76,6 @@ type Keeper struct {
 	bank                  CoinTransferrer
 	paramsKeeper          types.ParamsKeeper
 	wasmVM                types.WasmerEngine
-	simulationWasmVM      types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
 	wasmVMQueryHandler    WasmVMQueryHandler
 	wasmVMResponseHandler WasmVMResponseHandler
@@ -111,10 +110,6 @@ func NewKeeper(
 	if err != nil {
 		panic(err)
 	}
-	simulationWasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
-	if err != nil {
-		panic(err)
-	}
 	rpcWasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
 	if err != nil {
 		panic(err)
@@ -129,7 +124,6 @@ func NewKeeper(
 		cdc:               cdc,
 		paramsKeeper:      paramsKeeper,
 		wasmVM:            NewVMWrapper(wasmer),
-		simulationWasmVM:  NewVMWrapper(simulationWasmer),
 		rpcWasmVM:         NewVMWrapper(rpcWasmer),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
@@ -151,9 +145,6 @@ func NewKeeper(
 }
 
 func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
-	if ctx.IsSimulation() {
-		return k.simulationWasmVM
-	}
 	if ctx.IsTracing() {
 		return k.rpcWasmVM
 	}

@@ -6,7 +6,6 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 )
 
@@ -31,7 +30,7 @@ func (suite *AnteTestSuite) TestValidateBasic() {
 
 	vbd := ante.NewValidateBasicDecorator()
 	antehandler := sdk.ChainAnteDecorators(vbd)
-	_, err = antehandler(suite.ctx, invalidTx, false)
+	_, err = antehandler(suite.ctx, invalidTx)
 
 	suite.Require().NotNil(err, "Did not error on invalid tx")
 
@@ -39,14 +38,14 @@ func (suite *AnteTestSuite) TestValidateBasic() {
 	validTx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
 	suite.Require().NoError(err)
 
-	_, err = antehandler(suite.ctx, validTx, false)
+	_, err = antehandler(suite.ctx, validTx)
 	suite.Require().Nil(err, "ValidateBasicDecorator returned error on valid tx. err: %v", err)
 
 	// test decorator skips on recheck
 	suite.ctx = suite.ctx.WithIsReCheckTx(true)
 
 	// decorator should skip processing invalidTx on recheck and thus return nil-error
-	_, err = antehandler(suite.ctx, invalidTx, false)
+	_, err = antehandler(suite.ctx, invalidTx)
 
 	suite.Require().Nil(err, "ValidateBasicDecorator ran on ReCheck")
 }
@@ -74,7 +73,7 @@ func (suite *AnteTestSuite) TestValidateMemo() {
 	// require that long memos get rejected
 	vmd := ante.NewValidateMemoDecorator(suite.app.AccountKeeper)
 	antehandler := sdk.ChainAnteDecorators(vmd)
-	_, err = antehandler(suite.ctx, invalidTx, false)
+	_, err = antehandler(suite.ctx, invalidTx)
 
 	suite.Require().NotNil(err, "Did not error on tx with high memo")
 
@@ -83,7 +82,7 @@ func (suite *AnteTestSuite) TestValidateMemo() {
 	suite.Require().NoError(err)
 
 	// require small memos pass ValidateMemo Decorator
-	_, err = antehandler(suite.ctx, validTx, false)
+	_, err = antehandler(suite.ctx, validTx)
 	suite.Require().Nil(err, "ValidateBasicDecorator returned error on valid tx. err: %v", err)
 }
 
@@ -102,10 +101,9 @@ func (suite *AnteTestSuite) TestConsumeGasForTxSize() {
 	antehandler := sdk.ChainAnteDecorators(cgtsd)
 
 	testCases := []struct {
-		name  string
-		sigV2 signing.SignatureV2
+		name string
 	}{
-		{"SingleSignatureData", signing.SignatureV2{PubKey: priv1.PubKey()}},
+		{"SingleSignatureData"},
 	}
 
 	for _, tc := range testCases {
@@ -136,37 +134,12 @@ func (suite *AnteTestSuite) TestConsumeGasForTxSize() {
 			expectedGas += afterGas - beforeGas
 
 			beforeGas = suite.ctx.GasMeter().GasConsumed()
-			suite.ctx, err = antehandler(suite.ctx, tx, false)
+			suite.ctx, err = antehandler(suite.ctx, tx)
 			suite.Require().Nil(err, "ConsumeTxSizeGasDecorator returned error: %v", err)
 
 			// require that decorator consumes expected amount of gas
 			consumedGas := suite.ctx.GasMeter().GasConsumed() - beforeGas
 			suite.Require().Equal(expectedGas, consumedGas, "Decorator did not consume the correct amount of gas")
-
-			// simulation must not underestimate gas of this decorator even with nil signatures
-			txBuilder, err := suite.clientCtx.TxConfig.WrapTxBuilder(tx)
-			suite.Require().NoError(err)
-			suite.Require().NoError(txBuilder.SetSignatures(tc.sigV2))
-			tx = txBuilder.GetTx()
-
-			simTxBytes, err := suite.clientCtx.TxConfig.TxJSONEncoder()(tx)
-			suite.Require().Nil(err, "Cannot marshal tx: %v", err)
-			// require that simulated tx is smaller than tx with signatures
-			suite.Require().True(len(simTxBytes) < len(txBytes), "simulated tx still has signatures")
-
-			// Set suite.ctx with smaller simulated TxBytes manually
-			suite.ctx = suite.ctx.WithTxBytes(simTxBytes)
-
-			beforeSimGas := suite.ctx.GasMeter().GasConsumed()
-
-			// run antehandler with simulate=true
-			suite.ctx, err = antehandler(suite.ctx, tx, true)
-			consumedSimGas := suite.ctx.GasMeter().GasConsumed() - beforeSimGas
-
-			// require that antehandler passes and does not underestimate decorator cost
-			suite.Require().Nil(err, "ConsumeTxSizeGasDecorator returned error: %v", err)
-			suite.Require().True(consumedSimGas >= expectedGas, "Simulate mode underestimates gas on AnteDecorator. Simulated cost: %d, expected cost: %d", consumedSimGas, expectedGas)
-
 		})
 	}
 
@@ -215,7 +188,7 @@ func (suite *AnteTestSuite) TestTxHeightTimeoutDecorator() {
 			suite.Require().NoError(err)
 
 			ctx := suite.ctx.WithBlockHeight(tc.height)
-			_, err = antehandler(ctx, tx, true)
+			_, err = antehandler(ctx, tx)
 			suite.Require().Equal(tc.expectErr, err != nil, err)
 		})
 	}

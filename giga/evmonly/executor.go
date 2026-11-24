@@ -15,11 +15,15 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -36,6 +40,7 @@ type Executor struct {
 	stateStore      gigatypes.StateDB
 	receiptStore    receiptdb.ReceiptStore
 	receiptHasher   *receipthash.ReceiptHasher
+	archive         archive.ArchivalStore
 	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
@@ -44,6 +49,13 @@ type Executor struct {
 	missingState           StateReader
 	genesis                genesisAlloc
 	closed                 atomic.Bool
+
+	// speculationSlots bounds how many early-speculation transactions run at once, across blocks.
+	// Nil when early speculation is off.
+	speculationSlots *utils.Semaphore
+	speculation      utils.Mutex[*speculationState]
+	// lastExecuted is the number of the last block whose commit has started.
+	lastExecuted atomic.Uint64
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -125,6 +137,13 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	if len(e.genesis.accounts) > 0 && e.missingState != nil {
 		panic("a genesis alloc cannot be combined with a missing account state")
 	}
+	if e.cfg.EarlySpeculationWorkers > 0 && e.stateStore != nil && e.occPool != nil {
+		e.speculationSlots = utils.NewSemaphore(e.cfg.EarlySpeculationWorkers)
+		e.speculation = utils.NewMutex(&speculationState{
+			blocks:        map[uint64]*earlySpeculation{},
+			recentChanges: map[uint64]*pendingIndex{},
+		})
+	}
 	return e
 }
 
@@ -135,6 +154,7 @@ func (e *Executor) Close() {
 		return
 	}
 	e.closed.Store(true)
+	e.stopEarlySpeculation()
 	// A block holding storeMu may still start a background commit, so wait it out before awaiting.
 	// A commit failure is kept for the next AwaitCommits rather than reported here.
 	e.storeMu.Lock()
@@ -172,13 +192,43 @@ func (e *Executor) MarkWaitingForBlock() {
 	e.blockPhases.SetPhase(phaseWaitingForBlock)
 }
 
+// WarmAccounts reads the account of every sender and recipient in b from the committed state, so that
+// executing b finds them cached rather than waiting on the database.
+func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
+	if e.stateStore == nil || len(b.Txs) == 0 {
+		return
+	}
+	view := e.stateStore.OpenView()
+	if view == nil {
+		return
+	}
+	defer view.Close()
+	workers := min(len(b.Txs), max(1, e.cfg.ParseWorkers))
+	chunk := (len(b.Txs) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(b.Txs); start += chunk {
+		wg.Go(func() {
+			for _, tx := range b.Txs[start:min(start+chunk, len(b.Txs))] {
+				if ctx.Err() != nil {
+					return
+				}
+				view.ReadAccount(tx.Sender)
+				if to := tx.Tx.To(); to != nil {
+					view.ReadAccount(*to)
+				}
+			}
+		})
+	}
+	wg.Wait()
+}
+
 // ExecuteBlock prepares and executes a block, and returns once its state is committed.
 //
 // It is the synchronous entry point. A caller feeding blocks continuously should prepare and
 // execute in separate stages instead, where ExecutePreparedBlock leaves the commit running behind
 // the next block rather than waiting for it here.
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
-	prepared, err := e.PrepareBlock(ctx, req)
+	prepared, err := e.PrepareBlock(req)
 	if err != nil {
 		return nil, err
 	}
@@ -193,41 +243,42 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 	return result, nil
 }
 
-func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	decoded, err := e.DecodeBlock(ctx, req)
+func (e *Executor) PrepareBlock(req BlockRequest) (PreparedBlock, error) {
+	decoded, err := e.DecodeBlock(req)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
-	return e.RecoverSenders(ctx, decoded)
+	return decoded.prepared(), nil
 }
 
-// DecodeBlock decodes and validates req's transactions, leaving their senders unresolved.
-func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
+// DecodeBlock decodes and validates req's transactions and resolves their senders.
+func (e *Executor) DecodeBlock(req BlockRequest) (DecodedBlock, error) {
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return DecodedBlock{}, err
 	}
-	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
-		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
-	}
-	txs, err := decodeBlockTxs(ctx, req.Txs, e.cfg.ParseWorkers)
+	signer := ethtypes.MakeSigner(e.chainConfig(req.Context), new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
+	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(req.Txs)
 	if err != nil {
 		return DecodedBlock{}, err
 	}
-	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
+	return DecodedBlock{context: req.Context, txs: resolved}, nil
 }
 
-// RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
-// b carries an already verified sender for it.
-func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
-	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
-	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
-	if err != nil {
+// PrepareDecodedBlock validates transactions with verified senders for block and prepares them for execution.
+func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, txs []abevm.EvmTx) (PreparedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(block), block); err != nil {
 		return PreparedBlock{}, err
 	}
-	return PreparedBlock{
-		Context: b.context,
-		Txs:     parsed,
-	}, nil
+	signer := abevm.NewSigner(ethtypes.MakeSigner(e.chainConfig(block), new(big.Int).SetUint64(block.Number), block.Time), 0, e.cfg.ParseWorkers)
+	for i, tx := range txs {
+		if err := validateSupportedTx(tx.Transaction()); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+		if err := signer.Admits(tx.Transaction()); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+	}
+	return (DecodedBlock{context: block, txs: txs}).prepared(), nil
 }
 
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
@@ -252,7 +303,7 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, 
 	if err != nil {
 		return nil, err
 	}
-	result, err := e.executeBlockTxs(ctx, req, newPendingOverlay(source, &begin))
+	result, err := e.executeBlockTxs(ctx, req, newPendingOverlay(source, &begin), &begin)
 	if err != nil {
 		return nil, err
 	}
@@ -264,12 +315,14 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, 
 	return result, nil
 }
 
-func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+// executeBlockTxs executes req's transactions against source, which already holds begin, the
+// writes the block's begin blockers made.
+func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
 	if e.useOCC(len(req.Txs)) {
-		return e.executeBlockOCC(ctx, req, source)
+		return e.executeBlockOCC(ctx, req, source, begin)
 	}
 	return e.executeBlockSequential(ctx, req, source)
 }

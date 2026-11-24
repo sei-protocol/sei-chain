@@ -23,7 +23,6 @@ type (
 
 	appTestCase struct {
 		desc             string
-		expSimPass       bool
 		expPass          bool
 		msgs             []sdk.Msg
 		accNums          []uint64
@@ -100,7 +99,7 @@ func TestSendNotEnoughBalance(t *testing.T) {
 	txGen := app.MakeEncodingConfig().TxConfig
 	_, _, err := app.SignCheckDeliver(
 		t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq},
-		false, false, priv1,
+		false, priv1,
 	)
 	require.Error(t, err)
 
@@ -131,33 +130,31 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 
 	testCases := []appTestCase{
 		{
-			desc:       "make a valid tx",
-			msgs:       []sdk.Msg{multiSendMsg1},
-			accNums:    []uint64{0},
-			accSeqs:    []uint64{0},
-			expSimPass: true,
-			expPass:    true,
-			privKeys:   []cryptotypes.PrivKey{priv1},
+			desc:     "make a valid tx",
+			msgs:     []sdk.Msg{multiSendMsg1},
+			accNums:  []uint64{0},
+			accSeqs:  []uint64{0},
+			expPass:  true,
+			privKeys: []cryptotypes.PrivKey{priv1},
 			expectedBalances: []expectedBalance{
 				{addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 57)}},
 				{addr2, sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}},
 			},
 		},
 		{
-			desc:       "wrong accNum should pass Simulate, but not Deliver",
-			msgs:       []sdk.Msg{multiSendMsg1, multiSendMsg2},
-			accNums:    []uint64{1}, // wrong account number
-			accSeqs:    []uint64{1},
-			expSimPass: true, // doesn't check signature
-			expPass:    false,
-			privKeys:   []cryptotypes.PrivKey{priv1},
+			desc:     "wrong accNum should not pass Deliver",
+			msgs:     []sdk.Msg{multiSendMsg1, multiSendMsg2},
+			accNums:  []uint64{1}, // wrong account number
+			accSeqs:  []uint64{1},
+			expPass:  false,
+			privKeys: []cryptotypes.PrivKey{priv1},
 		},
 	}
 
 	for _, tc := range testCases {
 		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expPass, tc.privKeys...)
 		if tc.expPass {
 			require.NoError(t, err)
 		} else {
@@ -189,12 +186,11 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 
 	testCases := []appTestCase{
 		{
-			msgs:       []sdk.Msg{multiSendMsg2},
-			accNums:    []uint64{0},
-			accSeqs:    []uint64{0},
-			expSimPass: true,
-			expPass:    true,
-			privKeys:   []cryptotypes.PrivKey{priv1},
+			msgs:     []sdk.Msg{multiSendMsg2},
+			accNums:  []uint64{0},
+			accSeqs:  []uint64{0},
+			expPass:  true,
+			privKeys: []cryptotypes.PrivKey{priv1},
 			expectedBalances: []expectedBalance{
 				{addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 32)}},
 				{addr2, sdk.Coins{sdk.NewInt64Coin("foocoin", 47)}},
@@ -206,7 +202,7 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 	for _, tc := range testCases {
 		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
 
 		for _, eb := range tc.expectedBalances {
@@ -239,12 +235,11 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 
 	testCases := []appTestCase{
 		{
-			msgs:       []sdk.Msg{multiSendMsg3},
-			accNums:    []uint64{0, 2},
-			accSeqs:    []uint64{0, 0},
-			expSimPass: true,
-			expPass:    true,
-			privKeys:   []cryptotypes.PrivKey{priv1, priv4},
+			msgs:     []sdk.Msg{multiSendMsg3},
+			accNums:  []uint64{0, 2},
+			accSeqs:  []uint64{0, 0},
+			expPass:  true,
+			privKeys: []cryptotypes.PrivKey{priv1, priv4},
 			expectedBalances: []expectedBalance{
 				{addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 32)}},
 				{addr4, sdk.Coins{sdk.NewInt64Coin("foocoin", 32)}},
@@ -257,7 +252,7 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 	for _, tc := range testCases {
 		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
 
 		for _, eb := range tc.expectedBalances {
@@ -281,24 +276,22 @@ func TestMsgMultiSendDependent(t *testing.T) {
 
 	testCases := []appTestCase{
 		{
-			msgs:       []sdk.Msg{multiSendMsg1},
-			accNums:    []uint64{0},
-			accSeqs:    []uint64{0},
-			expSimPass: true,
-			expPass:    true,
-			privKeys:   []cryptotypes.PrivKey{priv1},
+			msgs:     []sdk.Msg{multiSendMsg1},
+			accNums:  []uint64{0},
+			accSeqs:  []uint64{0},
+			expPass:  true,
+			privKeys: []cryptotypes.PrivKey{priv1},
 			expectedBalances: []expectedBalance{
 				{addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 32)}},
 				{addr2, sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}},
 			},
 		},
 		{
-			msgs:       []sdk.Msg{multiSendMsg4},
-			accNums:    []uint64{1},
-			accSeqs:    []uint64{0},
-			expSimPass: true,
-			expPass:    true,
-			privKeys:   []cryptotypes.PrivKey{priv2},
+			msgs:     []sdk.Msg{multiSendMsg4},
+			accNums:  []uint64{1},
+			accSeqs:  []uint64{0},
+			expPass:  true,
+			privKeys: []cryptotypes.PrivKey{priv2},
 			expectedBalances: []expectedBalance{
 				{addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 42)}},
 			},
@@ -308,7 +301,7 @@ func TestMsgMultiSendDependent(t *testing.T) {
 	for _, tc := range testCases {
 		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
 
 		for _, eb := range tc.expectedBalances {

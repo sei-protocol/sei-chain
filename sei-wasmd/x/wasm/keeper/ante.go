@@ -24,11 +24,7 @@ func NewCountTXDecorator(storeKey sdk.StoreKey) *CountTXDecorator {
 // AnteHandle handler stores a tx counter with current height encoded in the store to let the app handle
 // global rollback behavior instead of keeping state in the handler itself.
 // The ante handler passes the counter value via sdk.Context upstream. See `types.TXCounter(ctx)` to read the value.
-// Simulations don't get a tx counter value assigned.
-func (a CountTXDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	if simulate {
-		return next(ctx, tx, simulate)
-	}
+func (a CountTXDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	store := ctx.KVStore(a.storeKey)
 	currentHeight := ctx.BlockHeight()
 
@@ -51,7 +47,7 @@ func (a CountTXDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, 
 	}
 	store.Set(types.TXCounterPrefix, h)
 
-	return next(types.WithTXCounter(ctx, txCounter), tx, simulate)
+	return next(types.WithTXCounter(ctx, txCounter), tx)
 }
 
 func encodeHeightCounter(height int64, counter uint32) ([]byte, error) {
@@ -70,54 +66,4 @@ func decodeHeightCounter(bz []byte) (int64, uint32, error) {
 		return 0, 0, errors.New("invalid height")
 	}
 	return int64(left), binary.BigEndian.Uint32(bz[8:]), nil
-}
-
-// LimitSimulationGasDecorator ante decorator to limit gas in simulation calls
-type LimitSimulationGasDecorator struct {
-	gasLimit *sdk.Gas
-	// inputs: simulate, ctx, gas limit, tx
-	gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context
-}
-
-// NewLimitSimulationGasDecorator constructor accepts nil value to fallback to block gas limit.
-func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas, gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context) *LimitSimulationGasDecorator {
-	if gasLimit != nil && *gasLimit == 0 {
-		panic("gas limit must not be zero")
-	}
-	return &LimitSimulationGasDecorator{gasLimit, gasMeterSetter}
-}
-
-func DefaultGasMeterSetter() func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
-	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
-		return ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
-	}
-}
-
-// AnteHandle that limits the maximum gas available in simulations only.
-// A custom max value can be configured and will be applied when set. The value should not
-// exceed the max block gas limit.
-// Different values on nodes are not consensus breaking as they affect only
-// simulations but may have effect on client user experience.
-//
-// When no custom value is set then the max block gas is used as default limit.
-func (d LimitSimulationGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	if !simulate {
-		// Wasm code is not executed in checkTX so that we don't need to limit it further.
-		// Tendermint rejects the TX afterwards when the tx.gas > max block gas.
-		// On deliverTX we rely on the tendermint/sdk mechanics that ensure
-		// tx has gas set and gas < max block gas
-		return next(ctx, tx, simulate)
-	}
-
-	// apply custom node gas limit
-	if d.gasLimit != nil {
-		return next(d.gasMeterSetter(simulate, ctx, *d.gasLimit, tx), tx, simulate)
-	}
-
-	// default to max block gas when set, to be on the safe side
-	if maxGas := ctx.ConsensusParams().GetBlock().MaxGas; maxGas > 0 {
-		return next(d.gasMeterSetter(simulate, ctx, sdk.Gas(maxGas), tx), tx, simulate)
-	}
-
-	return next(ctx, tx, simulate)
 }

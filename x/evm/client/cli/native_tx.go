@@ -17,8 +17,7 @@ func NativeSendTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "native-send [from_key_or_address] [to_evm_address] [amount]",
 		Short: `Send funds from one account to an EVM address (e.g. 0x....).
-		Note, the '--from' flag is ignored as it is implied from [from_key_or_address].
-		When using '--dry-run' a key name cannot be used, only a bech32 address.`,
+		Note, the '--from' flag is ignored as it is implied from [from_key_or_address].`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_ = cmd.Flags().Set(flags.FlagFrom, args[0])

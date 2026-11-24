@@ -30,12 +30,14 @@ func TestBaseReq_Sanitize(t *testing.T) {
 		From:          " cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0 ",
 		Gas:           " ",
 		GasAdjustment: "  0.3",
+		Simulate:      true,
 	}.Sanitize()
 	require.Equal(t, rest.BaseReq{ChainID: "test",
 		Memo:          "memo",
 		From:          "cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0",
 		Gas:           "",
 		GasAdjustment: "0.3",
+		Simulate:      true,
 	}, sanitized)
 }
 
@@ -47,19 +49,19 @@ func TestBaseReq_ValidateBasic(t *testing.T) {
 	require.NoError(t, err)
 
 	req1 := rest.NewBaseReq(
-		fromAddr, "", "nonempty", "", "", 0, 0, tenstakes, nil, false,
+		fromAddr, "", "nonempty", "", 0, 0, tenstakes, nil,
 	)
 	req2 := rest.NewBaseReq(
-		"", "", "nonempty", "", "", 0, 0, tenstakes, nil, false,
+		"", "", "nonempty", "", 0, 0, tenstakes, nil,
 	)
 	req3 := rest.NewBaseReq(
-		fromAddr, "", "", "", "", 0, 0, tenstakes, nil, false,
+		fromAddr, "", "", "", 0, 0, tenstakes, nil,
 	)
 	req4 := rest.NewBaseReq(
-		fromAddr, "", "nonempty", "", "", 0, 0, tenstakes, onestake, false,
+		fromAddr, "", "nonempty", "", 0, 0, tenstakes, onestake,
 	)
 	req5 := rest.NewBaseReq(
-		fromAddr, "", "nonempty", "", "", 0, 0, types.Coins{}, types.DecCoins{}, false,
+		fromAddr, "", "nonempty", "", 0, 0, types.Coins{}, types.DecCoins{},
 	)
 
 	tests := []struct {
@@ -78,6 +80,44 @@ func TestBaseReq_ValidateBasic(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, tt.req.ValidateBasic(tt.w))
+		})
+	}
+}
+
+// TestBaseReq_RefusesSimulation pins that a base_req setting simulate or
+// gas_adjustment gets a 400 from the decode, Sanitize and ValidateBasic steps every
+// REST tx handler runs before it builds a transaction, ahead of the chain-id and fee
+// checks.
+func TestBaseReq_RefusesSimulation(t *testing.T) {
+	t.Parallel()
+	const from = `"from":"sei139f7kncmglres2nf3h4hc4tade85ekfr2udfy4"`
+	const signable = from + `,"chain_id":"test","fees":[{"denom":"usei","amount":"10"}]`
+	const simulateErr = "simulate is not supported: transactions cannot be simulated"
+	const gasAdjustmentErr = "gas_adjustment is not supported: gas is not estimated"
+
+	type txReq struct {
+		BaseReq rest.BaseReq `json:"base_req"`
+	}
+	tests := []struct {
+		name    string
+		baseReq string
+		wantErr string
+	}{
+		{"simulate", signable + `,"simulate":true`, simulateErr},
+		{"simulate without chain-id or fees", from + `,"simulate":true`, simulateErr},
+		{"gas_adjustment with a gas limit", signable + `,"gas":"200000","gas_adjustment":"1.5"`, gasAdjustmentErr},
+		{"gas_adjustment with gas auto", signable + `,"gas":"auto","gas_adjustment":"1.5"`, gasAdjustmentErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var req txReq
+			w := httptest.NewRecorder()
+			body := strings.NewReader(`{"base_req":{` + tt.baseReq + `}}`)
+			require.True(t, rest.ReadRESTReq(w, httptest.NewRequest(http.MethodPost, "/", body), codec.NewLegacyAmino(), &req))
+			require.False(t, req.BaseReq.Sanitize().ValidateBasic(w))
+			require.Equal(t, http.StatusBadRequest, w.Code)
+			require.Equal(t, `{"error":"`+tt.wantErr+`"}`, w.Body.String())
 		})
 	}
 }
@@ -249,19 +289,6 @@ func TestReadRESTReq(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, res.StatusCode)
 }
 
-func TestWriteSimulationResponse(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	rest.WriteSimulationResponse(w, codec.NewLegacyAmino(), 10)
-	res := w.Result() //nolint:bodyclose
-	t.Cleanup(func() { res.Body.Close() })
-	require.Equal(t, http.StatusOK, res.StatusCode)
-	bs, err := io.ReadAll(res.Body)
-	require.NoError(t, err)
-	t.Cleanup(func() { res.Body.Close() })
-	require.Equal(t, `{"gas_estimate":"10"}`, string(bs))
-}
-
 func TestParseUint64OrReturnBadRequest(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
@@ -273,25 +300,6 @@ func TestParseUint64OrReturnBadRequest(t *testing.T) {
 	_, ok = rest.ParseUint64OrReturnBadRequest(w, "-100")
 	require.False(t, ok)
 	require.Equal(t, http.StatusBadRequest, w.Result().StatusCode) //nolint:bodyclose
-}
-
-func TestParseFloat64OrReturnBadRequest(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	_, ok := rest.ParseFloat64OrReturnBadRequest(w, "100", 0)
-	require.True(t, ok)
-	require.Equal(t, http.StatusOK, w.Result().StatusCode) //nolint:bodyclose
-
-	w = httptest.NewRecorder()
-	_, ok = rest.ParseFloat64OrReturnBadRequest(w, "bad request", 0)
-	require.False(t, ok)
-	require.Equal(t, http.StatusBadRequest, w.Result().StatusCode) //nolint:bodyclose
-
-	w = httptest.NewRecorder()
-	ret, ok := rest.ParseFloat64OrReturnBadRequest(w, "", 9.0)
-	require.Equal(t, float64(9), ret)
-	require.True(t, ok)
-	require.Equal(t, http.StatusOK, w.Result().StatusCode) //nolint:bodyclose
 }
 
 func TestParseQueryParamBool(t *testing.T) {

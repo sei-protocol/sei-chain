@@ -15,7 +15,7 @@ const testFirstRoad types.RoadHeight = 1
 // testWeights returns weights for n validators with distinct keys, all weight 1000.
 func testWeights(rng utils.Rng, n int) map[types.PublicKey]uint64 {
 	weights := map[types.PublicKey]uint64{}
-	for _, sk := range utils.GenSliceN(rng, n, types.GenSecretKey) {
+	for _, sk := range rng.GenSliceN(n, types.GenSecretKey) {
 		weights[sk.Public()] = 1000
 	}
 	return weights

@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/statesync"
 	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -138,6 +139,7 @@ func initRootCmd(
 		config.Cmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
+		statesync.Cmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
@@ -336,8 +338,6 @@ func initAppConfig() (string, interface{}) {
 	//   own app.toml config,
 	// - if you set srvCfg.MinGasPrices non-empty, validators CAN tweak their
 	//   own app.toml to override, or use this default value.
-	//
-	// In simapp, we set the min gas prices to 0.
 	srvCfg.MinGasPrices = "0.01usei"
 	srvCfg.API.Enable = true
 

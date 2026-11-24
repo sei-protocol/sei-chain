@@ -885,7 +885,7 @@ func (preparedOnlyExecutor) ExecuteBlock(context.Context, evmonly.BlockRequest) 
 	return nil, errors.New("ExecuteBlock is unused")
 }
 
-func (preparedOnlyExecutor) PrepareBlock(_ context.Context, request evmonly.BlockRequest) (evmonly.PreparedBlock, error) {
+func (preparedOnlyExecutor) PrepareBlock(request evmonly.BlockRequest) (evmonly.PreparedBlock, error) {
 	return evmonly.PreparedBlock{Context: request.Context}, nil
 }
 
@@ -899,7 +899,7 @@ func (failingPreparedExecutor) ExecuteBlock(context.Context, evmonly.BlockReques
 	return nil, errors.New("ExecuteBlock is unused")
 }
 
-func (failingPreparedExecutor) PrepareBlock(_ context.Context, request evmonly.BlockRequest) (evmonly.PreparedBlock, error) {
+func (failingPreparedExecutor) PrepareBlock(request evmonly.BlockRequest) (evmonly.PreparedBlock, error) {
 	if request.Context.Number == 1 {
 		return evmonly.PreparedBlock{}, errors.New("injected prepare failure")
 	}

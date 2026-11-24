@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/vfs"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -258,10 +261,39 @@ func ReadSnapshotMiscValue(dir, moduleName string, key []byte) ([]byte, bool, er
 }
 
 // openPebbleReadOnly opens the Pebble DB at dbDir read-only and returns the Pebble error unchanged. It
-// modifies none of the database's files, and creates only a LOCK file when there is none.
+// modifies none of the database's files, and a LOCK file that the open creates goes when the DB closes.
 func openPebbleReadOnly(dbDir string) (*pebble.DB, error) {
 	return pebble.Open(dbDir, &pebble.Options{
 		ReadOnly:           true,
 		FormatMajorVersion: pebbledb.FormatMajorVersion,
+		FS:                 transientLockFS{FS: vfs.Default},
 	})
+}
+
+// transientLockFS is a vfs.FS whose Lock returns a lock that removes the lock file on release when
+// Lock created that file.
+type transientLockFS struct {
+	vfs.FS
+}
+
+func (fs transientLockFS) Lock(name string) (io.Closer, error) {
+	_, statErr := fs.Stat(name)
+	lock, err := fs.FS.Lock(name)
+	if err != nil || !errors.Is(statErr, os.ErrNotExist) {
+		return lock, err
+	}
+	return createdLock{Closer: lock, fs: fs.FS, name: name}, nil
+}
+
+// createdLock is a held lock on the file name, which it removes on release.
+type createdLock struct {
+	io.Closer
+	fs   vfs.FS
+	name string
+}
+
+func (l createdLock) Close() error {
+	// Removed while still held, so no other open can hold the file that goes.
+	removeErr := l.fs.Remove(l.name)
+	return errors.Join(removeErr, l.Closer.Close())
 }

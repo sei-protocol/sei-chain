@@ -30,9 +30,8 @@ var (
 
 // Module init related flags
 const (
-	flagWasmMemoryCacheSize    = "wasm.memory_cache_size"
-	flagWasmQueryGasLimit      = "wasm.query_gas_limit"
-	flagWasmSimulationGasLimit = "wasm.simulation_gas_limit"
+	flagWasmMemoryCacheSize = "wasm.memory_cache_size"
+	flagWasmQueryGasLimit   = "wasm.query_gas_limit"
 )
 
 // AppModuleBasic defines the basic application module used by the wasm module.
@@ -120,7 +119,6 @@ func (b AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) 
 // AppModule implements an application module for the wasm module.
 type AppModule struct {
 	AppModuleBasic
-	cdc                codec.Codec
 	keeper             *Keeper
 	validatorSetSource keeper.ValidatorSetSource
 }
@@ -133,13 +131,11 @@ func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // NewAppModule creates a new AppModule object
 func NewAppModule(
-	cdc codec.Codec,
 	keeper *Keeper,
 	validatorSetSource keeper.ValidatorSetSource,
 ) AppModule {
 	return AppModule{
 		AppModuleBasic:     AppModuleBasic{},
-		cdc:                cdc,
 		keeper:             keeper,
 		validatorSetSource: validatorSetSource,
 	}
@@ -188,7 +184,6 @@ func AddModuleInitFlags(startCmd *cobra.Command) {
 	defaults := DefaultWasmConfig()
 	startCmd.Flags().Uint32(flagWasmMemoryCacheSize, defaults.MemoryCacheSize, "Sets the size in MiB (NOT bytes) of an in-memory cache for Wasm modules. Set to 0 to disable.")
 	startCmd.Flags().Uint64(flagWasmQueryGasLimit, defaults.SmartQueryGasLimit, "Set the max gas that can be spent on executing a query with a Wasm contract")
-	startCmd.Flags().String(flagWasmSimulationGasLimit, "", "Set the max gas that can be spent when executing a simulation TX")
 }
 
 // ReadWasmConfig reads the wasm specifig configuration
@@ -203,15 +198,6 @@ func ReadWasmConfig(opts servertypes.AppOptions) (types.WasmConfig, error) {
 	if v := opts.Get(flagWasmQueryGasLimit); v != nil {
 		if cfg.SmartQueryGasLimit, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
-		}
-	}
-	if v := opts.Get(flagWasmSimulationGasLimit); v != nil {
-		if raw, ok := v.(string); ok && raw != "" {
-			limit, err := cast.ToUint64E(v) // non empty string set
-			if err != nil {
-				return cfg, err
-			}
-			cfg.SimulationGasLimit = &limit
 		}
 	}
 	// attach contract debugging to global "trace" flag
