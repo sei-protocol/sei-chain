@@ -1426,3 +1426,17 @@ func TestPushCommitQCRejectsAParentOnTheFirstRoadOfTheChain(t *testing.T) {
 	require.ErrorIs(t, state.PushCommitQC(t.Context(), bad), types.ErrParentMismatch)
 	require.Equal(t, ep.RoadRange().First, nextRoad(state))
 }
+
+// The first road block after the anchor must name the anchor CommitQC as its parent.
+func TestPushCommitQCRejectsAWrongParentAfterTheAnchor(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	ep := registry.MustEpoch(1)
+	anchorHeight := registry.LastRoad(0)
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: proxy.TestEpochApp(registry)}), utils.None[string]()))
+	require.NoError(t, TestAdvanceToEpoch(t.Context(), state, keys, registry, 1))
+	bad := roadWithForgedParent(ep, keys, anchorHeight)
+	require.Equal(t, anchorHeight+1, bad.Height())
+	require.ErrorIs(t, state.PushCommitQC(t.Context(), bad), types.ErrParentMismatch)
+	require.Equal(t, anchorHeight+1, nextRoad(state))
+}
