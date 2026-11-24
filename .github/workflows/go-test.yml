@@ -18,15 +18,11 @@ env:
   # state_db tests run in their own workflow (sei-db-tests.yml); exclude
   # that subtree everywhere in this workflow to avoid double-running them.
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
-  # Tests that need a ClickHouse server run in the clickhouse-test job, which
-  # starts one; exclude these packages from the race shards.
-  CLICKHOUSE_PKG_PATTERN: ^github.com/sei-protocol/sei-chain/sei-db/(db_engine/clickhouse|archive)(/|$)
 
 jobs:
-  # The race run fans out over the shard matrix. The shards, the upgrade tests
-  # and the ClickHouse tests all roll up into the `Race Detection` job below,
-  # which is the single check name branch protection and the merge queue
-  # require.
+  # The race run fans out over the shard matrix. The shards and the upgrade
+  # tests all roll up into the `Race Detection` job below, which is the single
+  # check name branch protection and the merge queue require.
   race-shard:
     name: Race Detection (shard ${{ matrix.shard }})
     runs-on: uci-default
@@ -66,7 +62,6 @@ jobs:
           # would leave one shard with most of the test time.
           go list ./... \
             | grep -v "^${STATE_DB_PKG_PREFIX}" \
-            | grep -Ev "${CLICKHOUSE_PKG_PATTERN}" \
             | LC_ALL=C sort \
             | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
           [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
@@ -121,87 +116,13 @@ jobs:
       - name: Minor upgrade tests compile
         run: make upgrade-test-vet
 
-  # Without a server the ClickHouse tests skip, except on CI, where they fail.
-  # A ClickHouse package that CLICKHOUSE_PKG_PATTERN misses therefore fails its
-  # race shard rather than passing unrun.
-  clickhouse-test:
-    name: ClickHouse tests
-    runs-on: uci-default
-    env:
-      GOFLAGS: -race -tags=ledger,test_ledger_mock
-      # The 26.8 long-term-support release, which production should run too.
-      CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.8.44.3@sha256:4df95084ff95ba95fbe0c512f199b214a738f913fa9e23d2b5e379fffdfa62fc
-      # Unique to this run, since runs can share a machine.
-      CLICKHOUSE_CONTAINER: clickhouse-${{ github.run_id }}-${{ github.run_attempt }}
-      SEI_ARCHIVE_TEST_PASSWORD: ci-test
-    steps:
-      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-
-      - name: Login to Docker Hub
-        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
-        if: env.DOCKERHUB_USERNAME != ''
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # A step rather than a service container, which would be pulled before
-      # the login above. Docker picks a free port, since runs can share a
-      # machine, and the tests find it in SEI_ARCHIVE_TEST_CLICKHOUSE.
-      - name: Start ClickHouse
-        run: |
-          docker run -d --name "$CLICKHOUSE_CONTAINER" -p 127.0.0.1::9000 \
-            -e CLICKHOUSE_PASSWORD="$SEI_ARCHIVE_TEST_PASSWORD" \
-            --ulimit nofile=262144:262144 "$CLICKHOUSE_IMAGE"
-          echo "SEI_ARCHIVE_TEST_CLICKHOUSE=$(docker port "$CLICKHOUSE_CONTAINER" 9000/tcp)" >> "$GITHUB_ENV"
-          timeout 60 bash -c 'until docker exec "$CLICKHOUSE_CONTAINER" clickhouse-client \
-            --password "$SEI_ARCHIVE_TEST_PASSWORD" -q "SELECT 1" > /dev/null 2>&1; do sleep 1; done'
-
-      - name: Download modules
-        run: go mod download
-
-      - name: Go test
-        run: |
-          set -euo pipefail
-          go list ./... | grep -E "${CLICKHOUSE_PKG_PATTERN}" > packages.txt
-          # See the race shards.
-          go tool -n covdata > /dev/null
-          xargs go test -timeout=${{ env.GO_TEST_TIMEOUT }} -coverprofile=coverage.out < packages.txt
-
-      - name: ClickHouse logs
-        if: failure()
-        run: docker logs "$CLICKHOUSE_CONTAINER"
-
-      - name: Stop ClickHouse
-        if: always()
-        run: docker rm -f "$CLICKHOUSE_CONTAINER"
-
-      - name: Upload coverage to Codecov
-        if: github.event_name != 'merge_group'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' }}
-          disable_search: 'true'
-          name: sei-chain-coverage-clickhouse
-          files: ./coverage.out
-          flags: sei-chain
-
   test:
     name: Race Detection
     runs-on: ubuntu-latest
-    needs: [ race-shard, upgrade-test, clickhouse-test ]
+    needs: [ race-shard, upgrade-test ]
     if: always()
     steps:
-      - name: Verify race shards, upgrade tests and ClickHouse tests succeeded
+      - name: Verify race shards and upgrade tests succeeded
         run: |
           if [[ "${{ needs.race-shard.result }}" != "success" ]]; then
             echo "race shards did not succeed (${{ needs.race-shard.result }})"
@@ -211,8 +132,4 @@ jobs:
             echo "upgrade tests did not succeed (${{ needs.upgrade-test.result }})"
             exit 1
           fi
-          if [[ "${{ needs.clickhouse-test.result }}" != "success" ]]; then
-            echo "ClickHouse tests did not succeed (${{ needs.clickhouse-test.result }})"
-            exit 1
-          fi
-          echo "All race shards, upgrade tests and ClickHouse tests passed."
+          echo "All race shards and upgrade tests passed."
