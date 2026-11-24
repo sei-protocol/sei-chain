@@ -171,9 +171,9 @@ func archiveWithProof(t *testing.T, dir string, chainID string, height int64, pr
 
 // fixtureAt returns the restore fixture of height: the epoch registry row that the producer
 // commits at height, and a state sync proof file of height that verifies against it.
-func fixtureAt(t *testing.T, height int64) node.RestoreFixture {
+func fixtureAt(t *testing.T, height int64) node.StateSyncProofFixture {
 	t.Helper()
-	fixture, err := node.GenRestoreFixture(utils.TestRngFromSeed(height), height)
+	fixture, err := node.GenStateSyncProofFixture(utils.TestRngFromSeed(height), height)
 	require.NoError(t, err)
 	return fixture
 }

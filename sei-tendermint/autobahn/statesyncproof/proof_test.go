@@ -42,7 +42,7 @@ func TestVerifyAcceptsAProofOfTheEpochCommittee(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
 	epoch := types.GenEpochWithCommittee(rng, committee)
-	encoded, err := EncodeForEpochForTesting(rng, epoch, keys, []byte{1, 2, 3})
+	encoded, err := EncodeWithKeysForTesting(rng, epoch, keys, []byte{1, 2, 3})
 	require.NoError(t, err)
 	proof, err := Decode(encoded, epoch.RoadRange().First)
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestVerifyRejectsAProofOfAnotherCommittee(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
 	epoch := types.GenEpochWithCommittee(rng, committee)
-	encoded, err := EncodeForEpochForTesting(rng, epoch, keys, []byte{1, 2, 3})
+	encoded, err := EncodeWithKeysForTesting(rng, epoch, keys, []byte{1, 2, 3})
 	require.NoError(t, err)
 	proof, err := Decode(encoded, epoch.RoadRange().First)
 	require.NoError(t, err)
@@ -75,6 +75,22 @@ func TestVerifyRejectsAnAppQCBelowQuorum(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Error(t, proof.Verify(epoch))
+}
+
+func TestVerifyRejectsAnAppQCOfAnotherView(t *testing.T) {
+	for name, otherView := range mismatchedViews() {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			committee, keys := types.GenCommittee(rng, 4)
+			epoch := types.GenEpochWithCommittee(rng, committee)
+			qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
+			appQC := data.TestAppQC(keys, types.NewAppProposal(otherView(qc.QC().View()), []byte{1, 2, 3}))
+			// Decode rejects this file, so the proof is built directly.
+			proof := &Proof{block: types.NewRoadBlock(qc, blocks), appQC: appQC}
+
+			require.ErrorContains(t, proof.Verify(epoch), "AppQC does not match road block")
+		})
+	}
 }
 
 func TestDecodeRejectsMalformedFiles(t *testing.T) {

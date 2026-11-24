@@ -254,7 +254,7 @@ func installRestore(
 	if err := stop(importStepProofInstalled); err != nil {
 		return err
 	}
-	if err := node.StoreRestoreAnchor(t.layout, t.mode, t.storage, t.genDoc, height, appHash); err != nil {
+	if err := node.WriteRestoredAppHash(t.layout, t.mode, t.storage, t.genDoc, height, appHash); err != nil {
 		return err
 	}
 	if err := stop(importStepAnchorStored); err != nil {

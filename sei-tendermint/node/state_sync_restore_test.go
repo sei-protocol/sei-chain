@@ -38,7 +38,7 @@ func checkpointWithRow(t *testing.T, module string, key, value []byte) string {
 }
 
 func TestVerifyRestoreProofReturnsTheSignedAppHash(t *testing.T) {
-	fixture := utils.OrPanic1(GenRestoreFixture(utils.TestRng(), 5))
+	fixture := utils.OrPanic1(GenStateSyncProofFixture(utils.TestRng(), 5))
 	checkpoint := checkpointWithRow(t, fixture.Module, fixture.Key, fixture.Value)
 
 	appHash, err := VerifyRestoreProof(checkpoint, 5, fixture.Proof)
@@ -48,8 +48,8 @@ func TestVerifyRestoreProofReturnsTheSignedAppHash(t *testing.T) {
 
 func TestVerifyRestoreProofRejectsAProofOfAnotherCommittee(t *testing.T) {
 	rng := utils.TestRng()
-	fixture := utils.OrPanic1(GenRestoreFixture(rng, 5))
-	other := utils.OrPanic1(GenRestoreFixture(rng, 5))
+	fixture := utils.OrPanic1(GenStateSyncProofFixture(rng, 5))
+	other := utils.OrPanic1(GenStateSyncProofFixture(rng, 5))
 	checkpoint := checkpointWithRow(t, fixture.Module, fixture.Key, fixture.Value)
 
 	_, err := VerifyRestoreProof(checkpoint, 5, other.Proof)
@@ -57,7 +57,7 @@ func TestVerifyRestoreProofRejectsAProofOfAnotherCommittee(t *testing.T) {
 }
 
 func TestVerifyRestoreProofRejectsARoadOutsideTheRegistry(t *testing.T) {
-	fixture := utils.OrPanic1(GenRestoreFixture(utils.TestRng(), 5))
+	fixture := utils.OrPanic1(GenStateSyncProofFixture(utils.TestRng(), 5))
 	checkpoint := checkpointWithRow(t, fixture.Module, fixture.Key, fixture.Value)
 
 	_, err := VerifyRestoreProof(checkpoint, 4, fixture.Proof)
@@ -65,20 +65,20 @@ func TestVerifyRestoreProofRejectsARoadOutsideTheRegistry(t *testing.T) {
 }
 
 func TestVerifyRestoreProofRejectsACheckpointWithoutARegistry(t *testing.T) {
-	fixture := utils.OrPanic1(GenRestoreFixture(utils.TestRng(), 5))
+	fixture := utils.OrPanic1(GenStateSyncProofFixture(utils.TestRng(), 5))
 	checkpoint := checkpointWithRow(t, "bank", []byte("balance"), []byte{1})
 
 	_, err := VerifyRestoreProof(checkpoint, 5, fixture.Proof)
 	require.Error(t, err)
 }
 
-func TestStoreRestoreAnchor(t *testing.T) {
+func TestWriteRestoredAppHash(t *testing.T) {
 	psd := t.TempDir()
 	layout := AutobahnLayout{PersistentStateDir: psd, AppHashVaultDir: filepath.Join(psd, "app_hash_vault")}
 	genDoc := &types.GenesisDoc{InitialHeight: 3}
 	appHash := [32]byte{0xa1, 0x5e}
 
-	require.NoError(t, StoreRestoreAnchor(layout, config.ModeFull, gigaconfig.StorageConfig{}, genDoc, 9, appHash))
+	require.NoError(t, WriteRestoredAppHash(layout, config.ModeFull, gigaconfig.StorageConfig{}, genDoc, 9, appHash))
 
 	anchor, err := ReadNewestAppHashForTesting(layout, genDoc)
 	require.NoError(t, err)
@@ -86,14 +86,14 @@ func TestStoreRestoreAnchor(t *testing.T) {
 	require.Equal(t, uint64(9), anchor.BlockHeight())
 	require.Equal(t, appHash, anchor.AppHash())
 	// The anchor is the first record of an empty vault only.
-	require.Error(t, StoreRestoreAnchor(layout, config.ModeFull, gigaconfig.StorageConfig{}, genDoc, 9, appHash))
+	require.Error(t, WriteRestoredAppHash(layout, config.ModeFull, gigaconfig.StorageConfig{}, genDoc, 9, appHash))
 }
 
-func TestStoreRestoreAnchorRejectsAHeightBelowActivation(t *testing.T) {
+func TestWriteRestoredAppHashRejectsAHeightBelowActivation(t *testing.T) {
 	psd := t.TempDir()
 	layout := AutobahnLayout{PersistentStateDir: psd, AppHashVaultDir: filepath.Join(psd, "app_hash_vault")}
 
-	err := StoreRestoreAnchor(layout, config.ModeFull, gigaconfig.StorageConfig{}, &types.GenesisDoc{InitialHeight: 10}, 9, [32]byte{1})
+	err := WriteRestoredAppHash(layout, config.ModeFull, gigaconfig.StorageConfig{}, &types.GenesisDoc{InitialHeight: 10}, 9, [32]byte{1})
 	require.ErrorIs(t, err, ErrBelowGigaActivation)
 	_, err = os.Stat(layout.AppHashVaultDir)
 	require.ErrorIs(t, err, os.ErrNotExist)

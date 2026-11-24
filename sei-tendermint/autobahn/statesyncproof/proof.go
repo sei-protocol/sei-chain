@@ -40,9 +40,12 @@ func (p *Proof) AppQC() *types.AppQC {
 	return p.appQC
 }
 
-// Verify returns an error unless the road block verifies against ep and a quorum of the committee
-// of ep signed the AppQC.
+// Verify returns an error unless the AppQC is for the road block, the road block verifies against
+// ep, and a quorum of the committee of ep signed the AppQC.
 func (p *Proof) Verify(ep *types.Epoch) error {
+	if err := p.appQC.Proposal().Verify(p.block.QC().QC()); err != nil {
+		return fmt.Errorf("AppQC does not match road block: %w", err)
+	}
 	if err := p.block.Verify(ep); err != nil {
 		return fmt.Errorf("road block: %w", err)
 	}

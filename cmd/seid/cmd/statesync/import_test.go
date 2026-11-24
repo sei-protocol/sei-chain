@@ -229,7 +229,7 @@ func TestRewriteAcceptsAnArchiveOfAnOlderPebbleFormat(t *testing.T) {
 func TestImportRejectsAProofOfAnotherCommittee(t *testing.T) {
 	p := newProducer(t)
 	height := p.commit(t, 1)
-	other, err := node.GenRestoreFixture(utils.TestRngFromSeed(height+1000), height)
+	other, err := node.GenStateSyncProofFixture(utils.TestRngFromSeed(height+1000), height)
 	require.NoError(t, err)
 	tg := freshHome(t)
 

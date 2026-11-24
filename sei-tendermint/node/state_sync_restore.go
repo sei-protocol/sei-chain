@@ -70,10 +70,10 @@ func RequireRestoreHeight(genDoc *types.GenesisDoc, height int64) error {
 	return nil
 }
 
-// StoreRestoreAnchor stores appHash as the app hash of height, the first record of the empty
-// app-hash vault of layout. mode, storage and genDoc are the node mode, the [giga.storage] settings
-// and the genesis doc that the node starts with.
-func StoreRestoreAnchor(
+// WriteRestoredAppHash writes appHash, the app hash of the restored height, as the restore anchor
+// of the empty app-hash vault of layout. mode, storage and genDoc are the node mode, the
+// [giga.storage] settings and the genesis doc that the node starts with.
+func WriteRestoredAppHash(
 	layout AutobahnLayout,
 	mode string,
 	storage gigaconfig.StorageConfig,

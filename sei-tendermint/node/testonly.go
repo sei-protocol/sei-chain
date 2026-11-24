@@ -15,9 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// RestoreFixture is the FlatKV row of an epoch registry and a state sync proof file that verifies
+// StateSyncProofFixture is the FlatKV row of an epoch registry and a state sync proof file that verifies
 // against that registry. Intended for use in tests only.
-type RestoreFixture struct {
+type StateSyncProofFixture struct {
 	// Module, Key and Value are the FlatKV row of the epoch registry.
 	Module string
 	Key    []byte
@@ -28,9 +28,9 @@ type RestoreFixture struct {
 	AppHash [32]byte
 }
 
-// GenRestoreFixture returns a RestoreFixture of road height. Its registry holds the genesis epochs
+// GenStateSyncProofFixture returns a StateSyncProofFixture of road height. Its registry holds the genesis epochs
 // of a committee that rng generates, with epoch 0 starting at height. Intended for use in tests only.
-func GenRestoreFixture(rng utils.Rng, height int64) (RestoreFixture, error) {
+func GenStateSyncProofFixture(rng utils.Rng, height int64) (StateSyncProofFixture, error) {
 	keys := rng.GenSliceN(4, atypes.GenSecretKey)
 	weights := make(map[atypes.PublicKey]uint64, len(keys))
 	for _, k := range keys {
@@ -38,15 +38,15 @@ func GenRestoreFixture(rng utils.Rng, height int64) (RestoreFixture, error) {
 	}
 	registry, err := atypes.GenesisRegistry(weights, atypes.RoadHeight(height), 10) //nolint:gosec // test heights are positive.
 	if err != nil {
-		return RestoreFixture{}, err
+		return StateSyncProofFixture{}, err
 	}
 	appHash := [32]byte(utils.GenBytes(rng, 32))
-	proof, err := statesyncproof.EncodeForEpochForTesting(rng, registry.Epochs()[0], keys, appHash[:])
+	proof, err := statesyncproof.EncodeWithKeysForTesting(rng, registry.Epochs()[0], keys, appHash[:])
 	if err != nil {
-		return RestoreFixture{}, err
+		return StateSyncProofFixture{}, err
 	}
 	module, key, value := evmonlyapp.EpochRegistryRowForTesting(registry)
-	return RestoreFixture{Module: module, Key: key, Value: value, Proof: proof, AppHash: appHash}, nil
+	return StateSyncProofFixture{Module: module, Key: key, Value: value, Proof: proof, AppHash: appHash}, nil
 }
 
 // ReadNewestAppHashForTesting returns the newest record of the app-hash vault of layout on a chain
