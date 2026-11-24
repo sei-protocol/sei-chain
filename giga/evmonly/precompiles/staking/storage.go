@@ -95,9 +95,29 @@ func at(base common.Hash, m member) common.Hash {
 	return solstorage.Offset(base, m.slot)
 }
 
-// params returns staking's params from the params precompile.
+// params returns the params staking applies.
 func (s store) params() chainparams.Staking {
-	return chainparams.ReadStaking(s.State)
+	base := solstorage.Slot(slotParams)
+	return chainparams.Staking{
+		UnbondingTime:                      s.Uint64(at(base, paramsUnbondingTime), paramsUnbondingTime.offset),
+		MaxValidators:                      s.Uint32(at(base, paramsMaxValidators), paramsMaxValidators.offset),
+		MaxEntries:                         s.Uint32(at(base, paramsMaxEntries), paramsMaxEntries.offset),
+		MaxVotingPowerRatio:                s.Uint256(at(base, paramsMaxVotingPowerRatio)),
+		MaxVotingPowerEnforcementThreshold: s.Uint256(at(base, paramsMaxVotingPowerEnforcementThreshold)),
+	}
+}
+
+// adoptParams makes the params precompile's staking params the ones staking
+// applies, and returns them.
+func (s store) adoptParams() chainparams.Staking {
+	p := chainparams.ReadStaking(s.State)
+	base := solstorage.Slot(slotParams)
+	s.SetUint64(at(base, paramsUnbondingTime), paramsUnbondingTime.offset, p.UnbondingTime)
+	s.SetUint32(at(base, paramsMaxValidators), paramsMaxValidators.offset, p.MaxValidators)
+	s.SetUint32(at(base, paramsMaxEntries), paramsMaxEntries.offset, p.MaxEntries)
+	s.SetUint256(at(base, paramsMaxVotingPowerRatio), p.MaxVotingPowerRatio)
+	s.SetUint256(at(base, paramsMaxVotingPowerEnforcementThreshold), p.MaxVotingPowerEnforcementThreshold)
+	return p
 }
 
 func validatorBase(op common.Address) common.Hash {
@@ -287,6 +307,16 @@ func (s store) currentEpoch() uint64 {
 
 func (s store) setCurrentEpoch(epoch uint64) {
 	s.SetUint64(solstorage.Slot(slotCurrentEpoch), 0, epoch)
+}
+
+// stagedWork returns the work staged during the current epoch, one unit per
+// delegation an operation changes.
+func (s store) stagedWork() uint64 {
+	return s.Uint64(solstorage.Slot(slotStagedWork), 0)
+}
+
+func (s store) setStagedWork(units uint64) {
+	s.SetUint64(solstorage.Slot(slotStagedWork), 0, units)
 }
 
 // lastTotalPower returns the consensus power of the bonded set as last stored.

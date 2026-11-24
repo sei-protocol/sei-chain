@@ -213,6 +213,8 @@ Staking:
 | `0x34`–`0x36` | redelegations and their indexes | `redelegationEntryCounts` and `redelegationsByValDst`; entries live in the redelegation queue, and `0x35` is not carried over |
 | `0x41`–`0x43` | unbonding, redelegation, validator queues | three queues |
 | none | delegates, undelegates and redelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue`, `stagedDelegations` and `stagedInbound` (see *Staged operations*) |
+| none | the work staged during the current epoch, which prices the next call | `stagedWork` (see *Staged operations*) |
+| none | the params staking applies | `params`, a copy of the params precompile's staking params (see *Staged operations*) |
 | `0x50` | historical info | not carried over (see below) |
 
 Distribution: prefixes `0x00`–`0x08` map one to one onto the nine state
@@ -326,12 +328,14 @@ A call checks the operation as V2 would at that block and queues it in
 waits for: `currentEpoch` plus one. EndBlock sets `currentEpoch` from the epoch
 the app marks the block as closing, whether or not the snapshot is taken. At the
 end of each epoch, EndBlock applies the operations due, in the order they were
-called, through the same code V2's messages run, then updates the bonded set and
-completes the validators whose unbonding period is over. Nothing else changes a
-delegation or the validator set: EndBlock on any other block only completes
-unbonding and redelegation entries, which change neither. So a validator
-finishes unbonding at the first epoch's end after its unbonding time, where V2
-finishes it at that time. Before staking has bonded a set, any EndBlock bonds
+called, through the same code V2's messages run, then updates the bonded set,
+completes the validators whose unbonding period is over and adopts the params
+precompile's staking params. Nothing else changes a delegation, the validator
+set or the params staking applies: EndBlock on any other block only completes
+unbonding and redelegation entries, which change none of them. So a validator
+finishes unbonding at the first epoch's end after its unbonding time, and a
+param change takes effect at the first epoch's end after the proposal passes,
+where V2 does both at once. Before staking has bonded a set, any EndBlock bonds
 the genesis validators, as V2 does at genesis, and once it has, its genesis
 writes of params and validators fail. Staking that starts after the chain's
 first epoch counts no epoch until it sees one close, and the operations staged
@@ -348,20 +352,39 @@ validator's voting power would be stake already unbonding, which staking does
 not slash.
 
 The projection is exact. Nothing between the ends of T and T+1 changes a
-delegation or the validator set, so the operations it applies meet the same
-state when they take effect, and one that will be dropped then is left out of it
-too. Validators finish unbonding after the operations due and before the
-projection for the same reason. `stagedInbound` counts, for each validator, the
-delegates and redelegates staged to it, and a validator is not removed while
-that count is above zero, even once it is unbonded with no shares, so an
-operation finds its validator as the projection did.
+delegation, the validator set or the params staking applies, so the operations
+it applies meet the same state, under the same params, when they take effect,
+and one that will be dropped then is left out of it too. Validators finish
+unbonding after the operations due and before the projection for the same
+reason. `stagedInbound` counts, for each validator, the delegates and redelegates
+staged to it, and a validator is not removed while that count is above zero,
+even once it is unbonded with no shares, so an operation finds its validator as
+the projection did.
 
-The work falls under EndBlock's budget like the other queues, and the
-projection spends a second one. Operations past the budget wait for the next
-epoch's end rather than the next block, and the projection, which stops at the
-same budget, counts them in that epoch's snapshot instead, so a backlog delays
-operations by whole epochs but never separates the committee from the
-delegations.
+The params need the same, so staking applies its own copy, `params`, rather
+than the params precompile's. A proposal can change those in any block, and a
+lower max voting power ratio or max validators in effect by the end of T+1 would
+apply the operations under other rules than the projection did: a delegation the
+snapshot counted could be dropped, and the committee would hold power no stake
+backs. Staking adopts the params precompile's at each epoch's end, after the
+validators finish unbonding and before the projection. A change made during T+1
+is adopted at its end, so it first shapes the snapshot taken there and then the
+end of T+2 that snapshot projects, as an operation called during T+1 does.
+Genesis writes both.
+
+Every operation staged during an epoch takes effect at the end of the next,
+however many there are, and the projection counts every one, so neither runs
+under EndBlock's budget. The calls pay for that work instead. `stagedWork`
+counts the work staged during the current epoch, one unit per delegation an
+operation changes, so a redelegation is two. The first 10,000 units an epoch
+stages cost nothing extra. Past them each unit charges 100,000 gas through the
+call's gas meter, doubling every 2,000 units up to a quarter of the block's gas
+limit, so no operation needs more than half a block. From there the gas an
+epoch can spend bounds its work: with a base fee that rises once blocks use more
+than half their gas limit, about two units fit a block before block space gets
+dearer, so an epoch of 108,000 blocks stages about 240,000 units at most for
+the price of every block's target gas. An epoch's end applies one epoch's
+operations and projects the next's, so it does at most twice that.
 
 The tokens a delegate sends wait in `StagedEscrow`, apart from any validator's,
 and count toward no power until the delegation takes effect. Stake an
@@ -380,10 +403,12 @@ does, and redelegations staged out of a validator count toward `maxEntries` for
 every destination, since they are not counted per destination.
 
 What can still change between the call and its epoch's end is what other
-operations, and the validators finishing unbonding before them, do: a
-delegation can reach the max voting power ratio once others ahead of it take
-effect, as it is checked against the bonded set's power as they leave it, not as
-last stored. An operation that then fails is dropped and reported: a
+operations, and the validators finishing unbonding before them, do, and the
+params, since a call is checked against those staking applies and the end of
+the epoch it is called in can adopt new ones. A delegation can reach the max
+voting power ratio once others ahead of it take effect, as it is checked against
+the bonded set's power as they leave it, not as last stored, or once the ratio
+is lowered. An operation that then fails is dropped and reported: a
 delegation's tokens go back to its delegator, the stake an undelegation or
 redelegation would have moved stays where it is, and a validator kept only for
 the stake it would have moved is removed.
@@ -532,7 +557,7 @@ A possible sequence:
 1. **At the cutover height, copy everything per validator in one go**:
    validator records, power, the validator queue, every per-validator rewards
    record, slash events, the community pool, signing info and missed blocks,
-   params and escrow balances. This is about a hundred validators' worth of
+   params, both the params precompile's and staking's copy, and escrow balances. This is about a hundred validators' worth of
    state.
 2. **Sweep the per-delegation state over the following blocks.** Staking's
    EndBlock copies V2 records in V2 key order, a budgeted number per block, and

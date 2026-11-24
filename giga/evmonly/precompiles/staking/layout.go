@@ -35,6 +35,8 @@ const (
 	slotStagedQueue                 = 23
 	slotStagedDelegations           = 24
 	slotStagedInbound               = 25
+	slotStagedWork                  = 26
+	slotParams                      = 27
 )
 
 // member is a struct member's position relative to the struct's base slot.
@@ -153,6 +155,15 @@ var (
 
 // stagedDelegationSlots is how many slots a StakingStorage.StagedDelegation takes.
 const stagedDelegationSlots = 2
+
+// StakingStorage.Params members.
+var (
+	paramsUnbondingTime                      = member{0, 0}
+	paramsMaxValidators                      = member{0, 8}
+	paramsMaxEntries                         = member{0, 12}
+	paramsMaxVotingPowerRatio                = member{1, 0}
+	paramsMaxVotingPowerEnforcementThreshold = member{2, 0}
+)
 
 // BondedEscrow holds the tokens of bonded validators.
 var BondedEscrow = escrow("bonded")

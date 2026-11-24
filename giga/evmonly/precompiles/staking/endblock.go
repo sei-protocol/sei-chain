@@ -23,26 +23,20 @@ var (
 	errRedelegationCounted = errors.New("redelegation entry was not counted")
 )
 
-// endBlockBudget bounds the work one EndBlock does on each queue: one unit per
-// entry, plus one per unbonding entry of the delegation an unbonding queue entry
-// pays. An entry larger than the whole budget runs when nothing has spent it, and
-// uses it up. Entries past the budget wait for the next EndBlock that drains
-// their queue, which for the staged and validator queues is the next to close an
-// epoch, and a block that closes an epoch spends a second budget on the staged
-// queue to project its snapshot. Staging an operation writes at least three new
-// slots, over 60,000 gas, so 300M gas of calls stage at most 5,000 a block, and a
-// backlog takes effect at the ends of later epochs. Applying one queues at most
-// one unbonding or redelegation entry, so the redelegation queue completes as
-// many a block as an epoch's end applies, and the unbonding queue, whose entries
-// cost at least two units, at most 1,500.
+// endBlockBudget bounds the work one EndBlock does on each of the unbonding,
+// redelegation and validator queues: one unit per entry, plus one per unbonding
+// entry of the delegation an unbonding queue entry pays. An entry larger than the
+// whole budget runs when nothing has spent it, and uses it up. Entries past the
+// budget wait for the next EndBlock that drains their queue. The staged queue has
+// no budget; stagingGas bounds it.
 const endBlockBudget = 3_000
 
-// EndBlock makes the changes to delegations and the validator set of the epoch
-// the block closes, as closeEpoch does, or, while staking has no bonded set,
-// bonds the genesis validators. It then completes the unbonding entries and
-// redelegation entries whose unbonding period is over, as x/staking's
-// BlockValidatorUpdates does. Before staking's params are written it does
-// nothing. Its failures are staged operations that could not be applied,
+// EndBlock makes the changes to delegations, the validator set and the params
+// staking applies of the epoch the block closes, as closeEpoch does, or, while
+// staking has no bonded set, bonds the genesis validators. It then completes the
+// unbonding entries and redelegation entries whose unbonding period is over, as
+// x/staking's BlockValidatorUpdates does. Before staking's params are written it
+// does nothing. Its failures are staged operations that could not be applied,
 // which are dropped, a bonded set that could not be updated, which is kept as it
 // was, a snapshot that could not be taken, and queue entries whose stored data
 // does not add up, which are dropped. It returns no error.
@@ -51,14 +45,14 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 		return nil, nil
 	}
 	s := newStore(state)
-	params := s.params()
 	var failures []error
-	// Delegations and the validator set change only when an epoch closes, so no
-	// block between two epochs' ends moves what the first one's snapshot projected.
+	// Delegations, the validator set and the params staking applies change only
+	// when an epoch closes, so no block between two epochs' ends moves what the
+	// first one's snapshot projected.
 	if epoch, ok := block.ClosingEpoch.Get(); ok {
-		p.closeEpoch(block, s, params, epoch, &failures)
+		p.closeEpoch(block, s, epoch, &failures)
 	} else if !s.started() {
-		p.updateBondedSetReporting(block, s, params, &failures)
+		p.updateBondedSetReporting(block, s, s.params(), &failures)
 	}
 	drain(s.unbondingQueue(), block.UnixNano, "unbonding", &failures,
 		func(e common.Hash) uint64 {
@@ -72,17 +66,21 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 	return failures, nil
 }
 
-// closeEpoch makes epoch's changes to delegations and the validator set: it
-// advances the current epoch past epoch, applies the staged operations due,
-// updates the bonded set, completes the validators whose unbonding period is
-// over, and snapshots the bonded set as it will be once the operations still
-// staged take effect, in that order.
-func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, params chainparams.Staking, epoch uint64, failures *[]error) {
+// closeEpoch makes epoch's changes to delegations, the validator set and the
+// params staking applies. In order, it advances the current epoch past epoch,
+// which starts the count of work staged during it afresh, applies the staged
+// operations due and updates the bonded set under the params staking applies,
+// completes the validators whose unbonding period is over, adopts the params
+// precompile's staking params, and snapshots the bonded set as it will be once
+// the operations still staged take effect under them.
+func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, epoch uint64, failures *[]error) {
 	// Operations are staged for the epoch after the one staking counts as
 	// current, which is epoch unless staking started during it and has counted
 	// none: what was staged then is due at the end of the next epoch.
 	due := s.currentEpoch()
 	s.setCurrentEpoch(epoch + 1)
+	s.setStagedWork(0)
+	params := s.params()
 	p.applyStaged(block, s, params, due, failures)
 	p.updateBondedSetReporting(block, s, params, failures)
 	// Validators finish unbonding after the operations due and before the
@@ -91,7 +89,10 @@ func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, params c
 	drain(s.validatorQueue(), block.UnixNano, "validator", failures,
 		func(common.Hash) uint64 { return 1 },
 		func(e common.Hash) error { return p.completeValidatorUnbonding(block, s, e) }, nil)
-	if err := snapshotEpoch(block, s, params, epoch); err != nil {
+	// A param change takes effect here, not in the block governance makes it in,
+	// so the operations this snapshot projects take effect at the next epoch's end
+	// under the params it projected them with.
+	if err := snapshotEpoch(block, s, s.adoptParams(), epoch); err != nil {
 		*failures = append(*failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
 	}
 }
@@ -201,9 +202,9 @@ func (p Precompile) applyBondedSet(block precompiles.BlockContext, s store, para
 const epochSnapshotsKept = 3
 
 // projectedBondedSet returns the bonded set as it will be once the staged
-// operations queued now take effect, as many as one EndBlock applies: the set an
-// update would bond after applying them, or the set as it is when that update
-// fails. It leaves the state as it was and calls no hooks.
+// operations queued now take effect: the set an update would bond after applying
+// them, or the set as it is when that update fails. It leaves the state as it was
+// and calls no hooks.
 func projectedBondedSet(block precompiles.BlockContext, s store, params chainparams.Staking) ([]BondedValidator, error) {
 	snap := s.State.Snapshot()
 	defer s.State.RevertToSnapshot(snap)
@@ -235,12 +236,12 @@ func snapshotEpoch(block precompiles.BlockContext, s store, params chainparams.S
 	return nil
 }
 
-// drain completes each entry of q due by now, in queue order, under a budget of
-// its own, until none is due or the next does not fit what is left. Each entry
-// is removed from q once completed. A completion that fails is reverted and
-// reported, fail, when given, records the outcome, and the entry is removed all
-// the same, so it holds up no other. A queue whose head is past its tail is
-// reported and left alone.
+// drain completes each entry of q due by now, in queue order, until none is due
+// or, when cost is given, the next does not fit what is left of a budget of its
+// own. Each entry is removed from q once completed. A completion that fails is
+// reverted and reported, fail, when given, records the outcome, and the entry is
+// removed all the same, so it holds up no other. A queue whose head is past its
+// tail is reported and left alone.
 func drain(q queue, now uint64, name string, failures *[]error, cost func(e common.Hash) uint64, complete, fail func(e common.Hash) error) {
 	if err := q.check(); err != nil {
 		*failures = append(*failures, fmt.Errorf("%w: %s queue: %w", precompiles.ErrDegraded, name, err))
@@ -248,7 +249,7 @@ func drain(q queue, now uint64, name string, failures *[]error, cost func(e comm
 	}
 	budget := uint64(endBlockBudget)
 	for e, ok := q.due(now); ok; e, ok = q.due(now) {
-		if !take(&budget, cost(e)) {
+		if cost != nil && !take(&budget, cost(e)) {
 			return
 		}
 		snap := q.s.State.Snapshot()

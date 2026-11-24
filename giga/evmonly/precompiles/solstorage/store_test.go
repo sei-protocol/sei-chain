@@ -56,11 +56,13 @@ func TestPackedFieldsLeaveNeighboursIntact(t *testing.T) {
 	s.SetBool(slot, 4, true)
 	s.SetUint64(slot, 5, 1<<63+7)
 	s.SetInt64(slot, 13, -9)
+	s.SetUint32(slot, 21, 1<<31+5)
 
 	require.Equal(t, int32(-2), s.Int32(slot, 0))
 	require.True(t, s.Bool(slot, 4))
 	require.Equal(t, uint64(1<<63+7), s.Uint64(slot, 5))
 	require.Equal(t, int64(-9), s.Int64(slot, 13))
+	require.Equal(t, uint32(1<<31+5), s.Uint32(slot, 21))
 
 	s.SetBool(slot, 4, false)
 	require.False(t, s.Bool(slot, 4))

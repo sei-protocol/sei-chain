@@ -32,13 +32,18 @@ func DefaultParams() chainparams.Staking {
 	}
 }
 
-// SetParams writes p as staking's params, for genesis. It fails once staking
-// has bonded a set.
+// SetParams writes p as the params precompile's staking params and as the
+// params staking applies, for genesis. It fails once staking has bonded a set.
 func SetParams(state precompiles.State, p chainparams.Staking) error {
-	if newStore(state).started() {
+	s := newStore(state)
+	if s.started() {
 		return errStakingStarted
 	}
-	return chainparams.WriteStaking(state, p)
+	if err := chainparams.WriteStaking(state, p); err != nil {
+		return err
+	}
+	s.adoptParams()
+	return nil
 }
 
 // HasParams reports whether staking's params have been written.
