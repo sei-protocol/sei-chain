@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"iter"
 	"maps"
 	"math/rand/v2"
 	"os"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var (
@@ -78,16 +78,13 @@ func (liveState) Close() {}
 // for none.
 type priorMap map[string][]byte
 
-func (p priorMap) Len() int { return len(p) }
-
-func (p priorMap) All() iter.Seq2[[]byte, []byte] {
-	return func(yield func(key, prior []byte) bool) {
-		for key, prior := range p {
-			if !yield([]byte(key), prior) {
-				return
-			}
-		}
+// mutations returns the block's mutations, each holding a key and its prior value.
+func (p priorMap) mutations() []mutation.Mutation {
+	out := make([]mutation.Mutation, 0, len(p))
+	for key, prior := range p {
+		out = append(out, mutation.Mutation{Key: []byte(key), PreviousValue: prior})
 	}
+	return out
 }
 
 // TestUndoLogByHand spells the store out: the live state after the last block, the value each block
@@ -115,7 +112,7 @@ func TestUndoLogByHand(t *testing.T) {
 	require.NoError(t, db.Resume(100, live))
 	for height := int64(101); height <= 112; height++ {
 		// Every block is handed the final live state: only the last block's is ever read.
-		db.ApplyBlock(height, priorMap(blocks[height]), live)
+		db.ApplyBlock(height, priorMap(blocks[height]).mutations(), live)
 	}
 	db.WaitForPendingWrites()
 
@@ -238,10 +235,10 @@ func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Unlock()
 
 	if async {
-		c.db.ApplyBlock(version, priorMap(prior), c.view(next))
+		c.db.ApplyBlock(version, priorMap(prior).mutations(), c.view(next))
 		return
 	}
-	require.NoError(c.t, c.db.applyBlock(version, priorMap(prior), c.view(next)))
+	require.NoError(c.t, c.db.applyBlock(version, priorMap(prior).mutations(), c.view(next)))
 }
 
 // read returns key's value after block height through a view of the store.
@@ -548,7 +545,7 @@ func TestNewDatabaseUsesDefaultBucketSize(t *testing.T) {
 	require.Equal(t, uint64(defaultBucketSize), db.bucketSize)
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(0, liveState{}))
-	db.ApplyBlock(1, priorMap{key: nil}, liveState{key: nonce(1)})
+	db.ApplyBlock(1, priorMap{key: nil}.mutations(), liveState{key: nonce(1)})
 	db.WaitForPendingWrites()
 	require.Nil(t, read(t, db, 0, key))
 	require.Equal(t, nonce(1), read(t, db, 1, key))
@@ -743,8 +740,7 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			for h := uint64(1); h <= 9; h++ {
 				c.apply(map[string][]byte{slot: word(h)}, false)
 			}
-			priors := priorMap{slot: word(0xbad)}
-			require.NoError(t, c.db.writeRecords(priors, recordCount(priors), 1, 10))
+			require.NoError(t, c.db.writeRecords(priorMap{slot: word(0xbad)}.mutations(), 1, 10))
 			require.NoError(t, c.db.Close())
 
 			//nolint:gosec // small test heights
@@ -884,7 +880,7 @@ func TestBlocksRequireSuccessfulResume(t *testing.T) {
 
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(5, liveState{key: nonce(1)}))
-	db.ApplyBlock(6, priorMap{key: nonce(1)}, liveState{key: nonce(2)})
+	db.ApplyBlock(6, priorMap{key: nonce(1)}.mutations(), liveState{key: nonce(2)})
 	db.WaitForPendingWrites()
 	require.Equal(t, int64(6), db.GetLatestVersion())
 	require.Equal(t, nonce(1), read(t, db, 5, key))
@@ -1151,11 +1147,10 @@ func TestEveryKeyIsRecorded(t *testing.T) {
 		storageKey(contract, 1): word(3),
 		"bank/supply":           word(4),
 	}
-	height, err := db.writeBlock(1, priors)
+	height, err := db.writeBlock(1, priors.mutations())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), height)
-	require.Len(t, records(t, db), recordCount(priors))
-	require.Equal(t, 5, recordCount(priors))
+	require.Len(t, records(t, db), len(priors))
 	db.latestHeight.Store(height)
 
 	// An empty block must still advance the committed height.
@@ -1237,7 +1232,7 @@ func TestWritesRejectKeysNoRecordCanHold(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10)
 	defer func() { require.NoError(t, db.Close()) }()
 	for _, key := range []string{"", string(make([]byte, maxKeyLen+1))} {
-		_, err := db.writeBlock(1, priorMap{key: word(1)})
+		_, err := db.writeBlock(1, priorMap{key: word(1)}.mutations())
 		require.ErrorContains(t, err, "outside 1..")
 	}
 	require.Empty(t, records(t, db))

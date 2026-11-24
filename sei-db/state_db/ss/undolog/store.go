@@ -49,7 +49,7 @@ func (s *undoLogStore) ApplyBlock(version int64, mutations []mutation.Mutation, 
 			panic(fmt.Errorf("undolog: block %d: key %x: %w", version, m.Key, err))
 		}
 	}
-	s.Database.ApplyBlock(version, mutationPriors(mutations), current)
+	s.Database.ApplyBlock(version, mutations, current)
 }
 
 func (s *undoLogStore) OpenView(version int64) (gigatypes.RawStateView, bool) {
