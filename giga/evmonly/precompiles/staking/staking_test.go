@@ -153,92 +153,6 @@ func TestSelfUndelegationBelowTheMinimumDoesNotJail(t *testing.T) {
 	h.requireInvariants(alice)
 }
 
-func TestRedelegateMovesTheStakeAndQueuesTheEntry(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val1, sei(5)))
-	require.NoError(t, h.redelegate(alice, val1, val2, sei(2)))
-
-	require.Equal(t, dec.FromInt(sei(3)), h.shares(alice, val1))
-	require.Equal(t, dec.FromInt(sei(2)), h.shares(alice, val2))
-	require.Equal(t, sei(33), h.validator(val1).tokens)
-	require.Equal(t, sei(22), h.validator(val2).tokens)
-	require.Equal(t, big.NewInt(1), h.store().redelegationEntryCount(alice, val1, val2))
-	require.Equal(t, big.NewInt(1), h.store().receivingRedelegations(val2, alice))
-
-	s, q := h.store(), h.store().redelegationQueue()
-	require.Equal(t, uint64(1), q.tail()-q.head())
-	e := q.entry(q.head())
-	completion := h.time + testParams.UnbondingTime
-	require.Equal(t, completion, s.Uint64(at(e, queueCompletionTime), queueCompletionTime.offset))
-	require.Equal(t, alice, s.AddressAt(at(e, redelegationQueueDelegator), redelegationQueueDelegator.offset))
-	require.Equal(t, h.number, s.Uint64(at(e, redelegationQueueCreationHeight), redelegationQueueCreationHeight.offset))
-	require.Equal(t, val1, s.AddressAt(at(e, redelegationQueueSrcValidator), redelegationQueueSrcValidator.offset))
-	require.Equal(t, val2, s.AddressAt(at(e, redelegationQueueDstValidator), redelegationQueueDstValidator.offset))
-	require.Equal(t, sei(2), s.Uint256(at(e, redelegationQueueInitialBalance)))
-	require.Equal(t, dec.FromInt(sei(2)), s.Uint256(at(e, redelegationQueueSharesDst)))
-
-	log := h.state.logs[len(h.state.logs)-1]
-	require.Equal(t, []common.Hash{ABI.Events[RedelegateEvent].ID, addressTopic(alice), addressTopic(val1), addressTopic(val2)}, log.Topics)
-	data, err := ABI.Events[RedelegateEvent].Inputs.NonIndexed().Unpack(log.Data)
-	require.NoError(t, err)
-	require.Equal(t, []interface{}{sei(2), uint64(1)}, data)
-	h.requireInvariants(alice)
-}
-
-func TestRedelegatingFromAnUnbondedValidatorCompletesAtOnce(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val3, sei(5)))
-	require.NoError(t, h.redelegate(alice, val3, val1, sei(5)))
-	require.Zero(t, h.store().redelegationEntryCount(alice, val3, val1).Sign())
-	q := h.store().redelegationQueue()
-	require.Equal(t, q.head(), q.tail(), "no entry is queued")
-	require.Equal(t, sei(55), h.state.GetBalance(BondedEscrow), "the tokens move to the bonded escrow")
-	h.requireInvariants(alice)
-}
-
-func TestRedelegatingTheLastSharesOutOfAnUnbondedValidatorWaits(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.redelegate(val3, val3, val1, sei(10)))
-	_, ok := h.store().validator(val3)
-	require.False(t, ok, "the last shares out remove an unbonded validator")
-	require.Equal(t, int64(1), h.store().redelegationEntryCount(val3, val3, val1).Int64(), "a missing source waits as a bonded one does")
-	q := h.store().redelegationQueue()
-	require.Equal(t, h.time+testParams.UnbondingTime, h.store().Uint64(at(q.entry(q.head()), queueCompletionTime), queueCompletionTime.offset))
-
-	h.advance(testParams.UnbondingTime)
-	require.Empty(t, h.failures)
-	require.Zero(t, h.store().redelegationEntryCount(val3, val3, val1).Sign())
-	h.requireInvariants()
-}
-
-func TestRedelegatingOutOfAnOpenRedelegationWaits(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val1, sei(5)))
-	require.NoError(t, h.redelegate(alice, val1, val2, sei(2)))
-	require.ErrorIs(t, h.redelegate(alice, val2, val1, sei(1)), errTransitiveRedelegation)
-
-	h.advance(testParams.UnbondingTime)
-	require.Empty(t, h.failures)
-	require.Zero(t, h.store().receivingRedelegations(val2, alice).Sign())
-	require.NoError(t, h.redelegate(alice, val2, val1, sei(1)))
-	h.requireInvariants(alice)
-}
-
-func TestRedelegateRejectsBadCalls(t *testing.T) {
-	params := testParams
-	params.MaxEntries = 1
-	h := newHarness(t, params)
-	require.NoError(t, h.delegate(alice, val1, sei(5)))
-	requireReverts(t, h.redelegate(alice, val1, val2, new(big.Int)), errInvalidAmount)
-	require.ErrorIs(t, h.redelegate(alice, val1, val1, sei(1)), errSelfRedelegation)
-	require.ErrorIs(t, h.redelegate(alice, val1, bob, sei(1)), errBadRedelegationValidator)
-	require.ErrorIs(t, h.redelegate(alice, bob, val2, sei(1)), errNoValidatorFound)
-	require.ErrorIs(t, h.redelegate(alice, val1, val2, sei(6)), errInvalidShares)
-	require.NoError(t, h.redelegate(alice, val1, val2, sei(1)))
-	require.ErrorIs(t, h.redelegate(alice, val1, val2, sei(1)), errMaxRedelegationEntries)
-	h.requireInvariants(alice)
-}
-
 func TestDelegateKeepsTheVotingPowerRatio(t *testing.T) {
 	params := testParams
 	params.MaxVotingPowerRatio = new(big.Int).Div(dec.One(), big.NewInt(2))
@@ -261,8 +175,10 @@ func TestThePowerIndexFollowsEveryChange(t *testing.T) {
 	require.Equal(t, []common.Address{val1, val2, val3}, h.powerIndex(), "a tie goes to the lower address")
 	require.NoError(t, h.delegate(bob, val3, sei(11)))
 	require.Equal(t, []common.Address{val3, val1, val2}, h.powerIndex())
-	require.NoError(t, h.redelegate(bob, val3, val2, sei(11)))
-	require.Equal(t, []common.Address{val2, val1, val3}, h.powerIndex(), "one call moves two validators")
+	require.NoError(t, h.undelegate(bob, val3, sei(11)))
+	require.Equal(t, []common.Address{val1, val2, val3}, h.powerIndex())
+	require.NoError(t, h.delegate(bob, val2, sei(11)))
+	require.Equal(t, []common.Address{val2, val1, val3}, h.powerIndex())
 	h.requireInvariants(alice, bob)
 }
 

@@ -66,18 +66,12 @@ func TestStagingCountsWhatIsAlreadyStaged(t *testing.T) {
 	require.ErrorIs(t, h.stageUndelegate(alice, val1, sei(5)), errInvalidShares, "staged shares are spoken for")
 	require.NoError(t, h.stageUndelegate(alice, val1, sei(1)))
 	require.ErrorIs(t, h.stageUndelegate(alice, val1, sei(1)), errMaxUnbondingEntries, "staged undelegations count toward maxEntries")
-	require.NoError(t, h.stageRedelegate(alice, val1, val2, sei(1)))
-	require.ErrorIs(t, h.stageRedelegate(alice, val2, val3, sei(1)), errTransitiveRedelegation, "a staged redelegation into val2 blocks one out of it")
-	require.NoError(t, h.stageRedelegate(alice, val1, val3, sei(1)))
-	require.ErrorIs(t, h.stageRedelegate(alice, val1, val3, sei(1)), errMaxRedelegationEntries, "staged redelegations out of val1 count toward every destination's maxEntries")
 	h.requireInvariants(alice)
 
 	h.endEpoch(0)
 	h.endEpoch(1)
 	require.Empty(t, h.failures, "what staging allowed takes effect")
-	require.Equal(t, dec.FromInt(sei(1)), h.shares(alice, val1))
-	require.Equal(t, dec.FromInt(sei(3)), h.shares(alice, val2))
-	require.Equal(t, dec.FromInt(sei(1)), h.shares(alice, val3))
+	require.Equal(t, dec.FromInt(sei(3)), h.shares(alice, val1))
 	require.Len(t, must(h.store().unbondingEntries(alice, val1)), 2)
 	h.requireInvariants(alice)
 }
@@ -251,22 +245,19 @@ func TestAStagedDelegationTakesEffectUnderTheParamsItsProjectionUsed(t *testing.
 }
 
 // TestAValidatorStakeIsStagedToIsKept has val3, unbonded, undelegate its last
-// shares ahead of a redelegation and a delegation staged to it.
+// shares ahead of a delegation staged to it.
 func TestAValidatorStakeIsStagedToIsKept(t *testing.T) {
 	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	require.NoError(t, h.stageUndelegate(val3, val3, sei(10)))
-	require.NoError(t, h.stageRedelegate(alice, val1, val3, sei(2)))
 	require.NoError(t, h.stageDelegate(bob, val3, sei(1)))
-	h.requireInvariants(alice, bob)
+	h.requireInvariants(bob)
 
 	h.endEpoch(0)
 	h.endEpoch(1)
 	require.Empty(t, h.failures)
 	require.Equal(t, statusUnbonded, h.validator(val3).status, "val3 is kept for the stake staged to it")
-	require.Equal(t, dec.FromInt(sei(2)), h.shares(alice, val3))
 	require.Equal(t, dec.FromInt(sei(1)), h.shares(bob, val3))
-	h.requireInvariants(alice, bob)
+	h.requireInvariants(bob)
 }
 
 // TestAStagedDelegationKeepsItsValidatorPastItsUnbonding stages a delegation to

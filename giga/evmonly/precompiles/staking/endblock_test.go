@@ -130,37 +130,6 @@ func TestOneQueueEntryPaysEveryMaturedEntryOfItsDelegation(t *testing.T) {
 	h.requireInvariants(alice)
 }
 
-func TestRedelegationCompletesWithoutMovingTokens(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val1, sei(5)))
-	require.NoError(t, h.redelegate(alice, val1, val2, sei(2)))
-	bonded := h.state.GetBalance(BondedEscrow)
-	h.advance(testParams.UnbondingTime)
-	require.Empty(t, h.failures)
-	require.Zero(t, h.store().redelegationEntryCount(alice, val1, val2).Sign())
-	require.Zero(t, h.store().receivingRedelegations(val2, alice).Sign())
-	q := h.store().redelegationQueue()
-	require.Equal(t, q.head(), q.tail())
-	require.Equal(t, bonded, h.state.GetBalance(BondedEscrow))
-	h.requireInvariants(alice)
-}
-
-func TestARedelegationFromAnUnbondingValidatorEndsWithIt(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val2, sei(5)))
-	require.NoError(t, h.delegate(bob, val3, sei(20)))
-	h.endCurrentEpoch()
-	v2 := h.validator(val2)
-	require.Equal(t, statusUnbonding, v2.status)
-	h.advance(10 * second)
-
-	require.NoError(t, h.redelegate(alice, val2, val1, sei(5)))
-	e := h.store().redelegationQueue().entry(0)
-	require.Equal(t, v2.unbondingTime, h.store().Uint64(at(e, queueCompletionTime), queueCompletionTime.offset))
-	require.Equal(t, v2.unbondingHeight, h.store().Uint64(at(e, redelegationQueueCreationHeight), redelegationQueueCreationHeight.offset))
-	h.requireInvariants(alice, bob)
-}
-
 func TestAShorterUnbondingTimeQueuesBehindTheLongerOnes(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
@@ -205,7 +174,7 @@ func TestEndBlockBudgetDefersTheRest(t *testing.T) {
 		delegators[i] = d
 		h.fund(d, sei(1))
 		v := h.validator(val1)
-		_, err := h.staking.delegate(h.block(), s, testParams, s.lastTotalPower(), d, val1, &v, sei(1), statusUnbonded, d)
+		_, err := h.staking.delegate(h.block(), s, testParams, s.lastTotalPower(), d, val1, &v, sei(1), d)
 		require.NoError(t, err)
 		_, _, err = h.staking.undelegate(h.block(), s, testParams, d, val1, h.shares(d, val1))
 		require.NoError(t, err)
@@ -250,10 +219,10 @@ func TestTake(t *testing.T) {
 
 func TestACorruptQueueIsReported(t *testing.T) {
 	h := newHarness(t, testParams)
-	q := h.store().redelegationQueue()
+	q := h.store().unbondingQueue()
 	h.store().SetUint64(at(q.bounds, queueHead), queueHead.offset, 5)
 	h.endBlock()
 	require.Len(t, h.failures, 1)
 	require.ErrorIs(t, h.failures[0], errQueueCorrupt)
-	require.ErrorContains(t, h.failures[0], "redelegation queue")
+	require.ErrorContains(t, h.failures[0], "unbonding queue")
 }

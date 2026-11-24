@@ -89,8 +89,6 @@ func TestStakingPrecompileThroughExecutor(t *testing.T) {
 	require.NoError(t, err)
 	undelegate, err := staking.ABI.Pack(staking.UndelegateMethod, stakingVal2, seiWei(4))
 	require.NoError(t, err)
-	redelegate, err := staking.ABI.Pack(staking.RedelegateMethod, stakingVal2, stakingVal1, seiWei(1))
-	require.NoError(t, err)
 	to := staking.Address
 	cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: stakingRegistry()}
 	block := blockContext(chainID)
@@ -105,12 +103,11 @@ func TestStakingPrecompileThroughExecutor(t *testing.T) {
 	require.Equal(t, seiWei(60), state.GetBalance(staking.BondedEscrow))
 
 	executeStakingBlock(t, state, cfg, &block, utils.None[uint64](),
-		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), undelegate, 2_000_000, big.NewInt(0)),
-		signLegacyTxWithGasPrice(t, key, chainID, 2, &to, big.NewInt(0), redelegate, 2_000_000, big.NewInt(0)))
+		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), undelegate, 2_000_000, big.NewInt(0)))
 	executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](2))
-	require.Equal(t, seiWei(60), state.GetBalance(staking.BondedEscrow), "staged in epoch 2, they wait for the end of epoch 3")
+	require.Equal(t, seiWei(60), state.GetBalance(staking.BondedEscrow), "staged in epoch 2, it waits for the end of epoch 3")
 	executeStakingBlock(t, state, cfg, &block, utils.Some[uint64](3))
-	require.Equal(t, seiWei(56), state.GetBalance(staking.BondedEscrow), "both validators are bonded")
+	require.Equal(t, seiWei(56), state.GetBalance(staking.BondedEscrow))
 	require.Equal(t, seiWei(4), state.GetBalance(staking.NotBondedEscrow), "the unbonding entry waits")
 
 	block.Time += 100
@@ -142,8 +139,8 @@ func TestStakingPrecompileOCCMatchesSequential(t *testing.T) {
 	}
 	txs := [][]byte{
 		sign(0, nil, staking.UndelegateMethod, stakingVal1, seiWei(2)),
-		sign(1, nil, staking.RedelegateMethod, stakingVal2, stakingVal1, seiWei(3)),
-		sign(2, nil, staking.RedelegateMethod, stakingVal1, stakingVal2, seiWei(7)),
+		sign(1, nil, staking.UndelegateMethod, stakingVal2, seiWei(3)),
+		sign(2, seiWei(3), staking.DelegateMethod, stakingVal1),
 		sign(3, nil, staking.UndelegateMethod, stakingVal2, seiWei(8)),
 		sign(4, seiWei(1), staking.DelegateMethod, stakingVal2),
 	}

@@ -15,7 +15,6 @@ import (
 const (
 	stagedDelegate   uint8 = 1
 	stagedUndelegate uint8 = 2
-	stagedRedelegate uint8 = 3
 )
 
 var (
@@ -37,38 +36,31 @@ func stage(s store, op stagedOperation) (uint64, error) {
 	return op.epoch, nil
 }
 
-// countStaged adds op to the staged totals of the delegations it changes, the
-// shares an undelegation or redelegation takes from its source and how many of
-// each it stages, and of the validator it moves stake to.
+// countStaged adds op to its staged totals: a delegation to the count of those
+// staged to its validator, and an undelegation to its delegation's shares
+// staged to leave and count of undelegations staged.
 func countStaged(s store, op stagedOperation) {
-	if to, ok := op.inbound(); ok {
-		s.setStagedInbound(to, s.stagedInbound(to)+1)
-	}
 	switch op.kind {
+	case stagedDelegate:
+		s.setStagedInbound(op.validator, s.stagedInbound(op.validator)+1)
 	case stagedUndelegate:
 		staged := s.stagedDelegation(op.delegator, op.validator)
 		staged.sharesOut.Add(staged.sharesOut, op.amount)
 		staged.undelegations++
 		s.setStagedDelegation(op.delegator, op.validator, staged)
-	case stagedRedelegate:
-		staged := s.stagedDelegation(op.delegator, op.validator)
-		staged.sharesOut.Add(staged.sharesOut, op.amount)
-		staged.redelegationsOut++
-		s.setStagedDelegation(op.delegator, op.validator, staged)
-		staged = s.stagedDelegation(op.delegator, op.dstValidator)
-		staged.redelegationsIn++
-		s.setStagedDelegation(op.delegator, op.dstValidator, staged)
 	}
 }
 
 // uncountStaged takes op out of the staged totals countStaged added it to,
 // failing when they do not hold it.
 func uncountStaged(s store, op stagedOperation) error {
-	to, inbound := op.inbound()
-	if inbound && s.stagedInbound(to) == 0 {
-		return errStagedNotCounted
-	}
 	switch op.kind {
+	case stagedDelegate:
+		inbound := s.stagedInbound(op.validator)
+		if inbound == 0 {
+			return errStagedNotCounted
+		}
+		s.setStagedInbound(op.validator, inbound-1)
 	case stagedUndelegate:
 		staged := s.stagedDelegation(op.delegator, op.validator)
 		if staged.sharesOut.Cmp(op.amount) < 0 || staged.undelegations == 0 {
@@ -77,27 +69,14 @@ func uncountStaged(s store, op stagedOperation) error {
 		staged.sharesOut.Sub(staged.sharesOut, op.amount)
 		staged.undelegations--
 		s.setStagedDelegation(op.delegator, op.validator, staged)
-	case stagedRedelegate:
-		src, dst := s.stagedDelegation(op.delegator, op.validator), s.stagedDelegation(op.delegator, op.dstValidator)
-		if src.sharesOut.Cmp(op.amount) < 0 || src.redelegationsOut == 0 || dst.redelegationsIn == 0 {
-			return errStagedNotCounted
-		}
-		src.sharesOut.Sub(src.sharesOut, op.amount)
-		src.redelegationsOut--
-		dst.redelegationsIn--
-		s.setStagedDelegation(op.delegator, op.validator, src)
-		s.setStagedDelegation(op.delegator, op.dstValidator, dst)
-	}
-	if inbound {
-		s.setStagedInbound(to, s.stagedInbound(to)-1)
 	}
 	return nil
 }
 
 // applyStaged applies, in the order they were staged, every staged operation
 // due by the end of epoch ended. One that fails is dropped: a delegation's
-// tokens go back to its delegator, and the stake an undelegation or
-// redelegation would have moved stays where it is.
+// tokens go back to its delegator, and an undelegation's stake stays where it
+// is.
 func (p Precompile) applyStaged(block precompiles.BlockContext, s store, params chainparams.Staking, ended uint64, failures *[]error) {
 	// The bonded set's power as the operations applied so far leave it. The
 	// stored power is only updated once they all are, and a delegation checked
@@ -118,11 +97,11 @@ func (p Precompile) applyStagedOperation(block precompiles.BlockContext, s store
 	if err := uncountStaged(s, op); err != nil {
 		return err
 	}
-	before := bondedPowerOf(s, op.validators())
+	before := bondedPowerOf(s, op.validator)
 	if err := p.carryOutStaged(block, s, params, bondedPower, op); err != nil {
 		return err
 	}
-	bondedPower.Add(bondedPower, new(big.Int).Sub(bondedPowerOf(s, op.validators()), before))
+	bondedPower.Add(bondedPower, new(big.Int).Sub(bondedPowerOf(s, op.validator), before))
 	return nil
 }
 
@@ -135,68 +114,40 @@ func (p Precompile) carryOutStaged(block precompiles.BlockContext, s store, para
 		if !ok {
 			return fmt.Errorf("%w: %s", errNoValidatorFound, op.validator)
 		}
-		_, err := p.delegate(block, s, params, bondedPower, op.delegator, op.validator, &v, op.amount, v.status, StagedEscrow)
+		_, err := p.delegate(block, s, params, bondedPower, op.delegator, op.validator, &v, op.amount, StagedEscrow)
 		return err
 	case stagedUndelegate:
 		_, _, err := p.undelegate(block, s, params, op.delegator, op.validator, op.amount)
-		return err
-	case stagedRedelegate:
-		_, _, err := p.redelegate(block, s, params, bondedPower, op.delegator, op.validator, op.dstValidator, op.amount)
 		return err
 	}
 	return fmt.Errorf("%w: %d", errUnknownStagedKind, op.kind)
 }
 
-// inbound returns the validator op moves stake to, if any.
-func (op stagedOperation) inbound() (common.Address, bool) {
-	switch op.kind {
-	case stagedDelegate:
-		return op.validator, true
-	case stagedRedelegate:
-		return op.dstValidator, true
+// bondedPowerOf returns op's consensus power when its validator is bonded, and
+// zero otherwise.
+func bondedPowerOf(s store, op common.Address) *big.Int {
+	if v, ok := s.validator(op); ok && v.bonded() {
+		return consensusPower(v.tokens)
 	}
-	return common.Address{}, false
+	return new(big.Int)
 }
 
-// validators returns the validators op moves stake to or from.
-func (op stagedOperation) validators() []common.Address {
-	if op.kind == stagedRedelegate {
-		return []common.Address{op.validator, op.dstValidator}
-	}
-	return []common.Address{op.validator}
-}
-
-// bondedPowerOf returns the consensus power ops hold among the bonded
-// validators.
-func bondedPowerOf(s store, ops []common.Address) *big.Int {
-	power := new(big.Int)
-	for _, op := range ops {
-		if v, ok := s.validator(op); ok && v.bonded() {
-			power.Add(power, consensusPower(v.tokens))
-		}
-	}
-	return power
-}
-
-// dropStaged takes op out of its staged totals, returns a delegation's tokens to
-// its delegator, and removes the validator op would have moved stake to when
-// that leaves it vacant.
+// dropStaged takes op out of its staged totals and, for a delegation, returns
+// its tokens to its delegator and removes its validator when that leaves it
+// vacant.
 func (p Precompile) dropStaged(block precompiles.BlockContext, s store, op stagedOperation) error {
 	if err := uncountStaged(s, op); err != nil {
 		return err
 	}
-	if op.kind == stagedDelegate {
-		if err := transfer(s.State, StagedEscrow, op.delegator, op.amount); err != nil {
-			return err
-		}
+	if op.kind != stagedDelegate {
+		return nil
 	}
-	to, ok := op.inbound()
+	if err := transfer(s.State, StagedEscrow, op.delegator, op.amount); err != nil {
+		return err
+	}
+	v, ok := s.validator(op.validator)
 	if !ok {
 		return nil
 	}
-	v, ok := s.validator(to)
-	if !ok {
-		return nil
-	}
-	return p.removeIfVacant(block, s, to, v)
+	return p.removeIfVacant(block, s, op.validator, v)
 }

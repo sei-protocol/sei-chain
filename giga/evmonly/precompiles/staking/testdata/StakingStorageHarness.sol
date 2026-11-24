@@ -44,31 +44,15 @@ contract StakingStorageHarness is StakingStorage {
             UnbondingDelegationEntry({creationHeight: 55, completionTime: 56, initialBalance: 57, balance: 58})
         );
 
-        redelegationEntryCounts[delegator][op][other] = 2;
-        redelegationsByValDst[other][delegator] = 3;
-
         unbondingQueueBounds = QueueBounds({head: 1, tail: 2});
         unbondingQueue[1] = UnbondingQueueEntry({completionTime: 61, delegator: delegator, validator: op});
-        redelegationQueueBounds = QueueBounds({head: 0, tail: 1});
-        redelegationQueue[0] = RedelegationQueueEntry({
-            completionTime: 71,
-            delegator: delegator,
-            creationHeight: 72,
-            srcValidator: op,
-            dstValidator: other,
-            initialBalance: 73,
-            sharesDst: 74
-        });
         validatorQueueBounds = QueueBounds({head: 4, tail: 5});
         validatorQueue[4] = ValidatorQueueEntry({completionTime: 81, unbondingHeight: 82, operator: other});
 
         currentEpoch = 9;
         stagedQueueBounds = QueueBounds({head: 2, tail: 3});
-        stagedQueue[2] = StagedOperation({
-            epoch: 10, kind: 3, delegator: delegator, validator: op, dstValidator: other, amount: 91
-        });
-        stagedDelegations[delegator][op] =
-            StagedDelegation({sharesOut: 92, undelegations: 93, redelegationsOut: 94, redelegationsIn: 95});
+        stagedQueue[2] = StagedOperation({epoch: 10, kind: 2, delegator: delegator, validator: op, amount: 91});
+        stagedDelegations[delegator][op] = StagedDelegation({sharesOut: 92, undelegations: 93});
         stagedInbound[other] = 96;
     }
 

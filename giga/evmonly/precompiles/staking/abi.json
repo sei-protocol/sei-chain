@@ -42,43 +42,6 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "srcValidator",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "dstValidator",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "epoch",
-        "type": "uint64"
-      }
-    ],
-    "name": "Redelegate",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "delegator",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
         "name": "validator",
         "type": "address"
       },
@@ -798,35 +761,6 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "srcValidator",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "dstValidator",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "redelegate",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "success",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "string",
         "name": "srcAddress",
         "type": "string"
@@ -941,11 +875,6 @@
           {
             "internalType": "address",
             "name": "validator",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "dstValidator",
             "type": "address"
           },
           {

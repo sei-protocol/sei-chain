@@ -1,15 +1,15 @@
 {
   "storage": [
     {
-      "astId": 528,
+      "astId": 464,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "lastValidators",
       "offset": 0,
       "slot": "0",
-      "type": "t_array(t_struct(ValidatorPower)430_storage)dyn_storage"
+      "type": "t_array(t_struct(ValidatorPower)388_storage)dyn_storage"
     },
     {
-      "astId": 530,
+      "astId": 466,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "lastTotalPower",
       "offset": 0,
@@ -17,15 +17,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 537,
+      "astId": 473,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "epochValidators",
       "offset": 0,
       "slot": "2",
-      "type": "t_mapping(t_uint64,t_array(t_struct(EpochValidator)438_storage)dyn_storage)"
+      "type": "t_mapping(t_uint64,t_array(t_struct(EpochValidator)396_storage)dyn_storage)"
     },
     {
-      "astId": 539,
+      "astId": 475,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "nextSnapshotEpoch",
       "offset": 0,
@@ -33,23 +33,23 @@
       "type": "t_uint64"
     },
     {
-      "astId": 544,
+      "astId": 480,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "validators",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_address,t_struct(Validator)424_storage)"
+      "type": "t_mapping(t_address,t_struct(Validator)382_storage)"
     },
     {
-      "astId": 547,
+      "astId": 483,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "validatorSet",
       "offset": 0,
       "slot": "5",
-      "type": "t_struct(AddressSet)663_storage"
+      "type": "t_struct(AddressSet)577_storage"
     },
     {
-      "astId": 551,
+      "astId": 487,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "validatorsByConsensusPubkey",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_bytes32,t_address)"
     },
     {
-      "astId": 554,
+      "astId": 490,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "validatorsByPower",
       "offset": 0,
@@ -65,171 +65,139 @@
       "type": "t_array(t_address)dyn_storage"
     },
     {
-      "astId": 561,
+      "astId": 497,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "delegations",
       "offset": 0,
       "slot": "9",
-      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(Delegation)441_storage))"
+      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(Delegation)399_storage))"
     },
     {
-      "astId": 566,
+      "astId": 502,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "delegationsByDelegator",
       "offset": 0,
       "slot": "10",
-      "type": "t_mapping(t_address,t_struct(AddressSet)663_storage)"
+      "type": "t_mapping(t_address,t_struct(AddressSet)577_storage)"
     },
     {
-      "astId": 571,
+      "astId": 507,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "delegationsByValidator",
       "offset": 0,
       "slot": "11",
-      "type": "t_mapping(t_address,t_struct(AddressSet)663_storage)"
+      "type": "t_mapping(t_address,t_struct(AddressSet)577_storage)"
     },
     {
-      "astId": 579,
+      "astId": 515,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "unbondingDelegations",
       "offset": 0,
       "slot": "12",
-      "type": "t_mapping(t_address,t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)450_storage)dyn_storage))"
+      "type": "t_mapping(t_address,t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)408_storage)dyn_storage))"
     },
     {
-      "astId": 587,
-      "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-      "label": "redelegationEntryCounts",
-      "offset": 0,
-      "slot": "13",
-      "type": "t_mapping(t_address,t_mapping(t_address,t_mapping(t_address,t_uint256)))"
-    },
-    {
-      "astId": 593,
-      "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-      "label": "redelegationsByValDst",
-      "offset": 0,
-      "slot": "14",
-      "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))"
-    },
-    {
-      "astId": 596,
+      "astId": 518,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "unbondingQueueBounds",
       "offset": 0,
-      "slot": "15",
-      "type": "t_struct(QueueBounds)488_storage"
+      "slot": "13",
+      "type": "t_struct(QueueBounds)430_storage"
     },
     {
-      "astId": 601,
+      "astId": 523,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "unbondingQueue",
       "offset": 0,
-      "slot": "16",
-      "type": "t_mapping(t_uint64,t_struct(UnbondingQueueEntry)458_storage)"
+      "slot": "14",
+      "type": "t_mapping(t_uint64,t_struct(UnbondingQueueEntry)416_storage)"
     },
     {
-      "astId": 604,
-      "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-      "label": "redelegationQueueBounds",
-      "offset": 0,
-      "slot": "17",
-      "type": "t_struct(QueueBounds)488_storage"
-    },
-    {
-      "astId": 609,
-      "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-      "label": "redelegationQueue",
-      "offset": 0,
-      "slot": "18",
-      "type": "t_mapping(t_uint64,t_struct(RedelegationQueueEntry)474_storage)"
-    },
-    {
-      "astId": 612,
+      "astId": 526,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "validatorQueueBounds",
       "offset": 0,
-      "slot": "19",
-      "type": "t_struct(QueueBounds)488_storage"
+      "slot": "15",
+      "type": "t_struct(QueueBounds)430_storage"
     },
     {
-      "astId": 617,
+      "astId": 531,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "validatorQueue",
       "offset": 0,
-      "slot": "20",
-      "type": "t_mapping(t_uint64,t_struct(ValidatorQueueEntry)482_storage)"
+      "slot": "16",
+      "type": "t_mapping(t_uint64,t_struct(ValidatorQueueEntry)424_storage)"
     },
     {
-      "astId": 620,
+      "astId": 534,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "currentEpoch",
       "offset": 0,
-      "slot": "21",
+      "slot": "17",
       "type": "t_uint64"
     },
     {
-      "astId": 623,
+      "astId": 537,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "stagedQueueBounds",
       "offset": 0,
-      "slot": "22",
-      "type": "t_struct(QueueBounds)488_storage"
+      "slot": "18",
+      "type": "t_struct(QueueBounds)430_storage"
     },
     {
-      "astId": 628,
+      "astId": 542,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "stagedQueue",
       "offset": 0,
-      "slot": "23",
-      "type": "t_mapping(t_uint64,t_struct(StagedOperation)502_storage)"
+      "slot": "19",
+      "type": "t_mapping(t_uint64,t_struct(StagedOperation)442_storage)"
     },
     {
-      "astId": 635,
+      "astId": 549,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "stagedDelegations",
       "offset": 0,
-      "slot": "24",
-      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(StagedDelegation)512_storage))"
+      "slot": "20",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(StagedDelegation)448_storage))"
     },
     {
-      "astId": 639,
+      "astId": 553,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "stagedInbound",
       "offset": 0,
-      "slot": "25",
+      "slot": "21",
       "type": "t_mapping(t_address,t_uint64)"
     },
     {
-      "astId": 643,
+      "astId": 557,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "params",
       "offset": 0,
-      "slot": "26",
-      "type": "t_struct(Params)524_storage"
+      "slot": "22",
+      "type": "t_struct(Params)460_storage"
     },
     {
-      "astId": 646,
+      "astId": 560,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "migrating",
       "offset": 0,
-      "slot": "29",
+      "slot": "25",
       "type": "t_bool"
     },
     {
-      "astId": 648,
+      "astId": 562,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "migrationCursor",
       "offset": 0,
-      "slot": "30",
+      "slot": "26",
       "type": "t_bytes_storage"
     },
     {
-      "astId": 651,
+      "astId": 565,
       "contract": "giga-storage/StakingStorage.sol:StakingStorage",
       "label": "migrationFailures",
       "offset": 0,
-      "slot": "31",
+      "slot": "27",
       "type": "t_array(t_bytes_storage)dyn_storage"
     }
   ],
@@ -251,20 +219,20 @@
       "label": "bytes[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_struct(EpochValidator)438_storage)dyn_storage": {
-      "base": "t_struct(EpochValidator)438_storage",
+    "t_array(t_struct(EpochValidator)396_storage)dyn_storage": {
+      "base": "t_struct(EpochValidator)396_storage",
       "encoding": "dynamic_array",
       "label": "struct StakingStorage.EpochValidator[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_struct(UnbondingDelegationEntry)450_storage)dyn_storage": {
-      "base": "t_struct(UnbondingDelegationEntry)450_storage",
+    "t_array(t_struct(UnbondingDelegationEntry)408_storage)dyn_storage": {
+      "base": "t_struct(UnbondingDelegationEntry)408_storage",
       "encoding": "dynamic_array",
       "label": "struct StakingStorage.UnbondingDelegationEntry[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_struct(ValidatorPower)430_storage)dyn_storage": {
-      "base": "t_struct(ValidatorPower)430_storage",
+    "t_array(t_struct(ValidatorPower)388_storage)dyn_storage": {
+      "base": "t_struct(ValidatorPower)388_storage",
       "encoding": "dynamic_array",
       "label": "struct StakingStorage.ValidatorPower[]",
       "numberOfBytes": "32"
@@ -284,75 +252,61 @@
       "label": "bytes",
       "numberOfBytes": "32"
     },
-    "t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)450_storage)dyn_storage)": {
+    "t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)408_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct StakingStorage.UnbondingDelegationEntry[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(UnbondingDelegationEntry)450_storage)dyn_storage"
+      "value": "t_array(t_struct(UnbondingDelegationEntry)408_storage)dyn_storage"
     },
-    "t_mapping(t_address,t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)450_storage)dyn_storage))": {
+    "t_mapping(t_address,t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)408_storage)dyn_storage))": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => mapping(address => struct StakingStorage.UnbondingDelegationEntry[]))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)450_storage)dyn_storage)"
+      "value": "t_mapping(t_address,t_array(t_struct(UnbondingDelegationEntry)408_storage)dyn_storage)"
     },
-    "t_mapping(t_address,t_mapping(t_address,t_mapping(t_address,t_uint256)))": {
-      "encoding": "mapping",
-      "key": "t_address",
-      "label": "mapping(address => mapping(address => mapping(address => uint256)))",
-      "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_mapping(t_address,t_uint256))"
-    },
-    "t_mapping(t_address,t_mapping(t_address,t_struct(Delegation)441_storage))": {
+    "t_mapping(t_address,t_mapping(t_address,t_struct(Delegation)399_storage))": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => mapping(address => struct StakingStorage.Delegation))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_struct(Delegation)441_storage)"
+      "value": "t_mapping(t_address,t_struct(Delegation)399_storage)"
     },
-    "t_mapping(t_address,t_mapping(t_address,t_struct(StagedDelegation)512_storage))": {
+    "t_mapping(t_address,t_mapping(t_address,t_struct(StagedDelegation)448_storage))": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => mapping(address => struct StakingStorage.StagedDelegation))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_struct(StagedDelegation)512_storage)"
+      "value": "t_mapping(t_address,t_struct(StagedDelegation)448_storage)"
     },
-    "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
-      "encoding": "mapping",
-      "key": "t_address",
-      "label": "mapping(address => mapping(address => uint256))",
-      "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_uint256)"
-    },
-    "t_mapping(t_address,t_struct(AddressSet)663_storage)": {
+    "t_mapping(t_address,t_struct(AddressSet)577_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct AddressSet)",
       "numberOfBytes": "32",
-      "value": "t_struct(AddressSet)663_storage"
+      "value": "t_struct(AddressSet)577_storage"
     },
-    "t_mapping(t_address,t_struct(Delegation)441_storage)": {
+    "t_mapping(t_address,t_struct(Delegation)399_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct StakingStorage.Delegation)",
       "numberOfBytes": "32",
-      "value": "t_struct(Delegation)441_storage"
+      "value": "t_struct(Delegation)399_storage"
     },
-    "t_mapping(t_address,t_struct(StagedDelegation)512_storage)": {
+    "t_mapping(t_address,t_struct(StagedDelegation)448_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct StakingStorage.StagedDelegation)",
       "numberOfBytes": "32",
-      "value": "t_struct(StagedDelegation)512_storage"
+      "value": "t_struct(StagedDelegation)448_storage"
     },
-    "t_mapping(t_address,t_struct(Validator)424_storage)": {
+    "t_mapping(t_address,t_struct(Validator)382_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct StakingStorage.Validator)",
       "numberOfBytes": "32",
-      "value": "t_struct(Validator)424_storage"
+      "value": "t_struct(Validator)382_storage"
     },
     "t_mapping(t_address,t_uint256)": {
       "encoding": "mapping",
@@ -375,52 +329,45 @@
       "numberOfBytes": "32",
       "value": "t_address"
     },
-    "t_mapping(t_uint64,t_array(t_struct(EpochValidator)438_storage)dyn_storage)": {
+    "t_mapping(t_uint64,t_array(t_struct(EpochValidator)396_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct StakingStorage.EpochValidator[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(EpochValidator)438_storage)dyn_storage"
+      "value": "t_array(t_struct(EpochValidator)396_storage)dyn_storage"
     },
-    "t_mapping(t_uint64,t_struct(RedelegationQueueEntry)474_storage)": {
-      "encoding": "mapping",
-      "key": "t_uint64",
-      "label": "mapping(uint64 => struct StakingStorage.RedelegationQueueEntry)",
-      "numberOfBytes": "32",
-      "value": "t_struct(RedelegationQueueEntry)474_storage"
-    },
-    "t_mapping(t_uint64,t_struct(StagedOperation)502_storage)": {
+    "t_mapping(t_uint64,t_struct(StagedOperation)442_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct StakingStorage.StagedOperation)",
       "numberOfBytes": "32",
-      "value": "t_struct(StagedOperation)502_storage"
+      "value": "t_struct(StagedOperation)442_storage"
     },
-    "t_mapping(t_uint64,t_struct(UnbondingQueueEntry)458_storage)": {
+    "t_mapping(t_uint64,t_struct(UnbondingQueueEntry)416_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct StakingStorage.UnbondingQueueEntry)",
       "numberOfBytes": "32",
-      "value": "t_struct(UnbondingQueueEntry)458_storage"
+      "value": "t_struct(UnbondingQueueEntry)416_storage"
     },
-    "t_mapping(t_uint64,t_struct(ValidatorQueueEntry)482_storage)": {
+    "t_mapping(t_uint64,t_struct(ValidatorQueueEntry)424_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct StakingStorage.ValidatorQueueEntry)",
       "numberOfBytes": "32",
-      "value": "t_struct(ValidatorQueueEntry)482_storage"
+      "value": "t_struct(ValidatorQueueEntry)424_storage"
     },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(AddressSet)663_storage": {
+    "t_struct(AddressSet)577_storage": {
       "encoding": "inplace",
       "label": "struct AddressSet",
       "members": [
         {
-          "astId": 658,
+          "astId": 572,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "values",
           "offset": 0,
@@ -428,7 +375,7 @@
           "type": "t_array(t_address)dyn_storage"
         },
         {
-          "astId": 662,
+          "astId": 576,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "positions",
           "offset": 0,
@@ -438,20 +385,20 @@
       ],
       "numberOfBytes": "64"
     },
-    "t_struct(Commission)401_storage": {
+    "t_struct(Commission)359_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.Commission",
       "members": [
         {
-          "astId": 398,
+          "astId": 356,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "commissionRates",
           "offset": 0,
           "slot": "0",
-          "type": "t_struct(CommissionRates)395_storage"
+          "type": "t_struct(CommissionRates)353_storage"
         },
         {
-          "astId": 400,
+          "astId": 358,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "updateTime",
           "offset": 0,
@@ -461,12 +408,12 @@
       ],
       "numberOfBytes": "128"
     },
-    "t_struct(CommissionRates)395_storage": {
+    "t_struct(CommissionRates)353_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.CommissionRates",
       "members": [
         {
-          "astId": 390,
+          "astId": 348,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "rate",
           "offset": 0,
@@ -474,7 +421,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 392,
+          "astId": 350,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "maxRate",
           "offset": 0,
@@ -482,7 +429,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 394,
+          "astId": 352,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "maxChangeRate",
           "offset": 0,
@@ -492,12 +439,12 @@
       ],
       "numberOfBytes": "96"
     },
-    "t_struct(Delegation)441_storage": {
+    "t_struct(Delegation)399_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.Delegation",
       "members": [
         {
-          "astId": 440,
+          "astId": 398,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "shares",
           "offset": 0,
@@ -507,12 +454,12 @@
       ],
       "numberOfBytes": "32"
     },
-    "t_struct(Description)388_storage": {
+    "t_struct(Description)346_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.Description",
       "members": [
         {
-          "astId": 379,
+          "astId": 337,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "moniker",
           "offset": 0,
@@ -520,7 +467,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 381,
+          "astId": 339,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "identity",
           "offset": 0,
@@ -528,7 +475,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 383,
+          "astId": 341,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "website",
           "offset": 0,
@@ -536,7 +483,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 385,
+          "astId": 343,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "securityContact",
           "offset": 0,
@@ -544,7 +491,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 387,
+          "astId": 345,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "details",
           "offset": 0,
@@ -554,12 +501,12 @@
       ],
       "numberOfBytes": "160"
     },
-    "t_struct(EpochValidator)438_storage": {
+    "t_struct(EpochValidator)396_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.EpochValidator",
       "members": [
         {
-          "astId": 433,
+          "astId": 391,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "operator",
           "offset": 0,
@@ -567,7 +514,7 @@
           "type": "t_address"
         },
         {
-          "astId": 435,
+          "astId": 393,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "power",
           "offset": 20,
@@ -575,7 +522,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 437,
+          "astId": 395,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "consensusPubkey",
           "offset": 0,
@@ -585,12 +532,12 @@
       ],
       "numberOfBytes": "64"
     },
-    "t_struct(Params)524_storage": {
+    "t_struct(Params)460_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.Params",
       "members": [
         {
-          "astId": 515,
+          "astId": 451,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "unbondingTime",
           "offset": 0,
@@ -598,7 +545,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 517,
+          "astId": 453,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "maxValidators",
           "offset": 8,
@@ -606,7 +553,7 @@
           "type": "t_uint32"
         },
         {
-          "astId": 519,
+          "astId": 455,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "maxEntries",
           "offset": 12,
@@ -614,7 +561,7 @@
           "type": "t_uint32"
         },
         {
-          "astId": 521,
+          "astId": 457,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "maxVotingPowerRatio",
           "offset": 0,
@@ -622,7 +569,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 523,
+          "astId": 459,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "maxVotingPowerEnforcementThreshold",
           "offset": 0,
@@ -632,12 +579,12 @@
       ],
       "numberOfBytes": "96"
     },
-    "t_struct(QueueBounds)488_storage": {
+    "t_struct(QueueBounds)430_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.QueueBounds",
       "members": [
         {
-          "astId": 485,
+          "astId": 427,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "head",
           "offset": 0,
@@ -645,7 +592,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 487,
+          "astId": 429,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "tail",
           "offset": 8,
@@ -655,75 +602,12 @@
       ],
       "numberOfBytes": "32"
     },
-    "t_struct(RedelegationQueueEntry)474_storage": {
-      "encoding": "inplace",
-      "label": "struct StakingStorage.RedelegationQueueEntry",
-      "members": [
-        {
-          "astId": 461,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "completionTime",
-          "offset": 0,
-          "slot": "0",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 463,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "delegator",
-          "offset": 8,
-          "slot": "0",
-          "type": "t_address"
-        },
-        {
-          "astId": 465,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "creationHeight",
-          "offset": 0,
-          "slot": "1",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 467,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "srcValidator",
-          "offset": 8,
-          "slot": "1",
-          "type": "t_address"
-        },
-        {
-          "astId": 469,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "dstValidator",
-          "offset": 0,
-          "slot": "2",
-          "type": "t_address"
-        },
-        {
-          "astId": 471,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "initialBalance",
-          "offset": 0,
-          "slot": "3",
-          "type": "t_uint256"
-        },
-        {
-          "astId": 473,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "sharesDst",
-          "offset": 0,
-          "slot": "4",
-          "type": "t_uint256"
-        }
-      ],
-      "numberOfBytes": "160"
-    },
-    "t_struct(StagedDelegation)512_storage": {
+    "t_struct(StagedDelegation)448_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.StagedDelegation",
       "members": [
         {
-          "astId": 505,
+          "astId": 445,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "sharesOut",
           "offset": 0,
@@ -731,38 +615,22 @@
           "type": "t_uint256"
         },
         {
-          "astId": 507,
+          "astId": 447,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "undelegations",
           "offset": 0,
-          "slot": "1",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 509,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "redelegationsOut",
-          "offset": 8,
-          "slot": "1",
-          "type": "t_uint64"
-        },
-        {
-          "astId": 511,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "redelegationsIn",
-          "offset": 16,
           "slot": "1",
           "type": "t_uint64"
         }
       ],
       "numberOfBytes": "64"
     },
-    "t_struct(StagedOperation)502_storage": {
+    "t_struct(StagedOperation)442_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.StagedOperation",
       "members": [
         {
-          "astId": 491,
+          "astId": 433,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "epoch",
           "offset": 0,
@@ -770,7 +638,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 493,
+          "astId": 435,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "kind",
           "offset": 8,
@@ -778,7 +646,7 @@
           "type": "t_uint8"
         },
         {
-          "astId": 495,
+          "astId": 437,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "delegator",
           "offset": 9,
@@ -786,7 +654,7 @@
           "type": "t_address"
         },
         {
-          "astId": 497,
+          "astId": 439,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "validator",
           "offset": 0,
@@ -794,30 +662,22 @@
           "type": "t_address"
         },
         {
-          "astId": 499,
-          "contract": "giga-storage/StakingStorage.sol:StakingStorage",
-          "label": "dstValidator",
-          "offset": 0,
-          "slot": "2",
-          "type": "t_address"
-        },
-        {
-          "astId": 501,
+          "astId": 441,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "amount",
           "offset": 0,
-          "slot": "3",
+          "slot": "2",
           "type": "t_uint256"
         }
       ],
-      "numberOfBytes": "128"
+      "numberOfBytes": "96"
     },
-    "t_struct(UnbondingDelegationEntry)450_storage": {
+    "t_struct(UnbondingDelegationEntry)408_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.UnbondingDelegationEntry",
       "members": [
         {
-          "astId": 443,
+          "astId": 401,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "creationHeight",
           "offset": 0,
@@ -825,7 +685,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 445,
+          "astId": 403,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "completionTime",
           "offset": 8,
@@ -833,7 +693,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 447,
+          "astId": 405,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "initialBalance",
           "offset": 0,
@@ -841,7 +701,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 449,
+          "astId": 407,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "balance",
           "offset": 0,
@@ -851,12 +711,12 @@
       ],
       "numberOfBytes": "96"
     },
-    "t_struct(UnbondingQueueEntry)458_storage": {
+    "t_struct(UnbondingQueueEntry)416_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.UnbondingQueueEntry",
       "members": [
         {
-          "astId": 453,
+          "astId": 411,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "completionTime",
           "offset": 0,
@@ -864,7 +724,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 455,
+          "astId": 413,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "delegator",
           "offset": 8,
@@ -872,7 +732,7 @@
           "type": "t_address"
         },
         {
-          "astId": 457,
+          "astId": 415,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "validator",
           "offset": 0,
@@ -882,12 +742,12 @@
       ],
       "numberOfBytes": "64"
     },
-    "t_struct(Validator)424_storage": {
+    "t_struct(Validator)382_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.Validator",
       "members": [
         {
-          "astId": 403,
+          "astId": 361,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "consensusPubkey",
           "offset": 0,
@@ -895,7 +755,7 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 405,
+          "astId": 363,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "jailed",
           "offset": 0,
@@ -903,7 +763,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 407,
+          "astId": 365,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "status",
           "offset": 1,
@@ -911,7 +771,7 @@
           "type": "t_uint8"
         },
         {
-          "astId": 409,
+          "astId": 367,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "tokens",
           "offset": 0,
@@ -919,7 +779,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 411,
+          "astId": 369,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "delegatorShares",
           "offset": 0,
@@ -927,15 +787,15 @@
           "type": "t_uint256"
         },
         {
-          "astId": 414,
+          "astId": 372,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "description",
           "offset": 0,
           "slot": "4",
-          "type": "t_struct(Description)388_storage"
+          "type": "t_struct(Description)346_storage"
         },
         {
-          "astId": 416,
+          "astId": 374,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "unbondingHeight",
           "offset": 0,
@@ -943,7 +803,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 418,
+          "astId": 376,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "unbondingTime",
           "offset": 8,
@@ -951,15 +811,15 @@
           "type": "t_uint64"
         },
         {
-          "astId": 421,
+          "astId": 379,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "commission",
           "offset": 0,
           "slot": "10",
-          "type": "t_struct(Commission)401_storage"
+          "type": "t_struct(Commission)359_storage"
         },
         {
-          "astId": 423,
+          "astId": 381,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "minSelfDelegation",
           "offset": 0,
@@ -969,12 +829,12 @@
       ],
       "numberOfBytes": "480"
     },
-    "t_struct(ValidatorPower)430_storage": {
+    "t_struct(ValidatorPower)388_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.ValidatorPower",
       "members": [
         {
-          "astId": 427,
+          "astId": 385,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "operator",
           "offset": 0,
@@ -982,7 +842,7 @@
           "type": "t_address"
         },
         {
-          "astId": 429,
+          "astId": 387,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "power",
           "offset": 20,
@@ -992,12 +852,12 @@
       ],
       "numberOfBytes": "32"
     },
-    "t_struct(ValidatorQueueEntry)482_storage": {
+    "t_struct(ValidatorQueueEntry)424_storage": {
       "encoding": "inplace",
       "label": "struct StakingStorage.ValidatorQueueEntry",
       "members": [
         {
-          "astId": 477,
+          "astId": 419,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "completionTime",
           "offset": 0,
@@ -1005,7 +865,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 479,
+          "astId": 421,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "unbondingHeight",
           "offset": 8,
@@ -1013,7 +873,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 481,
+          "astId": 423,
           "contract": "giga-storage/StakingStorage.sol:StakingStorage",
           "label": "operator",
           "offset": 0,

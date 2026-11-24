@@ -16,26 +16,25 @@ import (
 )
 
 var (
-	errNoBondedPower       = errors.New("the bonded set would have no power")
-	errJailedInPowerIndex  = errors.New("jailed validator in the power index")
-	errUnknownValidator    = errors.New("validator in the bonded set or power index does not exist")
-	errPowerOverflow       = errors.New("consensus power does not fit 64 bits")
-	errRedelegationCounted = errors.New("redelegation entry was not counted")
+	errNoBondedPower      = errors.New("the bonded set would have no power")
+	errJailedInPowerIndex = errors.New("jailed validator in the power index")
+	errUnknownValidator   = errors.New("validator in the bonded set or power index does not exist")
+	errPowerOverflow      = errors.New("consensus power does not fit 64 bits")
 )
 
-// endBlockBudget bounds the work one EndBlock does on each of the unbonding,
-// redelegation and validator queues: one unit per entry, plus one per unbonding
-// entry of the delegation an unbonding queue entry pays. An entry larger than the
-// whole budget runs when nothing has spent it, and uses it up. Entries past the
-// budget wait for the next EndBlock that drains their queue. The staged queue has
-// no budget: an epoch's end applies every operation due.
+// endBlockBudget bounds the work one EndBlock does on each of the unbonding and
+// validator queues: one unit per entry, plus one per unbonding entry of the
+// delegation an unbonding queue entry pays. An entry larger than the whole budget
+// runs when nothing has spent it, and uses it up. Entries past the budget wait for
+// the next EndBlock that drains their queue. The staged queue has no budget: an
+// epoch's end applies every operation due.
 const endBlockBudget = 3_000
 
 // EndBlock makes the changes to delegations, the validator set and the params
 // staking applies of the epoch the block closes, as closeEpoch does, or, while
 // staking has no bonded set, bonds the genesis validators. It then completes the
-// unbonding entries and redelegation entries whose unbonding period is over, as
-// x/staking's BlockValidatorUpdates does. Before staking's params are written it
+// unbonding entries whose unbonding period is over, as x/staking's
+// BlockValidatorUpdates does. Before staking's params are written it
 // does nothing. Its failures are staged operations that could not be applied,
 // which are dropped, a bonded set that could not be updated, which is kept as it
 // was, a snapshot that could not be taken, and queue entries whose stored data
@@ -60,9 +59,6 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 			return 1 + s.unbondingEntryCount(delegator, op)
 		},
 		func(e common.Hash) error { return completeUnbonding(block, s, e) }, nil)
-	drain(s.redelegationQueue(), block.UnixNano, "redelegation", &failures,
-		func(common.Hash) uint64 { return 1 },
-		func(e common.Hash) error { return completeRedelegation(s, e) }, nil)
 	return failures, nil
 }
 
@@ -325,21 +321,5 @@ func completeUnbonding(block precompiles.BlockContext, s store, e common.Hash) e
 	if len(kept) != len(entries) {
 		s.setUnbondingEntries(delegator, op, kept)
 	}
-	return nil
-}
-
-// completeRedelegation uncounts redelegation queue entry e from its delegator's
-// open redelegations, as x/staking's CompleteRedelegation removes the entry. It
-// moves no tokens: they moved when the redelegation began.
-func completeRedelegation(s store, e common.Hash) error {
-	delegator := s.AddressAt(at(e, redelegationQueueDelegator), redelegationQueueDelegator.offset)
-	src := s.AddressAt(at(e, redelegationQueueSrcValidator), redelegationQueueSrcValidator.offset)
-	dst := s.AddressAt(at(e, redelegationQueueDstValidator), redelegationQueueDstValidator.offset)
-	entries, received := s.redelegationEntryCount(delegator, src, dst), s.receivingRedelegations(dst, delegator)
-	if entries.Sign() == 0 || received.Sign() == 0 {
-		return fmt.Errorf("%w: %s from %s to %s", errRedelegationCounted, delegator, src, dst)
-	}
-	s.setRedelegationEntryCount(delegator, src, dst, entries.Sub(entries, big.NewInt(1)))
-	s.setReceivingRedelegations(dst, delegator, received.Sub(received, big.NewInt(1)))
 	return nil
 }

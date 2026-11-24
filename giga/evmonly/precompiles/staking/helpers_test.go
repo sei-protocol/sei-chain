@@ -313,12 +313,6 @@ func (h *harness) undelegate(delegator, op common.Address, amount *big.Int) erro
 	return h.inEffect(h.stageUndelegate(delegator, op, amount))
 }
 
-// redelegate moves amount of delegator's delegation from src to dst, applying
-// the staged redelegation at once.
-func (h *harness) redelegate(delegator, src, dst common.Address, amount *big.Int) error {
-	return h.inEffect(h.stageRedelegate(delegator, src, dst, amount))
-}
-
 // stageDelegate funds delegator with amount and stages delegating it to op.
 func (h *harness) stageDelegate(delegator, op common.Address, amount *big.Int) error {
 	h.fund(delegator, amount)
@@ -327,10 +321,6 @@ func (h *harness) stageDelegate(delegator, op common.Address, amount *big.Int) e
 
 func (h *harness) stageUndelegate(delegator, op common.Address, amount *big.Int) error {
 	return h.call(delegator, callOpts{}, UndelegateMethod, op, amount)
-}
-
-func (h *harness) stageRedelegate(delegator, src, dst common.Address, amount *big.Int) error {
-	return h.call(delegator, callOpts{}, RedelegateMethod, src, dst, amount)
 }
 
 // inEffect returns err, the error of a call that stages operations, or when
@@ -347,23 +337,12 @@ func (h *harness) inEffect(err error) error {
 }
 
 // stagedTotals returns each delegation's staged totals, keyed by delegator and
-// validator, how many staged operations move stake to each validator, and the
-// staged delegations' tokens, counted from the staged queue.
+// validator, how many staged delegations are to each validator, and their
+// tokens, counted from the staged queue.
 func (h *harness) stagedTotals() (map[[2]common.Address]stagedDelegation, map[common.Address]uint64, *big.Int) {
 	s, q := h.store(), h.store().stagedQueue()
 	totals := map[[2]common.Address]stagedDelegation{}
 	inbound := map[common.Address]uint64{}
-	add := func(delegator, op common.Address, shares *big.Int, undelegations, out, in uint64) {
-		t, ok := totals[[2]common.Address{delegator, op}]
-		if !ok {
-			t.sharesOut = new(big.Int)
-		}
-		t.sharesOut = new(big.Int).Add(t.sharesOut, shares)
-		t.undelegations += undelegations
-		t.redelegationsOut += out
-		t.redelegationsIn += in
-		totals[[2]common.Address{delegator, op}] = t
-	}
 	tokens := new(big.Int)
 	for i := q.head(); i < q.tail(); i++ {
 		switch op := s.stagedOperationAt(q.entry(i)); op.kind {
@@ -371,11 +350,14 @@ func (h *harness) stagedTotals() (map[[2]common.Address]stagedDelegation, map[co
 			tokens.Add(tokens, op.amount)
 			inbound[op.validator]++
 		case stagedUndelegate:
-			add(op.delegator, op.validator, op.amount, 1, 0, 0)
-		case stagedRedelegate:
-			add(op.delegator, op.validator, op.amount, 0, 1, 0)
-			add(op.delegator, op.dstValidator, new(big.Int), 0, 0, 1)
-			inbound[op.dstValidator]++
+			key := [2]common.Address{op.delegator, op.validator}
+			t, ok := totals[key]
+			if !ok {
+				t.sharesOut = new(big.Int)
+			}
+			t.sharesOut = new(big.Int).Add(t.sharesOut, op.amount)
+			t.undelegations++
+			totals[key] = t
 		}
 	}
 	return totals, inbound, tokens
@@ -387,8 +369,7 @@ func formatStaged(staged stagedDelegation) string {
 	if staged.sharesOut != nil {
 		shares = staged.sharesOut.String()
 	}
-	return fmt.Sprintf("%s shares out, %d undelegations, %d redelegations out, %d in",
-		shares, staged.undelegations, staged.redelegationsOut, staged.redelegationsIn)
+	return fmt.Sprintf("%s shares out, %d undelegations", shares, staged.undelegations)
 }
 
 func (h *harness) store() store {

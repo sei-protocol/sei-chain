@@ -173,18 +173,6 @@ func (c *v2Chain) undelegate(delegator, op common.Address, amount sdk.Int) error
 	return nil
 }
 
-func (c *v2Chain) redelegate(delegator, src, dst common.Address, amount sdk.Int) error {
-	msg := stakingtypes.NewMsgBeginRedelegate(sdk.AccAddress(delegator[:]), sdk.ValAddress(src[:]), sdk.ValAddress(dst[:]), sdk.NewCoin(bondDenom, amount))
-	if err := c.deliver(msg, func(ctx context.Context) error {
-		_, err := c.msgs.BeginRedelegate(ctx, msg)
-		return err
-	}); err != nil {
-		return err
-	}
-	c.unjail(src)
-	return nil
-}
-
 // unjail undoes x/staking's jailing of op's validator for a self-delegation
 // below its minimum, which the precompile never does. x/staking's jail and
 // unjail only take the validator out of its power index and put it back.
@@ -214,19 +202,14 @@ func (c *v2Chain) validator(op common.Address) (stakingtypes.Validator, bool) {
 }
 
 // stakingState is what staking holds that x/staking's rules decide, in the
-// precompile's units. Unbonding and redelegation entries are keyed by the
-// accounts and validators they name.
+// precompile's units. Unbonding entries are keyed by the account and validator
+// they name.
 type stakingState struct {
 	validators  map[common.Address]validatorState
 	delegations map[delegationKey]string
 	// delegators lists each validator's delegators, sorted.
-	delegators         map[common.Address][]common.Address
-	unbonding          map[delegationKey][]unbondingEntryState
-	redelegations      map[redelegationKey][]redelegationEntryState
-	redelegationCounts map[redelegationKey]uint64
-	// receiving counts the redelegation entries into each validator, keyed by
-	// that validator.
-	receiving      map[delegationKey]uint64
+	delegators     map[common.Address][]common.Address
+	unbonding      map[delegationKey][]unbondingEntryState
 	lastValidators map[common.Address]uint64
 	lastTotalPower string
 	powerIndex     []common.Address
@@ -234,8 +217,6 @@ type stakingState struct {
 }
 
 type delegationKey struct{ delegator, validator common.Address }
-
-type redelegationKey struct{ delegator, src, dst common.Address }
 
 type validatorState struct {
 	pubkey            common.Hash
@@ -253,23 +234,15 @@ type unbondingEntryState struct {
 	initialBalance, balance        string
 }
 
-type redelegationEntryState struct {
-	creationHeight, completionTime uint64
-	initialBalance, sharesDst      string
-}
-
 func newStakingState() stakingState {
 	return stakingState{
-		validators:         map[common.Address]validatorState{},
-		delegations:        map[delegationKey]string{},
-		delegators:         map[common.Address][]common.Address{},
-		unbonding:          map[delegationKey][]unbondingEntryState{},
-		redelegations:      map[redelegationKey][]redelegationEntryState{},
-		redelegationCounts: map[redelegationKey]uint64{},
-		receiving:          map[delegationKey]uint64{},
-		lastValidators:     map[common.Address]uint64{},
-		powerIndex:         []common.Address{},
-		balances:           map[common.Address]string{},
+		validators:     map[common.Address]validatorState{},
+		delegations:    map[delegationKey]string{},
+		delegators:     map[common.Address][]common.Address{},
+		unbonding:      map[delegationKey][]unbondingEntryState{},
+		lastValidators: map[common.Address]uint64{},
+		powerIndex:     []common.Address{},
+		balances:       map[common.Address]string{},
 	}
 }
 
@@ -309,23 +282,6 @@ func (c *v2Chain) state(accounts []common.Address) stakingState {
 					balance:        toWei(e.Balance).String(),
 				})
 			}
-		}
-		for _, red := range c.keeper.GetAllRedelegations(c.ctx, sdk.AccAddress(a[:]), nil, nil) {
-			src, err := sdk.ValAddressFromBech32(red.ValidatorSrcAddress)
-			require.NoError(c.t, err)
-			dst, err := sdk.ValAddressFromBech32(red.ValidatorDstAddress)
-			require.NoError(c.t, err)
-			key := redelegationKey{a, common.BytesToAddress(src), common.BytesToAddress(dst)}
-			for _, e := range red.Entries {
-				st.redelegations[key] = append(st.redelegations[key], redelegationEntryState{
-					creationHeight: uint64(e.CreationHeight),            //nolint:gosec // a block height
-					completionTime: uint64(e.CompletionTime.UnixNano()), //nolint:gosec // a block time
-					initialBalance: toWei(e.InitialBalance).String(),
-					sharesDst:      sharesToWei(e.SharesDst).String(),
-				})
-			}
-			st.redelegationCounts[key] = uint64(len(red.Entries))
-			st.receiving[delegationKey{a, key.dst}] += uint64(len(red.Entries))
 		}
 		st.balances[a] = toWei(c.bank.GetBalance(c.ctx, sdk.AccAddress(a[:]), bondDenom).Amount).String()
 	}
@@ -384,31 +340,8 @@ func (h *harness) parityState(validators, accounts []common.Address) stakingStat
 					balance:        e.balance.String(),
 				})
 			}
-			if n := s.receivingRedelegations(op, a); n.Sign() != 0 {
-				st.receiving[delegationKey{a, op}] = n.Uint64()
-			}
-			for _, dst := range validators {
-				if n := s.redelegationEntryCount(a, op, dst); n.Sign() != 0 {
-					st.redelegationCounts[redelegationKey{a, op, dst}] = n.Uint64()
-				}
-			}
 		}
 		st.balances[a] = h.state.GetBalance(a).String()
-	}
-	q := s.redelegationQueue()
-	for i := q.head(); i < q.tail(); i++ {
-		e := q.entry(i)
-		key := redelegationKey{
-			s.AddressAt(at(e, redelegationQueueDelegator), redelegationQueueDelegator.offset),
-			s.AddressAt(at(e, redelegationQueueSrcValidator), redelegationQueueSrcValidator.offset),
-			s.AddressAt(at(e, redelegationQueueDstValidator), redelegationQueueDstValidator.offset),
-		}
-		st.redelegations[key] = append(st.redelegations[key], redelegationEntryState{
-			creationHeight: s.Uint64(at(e, redelegationQueueCreationHeight), redelegationQueueCreationHeight.offset),
-			completionTime: s.Uint64(at(e, queueCompletionTime), queueCompletionTime.offset),
-			initialBalance: s.Uint256(at(e, redelegationQueueInitialBalance)).String(),
-			sharesDst:      s.Uint256(at(e, redelegationQueueSharesDst)).String(),
-		})
 	}
 	for _, v := range h.lastValidators() {
 		st.lastValidators[v.operator] = v.power
@@ -535,11 +468,6 @@ var v2Errors = []struct {
 	{v2: stakingtypes.ErrDelegatorShareExRateInvalid, precompile: errExRateInvalid},
 	{v2: stakingtypes.ErrExceedMaxVotingPowerRatio, precompile: errExceedMaxVotingPower},
 	{v2: stakingtypes.ErrMaxUnbondingDelegationEntries, precompile: errMaxUnbondingEntries},
-	{v2: stakingtypes.ErrMaxRedelegationEntries, precompile: errMaxRedelegationEntries},
-	{v2: stakingtypes.ErrSelfRedelegation, precompile: errSelfRedelegation},
-	{v2: stakingtypes.ErrBadRedelegationDst, precompile: errBadRedelegationValidator},
-	{v2: stakingtypes.ErrTransitiveRedelegation, precompile: errTransitiveRedelegation},
-	{v2: stakingtypes.ErrTinyRedelegationAmount, precompile: errTinyRedelegationAmount},
 	// ValidateUnbondAmount's, for more than the delegation holds. Every
 	// ValidateBasic refusal is an ErrInvalidRequest too.
 	{v2: sdkerrors.ErrInvalidRequest, msg: "invalid shares amount", precompile: errInvalidShares},
@@ -663,13 +591,6 @@ func (pr *pair) undelegate(delegator, op common.Address, usei int64) error {
 		func() error { return pr.v2.undelegate(delegator, op, amount) })
 }
 
-func (pr *pair) redelegate(delegator, src, dst common.Address, usei int64) error {
-	amount := sdk.NewInt(usei)
-	return pr.apply("redelegate", fmt.Sprintf("%d usei of %s from %s to %s", usei, delegator, src, dst),
-		func() error { return pr.p.redelegate(delegator, src, dst, toWei(amount)) },
-		func() error { return pr.v2.redelegate(delegator, src, dst, amount) })
-}
-
 // endBlock runs EndBlock on both sides, the precompile's as the last block of
 // the epoch in progress, then starts the next block one second later.
 func (pr *pair) endBlock() {
@@ -687,19 +608,6 @@ func (pr *pair) endBlock() {
 func (pr *pair) wait(d uint64) {
 	pr.p.time += d
 	pr.v2.setBlock(pr.p.number, pr.p.time)
-}
-
-// clampsRedelegation reports whether a redelegation out of src would queue
-// behind a later entry and complete after V2's does, the precompile's
-// first-in first-out queues' deviation. Only a redelegation out of an
-// unbonding validator can, while the unbonding time stays the same.
-func (pr *pair) clampsRedelegation(src common.Address) bool {
-	v, ok := pr.v2.validator(src)
-	if !ok || !v.IsUnbonding() {
-		return false
-	}
-	t := uint64(v.UnbondingTime.UnixNano()) //nolint:gosec // a block time
-	return pr.p.store().redelegationQueue().clamp(t) != t
 }
 
 // sortDelegators orders each validator's delegators by address.

@@ -69,15 +69,13 @@ interface IStaking {
     }
 
     /// @notice An operation staged to take effect at the end of epoch. A
-    /// delegation stages amount; an undelegation or redelegation stages shares
-    /// of the delegation to validator, worth amount at its current exchange
-    /// rate.
+    /// delegation stages amount; an undelegation stages shares of the
+    /// delegation to validator, worth amount at its current exchange rate.
     struct StagedOperation {
         uint64 epoch;
-        uint8 kind; // 1=Delegate, 2=Undelegate, 3=Redelegate
+        uint8 kind; // 1=Delegate, 2=Undelegate
         address delegator;
-        address validator; // a redelegation's source
-        address dstValidator; // a redelegation's destination; zero otherwise
+        address validator;
         uint256 amount; // wei
         uint256 shares; // zero for a delegation
     }
@@ -101,15 +99,6 @@ interface IStaking {
     /// at the end of epoch.
     event Delegate(address indexed delegator, address indexed validator, uint256 amount, uint64 epoch);
 
-    /// @notice The caller staged moving stake worth amount now from srcValidator
-    /// to dstValidator. It takes effect at the end of epoch.
-    event Redelegate(
-        address indexed delegator,
-        address indexed srcValidator,
-        address indexed dstValidator,
-        uint256 amount,
-        uint64 epoch
-    );
 
     /// @notice The caller staged undelegating stake worth amount now from
     /// validator. It takes effect at the end of epoch.
@@ -120,12 +109,6 @@ interface IStaking {
     /// longer be made then is refunded.
     function delegate(address validator) external payable returns (bool success);
 
-    /// @notice Moves amount of the caller's delegation from srcValidator to
-    /// dstValidator at the end of the epoch after this one, as x/staking's
-    /// MsgBeginRedelegate does then. From now until it completes it blocks a
-    /// redelegation out of dstValidator and counts toward maxEntries; until it
-    /// takes effect, it counts toward every destination's.
-    function redelegate(address srcValidator, address dstValidator, uint256 amount) external returns (bool success);
 
     /// @notice Undelegates amount from validator at the end of the epoch after
     /// this one, as x/staking's MsgUndelegate does then. The tokens are paid
@@ -202,7 +185,8 @@ interface IStaking {
     /// @notice Reverts: use delegate(address).
     function delegate(string memory valAddress) external payable returns (bool success);
 
-    /// @notice Reverts: use redelegate(address,address,uint256).
+    /// @notice Reverts: redelegation is not supported; undelegate, then delegate
+    /// the tokens once they are paid.
     function redelegate(string memory srcAddress, string memory dstAddress, uint256 amount)
         external
         returns (bool success);
