@@ -1,11 +1,13 @@
 package statesyncproof
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
@@ -21,8 +23,9 @@ const (
 
 // Proof is a decoded state sync proof file.
 type Proof struct {
-	block *types.RoadBlock
-	appQC *types.AppQC
+	block       *types.RoadBlock
+	appQC       *types.AppQC
+	appHashData *apphash.AppHashData
 }
 
 // Height returns the road height this state sync proof describes.
@@ -38,6 +41,12 @@ func (p *Proof) RoadBlock() *types.RoadBlock {
 // AppQC returns the AppQC this state sync proof carries.
 func (p *Proof) AppQC() *types.AppQC {
 	return p.appQC
+}
+
+// AppHashData returns the app hash record of the proof road, whose app hash the
+// AppQC signs.
+func (p *Proof) AppHashData() *apphash.AppHashData {
+	return p.appHashData
 }
 
 // FileName returns the canonical state sync proof file name for index.
@@ -69,9 +78,10 @@ func ParseFileName(name string) (types.RoadHeight, error) {
 	return types.RoadHeight(parsedHeight), nil
 }
 
-// Encode encodes roadBlock and appQC as a state sync proof file. It fails when
-// appQC is not for the road and epoch of roadBlock.
-func Encode(block *types.RoadBlock, appQC *types.AppQC) ([]byte, error) {
+// Encode encodes block, appQC and the app hash record of the road as a state
+// sync proof file. It fails when appQC is not for the road and epoch of block,
+// or when record is not the record of that road whose app hash appQC signs.
+func Encode(block *types.RoadBlock, appQC *types.AppQC, record *apphash.AppHashData) ([]byte, error) {
 	if block.QC().Height() != appQC.Proposal().Height() {
 		return nil, fmt.Errorf("road block height %d does not match AppQC height %d",
 			block.QC().Height(), appQC.Proposal().Height())
@@ -79,11 +89,31 @@ func Encode(block *types.RoadBlock, appQC *types.AppQC) ([]byte, error) {
 	if err := appQC.Proposal().Verify(block.QC().QC()); err != nil {
 		return nil, fmt.Errorf("AppQC does not match road block: %w", err)
 	}
+	if err := checkAppHashData(record, appQC); err != nil {
+		return nil, err
+	}
+	recordBytes, err := record.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("app hash data: %w", err)
+	}
 	return frame(&pb.StateSyncProof{
-		CommitQc: types.FullCommitQCConv.Encode(block.QC()),
-		Blocks:   types.LaneBlockConv.EncodeSlice(block.LaneBlocks()),
-		AppQc:    types.AppQCConv.Encode(appQC),
+		CommitQc:    types.FullCommitQCConv.Encode(block.QC()),
+		Blocks:      types.LaneBlockConv.EncodeSlice(block.LaneBlocks()),
+		AppQc:       types.AppQCConv.Encode(appQC),
+		AppHashData: recordBytes,
 	}), nil
+}
+
+// checkAppHashData checks that record is the app hash record of the road of
+// appQC and that its app hash is the one appQC signs.
+func checkAppHashData(record *apphash.AppHashData, appQC *types.AppQC) error {
+	if got, want := record.BlockHeight(), uint64(appQC.Proposal().Height()); got != want {
+		return fmt.Errorf("app hash data height %d does not match AppQC height %d", got, want)
+	}
+	if got, want := record.AppHash(), appQC.Proposal().AppHash(); !bytes.Equal(got[:], want) {
+		return fmt.Errorf("app hash data hash %x does not match AppQC app hash %x", got, want)
+	}
+	return nil
 }
 
 // frame returns msg as a version 1 state sync proof file.
@@ -95,10 +125,11 @@ func frame(msg *pb.StateSyncProof) []byte {
 	return append(data, body...)
 }
 
-// Decode decodes a state sync proof file for road wantIndex. It checks the
-// file layout and that the AppQC is for the road and epoch of the CommitQC, but
-// not signatures: the caller must verify the RoadBlock and the AppQC against the
-// epoch before it trusts the proof.
+// Decode decodes a state sync proof file for road wantHeight. It checks the
+// file layout, that the AppQC is for the road and epoch of the CommitQC, and
+// that the app hash record is for that road and hashes to the app hash the
+// AppQC signs. It does not check signatures: the caller must verify the
+// RoadBlock and the AppQC against the epoch before it trusts the proof.
 func Decode(data []byte, wantHeight types.RoadHeight) (*Proof, error) {
 	if len(data) < headerLen {
 		return nil, fmt.Errorf("truncated state sync proof file header")
@@ -134,8 +165,19 @@ func Decode(data []byte, wantHeight types.RoadHeight) (*Proof, error) {
 	if qc.Height() != wantHeight {
 		return nil, fmt.Errorf("state sync proof index %d, want %d", qc.Height(), wantHeight)
 	}
+	if len(msg.AppHashData) == 0 {
+		return nil, fmt.Errorf("app hash data: missing")
+	}
+	record, err := apphash.Deserialize(msg.AppHashData)
+	if err != nil {
+		return nil, fmt.Errorf("app hash data: %w", err)
+	}
+	if err := checkAppHashData(record, appQC); err != nil {
+		return nil, err
+	}
 	return &Proof{
-		block: types.NewRoadBlock(qc, blocks),
-		appQC: appQC,
+		block:       types.NewRoadBlock(qc, blocks),
+		appQC:       appQC,
+		appHashData: record,
 	}, nil
 }

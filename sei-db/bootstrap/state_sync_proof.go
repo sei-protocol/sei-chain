@@ -1,11 +1,14 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -22,16 +25,18 @@ const stateSyncProofSweepInterval = 10 * time.Second
 // checkpoints. Close stops it. It returns an error when the export already started or the manager is closed.
 func (m *GigaStorageManager) StartStateSyncProofExport() error {
 	return m.stateSyncProofExport.start(func() *stateSyncProofExportLoop {
-		exporter := statesyncproof.NewExporter(stateSyncProofExportConfig(m.cfg, m.blockStore))
+		exporter := statesyncproof.NewExporter(stateSyncProofExportConfig(m.cfg, m.blockStore, m.appHashBuilder))
 		return startStateSyncProofExportLoop(exporter, stateSyncProofSweepInterval)
 	})
 }
 
 // stateSyncProofExportConfig returns the export config of the stores cfg describes: proof files go to
-// the state sync proof dir of cfg.HomePath, and checkpoints come from the FlatKV dir.
+// the state sync proof dir of cfg.HomePath, checkpoints come from the FlatKV dir, and app hash records
+// come from appHashBuilder.
 func stateSyncProofExportConfig(
 	cfg *config.GigaStorageConfig,
 	blockStore *blockstore.Store,
+	appHashBuilder builder.AppHashBuilder,
 ) statesyncproof.ExportConfig {
 	flatKVDir := cfg.FlatKVConfig.DataDir
 	return statesyncproof.ExportConfig{
@@ -43,7 +48,44 @@ func stateSyncProofExportConfig(
 		// The AppQC may not be flushed yet. A crash can then lose it from BlockStore, but a proof file
 		// written before the crash stays valid, because the file holds a verifiable AppQC.
 		LastAppQC: func() utils.Option[types.RoadHeight] { return lastAppQC(blockStore.Status()) },
+		AppHashData: func(road types.RoadHeight) (utils.Option[*apphash.AppHashData], error) {
+			return appHashDataOf(appHashBuilder, road)
+		},
 	}
+}
+
+// appHashDataOf returns the app hash record of road from b. It returns None when b has not
+// published the record yet, and an error wrapping types.ErrPruned when b has pruned it.
+func appHashDataOf(b builder.AppHashBuilder, road types.RoadHeight) (utils.Option[*apphash.AppHashData], error) {
+	none := utils.None[*apphash.AppHashData]()
+	lowest, highest, ok, err := b.Bounds()
+	if err != nil {
+		return none, err
+	}
+	height := uint64(road)
+	if !ok || height > highest {
+		return none, nil
+	}
+	if height < lowest {
+		return none, prunedError(height, lowest)
+	}
+	// GetAppHash blocks until the record is published, and the bounds check above says it is.
+	record, err := b.GetAppHash(context.Background(), height)
+	if err != nil {
+		// b may prune the record after the bounds check above.
+		if nowLowest, _, ok, boundsErr := b.Bounds(); boundsErr == nil && ok && height < nowLowest {
+			return none, prunedError(height, nowLowest)
+		}
+		return none, err
+	}
+	return utils.Some(record), nil
+}
+
+// prunedError returns the error, wrapping types.ErrPruned, of an app hash record of block height
+// that is below lowest, the lowest available block.
+func prunedError(height, lowest uint64) error {
+	return fmt.Errorf("app hash of block %d is below the lowest available block %d: %w",
+		height, lowest, types.ErrPruned)
 }
 
 // checkpointRoads returns the road heights of the FlatKV checkpoints retained in dir.

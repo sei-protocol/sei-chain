@@ -2600,12 +2600,14 @@ func (x *Epoch) GetNextRoad() uint64 {
 
 // StateSyncProof is the packed BlockDB row of the proof road: the three
 // records a restored node writes into its empty BlockDB. The fourth record,
-// AppProposal, is app_qc's proposal.
+// AppProposal, is app_qc's proposal. app_hash_data is the serialized giga app
+// hash record of the proof road, whose app hash app_qc signs.
 type StateSyncProof struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CommitQc      *FullCommitQC          `protobuf:"bytes,1,opt,name=commit_qc,json=commitQc,proto3,oneof" json:"commit_qc,omitempty"` // required
 	Blocks        []*LaneBlock           `protobuf:"bytes,4,rep,name=blocks,proto3" json:"blocks,omitempty"`
-	AppQc         *AppQC                 `protobuf:"bytes,3,opt,name=app_qc,json=appQc,proto3,oneof" json:"app_qc,omitempty"` // required
+	AppQc         *AppQC                 `protobuf:"bytes,3,opt,name=app_qc,json=appQc,proto3,oneof" json:"app_qc,omitempty"`                     // required
+	AppHashData   []byte                 `protobuf:"bytes,5,opt,name=app_hash_data,json=appHashData,proto3,oneof" json:"app_hash_data,omitempty"` // required
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2657,6 +2659,13 @@ func (x *StateSyncProof) GetBlocks() []*LaneBlock {
 func (x *StateSyncProof) GetAppQc() *AppQC {
 	if x != nil {
 		return x.AppQc
+	}
+	return nil
+}
+
+func (x *StateSyncProof) GetAppHashData() []byte {
+	if x != nil {
+		return x.AppHashData
 	}
 	return nil
 }
@@ -3176,14 +3185,16 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"_committeeB\r\n" +
 	"\v_first_roadB\f\n" +
 	"\n" +
-	"_next_road\"\xe1\x01\n" +
+	"_next_road\"\xa5\x02\n" +
 	"\x0eStateSyncProof\x128\n" +
 	"\tcommit_qc\x18\x01 \x01(\v2\x16.autobahn.FullCommitQCH\x00R\bcommitQc\x88\x01\x01\x124\n" +
 	"\x06blocks\x18\x04 \x03(\v2\x13.autobahn.LaneBlockB\aЈ\xe2\xab\f\xe8\aR\x06blocks\x12+\n" +
-	"\x06app_qc\x18\x03 \x01(\v2\x0f.autobahn.AppQCH\x01R\x05appQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\x06app_qc\x18\x03 \x01(\v2\x0f.autobahn.AppQCH\x01R\x05appQc\x88\x01\x01\x120\n" +
+	"\rapp_hash_data\x18\x05 \x01(\fB\a؈\xe2\xab\f\x80\x02H\x02R\vappHashData\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
 	"\n" +
 	"_commit_qcB\t\n" +
-	"\a_app_qcJ\x04\b\x02\x10\x03R\vlane_blocks\"@\n" +
+	"\a_app_qcB\x10\n" +
+	"\x0e_app_hash_dataJ\x04\b\x02\x10\x03R\vlane_blocks\"@\n" +
 	"\rEpochRegistry\x12'\n" +
 	"\x06epochs\x18\x01 \x03(\v2\x0f.autobahn.EpochR\x06epochs:\x06Ȉ\xe2\xab\f\x01\"\x7f\n" +
 	"\vEpochMember\x12.\n" +

@@ -381,7 +381,8 @@ message Epoch {
 
 // StateSyncProof is the packed BlockDB row of the proof road: the three
 // records a restored node writes into its empty BlockDB. The fourth record,
-// AppProposal, is app_qc's proposal.
+// AppProposal, is app_qc's proposal. app_hash_data is the serialized giga app
+// hash record of the proof road, whose app hash app_qc signs.
 message StateSyncProof {
   reserved "lane_blocks";
   reserved 2;
@@ -389,6 +390,7 @@ message StateSyncProof {
   optional FullCommitQC commit_qc = 1; // required
   repeated LaneBlock blocks = 4 [(wireguard.max_count) = 1000];
   optional AppQC app_qc = 3; // required
+  optional bytes app_hash_data = 5 [(wireguard.max_size) = 256]; // required
 }
 
 // Retained epoch registry state.

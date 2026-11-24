@@ -3,6 +3,7 @@ package statesyncproof
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,8 +12,10 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"google.golang.org/protobuf/encoding/protowire"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -27,6 +30,20 @@ func TestExporterWritesPersistedCheckpoint(t *testing.T) {
 	require.Equal(t, env.height, decoded.Height())
 	require.Equal(t, env.block.Header().Hash(), decoded.RoadBlock().Header().Hash())
 	require.Equal(t, env.appQC.Proposal().Height(), decoded.AppQC().Proposal().Height())
+	require.Equal(t, env.appHashData, decoded.AppHashData())
+}
+
+func TestExporterWaitsForAppHashData(t *testing.T) {
+	rng := utils.TestRng()
+	env := newExportEnv(t, rng)
+	delete(env.appHashRecords, env.height)
+
+	require.NoError(t, env.exporter.Sweep())
+	require.NoFileExists(t, env.proofPath(env.height))
+
+	env.appHashRecords[env.height] = env.appHashData
+	require.NoError(t, env.exporter.Sweep())
+	require.FileExists(t, env.proofPath(env.height))
 }
 
 func TestExporterWaitsForAppQC(t *testing.T) {
@@ -89,6 +106,9 @@ func TestExporterSkipsMissingOrPrunedInputs(t *testing.T) {
 		"missing AppQC": func(env *exportEnv) {
 			delete(env.store.appQCs, env.height)
 		},
+		"pruned app hash data": func(env *exportEnv) {
+			env.appHashDataErr = fmt.Errorf("app hash data: %w", types.ErrPruned)
+		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -112,6 +132,9 @@ func TestExporterReturnsReadErrors(t *testing.T) {
 		},
 		"AppQC": func(env *exportEnv) {
 			env.store.readAppQCErr = errors.New("app qc read failed")
+		},
+		"app hash data": func(env *exportEnv) {
+			env.appHashDataErr = errors.New("app hash data read failed")
 		},
 	}
 	for name, mutate := range cases {
@@ -149,6 +172,12 @@ func TestExporterSkipsInconsistentRecords(t *testing.T) {
 			env.store.blocks[env.height] = env.store.blocks[next.Proposal().Height()]
 			env.checkpoints = []types.RoadHeight{env.height}
 		},
+		"app hash data the AppQC does not sign": func(env *exportEnv, rng utils.Rng) {
+			env.appHashRecords[env.height] = genAppHashData(rng, env.height)
+		},
+		"app hash data of another road": func(env *exportEnv, rng utils.Rng) {
+			env.signAppHashData(genAppHashData(rng, env.height+1))
+		},
 	}
 	for name, corrupt := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -184,7 +213,7 @@ func TestExporterSweepContinuesOnIOError(t *testing.T) {
 func TestExporterKeepsValidExistingProof(t *testing.T) {
 	rng := utils.TestRng()
 	env := newExportEnv(t, rng)
-	old, err := Encode(env.block, env.appQC)
+	old, err := Encode(env.block, env.appQC, env.appHashData)
 	require.NoError(t, err)
 	// An unknown field keeps the file valid and makes its bytes differ from a fresh export.
 	old = protowire.AppendTag(old, 99, protowire.BytesType)
@@ -233,11 +262,18 @@ func TestExporterReplacesInvalidProofAtStartup(t *testing.T) {
 		},
 		"wrong road": func(env *exportEnv, rng utils.Rng) []byte {
 			next := env.addNextRoad(rng)
-			block := env.store.blocks[next.Proposal().Height()]
-			encoded, err := Encode(block, next)
+			nextHeight := next.Proposal().Height()
+			encoded, err := Encode(env.store.blocks[nextHeight], next, env.appHashRecords[nextHeight])
 			require.NoError(t, err)
 			env.checkpoints = []types.RoadHeight{env.height}
 			return encoded
+		},
+		"no app hash data": func(env *exportEnv, _ utils.Rng) []byte {
+			return frame(&pb.StateSyncProof{
+				CommitQc: types.FullCommitQCConv.Encode(env.block.QC()),
+				Blocks:   types.LaneBlockConv.EncodeSlice(env.block.LaneBlocks()),
+				AppQc:    types.AppQCConv.Encode(env.appQC),
+			})
 		},
 	}
 	for name, invalid := range cases {
@@ -302,6 +338,9 @@ func TestExporterSkipsSettledCheckpoints(t *testing.T) {
 		},
 		"inconsistent": func(env *exportEnv) {
 			env.store.appProposals[env.height] = types.NewAppProposal(env.block.QC().QC().View(), []byte{9, 9, 9})
+		},
+		"pruned app hash data": func(env *exportEnv) {
+			env.appHashDataErr = fmt.Errorf("app hash data: %w", types.ErrPruned)
 		},
 	}
 	for name, mutate := range cases {
@@ -435,17 +474,22 @@ func TestWriteFileRemovesTempFileWhenRenameFails(t *testing.T) {
 }
 
 type exportEnv struct {
-	dir    string
-	keys   []types.SecretKey
-	epoch  *types.Epoch
-	height types.RoadHeight
-	block  *types.RoadBlock
-	appQC  *types.AppQC
-	store  *fakeBlockStore
+	dir         string
+	keys        []types.SecretKey
+	epoch       *types.Epoch
+	height      types.RoadHeight
+	block       *types.RoadBlock
+	appQC       *types.AppQC
+	appHashData *apphash.AppHashData
+	store       *fakeBlockStore
 	// lastAppQC is what LastAppQC reports.
 	lastAppQC   utils.Option[types.RoadHeight]
 	checkpoints []types.RoadHeight
-	exporter    *Exporter
+	// appHashRecords holds, by road, the app hash records that AppHashData reports.
+	appHashRecords map[types.RoadHeight]*apphash.AppHashData
+	// appHashDataErr is the error AppHashData returns, if not nil.
+	appHashDataErr error
+	exporter       *Exporter
 }
 
 func newExportEnv(t *testing.T, rng utils.Rng) *exportEnv {
@@ -455,7 +499,8 @@ func newExportEnv(t *testing.T, rng utils.Rng) *exportEnv {
 	qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
 	block := types.NewRoadBlock(qc, blocks)
 	height := block.QC().Height()
-	proposal := types.NewAppProposal(block.QC().QC().View(), []byte{1, 2, 3})
+	record := genAppHashData(rng, height)
+	proposal := appProposalOf(block, record)
 	appQC := data.TestAppQC(keys, proposal)
 	store := &fakeBlockStore{
 		blocks:       map[types.RoadHeight]*types.RoadBlock{height: block},
@@ -463,22 +508,24 @@ func newExportEnv(t *testing.T, rng utils.Rng) *exportEnv {
 		appQCs:       map[types.RoadHeight]*types.AppQC{height: appQC},
 	}
 	env := &exportEnv{
-		dir:         t.TempDir(),
-		keys:        keys,
-		epoch:       epoch,
-		height:      height,
-		block:       block,
-		appQC:       appQC,
-		store:       store,
-		lastAppQC:   utils.Some(height),
-		checkpoints: []types.RoadHeight{height},
+		dir:            t.TempDir(),
+		keys:           keys,
+		epoch:          epoch,
+		height:         height,
+		block:          block,
+		appQC:          appQC,
+		appHashData:    record,
+		store:          store,
+		lastAppQC:      utils.Some(height),
+		checkpoints:    []types.RoadHeight{height},
+		appHashRecords: map[types.RoadHeight]*apphash.AppHashData{height: record},
 	}
 	env.exporter = env.newExporter()
 	return env
 }
 
-// newExporter returns an Exporter over env's dir, checkpoints and BlockStore, as a node creates
-// one at startup.
+// newExporter returns an Exporter over env's dir, checkpoints, BlockStore and app hash records,
+// as a node creates one at startup.
 func (e *exportEnv) newExporter() *Exporter {
 	return NewExporter(ExportConfig{
 		Dir: e.dir,
@@ -489,22 +536,49 @@ func (e *exportEnv) newExporter() *Exporter {
 		LastAppQC: func() utils.Option[types.RoadHeight] {
 			return e.lastAppQC
 		},
+		AppHashData: func(height types.RoadHeight) (utils.Option[*apphash.AppHashData], error) {
+			if e.appHashDataErr != nil {
+				return utils.None[*apphash.AppHashData](), e.appHashDataErr
+			}
+			record, ok := e.appHashRecords[height]
+			if !ok {
+				return utils.None[*apphash.AppHashData](), nil
+			}
+			return utils.Some(record), nil
+		},
 	})
 }
 
-// addNextRoad stores the road after env.index with its AppProposal and AppQC, makes it the only
-// retained checkpoint, and returns its AppQC. LastAppQC does not change.
+// addNextRoad stores the road after env.index with its AppProposal, AppQC and app hash record,
+// makes it the only retained checkpoint, and returns its AppQC. LastAppQC does not change.
 func (e *exportEnv) addNextRoad(rng utils.Rng) *types.AppQC {
 	qc, blocks := data.TestCommitQC(rng, e.epoch, e.keys, utils.Some(e.block.QC().QC()))
 	block := types.NewRoadBlock(qc, blocks)
 	height := block.QC().Height()
-	proposal := types.NewAppProposal(block.QC().QC().View(), []byte{4, 5, 6})
+	record := genAppHashData(rng, height)
+	proposal := appProposalOf(block, record)
 	appQC := data.TestAppQC(e.keys, proposal)
 	e.store.blocks[height] = block
 	e.store.appProposals[height] = proposal
 	e.store.appQCs[height] = appQC
+	e.appHashRecords[height] = record
 	e.checkpoints = []types.RoadHeight{height}
 	return appQC
+}
+
+// signAppHashData makes record the app hash record of env.height, and replaces the AppProposal and
+// AppQC of env.height with ones over its app hash.
+func (e *exportEnv) signAppHashData(record *apphash.AppHashData) {
+	proposal := appProposalOf(e.block, record)
+	e.store.appProposals[e.height] = proposal
+	e.store.appQCs[e.height] = data.TestAppQC(e.keys, proposal)
+	e.appHashRecords[e.height] = record
+}
+
+// appProposalOf returns the AppProposal of the road of block over the app hash of record.
+func appProposalOf(block *types.RoadBlock, record *apphash.AppHashData) *types.AppProposal {
+	appHash := record.AppHash()
+	return types.NewAppProposal(block.QC().QC().View(), appHash[:])
 }
 
 func exportFailureCount(t *testing.T) float64 {
