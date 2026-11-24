@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/bits"
 	"slices"
 	"sort"
@@ -149,30 +150,150 @@ func receiptBlockNumber(receipt []byte) (uint64, error) {
 }
 
 // receiptVarint returns the varint field num of a marshaled x/evm Receipt, 0
-// when the field is absent. It fails unless every field of the receipt parses.
+// when the field is absent. It fails unless the receipt passes checkMessage
+// against receiptMessage.
 func receiptVarint(receipt []byte, num protowire.Number) (uint64, error) {
 	var value uint64
-	for len(receipt) > 0 {
-		field, typ, n := protowire.ConsumeTag(receipt)
-		if n < 0 {
-			return 0, protowire.ParseError(n)
+	err := checkMessage(receipt, receiptMessage, func(field protowire.Number, v uint64) {
+		if field == num {
+			value = v
 		}
-		receipt = receipt[n:]
-		if field == num && typ == protowire.VarintType {
-			v, n := protowire.ConsumeVarint(receipt)
-			if n < 0 {
-				return 0, protowire.ParseError(n)
-			}
-			value, receipt = v, receipt[n:]
-			continue
-		}
-		n = protowire.ConsumeFieldValue(field, typ, receipt)
-		if n < 0 {
-			return 0, protowire.ParseError(n)
-		}
-		receipt = receipt[n:]
+	})
+	if err != nil {
+		return 0, err
 	}
 	return value, nil
+}
+
+// fieldType is the type of a field of x/evm's Receipt or Log message.
+type fieldType int
+
+const (
+	uint64Field fieldType = iota
+	uint32Field
+	boolField
+	stringField
+	bytesField
+	messageField
+)
+
+// wireType returns the wire type a field of type t is encoded in.
+func (t fieldType) wireType() protowire.Type {
+	switch t {
+	case uint64Field, uint32Field, boolField:
+		return protowire.VarintType
+	default:
+		return protowire.BytesType
+	}
+}
+
+// maxVarint returns the largest value a varint field of type t holds.
+func (t fieldType) maxVarint() uint64 {
+	switch t {
+	case uint32Field:
+		return math.MaxUint32
+	case boolField:
+		return 1
+	default:
+		return math.MaxUint64
+	}
+}
+
+// protoField describes a field of x/evm's Receipt or Log message.
+type protoField struct {
+	name string
+	typ  fieldType
+	// repeated is set for a repeated field, and message describes the message
+	// a message field holds.
+	repeated bool
+	message  protoMessage
+}
+
+// protoMessage describes the fields of a message by number.
+type protoMessage map[protowire.Number]protoField
+
+// receiptMessage describes x/evm's Receipt message.
+var receiptMessage = protoMessage{
+	1:  {name: "tx_type", typ: uint32Field},
+	2:  {name: "cumulative_gas_used", typ: uint64Field},
+	3:  {name: "contract_address", typ: stringField},
+	4:  {name: "tx_hash_hex", typ: stringField},
+	5:  {name: "gas_used", typ: uint64Field},
+	6:  {name: "effective_gas_price", typ: uint64Field},
+	7:  {name: "block_number", typ: uint64Field},
+	8:  {name: "transaction_index", typ: uint32Field},
+	9:  {name: "status", typ: uint32Field},
+	10: {name: "from", typ: stringField},
+	11: {name: "to", typ: stringField},
+	12: {name: "vm_error", typ: stringField},
+	13: {name: "logs", typ: messageField, repeated: true, message: logMessage},
+	14: {name: "logsBloom", typ: bytesField},
+	15: {name: "pre_execution_failure", typ: boolField},
+}
+
+// logMessage describes x/evm's Log message.
+var logMessage = protoMessage{
+	1: {name: "address", typ: stringField},
+	2: {name: "topics", typ: stringField, repeated: true},
+	3: {name: "data", typ: bytesField},
+	4: {name: "index", typ: uint32Field},
+	5: {name: "synthetic", typ: boolField},
+}
+
+// checkMessage fails unless every field of the marshaled message b is a field
+// msg describes, encoded in the wire type of its type and holding a value of
+// that type, which for a message field is a message that passes checkMessage
+// against its own description. It calls visit, when set, with the number and
+// value of each varint field.
+func checkMessage(b []byte, msg protoMessage, visit func(protowire.Number, uint64)) error {
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			return protowire.ParseError(n)
+		}
+		field, known := msg[num]
+		if !known {
+			return fmt.Errorf("unknown field %d", num)
+		}
+		if typ != field.typ.wireType() {
+			return fmt.Errorf("%s has wire type %d", field.name, typ)
+		}
+		value, m, err := field.consumeValue(b[n:])
+		if err != nil {
+			return err
+		}
+		if typ == protowire.VarintType && visit != nil {
+			visit(num, value)
+		}
+		b = b[n+m:]
+	}
+	return nil
+}
+
+// consumeValue reads a value of f from the front of b, returning the value when
+// it is a varint, and its length. It fails unless the value is one f's type
+// holds.
+func (f protoField) consumeValue(b []byte) (uint64, int, error) {
+	if f.typ.wireType() == protowire.VarintType {
+		value, n := protowire.ConsumeVarint(b)
+		if n < 0 {
+			return 0, 0, protowire.ParseError(n)
+		}
+		if value > f.typ.maxVarint() {
+			return 0, 0, fmt.Errorf("%s holds %d", f.name, value)
+		}
+		return value, n, nil
+	}
+	content, n := protowire.ConsumeBytes(b)
+	if n < 0 {
+		return 0, 0, protowire.ParseError(n)
+	}
+	if f.typ == messageField {
+		if err := checkMessage(content, f.message, nil); err != nil {
+			return 0, 0, fmt.Errorf("%s: %w", f.name, err)
+		}
+	}
+	return 0, n, nil
 }
 
 // receiptSpan returns the blocks a store's version markers claim, from its

@@ -564,41 +564,6 @@ func printReceiptDiffs(w io.Writer, heading string, diffs []receiptDiff, withBlo
 	}
 }
 
-// fieldKind is how a field of x/evm's Receipt message is shown.
-type fieldKind int
-
-const (
-	varintField fieldKind = iota
-	stringField
-	bytesField
-	repeatedField
-)
-
-// receiptFieldInfo names a field of x/evm's Receipt message.
-type receiptFieldInfo struct {
-	name string
-	kind fieldKind
-}
-
-// receiptFieldInfos describes x/evm's Receipt message by field number.
-var receiptFieldInfos = map[protowire.Number]receiptFieldInfo{
-	1:  {"tx_type", varintField},
-	2:  {"cumulative_gas_used", varintField},
-	3:  {"contract_address", stringField},
-	4:  {"tx_hash_hex", stringField},
-	5:  {"gas_used", varintField},
-	6:  {"effective_gas_price", varintField},
-	7:  {"block_number", varintField},
-	8:  {"transaction_index", varintField},
-	9:  {"status", varintField},
-	10: {"from", stringField},
-	11: {"to", stringField},
-	12: {"vm_error", stringField},
-	13: {"logs", repeatedField},
-	14: {"logsBloom", bytesField},
-	15: {"pre_execution_failure", varintField},
-}
-
 // fieldValues is every occurrence of one field in a marshaled message.
 type fieldValues struct {
 	// raw is the occurrences' tags and values, concatenated.
@@ -690,27 +655,27 @@ func (f *fieldValues) count() int {
 // describeFieldDiff names field num, which differs between a and b, with both
 // values where they are short.
 func describeFieldDiff(num protowire.Number, a, b *fieldValues) string {
-	info, known := receiptFieldInfos[num]
+	field, known := receiptMessage[num]
 	if !known {
 		return fmt.Sprintf("field %d", num)
 	}
-	switch info.kind {
-	case varintField:
+	switch {
+	case field.repeated:
+		if a.count() != b.count() {
+			return fmt.Sprintf("%s (%d vs %d)", field.name, a.count(), b.count())
+		}
+		return field.name
+	case field.typ.wireType() == protowire.VarintType:
 		valueA, _ := protowire.ConsumeVarint(a.last())
 		valueB, _ := protowire.ConsumeVarint(b.last())
-		return fmt.Sprintf("%s %d vs %d", info.name, valueA, valueB)
-	case stringField:
-		return fmt.Sprintf("%s %q vs %q", info.name, shortText(a.last()), shortText(b.last()))
-	case repeatedField:
-		if a.count() != b.count() {
-			return fmt.Sprintf("%s (%d vs %d)", info.name, a.count(), b.count())
-		}
-		return info.name
+		return fmt.Sprintf("%s %d vs %d", field.name, valueA, valueB)
+	case field.typ == stringField:
+		return fmt.Sprintf("%s %q vs %q", field.name, shortText(a.last()), shortText(b.last()))
 	default:
 		if len(a.last()) != len(b.last()) {
-			return fmt.Sprintf("%s (%d vs %d bytes)", info.name, len(a.last()), len(b.last()))
+			return fmt.Sprintf("%s (%d vs %d bytes)", field.name, len(a.last()), len(b.last()))
 		}
-		return info.name
+		return field.name
 	}
 }
 
