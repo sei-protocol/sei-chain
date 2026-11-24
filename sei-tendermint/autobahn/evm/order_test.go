@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -21,10 +22,11 @@ func referenceCanonicalOrder(o CanonicalOrder) []EvmTx {
 	slots := map[common.Address]map[uint64]orderEntry{}
 	seen := map[common.Hash]struct{}{}
 	for _, tx := range o.Txs {
-		entry := orderEntry{tx: tx, tip: tx.EffectiveGasTipValue(o.BaseFee), hash: tx.Hash()}
-		if entry.tip.Sign() < 0 {
+		tip, ok := tx.EffectiveGasTip(o.BaseFee)
+		if !ok {
 			continue
 		}
+		entry := orderEntry{tx: tx, tip: tip, hash: tx.Hash()}
 		if _, duplicate := seen[entry.hash]; duplicate {
 			continue
 		}
@@ -60,12 +62,12 @@ func referenceCanonicalOrder(o CanonicalOrder) []EvmTx {
 
 type orderEntry struct {
 	tx   EvmTx
-	tip  *big.Int
+	tip  uint256.Int
 	hash common.Hash
 }
 
 func (a orderEntry) before(b orderEntry) bool {
-	if comparison := a.tip.Cmp(b.tip); comparison != 0 {
+	if comparison := a.tip.Cmp(&b.tip); comparison != 0 {
 		return comparison > 0
 	}
 	return bytes.Compare(a.hash[:], b.hash[:]) < 0
@@ -269,16 +271,18 @@ func assertCanonicalOrderProperties(t *testing.T, o CanonicalOrder, ordered []Ev
 		sender := tx.Sender()
 		require.False(t, exhausted[sender], "nonce overflow")
 		require.Equal(t, next[sender], tx.Nonce(), "sender nonces must start at the parent and be contiguous")
-		chosen := orderEntry{tx: tx, tip: tx.EffectiveGasTipValue(o.BaseFee), hash: tx.Hash()}
-		require.GreaterOrEqual(t, chosen.tip.Sign(), 0)
+		chosenTip := tx.EffectiveGasTipValue(o.BaseFee)
+		require.GreaterOrEqual(t, chosenTip.Sign(), 0)
 		// Scan the input independently of the heap to check the best currently executable slot.
 		for _, candidate := range o.Txs {
 			if exhausted[candidate.Sender()] || candidate.Nonce() != next[candidate.Sender()] {
 				continue
 			}
-			other := orderEntry{tx: candidate, tip: candidate.EffectiveGasTipValue(o.BaseFee), hash: candidate.Hash()}
-			if other.tip.Sign() >= 0 {
-				require.False(t, other.before(chosen), "a higher-priority transaction was ready")
+			otherTip := candidate.EffectiveGasTipValue(o.BaseFee)
+			if otherTip.Sign() >= 0 {
+				comparison := otherTip.Cmp(chosenTip)
+				better := comparison > 0 || (comparison == 0 && candidate.Hash().Cmp(tx.Hash()) < 0)
+				require.False(t, better, "a higher-priority transaction was ready")
 			}
 		}
 		if tx.Nonce() == math.MaxUint64 {
@@ -294,6 +298,10 @@ func assertCanonicalOrderProperties(t *testing.T, o CanonicalOrder, ordered []Ev
 	}
 }
 
+// BenchmarkCanonicalOrder compares ordering 10,000 shuffled, unique transactions
+// with contiguous sender nonces starting at zero and valid fees. It excludes
+// duplicates, replacement conflicts, stale nonces, and nonce gaps. Transaction
+// hashes are cached before timing; tip calculation and key construction are timed.
 func BenchmarkCanonicalOrder(b *testing.B) {
 	for _, senders := range []int{1, 100, 1_000, 10_000} {
 		b.Run(fmt.Sprintf("10000tx/%dsenders", senders), func(b *testing.B) {
