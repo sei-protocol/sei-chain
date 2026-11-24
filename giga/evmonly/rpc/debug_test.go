@@ -188,13 +188,18 @@ func dynamicFeeTransfer(t *testing.T, nonce uint64) (*ethtypes.Transaction, []by
 	return tx, raw
 }
 
-// traceResultBlock returns the stored block at height, whose hash is its height.
+// traceResultBlock returns the stored block at height, whose hash is its height and whose last block
+// id is the hash of the block before it.
 func traceResultBlock(height int64, txs tmtypes.Txs) *coretypes.ResultBlock {
 	return &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{Hash: traceBlockHash(height).Bytes()},
 		Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: height, Time: traceBlockTime.Add(time.Duration(height) * time.Second)},
-			Data:   tmtypes.Data{Txs: txs},
+			Header: tmtypes.Header{
+				Height:      height,
+				Time:        traceBlockTime.Add(time.Duration(height) * time.Second),
+				LastBlockID: tmtypes.BlockID{Hash: traceBlockHash(height - 1).Bytes()},
+			},
+			Data: tmtypes.Data{Txs: txs},
 		},
 	}
 }
@@ -352,9 +357,12 @@ func TestDebugTraceBlock(t *testing.T) {
 		chain.backend.initialHeight = 2
 		first := chain.blocks[1]
 		delete(chain.blocks, 1)
+		secondID := chain.blocks[2].Block.LastBlockID
+		chain.blocks[2].Block.LastBlockID = tmtypes.BlockID{}
 		defer func() {
 			chain.backend.initialHeight = 0
 			chain.blocks[1] = first
+			chain.blocks[2].Block.LastBlockID = secondID
 		}()
 		var got []struct {
 			TxHash common.Hash `json:"txHash"`
