@@ -23,7 +23,8 @@ func MergeReceiptStoreCmd() *cobra.Command {
 		Short: "Copy every receipt in one pebble receipt store into another",
 		Long: "Copies every receipt version in --source into --target, re-encoding versions when the two stores " +
 			"use different MVCC encodings, and widens the target's earliest and latest versions to cover both, " +
-			"so a node opening the target serves the receipts of both stores. The source is opened read-only.\n\n" +
+			"so a node opening the target serves the receipts of both stores. The source is opened read-only, and " +
+			"entries it holds above its latest version, which a node never reads, are left out.\n\n" +
 			"Stop the nodes owning both stores first: a store open elsewhere is refused, as are stores whose " +
 			"version ranges overlap unless --allow-overlap is set, and stores whose version ranges leave heights " +
 			"between them that neither covers unless --allow-gap is set. A node serves the heights in such a gap " +
@@ -108,6 +109,10 @@ func printMergeOutcome(w io.Writer, r mvcc.MergeReport, dryRun bool) {
 		gap = "versions neither store holds, in the target's range after merging"
 	}
 	_, _ = fmt.Fprintf(w, "entries read: %d\n", r.Entries)
+	if r.AboveLatest > 0 {
+		_, _ = fmt.Fprintf(w, "entries above the source's latest version, which no read of it sees, left out: %d\n",
+			r.AboveLatest)
+	}
 	_, _ = fmt.Fprintf(w, "%s: %d (%.0f MiB)\n", written, r.Written, float64(r.Bytes)/bytesPerMiB)
 	if r.Held > 0 {
 		_, _ = fmt.Fprintf(w, "entries the target already held, left as they were: %d (%d with a different value)\n",

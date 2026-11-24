@@ -89,6 +89,23 @@ func TestMergeReceiptStoreGap(t *testing.T) {
 	})
 }
 
+// Receipts the source holds above its latest version are left out and counted.
+func TestMergeReceiptStoreLeavesOutReceiptsAboveTheSourceLatest(t *testing.T) {
+	sourceDir := t.TempDir()
+	store, err := mvcc.OpenDB(sourceDir, config.DefaultStateStoreConfig())
+	require.NoError(t, err)
+	putReceiptStoreEntry(t, store, 10, []byte("tx-a"), []byte("receipt-a"))
+	putReceiptStoreEntry(t, store, 20, []byte("tx-b"), []byte("receipt-b"))
+	require.NoError(t, store.SetLatestVersion(15))
+	require.NoError(t, store.Close())
+	targetDir := newTestReceiptStore(t, receiptStoreKey, 100, 16, "tx-c", "receipt-c")
+
+	out, err := runMergeReceiptStore(t, "--source", sourceDir, "--target", targetDir)
+	require.NoError(t, err)
+	require.Contains(t, out, "entries above the source's latest version, which no read of it sees, left out: 1\n")
+	require.Contains(t, out, "entries written: 1 ")
+}
+
 func TestMergeReceiptStoreRefusesOtherStores(t *testing.T) {
 	sourceDir := newTestReceiptStore(t, "bank", 10, 0, "k", "v")
 	targetDir := newTestReceiptStore(t, receiptStoreKey, 100, 90, "tx-b", "receipt-b")

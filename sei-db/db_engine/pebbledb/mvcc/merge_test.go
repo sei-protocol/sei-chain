@@ -188,6 +188,36 @@ func TestMergeLeavesOtherMetadata(t *testing.T) {
 	require.NoError(t, closer.Close())
 }
 
+// Entries above the source's latest version marker, which no read of the
+// source sees, are left out and counted, in either encoding.
+func TestMergeLeavesOutEntriesAboveTheSourceLatest(t *testing.T) {
+	for _, descending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("descending %v", descending), func(t *testing.T) {
+			source, sourceDir := newMergeTestDB(t, descending)
+			applyVersion(t, source, mergeTestStore, 10, []byte("a"), []byte("a@10"))
+			applyVersion(t, source, mergeTestStore, 20, []byte("a"), []byte("a@20"))
+			applyVersion(t, source, mergeTestStore, 20, []byte("b"), []byte("b@20"))
+			require.NoError(t, source.SetLatestVersion(15))
+			require.NoError(t, source.Close())
+			target, targetDir := newMergeTestDB(t, true)
+			applyVersion(t, target, mergeTestStore, 100, []byte("c"), []byte("c@100"))
+			require.NoError(t, target.SetEarliestVersion(16, true))
+			require.NoError(t, target.Close())
+
+			report, err := Merge(targetDir, sourceDir, MergeOptions{VerifyEvery: 1})
+			require.NoError(t, err)
+			require.Equal(t, int64(3), report.Entries)
+			require.Equal(t, int64(2), report.AboveLatest)
+			require.Equal(t, int64(1), report.Written)
+			require.Equal(t, int64(1), report.Verified)
+
+			merged := openMergeTestDB(t, targetDir)
+			requireGet(t, merged, 100, "a", []byte("a@10"))
+			requireGet(t, merged, 100, "b", nil)
+		})
+	}
+}
+
 // Overlapping version ranges are refused unless allowed, and an allowed merge
 // leaves every entry the target already holds as the target holds it.
 func TestMergeOverlap(t *testing.T) {

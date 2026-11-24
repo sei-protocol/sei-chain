@@ -67,8 +67,11 @@ type MergeReport struct {
 	Target DBInfo
 	// Gap is the run of versions between the two DBs that neither covers.
 	Gap VersionRange
-	// Entries is the number of source entries read.
-	Entries int64
+	// Entries is the number of source entries read, and AboveLatest the number
+	// of those stored above the source's latest version marker, which no read
+	// of the source sees and which are left out.
+	Entries     int64
+	AboveLatest int64
 	// Written is the number of entries written to the target, and Bytes their
 	// encoded size. A dry run counts what it would write.
 	Written int64
@@ -84,13 +87,13 @@ type MergeReport struct {
 	Latest   int64
 }
 
-// Merge copies every versioned entry of the DB at sourceDir into the DB at
-// targetDir, in the target's MVCC encoding, and sets the target's earliest and
-// latest version markers to span both. The source is opened read-only. Neither
-// DB may be open elsewhere, the source must hold versions, and the two version
-// ranges must neither overlap unless opts.AllowOverlap is set nor leave a gap
-// between them unless opts.AllowGap is set. Metadata other than the version
-// markers stays as each DB has it.
+// Merge copies every entry the DB at sourceDir holds at or below its latest
+// version marker into the DB at targetDir, in the target's MVCC encoding, and
+// sets the target's earliest and latest version markers to span both. The
+// source is opened read-only. Neither DB may be open elsewhere, the source must
+// hold versions, and the two version ranges must neither overlap unless
+// opts.AllowOverlap is set nor leave a gap between them unless opts.AllowGap is
+// set. Metadata other than the version markers stays as each DB has it.
 func Merge(targetDir, sourceDir string, opts MergeOptions) (MergeReport, error) {
 	if err := requireDistinctDirs(targetDir, sourceDir); err != nil {
 		return MergeReport{}, err
@@ -346,8 +349,9 @@ func mergedRange(source, target DBInfo) (earliest, latest int64) {
 	return min(source.Earliest, target.Earliest), max(source.Latest, target.Latest)
 }
 
-// copyEntries writes every source entry into the target in the target's
-// encoding, counting into report, and returns the written entries to read back.
+// copyEntries writes every source entry at or below the source's latest
+// version into the target in the target's encoding, counting into report, and
+// returns the written entries to read back.
 func copyEntries(report *MergeReport, source, target *offlineDB, opts MergeOptions) ([]mergeSample, error) {
 	itr, err := source.db.NewIter(nil)
 	if err != nil {
@@ -365,6 +369,14 @@ func copyEntries(report *MergeReport, source, target *offlineDB, opts MergeOptio
 		report.Entries++
 		if opts.Progress != nil && report.Entries%progressEvery == 0 {
 			opts.Progress(*report)
+		}
+		above, err := source.aboveLatest(itr.Key())
+		if err != nil {
+			return nil, err
+		}
+		if above {
+			report.AboveLatest++
+			continue
 		}
 		value, err := itr.ValueAndErr()
 		if err != nil {
@@ -411,6 +423,23 @@ func copyEntries(report *MergeReport, source, target *offlineDB, opts MergeOptio
 		return nil, fmt.Errorf("iterate source: %w", err)
 	}
 	return samples, writer.commit()
+}
+
+// aboveLatest reports whether key, an MVCC-encoded key of m, holds a version
+// above m's latest version marker, which no read of m sees.
+func (m *offlineDB) aboveLatest(key []byte) (bool, error) {
+	_, vBz, ok := SplitMVCCKey(key)
+	if !ok {
+		return false, fmt.Errorf("invalid MVCC key %x", key)
+	}
+	if len(vBz) == 0 {
+		return false, nil
+	}
+	version, err := decodeMVCCVersion(vBz, m.info.Descending)
+	if err != nil {
+		return false, fmt.Errorf("decode version of %x: %w", key, err)
+	}
+	return version > m.info.Latest, nil
 }
 
 // encodeForTarget returns a source entry in the target's MVCC encoding.
