@@ -343,21 +343,30 @@ func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 }
 
 func TestEncodeBlockReturnsTheLastBlockIDAsParentHash(t *testing.T) {
-	parentHash := common.HexToHash("0x1234")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-			Block: &tmtypes.Block{
-				Header:     tmtypes.Header{ChainID: "evmonly-test", Height: 4, Time: time.Unix(1_700_000_000, 0), LastBlockID: tmtypes.BlockID{Hash: parentHash.Bytes()}},
-				LastCommit: &tmtypes.Commit{},
-			},
-		}, nil
-	})
+	for name, tc := range map[string]struct {
+		lastBlockID tmtypes.BlockID
+		want        common.Hash
+	}{
+		"empty last block id":    {tmtypes.BlockID{}, common.Hash{}},
+		"nonempty last block id": {tmtypes.BlockID{Hash: common.HexToHash("0x1234").Bytes()}, common.HexToHash("0x1234")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return &coretypes.ResultBlock{
+					BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+					Block: &tmtypes.Block{
+						Header:     tmtypes.Header{ChainID: "evmonly-test", Height: 4, Time: time.Unix(1_700_000_000, 0), LastBlockID: tc.lastBlockID},
+						LastCommit: &tmtypes.Commit{},
+					},
+				}, nil
+			})
 
-	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+			got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
 
-	require.NoError(t, err)
-	require.Equal(t, parentHash, got["parentHash"])
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got["parentHash"])
+		})
+	}
 }
 
 func TestGetBlockByNumberEndToEnd(t *testing.T) {
