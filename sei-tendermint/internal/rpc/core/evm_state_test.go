@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"math/big"
 	"testing"
 
@@ -26,11 +25,16 @@ func (a evmStateApp) EvmBalance(common.Address) uint256.Int        { return *uin
 
 func signedEVMStateTestTx(t *testing.T, gas uint64) *ethtypes.Transaction {
 	t.Helper()
+	return signEVMStateTestTx(t, ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 3, Gas: gas}), ethtypes.LatestSignerForChainID(big.NewInt(1)))
+}
+
+func signEVMStateTestTx(t *testing.T, tx *ethtypes.Transaction, signer ethtypes.Signer) *ethtypes.Transaction {
+	t.Helper()
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	tx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{Gas: gas}), ethtypes.LatestSignerForChainID(big.NewInt(1)), key)
+	signed, err := ethtypes.SignTx(tx, signer, key)
 	require.NoError(t, err)
-	return tx
+	return signed
 }
 
 func TestGigaEnvironmentReadsStateWithoutABCI(t *testing.T) {
@@ -44,34 +48,16 @@ func TestGigaEnvironmentReadsStateWithoutABCI(t *testing.T) {
 // senderCacheApp records the cached sender delivered to admission.
 type senderCacheApp struct {
 	evmStateApp
-	sender utils.Option[common.Address]
+	sender   utils.Option[common.Address]
+	checkErr utils.Option[error]
 }
 
 func (a *senderCacheApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	a.sender = utils.Some(tx.Sender())
-	return abevm.AdmittedTx{}, nil
-}
-
-func TestGigaEnvironmentCachesSendersThroughGigaRouter(t *testing.T) {
-	for _, validator := range []bool{false, true} {
-		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
-			app := &senderCacheApp{}
-			proxy := abevm.NewProxy(app)
-			signer := newTestSigner(proxy.EvmChainID(), 0)
-			env := newAutobahnEnvWithSigner(t, validator, proxy, signer)
-			tx := signedEVMStateTestTx(t, 0)
-			sender := common.Address{2}
-			env.RememberEvmSender(tx.Hash(), sender)
-			raw := utils.OrPanic1(tx.MarshalBinary())
-			_, _, err := abevm.CheckTx(proxy, signer, raw)
-			require.NoError(t, err)
-			require.Equal(t, utils.Some(sender), app.sender)
-			env.ForgetEvmSender(tx.Hash())
-			_, _, err = abevm.CheckTx(proxy, signer, raw)
-			require.NoError(t, err)
-			require.Equal(t, utils.Some(utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))), app.sender)
-		})
+	if err, ok := a.checkErr.Get(); ok {
+		return abevm.AdmittedTx{}, err
 	}
+	return abevm.AdmittedTx{}, nil
 }
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {

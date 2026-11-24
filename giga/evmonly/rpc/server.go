@@ -42,15 +42,11 @@ var wsAllowedOrigins = []string{"*"}
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
-// Backend submits transactions, reads committed EVM state and finalized
-// blocks, publishes new block heights, and returns the RPC client for an
-// Autobahn shard owner.
-// EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
-// is false every transaction is broadcast locally without recovering its sender.
+// Backend submits transactions, reads EVM state and finalized blocks, and publishes new block heights.
 type Backend interface {
 	BlockByNumber(context.Context, utils.Option[int64]) (*abevm.EvmBlock, error)
 	BlockByHash(context.Context, common.Hash) (utils.Option[*abevm.EvmBlock], error)
-	InsertTx(context.Context, tmtypes.Tx) error
+	InsertTx(context.Context, tmtypes.Tx) (common.Hash, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int
@@ -92,13 +88,6 @@ type Backend interface {
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
 	EvmMinGasPrice() *big.Int
-	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
-	EvmProxyEnabled() bool
-	// RememberEvmSender records the sender recovered for the transaction with this hash, for the
-	// application to use instead of recovering it again.
-	RememberEvmSender(hash common.Hash, sender common.Address)
-	// ForgetEvmSender drops the sender recorded for the transaction with this hash, if any.
-	ForgetEvmSender(hash common.Hash)
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest committed state when
@@ -109,9 +98,8 @@ type Backend interface {
 	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
 	EvmNonceAt(address common.Address, height int64) (uint64, error)
-	// EvmPendingNonce returns the nonce the local mempool admits next for address, or None when
-	// this node has no local mempool.
-	EvmPendingNonce(common.Address) utils.Option[uint64]
+	// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+	EvmPendingNonce(context.Context, common.Address) (uint64, error)
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

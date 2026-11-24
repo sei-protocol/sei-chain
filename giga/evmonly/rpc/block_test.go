@@ -351,7 +351,6 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 	backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 		return block, nil
 	}
-	backend.proxy = utils.None[*ethrpc.Client]()
 	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
@@ -695,7 +694,6 @@ func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
 			}
 			return block, nil
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
@@ -966,7 +964,6 @@ func TestGetTransactionByBlockAndIndexEndToEnd(t *testing.T) {
 		}
 		return block, nil
 	}
-	backend.proxy = utils.None[*ethrpc.Client]()
 	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)

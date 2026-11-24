@@ -2,17 +2,12 @@ package rpc
 
 import (
 	"context"
-	"errors"
-	"math/big"
 
 	"golang.org/x/sync/semaphore"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -34,13 +29,6 @@ func newSendAPI(backend Backend, maxConcurrentSendCalls int) *sendAPI {
 	}
 }
 
-var (
-	// errUnprotectedTx rejects a transaction that is not replay-protected (EIP-155).
-	errUnprotectedTx = errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
-	// errInvalidChainID rejects a transaction signed for another chain.
-	errInvalidChainID = errors.New("invalid chain-id")
-)
-
 // SendRawTransaction submits a signed raw Ethereum transaction to Autobahn and
 // returns its Ethereum transaction hash.
 func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (common.Hash, error) {
@@ -48,62 +36,5 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return common.Hash{}, limitExceededError{}
 	}
 	defer api.requestLimiter.Release(1)
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(input); err != nil {
-		return common.Hash{}, err
-	}
-	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
-	if err := checkChainID(tx, chainID); err != nil {
-		return common.Hash{}, err
-	}
-	hash := tx.Hash()
-
-	if client, ok := api.shardProxy(tx, chainID).Get(); ok {
-		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-			return hash, err
-		}
-		return hash, nil
-	}
-
-	if err := api.insertTx(ctx, input); err != nil {
-		api.backend.ForgetEvmSender(hash)
-		return hash, err
-	}
-	return hash, nil
-}
-
-// checkChainID rejects tx unless it is replay-protected and signed for chainID.
-func checkChainID(tx *ethtypes.Transaction, chainID *big.Int) error {
-	if !tx.Protected() {
-		return errUnprotectedTx
-	}
-	if tx.ChainId().Sign() == 0 || tx.ChainId().Cmp(chainID) != 0 {
-		return errInvalidChainID
-	}
-	return nil
-}
-
-// insertTx submits input to the local mempool.
-func (api *sendAPI) insertTx(ctx context.Context, input hexutil.Bytes) error {
 	return api.backend.InsertTx(ctx, append(tmtypes.Tx(nil), input...))
-}
-
-// shardProxy returns the RPC client of the validator owning tx's sender shard,
-// or None when the transaction is handled locally. Sender recovery is skipped
-// entirely when the backend has no proxies, since CheckTx recovers it anyway. A
-// sender recovered for a transaction handled locally is handed to the backend,
-// so CheckTx need not recover it again.
-func (api *sendAPI) shardProxy(tx *ethtypes.Transaction, chainID *big.Int) utils.Option[*ethrpc.Client] {
-	if !api.backend.EvmProxyEnabled() {
-		return utils.None[*ethrpc.Client]()
-	}
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(chainID), tx)
-	if err != nil {
-		return utils.None[*ethrpc.Client]()
-	}
-	proxy := api.backend.EvmProxy(sender)
-	if !proxy.IsPresent() {
-		api.backend.RememberEvmSender(tx.Hash(), sender)
-	}
-	return proxy
 }

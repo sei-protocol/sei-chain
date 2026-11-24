@@ -13,7 +13,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
@@ -187,7 +186,9 @@ func (b *replayBackend) rpcBlockByHash(req *coretypes.RequestBlockByHash) (*core
 	return &coretypes.ResultBlock{}, nil
 }
 
-func (*replayBackend) InsertTx(context.Context, tmtypes.Tx) error { return errNotReplayed }
+func (*replayBackend) InsertTx(context.Context, tmtypes.Tx) (common.Hash, error) {
+	return common.Hash{}, errNotReplayed
+}
 
 func (b *replayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
 	req := &coretypes.RequestBlockInfo{}
@@ -319,18 +320,6 @@ func (*replayBackend) EvmMinGasPrice() *big.Int {
 	return new(big.Int)
 }
 
-func (*replayBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	return utils.None[*ethrpc.Client]()
-}
-
-func (*replayBackend) RememberEvmSender(common.Hash, common.Address) {}
-
-func (*replayBackend) ForgetEvmSender(common.Hash) {}
-
-func (*replayBackend) EvmProxyEnabled() bool {
-	return false
-}
-
 func (*replayBackend) EvmStateAt(context.Context, int64) (vm.SeiStateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
@@ -345,9 +334,9 @@ func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {
 	return view.GetNonce(storeAddress(address))
 }
 
-// EvmPendingNonce reports no local mempool: the replay runs only executed blocks.
-func (*replayBackend) EvmPendingNonce(common.Address) utils.Option[uint64] {
-	return utils.None[uint64]()
+// EvmPendingNonce is unavailable because the replay runs only executed blocks.
+func (*replayBackend) EvmPendingNonce(context.Context, common.Address) (uint64, error) {
+	return 0, abevm.ErrPendingNonceUnavailable
 }
 
 func (b *replayBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {

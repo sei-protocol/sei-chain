@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"net/http/httptest"
 	"strings"
@@ -19,20 +18,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestSendRawTransaction(t *testing.T) {
-	tx, raw := testSignedTransaction(t)
+	_, raw := testSignedTransaction(t)
+	returnedHash := common.HexToHash("0x1234")
 	var broadcastRaw []byte
 	backend := &testBackend{
-		insertTx: func(_ context.Context, req tmtypes.Tx) error {
+		insertTx: func(_ context.Context, req tmtypes.Tx) (common.Hash, error) {
 			broadcastRaw = append([]byte(nil), req...)
-			return nil
+			return returnedHash, nil
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
@@ -45,7 +42,7 @@ func TestSendRawTransaction(t *testing.T) {
 
 	var got common.Hash
 	require.NoError(t, client.CallContext(t.Context(), &got, "eth_sendRawTransaction", hexutil.Bytes(raw)))
-	require.Equal(t, tx.Hash(), got)
+	require.Equal(t, returnedHash, got)
 	require.Equal(t, raw, broadcastRaw)
 
 	var accounts any
@@ -55,25 +52,12 @@ func TestSendRawTransaction(t *testing.T) {
 	require.ErrorContains(t, err, "method status does not exist")
 }
 
-func TestRejectsInvalidTransaction(t *testing.T) {
-	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) error {
-			t.Fatal("invalid transaction reached broadcaster")
-			return nil
-		},
-		proxy: utils.None[*ethrpc.Client](),
-	}
-	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), hexutil.Bytes{0x01, 0x02})
-	require.Error(t, err)
-}
-
 func TestReturnsCheckTxRejection(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) error {
-			return errors.New("bad nonce")
+		insertTx: func(context.Context, tmtypes.Tx) (common.Hash, error) {
+			return common.Hash{}, errors.New("bad nonce")
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
 	require.EqualError(t, err, "bad nonce")
@@ -83,10 +67,9 @@ func TestSendRawTransactionBroadcastError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("mempool full")
 	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) error {
-			return want
+		insertTx: func(context.Context, tmtypes.Tx) (common.Hash, error) {
+			return common.Hash{}, want
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 
 	// Test: InsertTx fails.
@@ -94,173 +77,6 @@ func TestSendRawTransactionBroadcastError(t *testing.T) {
 
 	// Verify: that error is returned as-is.
 	require.ErrorIs(t, err, want)
-}
-
-// The sender recovered for a locally handled transaction stays remembered only if the
-// transaction is admitted.
-func TestSendRawTransactionKeepsTheSenderOfAnAdmittedTxOnly(t *testing.T) {
-	tx, raw := testSignedTransaction(t)
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
-	require.NoError(t, err)
-	for _, tc := range []struct {
-		code uint32
-		want map[common.Hash]common.Address
-	}{
-		{code: abci.CodeTypeOK, want: map[common.Hash]common.Address{tx.Hash(): sender}},
-		{code: 1, want: map[common.Hash]common.Address{}},
-	} {
-		backend := &testBackend{
-			insertTx: func(context.Context, tmtypes.Tx) error {
-				if tc.code != 0 {
-					return errors.New("rejected")
-				}
-				return nil
-			},
-			chainID:      func() uint64 { return 713700 },
-			proxy:        utils.None[*ethrpc.Client](),
-			proxyEnabled: true,
-		}
-		_, _ = newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-		require.Equal(t, tc.want, backend.senders, "code %d", tc.code)
-	}
-}
-
-func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
-	_, raw := testSignedTransaction(t)
-	remoteHandler := ethrpc.NewServer()
-	require.NoError(t, remoteHandler.RegisterName("eth", &testRemoteSendAPI{
-		sendErr: errors.New("shard owner rejected"),
-	}))
-	t.Cleanup(remoteHandler.Stop)
-	remoteServer := httptest.NewServer(remoteHandler)
-	t.Cleanup(remoteServer.Close)
-	remoteClient, err := ethrpc.DialHTTP(remoteServer.URL)
-	require.NoError(t, err)
-	t.Cleanup(remoteClient.Close)
-	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) error {
-			t.Fatal("failed proxy reached local broadcaster")
-			return nil
-		},
-		chainID: func() uint64 { return 713700 },
-		proxy:   utils.Some(remoteClient),
-	}
-
-	// Test: the shard-owner eth_sendRawTransaction call fails.
-	_, err = newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-
-	// Verify: that remote error is returned.
-	require.ErrorContains(t, err, "shard owner rejected")
-}
-
-func TestRejectsUnprotectedTransaction(t *testing.T) {
-	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-	require.NoError(t, err)
-	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	tx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1_000_000_000),
-		Gas:      21_000,
-		To:       &to,
-		Value:    big.NewInt(1),
-	}), ethtypes.HomesteadSigner{}, key)
-	require.NoError(t, err)
-	raw, err := tx.MarshalBinary()
-	require.NoError(t, err)
-	for name, proxyEnabled := range map[string]bool{"local": false, "proxied": true} {
-		t.Run(name, func(t *testing.T) {
-			backend := &testBackend{
-				insertTx: func(context.Context, tmtypes.Tx) error {
-					t.Fatal("unprotected transaction reached local broadcaster")
-					return nil
-				},
-				chainID:      func() uint64 { return 713700 },
-				proxyEnabled: proxyEnabled,
-			}
-
-			_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-
-			require.ErrorIs(t, err, errUnprotectedTx)
-			require.Zero(t, backend.proxyCalls)
-		})
-	}
-}
-
-// A transaction signed for another chain is not proxied: the node's CheckTx rejects it.
-func TestRejectsForeignChainTransaction(t *testing.T) {
-	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-	require.NoError(t, err)
-	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: big.NewInt(0x12345), Gas: 21_000, To: &to}),
-		ethtypes.LatestSignerForChainID(big.NewInt(0x12345)), key)
-	require.NoError(t, err)
-	for name, tx := range map[string]*ethtypes.Transaction{
-		"legacy chain 0": ethtypes.NewTx(&ethtypes.LegacyTx{Gas: 21_000, To: &to, V: big.NewInt(35), R: big.NewInt(1), S: big.NewInt(1)}),
-		"typed chain 0":  ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: new(big.Int), Gas: 21_000, To: &to, V: new(big.Int), R: big.NewInt(1), S: big.NewInt(1)}),
-		"other chain":    signed,
-	} {
-		raw, err := tx.MarshalBinary()
-		require.NoError(t, err)
-		for _, proxyEnabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s proxy %t", name, proxyEnabled), func(t *testing.T) {
-				backend := &testBackend{
-					insertTx: func(context.Context, tmtypes.Tx) error {
-						t.Fatal("foreign chain transaction reached local broadcaster")
-						return nil
-					},
-					chainID:      func() uint64 { return 713700 },
-					proxyEnabled: proxyEnabled,
-				}
-
-				_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-
-				require.ErrorIs(t, err, errInvalidChainID)
-				require.Zero(t, backend.proxyCalls)
-			})
-		}
-	}
-}
-
-type testRemoteSendAPI struct {
-	send    func(hexutil.Bytes) common.Hash
-	sendErr error
-}
-
-func (api *testRemoteSendAPI) SendRawTransaction(input hexutil.Bytes) (common.Hash, error) {
-	if api.sendErr != nil {
-		return common.Hash{}, api.sendErr
-	}
-	return api.send(input), nil
-}
-
-func TestProxiesTransactionToShardOwner(t *testing.T) {
-	tx, raw := testSignedTransaction(t)
-	var proxiedRaw hexutil.Bytes
-	remoteHandler := ethrpc.NewServer()
-	require.NoError(t, remoteHandler.RegisterName("eth", &testRemoteSendAPI{
-		send: func(input hexutil.Bytes) common.Hash {
-			proxiedRaw = append(hexutil.Bytes(nil), input...)
-			return tx.Hash()
-		},
-	}))
-	t.Cleanup(remoteHandler.Stop)
-	remoteServer := httptest.NewServer(remoteHandler)
-	t.Cleanup(remoteServer.Close)
-	remoteClient, err := ethrpc.DialHTTP(remoteServer.URL)
-	require.NoError(t, err)
-	t.Cleanup(remoteClient.Close)
-
-	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) error {
-			t.Fatal("proxied transaction reached local broadcaster")
-			return nil
-		},
-		chainID: func() uint64 { return 713700 },
-		proxy:   utils.Some(remoteClient),
-	}
-	got, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-	require.NoError(t, err)
-	require.Equal(t, tx.Hash(), got)
-	require.Equal(t, hexutil.Bytes(raw), proxiedRaw)
 }
 
 func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
@@ -288,20 +104,6 @@ func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Trans
 	return tx, raw
 }
 
-func TestSkipsShardLookupWithoutProxies(t *testing.T) {
-	tx, raw := testSignedTransaction(t)
-	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) error {
-			return nil
-		},
-		proxy: utils.None[*ethrpc.Client](),
-	}
-	got, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-	require.NoError(t, err)
-	require.Equal(t, tx.Hash(), got)
-	require.Zero(t, backend.proxyCalls)
-}
-
 func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	started := make(chan struct{}, 2)
@@ -309,16 +111,15 @@ func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(gate) }) }
 	backend := &testBackend{
-		insertTx: func(ctx context.Context, _ tmtypes.Tx) error {
+		insertTx: func(ctx context.Context, _ tmtypes.Tx) (common.Hash, error) {
 			started <- struct{}{}
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return common.Hash{}, ctx.Err()
 			case <-gate:
-				return nil
+				return common.Hash{}, nil
 			}
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 	limits := noRPCLimits
 	limits.MaxConcurrentSendCalls = 1
@@ -365,13 +166,12 @@ func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("broadcast failed")
 	backend := &testBackend{
-		insertTx: func(ctx context.Context, _ tmtypes.Tx) error {
+		insertTx: func(ctx context.Context, _ tmtypes.Tx) (common.Hash, error) {
 			if err := ctx.Err(); err != nil {
-				return err
+				return common.Hash{}, err
 			}
-			return want
+			return common.Hash{}, want
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 	api := newSendAPI(backend, 1)
 	_, err := api.SendRawTransaction(t.Context(), nil)
@@ -390,11 +190,10 @@ func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	var broadcasts atomic.Int64
 	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) error {
+		insertTx: func(context.Context, tmtypes.Tx) (common.Hash, error) {
 			broadcasts.Add(1)
-			return nil
+			return common.Hash{}, nil
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 	limits := noRPCLimits
 	limits.MaxConcurrentSendCalls = 0

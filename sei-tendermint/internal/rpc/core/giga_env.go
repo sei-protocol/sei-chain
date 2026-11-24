@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -14,6 +17,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+)
+
+var (
+	errUnprotectedTx  = errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
+	errInvalidChainID = errors.New("invalid chain-id")
 )
 
 // GigaEnvironment provides RPC services for Autobahn and the EVM-only application.
@@ -47,35 +55,65 @@ func (env *GigaEnvironment) BlockByHash(ctx context.Context, hash common.Hash) (
 	return env.Router.BlockByHash(ctx, hash)
 }
 
-// InsertTx submits tx to the local mempool and returns its admission error, if any.
-func (env *GigaEnvironment) InsertTx(ctx context.Context, tx types.Tx) error {
+// InsertTx submits input to its sender's shard and returns the transaction hash.
+func (env *GigaEnvironment) InsertTx(ctx context.Context, input types.Tx) (common.Hash, error) {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(input); err != nil {
+		return common.Hash{}, err
+	}
+	chainID := new(big.Int).SetUint64(env.Proxy.EvmChainID())
+	if err := checkChainID(tx, chainID); err != nil {
+		return common.Hash{}, err
+	}
+	hash := tx.Hash()
+	if client, ok := env.shardProxy(tx, chainID).Get(); ok {
+		err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", hexutil.Bytes(input))
+		return hash, err
+	}
+	if err := env.insertLocalTx(ctx, input); err != nil {
+		env.Router.ForgetEvmSender(hash)
+		return hash, err
+	}
+	return hash, nil
+}
+
+func (env *GigaEnvironment) insertLocalTx(ctx context.Context, input types.Tx) error {
 	mempool, ok := env.Router.Mempool().Get()
 	if !ok {
 		return errors.New("autobahn fullnode has no local mempool; transactions must be sent to a validator")
 	}
-	_, err := mempool.InsertTx(ctx, tx)
+	_, err := mempool.InsertTx(ctx, input)
 	return err
 }
 
-// EvmProxy returns the EVM RPC client of the Autobahn validator that owns the
-// sender shard, or None if the sender maps to the local validator.
-func (env *GigaEnvironment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return env.Router.EvmProxy(sender)
+// shardProxy returns the shard owner's client, remembering verified senders handled locally.
+func (env *GigaEnvironment) shardProxy(tx *ethtypes.Transaction, chainID *big.Int) utils.Option[*ethrpc.Client] {
+	// Sender recovery is skipped entirely when the router has no proxies,
+	// since CheckTx recovers it anyway.
+	if !env.Router.EvmProxyEnabled() {
+		return utils.None[*ethrpc.Client]()
+	}
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(chainID), tx)
+	if err != nil {
+		return utils.None[*ethrpc.Client]()
+	}
+	proxy := env.Router.EvmProxy(sender)
+	if !proxy.IsPresent() {
+		// Local admission reuses the verified sender through the router's cache.
+		env.Router.RememberEvmSender(tx.Hash(), sender)
+	}
+	return proxy
 }
 
-// EvmProxyEnabled reports whether EvmProxy can return a client for any sender.
-func (env *GigaEnvironment) EvmProxyEnabled() bool {
-	return env.Router.EvmProxyEnabled()
-}
-
-// RememberEvmSender records a verified sender for local admission through Autobahn.
-func (env *GigaEnvironment) RememberEvmSender(hash common.Hash, sender common.Address) {
-	env.Router.RememberEvmSender(hash, sender)
-}
-
-// ForgetEvmSender removes a transaction's cached sender through Autobahn.
-func (env *GigaEnvironment) ForgetEvmSender(hash common.Hash) {
-	env.Router.ForgetEvmSender(hash)
+// checkChainID rejects tx unless it is replay-protected and signed for chainID.
+func checkChainID(tx *ethtypes.Transaction, chainID *big.Int) error {
+	if !tx.Protected() {
+		return errUnprotectedTx
+	}
+	if tx.ChainId().Sign() == 0 || tx.ChainId().Cmp(chainID) != 0 {
+		return errInvalidChainID
+	}
+	return nil
 }
 
 // EvmTransactionCount returns the committed EVM nonce for address.
@@ -83,13 +121,20 @@ func (env *GigaEnvironment) EvmTransactionCount(address common.Address) uint64 {
 	return env.Proxy.EvmNonce(address)
 }
 
-// EvmPendingNonce returns the next nonce admitted by the local mempool, or None on fullnodes.
-func (env *GigaEnvironment) EvmPendingNonce(address common.Address) utils.Option[uint64] {
+// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+func (env *GigaEnvironment) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
+	if client, ok := env.Router.EvmProxy(address).Get(); ok {
+		var nonce hexutil.Uint64
+		if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber)); err != nil {
+			return 0, err
+		}
+		return uint64(nonce), nil
+	}
 	mp, ok := env.Router.Mempool().Get()
 	if !ok {
-		return utils.None[uint64]()
+		return 0, abevm.ErrPendingNonceUnavailable
 	}
-	return utils.Some(mp.EvmNextPendingNonce(address))
+	return mp.EvmNextPendingNonce(address), nil
 }
 
 // EvmBlockNumber returns the height of the most recently committed block.

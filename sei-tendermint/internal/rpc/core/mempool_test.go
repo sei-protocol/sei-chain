@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -25,8 +26,8 @@ func TestEvmPendingNonceFollowsMempool(t *testing.T) {
 
 	t.Run("fullnode", func(t *testing.T) {
 		env := newAutobahnFullnodeEnv(t)
-		_, ok := env.EvmPendingNonce(address).Get()
-		require.False(t, ok)
+		_, err := env.EvmPendingNonce(t.Context(), address)
+		require.ErrorIs(t, err, abevm.ErrPendingNonceUnavailable)
 	})
 
 	t.Run("validator", func(t *testing.T) {
@@ -34,8 +35,8 @@ func TestEvmPendingNonceFollowsMempool(t *testing.T) {
 		giga := env.Router
 		mp, ok := giga.Mempool().Get()
 		require.True(t, ok)
-		got, ok := env.EvmPendingNonce(address).Get()
-		require.True(t, ok)
+		got, err := env.EvmPendingNonce(t.Context(), address)
+		require.NoError(t, err)
 		require.Equal(t, mp.EvmNextPendingNonce(address), got)
 	})
 }
