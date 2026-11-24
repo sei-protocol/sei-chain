@@ -848,21 +848,18 @@ func TestProposalVerifyRejectsAParentOnTheFirstRoadBlock(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep, GenesisTimestamp: utils.GenTimestamp(rng)}}
+	genesisTimestamp := utils.GenTimestamp(rng)
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep, GenesisTimestamp: genesisTimestamp}}
 	leader := leaderKey(committee, keys, vs.View())
-	fp := utils.OrPanic1(NewProposal(leader, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
-	require.NoError(t, fp.Verify(vs, testViewTimeout))
-	p := fp.Proposal().Msg()
-	var ranges []*LaneRange
-	for _, r := range p.header.laneRanges {
-		ranges = append(ranges, r)
-	}
-	header := newRoadBlockHeader(p.View().EpochIndex, p.View().Height, utils.Some(GenRoadBlockHeaderHash(rng)), p.header.timestamp, ranges)
-	bad := &FullProposal{
-		proposal:  leader.Sign(&Proposal{viewNumber: p.View().Number, header: header}),
-		laneQCs:   fp.laneQCs,
-		timeoutQC: fp.timeoutQC,
-	}
+	honest := utils.OrPanic1(NewProposal(leader, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
+	require.NoError(t, honest.Verify(vs, testViewTimeout))
+	// A proposal for the same view, built on a CommitQC of the road before the first one.
+	parentEpoch := NewEpoch(ep.EpochIndex(), RoadRange{First: ep.RoadRange().First - 1, Next: ep.RoadRange().Next}, committee)
+	forgedParent := BuildCommitQC(parentEpoch, keys, utils.None[*CommitQC](), nil)
+	forgedVS := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(forgedParent), Epoch: ep, GenesisTimestamp: genesisTimestamp}}
+	bad := utils.OrPanic1(NewProposal(leader, forgedVS, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, forgedVS)))
+	require.True(t, bad.Header().ParentHash().IsPresent())
+
 	require.ErrorIs(t, bad.Verify(vs, testViewTimeout), ErrParentMismatch)
 }
 
