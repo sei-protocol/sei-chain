@@ -136,14 +136,33 @@ var testParams = chainparams.Staking{
 	MaxVotingPowerEnforcementThreshold: new(big.Int),
 }
 
+// testGasLimit is the gas limit of the harness's blocks.
+const testGasLimit = 100_000_000
+
 type harness struct {
 	t       *testing.T
 	staking Precompile
 	state   *memState
 	time    uint64
 	number  uint64
+	// callGas is the gas each call has to pay through its context's meter.
+	callGas uint64
+	// surcharge is the gas the last call paid through its context's meter.
+	surcharge uint64
 	// failures are the last EndBlock's failures.
 	failures []error
+}
+
+// meter is a GasMeter that pays from left and adds what it pays to used.
+type meter struct{ left, used uint64 }
+
+func (m *meter) UseGas(gas uint64) bool {
+	if gas > m.left {
+		return false
+	}
+	m.left -= gas
+	m.used += gas
+	return true
 }
 
 // newHarness starts staking as newGenesisHarness does, then runs the first
@@ -158,7 +177,7 @@ func newHarness(t *testing.T, params chainparams.Staking) *harness {
 // newGenesisHarness writes params and adds val1, val2 and val3 self-delegating
 // 30, 20 and 10 SEI, before any EndBlock.
 func newGenesisHarness(t *testing.T, params chainparams.Staking) *harness {
-	h := &harness{t: t, state: newMemState(), time: startTime}
+	h := &harness{t: t, state: newMemState(), time: startTime, callGas: math.MaxUint64}
 	require.NoError(t, SetParams(h.state, params))
 	for i, op := range []common.Address{val1, val2, val3} {
 		self := sei(int64(30 - 10*i))
@@ -174,7 +193,7 @@ func newGenesisHarness(t *testing.T, params chainparams.Staking) *harness {
 }
 
 func (h *harness) block() precompiles.BlockContext {
-	return precompiles.BlockContext{Number: h.number, UnixNano: h.time}
+	return precompiles.BlockContext{Number: h.number, UnixNano: h.time, GasLimit: testGasLimit}
 }
 
 // endBlock runs EndBlock at the current block, which closes no epoch, then
@@ -262,16 +281,9 @@ func (h *harness) exec(caller common.Address, opts callOpts, input []byte) ([]in
 		require.NoError(h.t, h.state.SubBalance(caller, opts.value))
 		h.state.AddBalance(Address, opts.value)
 	}
-	out, err := h.staking.Run(&precompiles.Context{
-		Caller:        caller,
-		Address:       Address,
-		ApparentValue: opts.value,
-		ReadOnly:      opts.readOnly,
-		DelegateCall:  opts.delegateCall,
-		Block:         h.block(),
-		State:         h.state,
-		Logs:          h.state,
-	}, input)
+	gas := &meter{left: h.callGas}
+	out, err := h.staking.Run(h.context(caller, opts, gas), input)
+	h.surcharge = gas.used
 	if err != nil {
 		h.state.RevertToSnapshot(snap)
 	}
@@ -286,6 +298,22 @@ func (h *harness) exec(caller common.Address, opts callOpts, input []byte) ([]in
 	values, err := ABI.Methods[methodName(input)].Outputs.Unpack(out)
 	require.NoError(h.t, err)
 	return values, nil
+}
+
+// context returns the context of a call by caller at the current block, paying
+// through gas.
+func (h *harness) context(caller common.Address, opts callOpts, gas precompiles.GasMeter) *precompiles.Context {
+	return &precompiles.Context{
+		Caller:        caller,
+		Address:       Address,
+		ApparentValue: opts.value,
+		ReadOnly:      opts.readOnly,
+		DelegateCall:  opts.delegateCall,
+		Gas:           gas,
+		Block:         h.block(),
+		State:         h.state,
+		Logs:          h.state,
+	}
 }
 
 func methodName(input []byte) string {
