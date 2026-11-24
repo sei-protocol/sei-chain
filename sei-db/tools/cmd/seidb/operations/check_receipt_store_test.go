@@ -290,6 +290,20 @@ func TestCheckReceiptStoreFlagsBrokenEntries(t *testing.T) {
 	require.Contains(t, out, "receipts: 0\n")
 }
 
+// Receipts stored above the latest version, which no read finds, are reported
+// and counted for no block.
+func TestCheckReceiptStoreFlagsEntriesAboveTheLatestVersion(t *testing.T) {
+	dir := newReceiptStore(t, 0, append(atTheirBlocks(10, 11), storedReceipt{version: 20, block: 20})...)
+	store, err := mvcc.OpenDB(dir, config.DefaultStateStoreConfig())
+	require.NoError(t, err)
+	require.NoError(t, store.SetLatestVersion(15))
+	require.NoError(t, store.Close())
+
+	out, err := runCheckReceiptStore(t, "--dir", dir)
+	require.ErrorContains(t, err, "1 entries are stored above its latest version 15, where no read finds them")
+	require.Contains(t, out, "receipts: 2 for 2 blocks, blocks 10-11\n")
+}
+
 func TestCheckReceiptStoreFlagsOtherStores(t *testing.T) {
 	dir := newTestReceiptStore(t, "bank", 10, 0, "k", "v")
 

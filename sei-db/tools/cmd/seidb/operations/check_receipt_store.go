@@ -43,10 +43,10 @@ func CheckReceiptStoreCmd() *cobra.Command {
 			"into the store from x/evm state, which sits at the height of the block that moved it, counts for its " +
 			"own block. The store is opened read-only; stop the node that owns it first.\n\n" +
 			"Exits non-zero when the store holds a store other than receipts or no receipts at all, has a " +
-			"changelog it has not applied, holds an entry that does not decode as a receipt or a receipt stored " +
-			"below the block it names, which is then counted for no block, or has a run of at least " +
-			"--hole-threshold blocks without receipts. Blocks " +
-			"without EVM transactions leave runs too, so raise the threshold for a quiet chain.",
+			"changelog it has not applied, holds an entry above its latest version, which no read finds, an " +
+			"entry that does not decode as a receipt, or a receipt stored below the block it names, each of " +
+			"which is counted for no block, or has a run of at least --hole-threshold blocks without receipts. " +
+			"Blocks without EVM transactions leave runs too, so raise the threshold for a quiet chain.",
 		Args:         cobra.NoArgs,
 		RunE:         executeCheckReceiptStore,
 		SilenceUsage: true,
@@ -354,6 +354,10 @@ func receiptStoreProblems(scan mvcc.ScanReport, tally *receiptTally, runs emptyR
 		problems = append(problems, fmt.Sprintf(
 			"its changelog holds version %d above its latest version %d; open the store once to replay it, then check again",
 			scan.ChangelogAhead, scan.Latest))
+	}
+	if scan.AboveLatest > 0 {
+		problems = append(problems, fmt.Sprintf("%d entries are stored above its latest version %d, where no read finds them",
+			scan.AboveLatest, scan.Latest))
 	}
 	if tally.receipts == 0 {
 		problems = append(problems, "holds no receipts")

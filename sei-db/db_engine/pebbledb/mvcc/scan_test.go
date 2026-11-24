@@ -53,6 +53,39 @@ func TestScanVisitsLiveEntries(t *testing.T) {
 	}
 }
 
+// Entries above the latest version marker, which no read of the DB finds, are
+// counted apart and not visited, in either encoding.
+func TestScanSetsAsideEntriesAboveTheLatestVersion(t *testing.T) {
+	for _, descending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("descending %v", descending), func(t *testing.T) {
+			db, dir := newMergeTestDB(t, descending)
+			applyVersion(t, db, mergeTestStore, 10, []byte("a"), []byte("a@10"))
+			applyVersion(t, db, mergeTestStore, 10, []byte("b"), []byte("b@10"))
+			applyVersion(t, db, mergeTestStore, 20, []byte("a"), []byte("a@20"))
+			deleteVersion(t, db, mergeTestStore, 20, []byte("b"))
+			require.NoError(t, db.SetLatestVersion(15))
+			require.NoError(t, db.Close())
+
+			var got []scannedEntry
+			report, err := Scan(dir, ScanOptions{
+				StoreKey: mergeTestStore,
+				Visit: func(key []byte, version int64, value []byte) error {
+					got = append(got, scannedEntry{key: string(key), version: version, value: string(value)})
+					return nil
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, []scannedEntry{
+				{key: "a", version: 10, value: "a@10"},
+				{key: "b", version: 10, value: "b@10"},
+			}, got)
+			require.Equal(t, int64(2), report.Entries)
+			require.Zero(t, report.Deletions)
+			require.Equal(t, int64(2), report.AboveLatest)
+		})
+	}
+}
+
 // A changelog holding a version above the latest marker is reported rather
 // than refused, and the DB is still read.
 func TestScanReportsUnappliedChangelog(t *testing.T) {

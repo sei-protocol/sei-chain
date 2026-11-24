@@ -12,7 +12,8 @@ type ScanOptions struct {
 	// StoreKey is the store whose entries Scan reads.
 	StoreKey string
 	// Visit, when set, is called with the store-relative key, version and value
-	// of every live entry, in key order. An error it returns stops the scan.
+	// of every live entry at or below the DB's latest version, in key order. An
+	// error it returns stops the scan.
 	Visit func(key []byte, version int64, value []byte) error
 	// Progress, when set, is called with the running report as entries are read.
 	Progress func(ScanReport)
@@ -24,10 +25,12 @@ type ScanReport struct {
 	// ChangelogAhead is the version of a changelog entry above Latest, which
 	// only opening the DB would apply, and 0 when there is none.
 	ChangelogAhead int64
-	// Entries is the number of live entries read, and Deletions the number of
-	// entries recording that their key was deleted.
-	Entries   int64
-	Deletions int64
+	// Entries is the number of live entries at or below Latest, Deletions the
+	// number there recording that their key was deleted, and AboveLatest the
+	// number of entries above Latest, which no read of the DB finds.
+	Entries     int64
+	Deletions   int64
+	AboveLatest int64
 }
 
 // Scan opens the DB at dir read-only and reads every entry under one store.
@@ -62,6 +65,10 @@ func (m *offlineDB) scanStore(report *ScanReport, opts ScanOptions) error {
 		entry, err := m.decodeEntry(itr)
 		if err != nil {
 			return err
+		}
+		if entry.version > m.info.Latest {
+			report.AboveLatest++
+			continue
 		}
 		if !entry.live {
 			report.Deletions++
