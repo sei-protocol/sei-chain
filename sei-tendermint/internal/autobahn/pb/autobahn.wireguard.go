@@ -152,7 +152,7 @@ func (*Epoch) MaxSize() int {
 }
 
 func (*StateSyncProof) MaxSize() int {
-	return 2056347632
+	return 2056347891
 }
 
 func (*EpochMember) MaxSize() int {
@@ -458,6 +458,7 @@ func init() {
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullCommitQC]())},
 		4: {MaxCount: 1000, Nested: utils.Some(reflect.TypeFor[*LaneBlock]())},
 		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppQC]())},
+		5: {MaxCount: 1, MaxSize: 256},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.EpochRegistry.

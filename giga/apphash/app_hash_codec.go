@@ -23,13 +23,10 @@ const (
 )
 
 // Serialize the app hash into the canonical byte format.
-// Produces deterministic output. Errors on a record built by NewZeroAppHashData() or NewRestoreAnchorAppHashData().
+// Produces deterministic output. Errors on a record built by NewZeroAppHashData().
 func (ahd *AppHashData) Serialize() ([]byte, error) {
 	if ahd.zeroHash {
 		return nil, fmt.Errorf("the zero app hash data of block %d cannot be serialized", ahd.blockHeight)
-	}
-	if ahd.restoreAnchor {
-		return nil, fmt.Errorf("the restore anchor of block %d has no preimage to serialize", ahd.blockHeight)
 	}
 	return ahd.canonicalBytes(), nil
 }

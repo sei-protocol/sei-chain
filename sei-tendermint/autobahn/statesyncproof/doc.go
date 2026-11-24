@@ -8,15 +8,16 @@
 //	body: "SEISSP" magic | version byte | StateSyncProof protobuf
 //
 // FileName and ParseFileName convert between the road height and the name. The
-// protobuf holds the CommitQC, the lane blocks and the AppQC of road H. Encode
-// builds a body, and Decode checks a body against the road in its name.
-// Version 1 lets a reader verify the road block and the AppHash against the
-// epoch; it does not prove the FlatKV state.
+// protobuf holds the CommitQC, the lane blocks, the AppQC and the app hash
+// record of road H. Encode builds a body, and Decode checks a body against the
+// road in its name. Version 1 lets a reader verify the road block and the
+// AppHash against the epoch, and the state hash of road H against the AppHash.
 //
 // NewExporter returns the writer. Each call to Sweep writes the file of each
-// retained checkpoint whose AppQC is in BlockStore and removes the files of
-// checkpoints that are no longer retained. It writes no file for the last road
-// of an epoch. A file appears complete or not at all.
+// retained checkpoint whose AppQC is in BlockStore and whose app hash record is
+// available, and removes the files of checkpoints that are no longer retained.
+// It writes no file for the last road of an epoch. A file appears complete or
+// not at all.
 //
 // A change that readers must understand needs a new version, so that old
 // readers reject the file. Other extensions use new protobuf fields.

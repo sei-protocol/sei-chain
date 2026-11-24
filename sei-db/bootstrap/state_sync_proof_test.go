@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
@@ -36,13 +38,85 @@ func TestStateSyncProofExportConfig(t *testing.T) {
 	checkpoint := filepath.Join(cfg.FlatKVConfig.DataDir, flatkv.SnapshotDirName(7))
 	require.NoError(t, os.MkdirAll(checkpoint, 0o750))
 
-	exportCfg := stateSyncProofExportConfig(cfg, blockstore.NewTestStore(t))
+	exportCfg := stateSyncProofExportConfig(cfg, blockstore.NewTestStore(t), boundsOnlyBuilder{})
 
 	require.Equal(t, filepath.Join(cfg.HomePath, "data", "state_commit", "state_sync_proofs"), exportCfg.Dir)
 	roads, err := exportCfg.CheckpointRoads()
 	require.NoError(t, err)
 	require.Equal(t, []types.RoadHeight{7}, roads)
 	require.False(t, exportCfg.LastAppQC().IsPresent())
+	record, err := exportCfg.AppHashData(7)
+	require.NoError(t, err)
+	require.False(t, record.IsPresent())
+}
+
+// boundsOnlyBuilder is an AppHashBuilder whose Bounds() reports fixed values. Its other methods
+// must not be called.
+type boundsOnlyBuilder struct {
+	builder.AppHashBuilder
+	lowest, highest uint64
+	ok              bool
+}
+
+func (b boundsOnlyBuilder) Bounds() (uint64, uint64, bool, error) {
+	return b.lowest, b.highest, b.ok, nil
+}
+
+func TestAppHashDataOfPublishedBlock(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+
+	record, err := appHashDataOf(manager.AppHashBuilder(), 2)
+	require.NoError(t, err)
+	got, ok := record.Get()
+	require.True(t, ok)
+	require.Equal(t, publishedAppHashes(t, manager, 2, 2)[0].AppHash(), got.AppHash())
+}
+
+func TestAppHashDataOfUnpublishedBlock(t *testing.T) {
+	cases := map[string]builder.AppHashBuilder{
+		"nothing published":   boundsOnlyBuilder{},
+		"above highest block": boundsOnlyBuilder{lowest: 1, highest: 6, ok: true},
+	}
+	for name, b := range cases {
+		t.Run(name, func(t *testing.T) {
+			record, err := appHashDataOf(b, 7)
+			require.NoError(t, err)
+			require.False(t, record.IsPresent())
+		})
+	}
+}
+
+func TestAppHashDataOfPrunedBlock(t *testing.T) {
+	_, err := appHashDataOf(boundsOnlyBuilder{lowest: 8, highest: 20, ok: true}, 7)
+	require.ErrorIs(t, err, types.ErrPruned)
+}
+
+// failingReadBuilder is an AppHashBuilder whose GetAppHash() fails and moves the lowest block
+// Bounds() reports to lowestAfterRead.
+type failingReadBuilder struct {
+	boundsOnlyBuilder
+	lowestAfterRead uint64
+}
+
+func (b *failingReadBuilder) GetAppHash(context.Context, uint64) (*apphash.AppHashData, error) {
+	b.lowest = b.lowestAfterRead
+	return nil, errors.New("read failed")
+}
+
+func TestAppHashDataOfBlockPrunedDuringRead(t *testing.T) {
+	b := &failingReadBuilder{boundsOnlyBuilder: boundsOnlyBuilder{lowest: 1, highest: 20, ok: true}, lowestAfterRead: 8}
+
+	_, err := appHashDataOf(b, 7)
+	require.ErrorIs(t, err, types.ErrPruned)
+}
+
+func TestAppHashDataOfFailedReadIsNotPruned(t *testing.T) {
+	b := &failingReadBuilder{boundsOnlyBuilder: boundsOnlyBuilder{lowest: 1, highest: 20, ok: true}, lowestAfterRead: 1}
+
+	_, err := appHashDataOf(b, 7)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, types.ErrPruned)
 }
 
 func TestLastAppQC(t *testing.T) {

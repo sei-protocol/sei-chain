@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/seilog"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -29,6 +30,9 @@ type ExportConfig struct {
 	// LastAppQC returns the road of the latest AppQC in BlockStore, or None when it holds none.
 	// Proofs are written only at or below it.
 	LastAppQC func() utils.Option[types.RoadHeight]
+	// AppHashData returns the app hash record of a road. It returns None when the record is not
+	// available yet, and an error wrapping types.ErrPruned when the record is pruned.
+	AppHashData func(types.RoadHeight) (utils.Option[*apphash.AppHashData], error)
 }
 
 // BlockStore is the part of the Autobahn BlockStore that Exporter reads.
@@ -193,7 +197,8 @@ func (e *Exporter) retainedCheckpoints() (map[types.RoadHeight]struct{}, error) 
 }
 
 // exportProof writes the proof file of road height and marks it exported. Records that are
-// pruned, missing or inconsistent mark it skipped.
+// pruned, missing or inconsistent mark it skipped. An app hash record that is not available yet
+// leaves it pending for a later sweep.
 func (e *Exporter) exportProof(height types.RoadHeight) error {
 	records, err := e.readRecords(height)
 	if errors.Is(err, types.ErrPruned) {
@@ -212,12 +217,24 @@ func (e *Exporter) exportProof(height types.RoadHeight) error {
 		e.skipped[height] = struct{}{}
 		return nil
 	}
+	appHashData, err := e.cfg.AppHashData(height)
+	if errors.Is(err, types.ErrPruned) {
+		logger.Info("skipping state sync proof: app hash record of checkpoint is pruned", "height", height)
+		e.skipped[height] = struct{}{}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read app hash data %d: %w", height, err)
+	}
+	if r.appHashData, ok = appHashData.Get(); !ok {
+		return nil
+	}
 	encoded, err := r.encode(height)
 	if err != nil {
-		// Skipping, not halting, keeps a corrupt local BlockStore from stopping the node through an
+		// Skipping, not halting, keeps corrupt local records from stopping the node through an
 		// optional export, and never publishes the bad proof.
 		Global.inconsistentRecordsAt().Add(1)
-		logger.Error("skipping state sync proof: inconsistent BlockStore records", "height", height, "err", err)
+		logger.Error("skipping state sync proof: records of checkpoint do not match its AppQC", "height", height, "err", err)
 		e.skipped[height] = struct{}{}
 		return nil
 	}
@@ -228,15 +245,17 @@ func (e *Exporter) exportProof(height types.RoadHeight) error {
 	return nil
 }
 
-// records are the BlockStore records of one road that a proof file is built from.
+// records are the records of one road that a proof file is built from: the BlockStore records and
+// the app hash record.
 type records struct {
 	block       *types.RoadBlock
 	appProposal *types.AppProposal
 	appQC       *types.AppQC
+	appHashData *apphash.AppHashData
 }
 
 // encode returns the proof file of road height. It fails when the records do not all belong to road
-// height or the local AppHash does not match the AppQC.
+// height, or the local AppHash or the app hash record does not match the AppQC.
 func (r records) encode(height types.RoadHeight) ([]byte, error) {
 	// The data layer checks this before it writes the AppQC. Keep the check here as defense in depth against
 	// a future writer path or corrupted local records.
@@ -246,11 +265,11 @@ func (r records) encode(height types.RoadHeight) ([]byte, error) {
 	if r.appQC.Proposal().Height() != height {
 		return nil, fmt.Errorf("AppQC index %d does not match checkpoint index %d", r.appQC.Proposal().Height(), height)
 	}
-	return Encode(r.block, r.appQC)
+	return Encode(r.block, r.appQC, r.appHashData)
 }
 
-// readRecords reads the records of road height. It returns None when any record is missing, and an
-// error wrapping types.ErrPruned when any record is pruned.
+// readRecords reads the BlockStore records of road height. It returns None when any record is
+// missing, and an error wrapping types.ErrPruned when any record is pruned.
 func (e *Exporter) readRecords(height types.RoadHeight) (utils.Option[records], error) {
 	none := utils.None[records]()
 	roadBlock, err := e.cfg.BlockStore.ReadBlock(height)

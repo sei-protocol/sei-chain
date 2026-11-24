@@ -583,11 +583,8 @@ func (b *StandardAppHashBuilder) compareStoredInput(
 	if err != nil {
 		return fmt.Errorf("failed to read the stored record of block %d: %w", blockHeight, err)
 	}
-	// A restore anchor holds no inputs, so, as for a pruned record, there is nothing to compare against.
-	if !stored.IsRestoreAnchor() {
-		if storedValue := input.of(stored); storedValue != value {
-			b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
-		}
+	if storedValue := input.of(stored); storedValue != value {
+		b.panicOnMismatch(blockHeight, input.String(), storedValue, value)
 	}
 	if blockHeight == b.vaultHighest {
 		err := tracker.storedRecordIterator.Close()

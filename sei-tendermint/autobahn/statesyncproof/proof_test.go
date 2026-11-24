@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -15,9 +16,9 @@ import (
 )
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	block, appQC := testProof(t, utils.TestRng())
+	block, appQC, record := testProof(t, utils.TestRng())
 
-	encoded, err := Encode(block, appQC)
+	encoded, err := Encode(block, appQC, record)
 	require.NoError(t, err)
 
 	decoded, err := Decode(encoded, block.QC().Height())
@@ -27,6 +28,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	require.Equal(t, len(block.LaneBlocks()), len(decoded.RoadBlock().LaneBlocks()))
 	require.Equal(t, appQC.Proposal().Height(), decoded.AppQC().Proposal().Height())
 	require.Equal(t, []byte(appQC.Proposal().AppHash()), []byte(decoded.AppQC().Proposal().AppHash()))
+	require.Equal(t, record, decoded.AppHashData())
 }
 
 func TestEncodeForTestingDecodesAtItsHeight(t *testing.T) {
@@ -36,6 +38,7 @@ func TestEncodeForTestingDecodesAtItsHeight(t *testing.T) {
 	decoded, err := Decode(encoded, 7)
 	require.NoError(t, err)
 	require.Equal(t, types.RoadHeight(7), decoded.Height())
+	require.Equal(t, uint64(7), decoded.AppHashData().BlockHeight())
 }
 
 func TestDecodeRejectsMalformedFiles(t *testing.T) {
@@ -55,8 +58,8 @@ func TestDecodeRejectsMalformedFiles(t *testing.T) {
 }
 
 func TestDecodeAcceptsUnknownFields(t *testing.T) {
-	block, appQC := testProof(t, utils.TestRng())
-	encoded, err := Encode(block, appQC)
+	block, appQC, record := testProof(t, utils.TestRng())
+	encoded, err := Encode(block, appQC, record)
 	require.NoError(t, err)
 	encoded = protowire.AppendTag(encoded, 99, protowire.BytesType)
 	encoded = protowire.AppendBytes(encoded, []byte("future field"))
@@ -87,13 +90,53 @@ func TestDecodeRejectsAppQCOfAnotherView(t *testing.T) {
 	for name, otherView := range mismatchedViews() {
 		t.Run(name, func(t *testing.T) {
 			rng := utils.TestRng()
-			block, _ := testProof(t, rng)
-			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(block.QC().QC().View()), []byte{1}))
+			block, _, _ := testProof(t, rng)
+			view := otherView(block.QC().QC().View())
+			record := genAppHashData(rng, view.Height)
 
+			_, err := Decode(testFile(t, block, testAppQC(testKeys(t, rng), view, record), record), block.QC().Height())
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDecodeRejectsUnexpectedHeight(t *testing.T) {
+	block, appQC, record := testProof(t, utils.TestRng())
+	encoded, err := Encode(block, appQC, record)
+	require.NoError(t, err)
+
+	_, err = Decode(encoded, block.QC().Height()+1)
+	require.Error(t, err)
+}
+
+func TestDecodeRejectsMissingAppHashData(t *testing.T) {
+	block, appQC, _ := testProof(t, utils.TestRng())
+	encoded := frame(&pb.StateSyncProof{
+		CommitQc: types.FullCommitQCConv.Encode(block.QC()),
+		Blocks:   types.LaneBlockConv.EncodeSlice(block.LaneBlocks()),
+		AppQc:    types.AppQCConv.Encode(appQC),
+	})
+
+	_, err := Decode(encoded, block.QC().Height())
+	require.Error(t, err)
+}
+
+func TestDecodeRejectsMalformedAppHashData(t *testing.T) {
+	block, appQC, record := testProof(t, utils.TestRng())
+	recordBytes, err := record.Serialize()
+	require.NoError(t, err)
+	cases := map[string][]byte{
+		"truncated":       recordBytes[:len(recordBytes)-1],
+		"trailing byte":   append(append([]byte{}, recordBytes...), 0),
+		"unknown version": append([]byte{9}, recordBytes[1:]...),
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
 			encoded := frame(&pb.StateSyncProof{
-				CommitQc: types.FullCommitQCConv.Encode(block.QC()),
-				Blocks:   types.LaneBlockConv.EncodeSlice(block.LaneBlocks()),
-				AppQc:    types.AppQCConv.Encode(appQC),
+				CommitQc:    types.FullCommitQCConv.Encode(block.QC()),
+				Blocks:      types.LaneBlockConv.EncodeSlice(block.LaneBlocks()),
+				AppQc:       types.AppQCConv.Encode(appQC),
+				AppHashData: input,
 			})
 			_, err := Decode(encoded, block.QC().Height())
 			require.Error(t, err)
@@ -101,26 +144,50 @@ func TestDecodeRejectsAppQCOfAnotherView(t *testing.T) {
 	}
 }
 
-func TestDecodeRejectsUnexpectedHeight(t *testing.T) {
-	block, appQC := testProof(t, utils.TestRng())
-	encoded, err := Encode(block, appQC)
-	require.NoError(t, err)
-
-	_, err = Decode(encoded, block.QC().Height()+1)
-	require.Error(t, err)
+func TestDecodeRejectsAppHashDataTheAppQCDoesNotSign(t *testing.T) {
+	rng := utils.TestRng()
+	block, _, _ := testProof(t, rng)
+	for name, c := range mismatchedAppHashData(t, rng, block) {
+		t.Run(name, func(t *testing.T) {
+			_, err := Decode(testFile(t, block, c.appQC, c.record), block.QC().Height())
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestEncodeRejectsAppQCOfAnotherView(t *testing.T) {
 	for name, otherView := range mismatchedViews() {
 		t.Run(name, func(t *testing.T) {
 			rng := utils.TestRng()
-			block, _ := testProof(t, rng)
-			appQC := data.TestAppQC(testKeys(t, rng), types.NewAppProposal(otherView(block.QC().QC().View()), []byte{1}))
+			block, _, _ := testProof(t, rng)
+			view := otherView(block.QC().QC().View())
+			record := genAppHashData(rng, view.Height)
 
-			_, err := Encode(block, appQC)
+			_, err := Encode(block, testAppQC(testKeys(t, rng), view, record), record)
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestEncodeRejectsAppHashDataTheAppQCDoesNotSign(t *testing.T) {
+	rng := utils.TestRng()
+	block, _, _ := testProof(t, rng)
+	for name, c := range mismatchedAppHashData(t, rng, block) {
+		t.Run(name, func(t *testing.T) {
+			_, err := Encode(block, c.appQC, c.record)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestEncodeRejectsZeroAppHashData(t *testing.T) {
+	rng := utils.TestRng()
+	block, _, _ := testProof(t, rng)
+	view := block.QC().QC().View()
+	record := apphash.NewZeroAppHashData(rng.Uint64(), uint64(view.Height)+1)
+
+	_, err := Encode(block, testAppQC(testKeys(t, rng), view, record), record)
+	require.Error(t, err)
 }
 
 // mismatchedViews returns, by case name, functions that change a CommitQC view so an AppQC built
@@ -135,6 +202,25 @@ func mismatchedViews() map[string]func(types.View) types.View {
 			v.EpochIndex++
 			return v
 		},
+	}
+}
+
+// signedAppHashData is an AppQC and an app hash record to encode with a road block.
+type signedAppHashData struct {
+	appQC  *types.AppQC
+	record *apphash.AppHashData
+}
+
+// mismatchedAppHashData returns, by case name, an AppQC of the road of block and an app hash
+// record that is not the record of that road whose app hash the AppQC signs.
+func mismatchedAppHashData(t *testing.T, rng utils.Rng, block *types.RoadBlock) map[string]signedAppHashData {
+	t.Helper()
+	view := block.QC().QC().View()
+	keys := testKeys(t, rng)
+	anotherRoad := genAppHashData(rng, view.Height+1)
+	return map[string]signedAppHashData{
+		"record of another road": {testAppQC(keys, view, anotherRoad), anotherRoad},
+		"app hash not signed":    {testAppQC(keys, view, genAppHashData(rng, view.Height)), genAppHashData(rng, view.Height)},
 	}
 }
 
@@ -163,14 +249,32 @@ func TestParseFileNameRejectsNonCanonicalNames(t *testing.T) {
 	}
 }
 
-func testProof(t *testing.T, rng utils.Rng) (*types.RoadBlock, *types.AppQC) {
+func testProof(t *testing.T, rng utils.Rng) (*types.RoadBlock, *types.AppQC, *apphash.AppHashData) {
 	t.Helper()
 	committee, keys := types.GenCommittee(rng, 4)
 	epoch := types.GenEpochWithCommittee(rng, committee)
 	qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
-	block := types.NewRoadBlock(qc, blocks)
-	proposal := types.NewAppProposal(qc.QC().View(), []byte{1, 2, 3})
-	return block, data.TestAppQC(keys, proposal)
+	record := genAppHashData(rng, qc.Height())
+	return types.NewRoadBlock(qc, blocks), testAppQC(keys, qc.QC().View(), record), record
+}
+
+// testAppQC returns an AppQC of view, signed by keys, over the app hash of record.
+func testAppQC(keys []types.SecretKey, view types.View, record *apphash.AppHashData) *types.AppQC {
+	appHash := record.AppHash()
+	return data.TestAppQC(keys, types.NewAppProposal(view, appHash[:]))
+}
+
+// testFile returns a state sync proof file of block, appQC and record without the checks of Encode.
+func testFile(t *testing.T, block *types.RoadBlock, appQC *types.AppQC, record *apphash.AppHashData) []byte {
+	t.Helper()
+	recordBytes, err := record.Serialize()
+	require.NoError(t, err)
+	return frame(&pb.StateSyncProof{
+		CommitQc:    types.FullCommitQCConv.Encode(block.QC()),
+		Blocks:      types.LaneBlockConv.EncodeSlice(block.LaneBlocks()),
+		AppQc:       types.AppQCConv.Encode(appQC),
+		AppHashData: recordBytes,
+	})
 }
 
 func testKeys(t *testing.T, rng utils.Rng) []types.SecretKey {
