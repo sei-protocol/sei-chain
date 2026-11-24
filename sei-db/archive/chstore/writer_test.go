@@ -15,6 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 )
 
+// testChain is the EVM chain the tests' archives hold.
+const testChain = 713715
+
 // testConfig returns a config for a throwaway database on the ClickHouse server named by
 // SEI_ARCHIVE_TEST_CLICKHOUSE, skipping the test when it is unset.
 func testConfig(t *testing.T) clickhouse.Config {
@@ -190,14 +193,14 @@ func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
 	require.NoError(t, w.insertCommit(t.Context(), b.first, b.last, false))
 	require.NoError(t, w.client.Insert(t.Context(), tableBlocks, b.blockRows.input()))
 
-	_, err := StartExporter(t.Context(), cfg, 1)
+	_, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.ErrorIs(t, err, errInterruptedBatch)
 	require.ErrorContains(t, err, "blocks 3-4")
 }
 
 func TestExporterWritesExecutedBlocks(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg, 1)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	store := func(n uint64) {
 		block := testBlock(n)
@@ -210,7 +213,7 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 	require.Equal(t, uint64(3), rowCounts(t, cfg)[tableBlocks])
 
 	// A restarted exporter expects the block after the archived ones and refuses one it holds.
-	exporter, err = StartExporter(t.Context(), cfg, 1)
+	exporter, err = StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), exporter.LatestBlock())
 	block := testBlock(3)
@@ -235,7 +238,7 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 
 func TestExporterStopsAtAFailedWrite(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg, 1)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	exec(t, cfg, cfg.Database, "DETACH TABLE blocks")
 	block := testBlock(1)
@@ -244,16 +247,16 @@ func TestExporterStopsAtAFailedWrite(t *testing.T) {
 	exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
 
 	// The failed batch stays pending, so the archive does not resume until it is removed.
-	_, err = StartExporter(t.Context(), cfg, 1)
+	_, err = StartExporter(t.Context(), cfg, testChain, 1)
 	require.ErrorIs(t, err, errInterruptedBatch)
 }
 
 func TestEmptyArchiveRecordsItsStartWhenOpened(t *testing.T) {
 	cfg := testConfig(t)
-	_, err := StartExporter(t.Context(), cfg, 0)
+	_, err := StartExporter(t.Context(), cfg, testChain, 0)
 	require.ErrorContains(t, err, "block 0")
 
-	exporter, err := StartExporter(t.Context(), cfg, 1)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	// Recorded before any block, as a committed row that ends at the block before the start.
 	require.Equal(t, []uint64{0}, query(t, cfg, "SELECT end_block AS a FROM archive_commits WHERE committed"))
@@ -261,7 +264,7 @@ func TestEmptyArchiveRecordsItsStartWhenOpened(t *testing.T) {
 	require.NoError(t, exporter.Close())
 
 	// A restart that lost the first batch keeps the start, however far the node has moved on.
-	exporter, err = StartExporter(t.Context(), cfg, 50)
+	exporter, err = StartExporter(t.Context(), cfg, testChain, 50)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = exporter.Close() })
 	require.Zero(t, exporter.LatestBlock())
@@ -275,10 +278,24 @@ func TestEmptyArchiveRecordsItsStartWhenOpened(t *testing.T) {
 
 func TestEmptyArchiveStartsMidChain(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg, 234234)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 234234)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = exporter.Close() })
 	require.Equal(t, uint64(234233), exporter.LatestBlock())
 	block := testBlock(234234)
 	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
+}
+
+func TestArchiveRefusesAnotherChain(t *testing.T) {
+	cfg := testConfig(t)
+	exporter, err := StartExporter(t.Context(), cfg, 1329, 1)
+	require.NoError(t, err)
+	require.NoError(t, exporter.Close())
+	require.Equal(t, []uint64{1329}, query(t, cfg, "SELECT chain_id AS a FROM "+tableMeta))
+
+	_, err = StartExporter(t.Context(), cfg, 1328, 1)
+	require.ErrorContains(t, err, "the archive holds EVM chain 1329, not 1328")
+	exporter, err = StartExporter(t.Context(), cfg, 1329, 1)
+	require.NoError(t, err, "the chain the archive records reopens it")
+	require.NoError(t, exporter.Close())
 }

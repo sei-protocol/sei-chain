@@ -118,6 +118,60 @@ func (w *writer) write(ctx context.Context, b *batch) error {
 	return nil
 }
 
+// claimChain records chainID in the archive's metadata when it has none, and refuses an archive whose metadata
+// records another chain.
+func (w *writer) claimChain(ctx context.Context, chainID uint64) error {
+	rows, recorded, err := w.readMeta(ctx)
+	if err == nil && rows == 0 {
+		// Read back, so that nodes recording at once both see both rows.
+		if err = w.insertMeta(ctx, chainID); err == nil {
+			rows, recorded, err = w.readMeta(ctx)
+		}
+	}
+	switch {
+	case err != nil:
+		return err
+	case rows != 1:
+		return fmt.Errorf("%s holds %d rows, recorded by nodes that opened the empty archive at once; it must "+
+			"hold one", tableMeta, rows)
+	case recorded != chainID:
+		return fmt.Errorf("the archive holds EVM chain %d, not %d; every chain needs its own database",
+			recorded, chainID)
+	}
+	return nil
+}
+
+// readMeta returns how many rows archive_meta holds, and the chain one of them records.
+func (w *writer) readMeta(ctx context.Context) (rows, chainID uint64, err error) {
+	var n, id proto.ColUInt64
+	err = w.client.Do(ctx, ch.Query{
+		Body:   "SELECT count() AS n, any(chain_id) AS id FROM " + tableMeta,
+		Result: proto.Results{{Name: "n", Data: &n}, {Name: "id", Data: &id}},
+		OnResult: func(context.Context, proto.Block) error {
+			if n.Rows() > 0 {
+				rows, chainID = n[0], id[0]
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("read %s: %w", tableMeta, err)
+	}
+	return rows, chainID, nil
+}
+
+// insertMeta records the archive's metadata row, holding chainID.
+func (w *writer) insertMeta(ctx context.Context, chainID uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+	var id proto.ColUInt64
+	id.Append(chainID)
+	if err := w.client.Insert(ctx, tableMeta, proto.Input{{Name: "chain_id", Data: &id}}); err != nil {
+		return fmt.Errorf("record the archive's chain %d: %w", chainID, err)
+	}
+	return nil
+}
+
 // recordStart records first as the start of an empty archive: a committed row that ends at the block before
 // it.
 func (w *writer) recordStart(ctx context.Context, first uint64) error {
