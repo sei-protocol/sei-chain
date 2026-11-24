@@ -76,8 +76,8 @@ func testWriter(t *testing.T, cfg clickhouse.Config) *writer {
 // rowCounts returns the row count of every archive table.
 func rowCounts(t *testing.T, cfg clickhouse.Config) map[string]uint64 {
 	out := map[string]uint64{}
-	for _, table := range []string{tableBlocks, tableTxs, tableLocator, tableLogs, tableAccountChanges, tableAccountHistory,
-		tableStorageChanges, tableStorageHistory, tableCode, tableCommits} {
+	for _, table := range []string{tableBlocks, tableTxs, tableBlockLocator, tableTxLocator, tableLogs, tableAccountChanges,
+		tableAccountHistory, tableStorageChanges, tableStorageHistory, tableCode, tableCommits} {
 		out[table] = query(t, cfg, "SELECT count() AS a FROM "+table)[0]
 	}
 	return out
@@ -111,7 +111,8 @@ func TestWrite(t *testing.T) {
 	require.Equal(t, map[string]uint64{
 		tableBlocks:         5,
 		tableTxs:            10,
-		tableLocator:        10, // each block and its executed transaction
+		tableBlockLocator:   5,
+		tableTxLocator:      5, // each block's executed transaction
 		tableLogs:           5,
 		tableAccountChanges: 10,
 		tableAccountHistory: 10,
@@ -126,13 +127,38 @@ func TestWrite(t *testing.T) {
 	// A transaction is found by its hash prefix.
 	executed := testBlock(2).Txs[0].Receipt.TxHash
 	require.Equal(t, []uint64{2 << txIndexBits}, query(t, cfg, fmt.Sprintf(
-		"SELECT location AS a FROM hash_locator WHERE hash_prefix = %d AND object_kind = %d",
-		binary.BigEndian.Uint64(executed[:8]), locatorTx)))
+		"SELECT location AS a FROM transaction_hash_locator WHERE hash_prefix = %d",
+		binary.BigEndian.Uint64(executed[:8]))))
 	require.Equal(t, []uint64{900}, query(t, cfg,
 		"SELECT toUInt64(balance) AS a FROM account_changes WHERE block_number = 2 AND nonce = 5"))
 	require.Equal(t, []uint64{0}, query(t, cfg,
 		"SELECT toUInt64(count()) AS a FROM storage_changes WHERE block_number = 2 AND value != repeat('\\0', 32)"+
 			" AND slot = unhex('52'||repeat('00', 31))"))
+}
+
+// TestTransactionLocatorAliases reads each transaction's block and index back through the
+// transaction locator's alias columns, which decode the location the writer packs.
+func TestTransactionLocatorAliases(t *testing.T) {
+	cfg := testConfig(t)
+	require.NoError(t, migrate(t.Context(), cfg))
+	w := testWriter(t, cfg)
+
+	// A block number above 2^32, so a decoding that keeps only 32 bits fails.
+	number := uint64(1)<<39 | 300
+	block := testBlock(number)
+	block.Time = 1_700_000_000
+	block.Txs[1].Locatable = true
+	b := newBatch()
+	require.NoError(t, b.add(&block))
+	require.NoError(t, w.write(t.Context(), b))
+
+	for i, tx := range block.Txs {
+		prefix := binary.BigEndian.Uint64(tx.Receipt.TxHash[:8])
+		require.Equal(t, []uint64{number}, query(t, cfg, fmt.Sprintf(
+			"SELECT block_number AS a FROM transaction_hash_locator WHERE hash_prefix = %d", prefix)), "transaction %d", i)
+		require.Equal(t, []uint64{uint64(i)}, query(t, cfg, fmt.Sprintf(
+			"SELECT toUInt64(transaction_index) AS a FROM transaction_hash_locator WHERE hash_prefix = %d", prefix)), "transaction %d", i)
+	}
 }
 
 // TestStateReads runs the two reads the account and storage tables are laid out for: a slot or an
