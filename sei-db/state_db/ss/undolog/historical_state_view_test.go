@@ -1,4 +1,4 @@
-package giga
+package undo
 
 import (
 	"testing"
@@ -12,7 +12,7 @@ import (
 
 // An account exists at a past height exactly when the state commit store would have held a row for
 // it: when its balance, nonce or code hash is non-zero. A stored zero nonce alone is no account.
-func TestHistoricalViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
+func TestHistoricalStateViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
 	addr := common.Address{0x42}
 	codeHash := common.Hash{0xc0}
 	for _, tc := range []struct {
@@ -22,10 +22,10 @@ func TestHistoricalViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
 		exists bool
 	}{
 		{"nothing stored", nil, gigatypes.Account{}, false},
-		{"zero nonce alone", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonceValue(0)}, gigatypes.Account{}, false},
-		{"balance", map[keys.EVMKeyKind][]byte{keys.EVMKeyBalance: common.Hash{31: 5}.Bytes(), keys.EVMKeyNonce: nonceValue(0)},
+		{"zero nonce alone", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonce(0)}, gigatypes.Account{}, false},
+		{"balance", map[keys.EVMKeyKind][]byte{keys.EVMKeyBalance: common.Hash{31: 5}.Bytes(), keys.EVMKeyNonce: nonce(0)},
 			gigatypes.Account{Balance: common.Hash{31: 5}, CodeHash: gigatypes.EmptyCodeHash}, true},
-		{"nonce", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonceValue(3)},
+		{"nonce", map[keys.EVMKeyKind][]byte{keys.EVMKeyNonce: nonce(3)},
 			gigatypes.Account{Nonce: 3, CodeHash: gigatypes.EmptyCodeHash}, true},
 		{"code hash", map[keys.EVMKeyKind][]byte{keys.EVMKeyCodeHash: codeHash.Bytes()},
 			gigatypes.Account{CodeHash: codeHash}, true},
@@ -35,7 +35,7 @@ func TestHistoricalViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
 			for kind, value := range tc.stored {
 				stored[string(keys.BuildEVMKey(kind, addr[:]))] = value
 			}
-			view := &historicalView{
+			view := &historicalStateView{
 				height: 7,
 				read: func(key []byte) ([]byte, error) {
 					return stored[string(key)], nil
