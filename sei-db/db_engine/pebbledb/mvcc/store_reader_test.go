@@ -47,6 +47,22 @@ func TestStoreReaderYieldsTheNewestValues(t *testing.T) {
 	}
 }
 
+// Read through SST files, where pebble reuses its key buffers as the iterator
+// moves, a StoreReader still yields each key once with its own newest value, in
+// either encoding.
+func TestStoreReaderReadsSSTFiles(t *testing.T) {
+	for _, descending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("descending %v", descending), func(t *testing.T) {
+			got := readStore(t, newSSTBackedDB(t, descending), mergeTestStore)
+			require.Len(t, got, sstTestKeys)
+			for i, entry := range got {
+				key := sstTestKey(i)
+				require.Equal(t, scannedEntry{key: key, version: 3, value: key + "@3"}, entry)
+			}
+		})
+	}
+}
+
 // Entries above the latest version marker are not read, as a read at the
 // latest version does not see them.
 func TestStoreReaderStopsAtTheLatestVersion(t *testing.T) {

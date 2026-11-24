@@ -3,6 +3,7 @@ package mvcc
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -44,6 +45,40 @@ func openMergeTestDB(t *testing.T, dir string) *Database {
 	db := store.(*Database)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+// sstTestKeys is the number of keys newSSTBackedDB writes.
+const sstTestKeys = 1000
+
+// sstTestKey returns the i-th key newSSTBackedDB writes.
+func sstTestKey(i int) string {
+	return fmt.Sprintf("key-%05d", i)
+}
+
+// newSSTBackedDB returns the directory of a closed DB, in the descending
+// encoding or, when descending is false, as a legacy ascending DB, holding
+// versions 1 to 3 of sstTestKeys keys under mergeTestStore, each value naming
+// its key and version, flushed out of the memtable into SST files.
+func newSSTBackedDB(t *testing.T, descending bool) string {
+	t.Helper()
+	db, dir := newMergeTestDB(t, descending)
+	for v := int64(1); v <= 3; v++ {
+		pairs := make([]*proto.KVPair, 0, sstTestKeys)
+		for i := range sstTestKeys {
+			key := sstTestKey(i)
+			pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: []byte(fmt.Sprintf("%s@%d", key, v))})
+		}
+		require.NoError(t, db.ApplyChangesetSync(v, []*proto.NamedChangeSet{{
+			Name:      mergeTestStore,
+			Changeset: proto.ChangeSet{Pairs: pairs},
+		}}))
+	}
+	require.NoError(t, db.storage.Flush())
+	require.NoError(t, db.Close())
+	ssts, err := filepath.Glob(filepath.Join(dir, "*.sst"))
+	require.NoError(t, err)
+	require.NotEmpty(t, ssts)
+	return dir
 }
 
 func deleteVersion(t *testing.T, db *Database, store string, v int64, key []byte) {
@@ -118,6 +153,34 @@ func TestMergeCopiesEveryVersion(t *testing.T) {
 			unchanged := openMergeTestDB(t, sourceDir)
 			require.Equal(t, int64(13), unchanged.GetLatestVersion())
 			requireGet(t, unchanged, 101, "a", []byte("a@12"))
+		})
+	}
+}
+
+// Read through SST files, where pebble reuses its key buffers as the iterator
+// moves, a merge still writes every entry as the source holds it and reads each
+// one back, from a source in either encoding.
+func TestMergeReadsBackEntriesFromSSTFiles(t *testing.T) {
+	for _, sourceDescending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("source descending %v", sourceDescending), func(t *testing.T) {
+			sourceDir := newSSTBackedDB(t, sourceDescending)
+			target, targetDir := newMergeTestDB(t, true)
+			applyVersion(t, target, mergeTestStore, 100, []byte("c"), []byte("c@100"))
+			require.NoError(t, target.SetEarliestVersion(4, true))
+			require.NoError(t, target.Close())
+
+			report, err := Merge(targetDir, sourceDir, MergeOptions{VerifyEvery: 1})
+			require.NoError(t, err)
+			require.Equal(t, int64(3*sstTestKeys), report.Written)
+			require.Equal(t, report.Written, report.Verified)
+
+			merged := openMergeTestDB(t, targetDir)
+			for i := range sstTestKeys {
+				key := sstTestKey(i)
+				for v := int64(1); v <= 3; v++ {
+					requireGet(t, merged, v, key, []byte(fmt.Sprintf("%s@%d", key, v)))
+				}
+			}
 		})
 	}
 }
