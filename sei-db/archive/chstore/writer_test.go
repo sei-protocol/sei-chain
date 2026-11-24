@@ -18,21 +18,16 @@ import (
 // testChain is the EVM chain the tests' archives hold.
 const testChain = 713715
 
-// testConfig returns a config for a throwaway database on the ClickHouse server named by
-// SEI_ARCHIVE_TEST_CLICKHOUSE. Without one it skips the test, or fails it on CI.
+func TestMain(m *testing.M) { os.Exit(clickhouse.RunTests(m)) }
+
+// testConfig returns a config for a throwaway database on the package's ClickHouse server.
 func testConfig(t *testing.T) clickhouse.Config {
-	addr := os.Getenv("SEI_ARCHIVE_TEST_CLICKHOUSE")
-	if addr == "" && os.Getenv("CI") != "" {
-		t.Fatal("SEI_ARCHIVE_TEST_CLICKHOUSE is not set; on CI, these tests run in the clickhouse-test job")
-	}
-	if addr == "" {
-		t.Skip("SEI_ARCHIVE_TEST_CLICKHOUSE is not set")
-	}
+	addr, password := clickhouse.TestServer(t)
 	cfg := clickhouse.Config{
 		Addr:     addr,
 		Database: "sei_archive_test",
 		User:     "default",
-		Password: os.Getenv("SEI_ARCHIVE_TEST_PASSWORD"),
+		Password: password,
 	}
 	exec(t, cfg, "default", "DROP DATABASE IF EXISTS "+cfg.Database+" SYNC")
 	t.Cleanup(func() { exec(t, cfg, "default", "DROP DATABASE IF EXISTS "+cfg.Database+" SYNC") })
