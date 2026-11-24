@@ -17,7 +17,7 @@ func (suite *AnteTestSuite) TestRejectExtensionOptionsDecorator() {
 
 	// no extension options should not trigger an error
 	theTx := suite.txBuilder.GetTx()
-	_, err := antehandler(suite.ctx, theTx, false)
+	_, err := antehandler(suite.ctx, theTx)
 	suite.Require().NoError(err)
 
 	extOptsTxBldr, ok := suite.txBuilder.(tx.ExtensionOptionsTxBuilder)
@@ -31,6 +31,6 @@ func (suite *AnteTestSuite) TestRejectExtensionOptionsDecorator() {
 	suite.Require().NoError(err)
 	extOptsTxBldr.SetExtensionOptions(any)
 	theTx = suite.txBuilder.GetTx()
-	_, err = antehandler(suite.ctx, theTx, false)
+	_, err = antehandler(suite.ctx, theTx)
 	suite.Require().EqualError(err, "unknown extension options")
 }

@@ -3,6 +3,7 @@ package evmonlyapp
 import (
 	"encoding/binary"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -93,6 +94,18 @@ func TestEVMOnlyCursorNextBaseFeesLagsGasUseByTwoBlocks(t *testing.T) {
 	require.Equal(t, cursor.baseFees[0].ToBig(), cursor.baseFee())
 	require.Equal(t, cursor.baseFees[1].ToBig(), cursor.nextBaseFee())
 	require.Equal(t, cursor.baseFees[2].ToBig(), cursor.highestScheduledBaseFee())
+}
+
+// A block prepared ahead of its turn gets the base fee the cursor set for its height, and one past
+// the blocks the cursor sets a base fee for gets the last it set.
+func TestEVMOnlyCursorScheduledBaseFee(t *testing.T) {
+	cursor := evmOnlyCursor{
+		height:   10,
+		baseFees: evmOnlyBaseFees{*uint256.NewInt(100), *uint256.NewInt(200), *uint256.NewInt(300)},
+	}
+	for height, want := range map[int64]int64{10: 100, 11: 200, 12: 300, 13: 300} {
+		require.Equal(t, big.NewInt(want), cursor.scheduledBaseFee(height), "height %d", height)
+	}
 }
 
 // An update that would set a base fee below the minimum fee sets the minimum instead.

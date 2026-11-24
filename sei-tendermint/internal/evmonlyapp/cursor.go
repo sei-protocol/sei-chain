@@ -47,6 +47,13 @@ func (c evmOnlyCursor) nextBaseFee() *big.Int {
 	return c.baseFees[1].ToBig()
 }
 
+// scheduledBaseFee returns the base fee set for the block at height, or the nearest one set when
+// height is outside the blocks this cursor sets one for.
+func (c evmOnlyCursor) scheduledBaseFee(height int64) *big.Int {
+	i := min(max(height-c.height, 0), int64(len(c.baseFees)-1))
+	return c.baseFees[i].ToBig()
+}
+
 // highestScheduledBaseFee returns the highest base fee set for the blocks
 // after this one.
 func (c evmOnlyCursor) highestScheduledBaseFee() *big.Int {

@@ -1,11 +1,5 @@
 package types
 
-import (
-	"bytes"
-
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
-)
-
 // Iterator over all the keys with a certain prefix in ascending order
 func KVStorePrefixIterator(kvs KVStore, prefix []byte) Iterator {
 	return kvs.Iterator(prefix, PrefixEndBytes(prefix))
@@ -14,52 +8,6 @@ func KVStorePrefixIterator(kvs KVStore, prefix []byte) Iterator {
 // Iterator over all the keys with a certain prefix in descending order.
 func KVStoreReversePrefixIterator(kvs KVStore, prefix []byte) Iterator {
 	return kvs.ReverseIterator(prefix, PrefixEndBytes(prefix))
-}
-
-// DiffKVStores compares two KVstores and returns all the key/value pairs
-// that differ from one another. It also skips value comparison for a set of provided prefixes.
-func DiffKVStores(a KVStore, b KVStore, prefixesToSkip [][]byte) (kvAs, kvBs []kv.Pair) {
-	iterA := a.Iterator(nil, nil)
-
-	defer func() { _ = iterA.Close() }()
-
-	iterB := b.Iterator(nil, nil)
-
-	defer func() { _ = iterB.Close() }()
-
-	for {
-		if !iterA.Valid() && !iterB.Valid() {
-			return kvAs, kvBs
-		}
-
-		var kvA, kvB kv.Pair
-		if iterA.Valid() {
-			kvA = kv.Pair{Key: iterA.Key(), Value: iterA.Value()}
-
-			iterA.Next()
-		}
-
-		if iterB.Valid() {
-			kvB = kv.Pair{Key: iterB.Key(), Value: iterB.Value()}
-
-			iterB.Next()
-		}
-
-		compareValue := true
-
-		for _, prefix := range prefixesToSkip {
-			// Skip value comparison if we matched a prefix
-			if bytes.HasPrefix(kvA.Key, prefix) || bytes.HasPrefix(kvB.Key, prefix) {
-				compareValue = false
-				break
-			}
-		}
-
-		if compareValue && (!bytes.Equal(kvA.Key, kvB.Key) || !bytes.Equal(kvA.Value, kvB.Value)) {
-			kvAs = append(kvAs, kvA)
-			kvBs = append(kvBs, kvB)
-		}
-	}
 }
 
 // PrefixEndBytes returns the []byte that would end a

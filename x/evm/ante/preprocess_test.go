@@ -80,7 +80,7 @@ func TestPreprocessAssociatesSetCodeAuthorities(t *testing.T) {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.NoError(t, err)
 
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestPreprocessSkipsForeignChainSetCodeAuthority(t *testing.T) {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.NoError(t, err)
 
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	require.Nil(t, err)
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -221,7 +221,7 @@ func TestPreprocessAnteHandlerUnprotectedShouldFail(t *testing.T) {
 	}
 	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -247,7 +247,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes(), CustomMessage: prefixedMessage}
 	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	// not enough balance
@@ -257,7 +257,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(int64(ante.BalanceThreshold))))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	require.Nil(t, err)
@@ -266,7 +266,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, evmAddr, associated)
 
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	// already associated
@@ -294,12 +294,12 @@ func TestPreprocessAssociateTxWithWeiBalance(t *testing.T) {
 	require.Nil(t, err)
 	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
 	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	require.NotNil(t, err)
 	k.BankKeeper().AddWei(ctx, seiAddr, sdk.OneInt())
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	require.Nil(t, err)
@@ -330,7 +330,7 @@ func TestEVMAddressDecorator(t *testing.T) {
 	handler := ante.NewEVMAddressDecorator(k, k.AccountKeeper())
 	msg := banktypes.NewMsgSend(sender, recipient, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, privKey.PubKey(), 1, 1))
-	ctx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -381,7 +381,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	handler := ante.NewEVMAddressDecorator(k, k.AccountKeeper())
 
-	_, err := handler.AnteHandle(ctx, MockTxIncompatible{}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err := handler.AnteHandle(ctx, MockTxIncompatible{}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
@@ -392,7 +392,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	sender, _ := testkeeper.PrivateKeyToAddresses(privKey)
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, &secp256k1.PubKey{}, 1, 1)) // deliberately no pubkey set
 	msg := banktypes.NewMsgSend(sender, sender, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))   // to self to simplify
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 	// Since the handler logs the error but does not stop processing, we expect no error returned
@@ -400,7 +400,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, nil, 1, 1))              // deliberately no pubkey set
 	msg = banktypes.NewMsgSend(sender, sender, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt()))) // to self to simplify
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 
@@ -410,7 +410,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	// Prepare a SigVerifiableTx with a pubkey that fails to parse
 	brokenPubKey := &secp256k1.PubKey{Key: []byte{1, 2, 3}} // deliberately too short to be valid
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, brokenPubKey, 1, 1))
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		return ctx, nil
 	})
 

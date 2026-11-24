@@ -18,12 +18,12 @@ type mockAnteState struct {
 	call string
 }
 
-func (m *mockAnteState) regularAnteHandler(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+func (m *mockAnteState) regularAnteHandler(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 	m.call = "regular"
 	return ctx, nil
 }
 
-func (m *mockAnteState) evmAnteHandler(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+func (m *mockAnteState) evmAnteHandler(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 	m.call = "evm"
 	return ctx, nil
 }
@@ -56,12 +56,12 @@ func TestRouter(t *testing.T) {
 	evmMsg, _ := evmtypes.NewMsgEVMTransaction(&ethtx.LegacyTx{})
 	mockAnte := mockAnteState{}
 	router := ante.NewEVMRouterDecorator(mockAnte.regularAnteHandler, mockAnte.evmAnteHandler)
-	_, err := router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{bankMsg}}, false)
+	_, err := router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{bankMsg}})
 	require.Nil(t, err)
 	require.Equal(t, "regular", mockAnte.call)
-	_, err = router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{evmMsg}}, false)
+	_, err = router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{evmMsg}})
 	require.Nil(t, err)
 	require.Equal(t, "evm", mockAnte.call)
-	_, err = router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{evmMsg, bankMsg}}, false)
+	_, err = router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{evmMsg, bankMsg}})
 	require.NotNil(t, err)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -378,14 +379,15 @@ func buildGigaRouter(
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
-// BlockStore on app.
-func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+// BlockStore on app, with up to maxBlocksInFlight blocks in flight at once.
+func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager, maxBlocksInFlight int) *execution.Executor {
 	return execution.New(&execution.Config{
-		GenDoc:         genDoc,
-		App:            app,
-		Signer:         signer,
-		AppHashBuilder: manager.AppHashBuilder(),
-		BlockStore:     manager.BlockStore(),
+		GenDoc:            genDoc,
+		App:               app,
+		Signer:            signer,
+		AppHashBuilder:    manager.AppHashBuilder(),
+		BlockStore:        manager.BlockStore(),
+		MaxBlocksInFlight: maxBlocksInFlight,
 	})
 }
 
@@ -421,6 +423,12 @@ func openAutobahnStorageManager(
 	if err != nil {
 		return nil, err
 	}
+	if err := refusePendingRestore(directory); err != nil {
+		return nil, err
+	}
+	if err := removeStoppedImport(autobahnLayout(directory)); err != nil {
+		return nil, err
+	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
@@ -440,6 +448,35 @@ func openAutobahnStorageManager(
 		}
 	}
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// errPendingRestore is the error of a persistent state dir that holds a state sync restore marker.
+var errPendingRestore = errors.New("this build cannot start a node from a state sync import")
+
+// refusePendingRestore returns an error wrapping errPendingRestore when the persistent state dir
+// psd holds a state sync restore marker.
+func refusePendingRestore(psd string) error {
+	marker := p2p.RestoreMarkerFile(psd)
+	data, err := os.ReadFile(marker) //nolint:gosec // marker is under the configured persistent state dir.
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read the state sync restore marker: %w", err)
+	}
+	return fmt.Errorf("%s records a state sync import at height %s: %w", marker, strings.TrimSpace(string(data)), errPendingRestore)
+}
+
+// removeStoppedImport removes the staging dir of a state sync import that stopped before it wrote
+// the restore marker of layout.
+func removeStoppedImport(layout AutobahnLayout) (err error) {
+	// A running import holds this lock, so its staging dir stays.
+	lock, err := flatkv.LockRoot(layout.FlatKVDir)
+	if err != nil {
+		return fmt.Errorf("lock the FlatKV root (is a node or a state sync import running on this home?): %w", err)
+	}
+	defer func() { err = errors.Join(err, lock.Unlock()) }()
+	return RemoveImportStaging(layout)
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]

@@ -71,9 +71,8 @@ type Context struct {
 
 	traceSpanContext context.Context
 
-	isTracing    bool
-	isSimulation bool
-	storeTracer  gaskv.IStoreTracer
+	isTracing   bool
+	storeTracer gaskv.IStoreTracer
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -231,12 +230,6 @@ func (c Context) TraceSpanContext() context.Context {
 
 func (c Context) IsTracing() bool {
 	return c.isTracing
-}
-
-// IsSimulation reports whether the context is being run in transaction
-// simulation mode.
-func (c Context) IsSimulation() bool {
-	return c.isSimulation
 }
 
 func (c Context) StoreTracer() gaskv.IStoreTracer {
@@ -511,12 +504,6 @@ func (c Context) WithIsTracing(it bool) Context {
 	} else {
 		c.storeTracer = nil
 	}
-	return c
-}
-
-// WithIsSimulation sets the simulation flag on the context.
-func (c Context) WithIsSimulation(isSimulation bool) Context {
-	c.isSimulation = isSimulation
 	return c
 }
 

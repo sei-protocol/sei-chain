@@ -52,7 +52,7 @@ func (suite *AnteTestSuite) TestSetPubKey() {
 	spkd := ante.NewSetPubKeyDecorator(suite.app.AccountKeeper)
 	antehandler := sdk.ChainAnteDecorators(spkd)
 
-	ctx, err := antehandler(suite.ctx, tx, false)
+	ctx, err := antehandler(suite.ctx, tx)
 	require.NoError(err)
 
 	// Require that all accounts have pubkey set after Decorator runs
@@ -192,7 +192,7 @@ func (suite *AnteTestSuite) TestSigVerification() {
 			tx = suite.txBuilder.GetTx()
 		}
 
-		_, err = antehandler(suite.ctx, tx, false)
+		_, err = antehandler(suite.ctx, tx)
 		if tc.shouldErr {
 			suite.Require().NotNil(err, "TestCase %d: %s did not error as expected", i, tc.name)
 		} else {
@@ -288,7 +288,7 @@ func (suite *AnteTestSuite) TestSigVerification_ExplicitAmino() {
 		tx, err := suite.CreateTestTx(tc.privs, tc.accNums, tc.accSeqs, suite.ctx.ChainID())
 		suite.Require().NoError(err)
 
-		_, err = antehandler(suite.ctx, tx, false)
+		_, err = antehandler(suite.ctx, tx)
 		if tc.shouldErr {
 			suite.Require().NotNil(err, "TestCase %d: %s did not error as expected", i, tc.name)
 		} else {
@@ -355,7 +355,7 @@ func (suite *AnteTestSuite) runSigDecorators(params types.Params, _ bool, privs 
 
 	// Determine gas consumption of antehandler with default params
 	before := suite.ctx.GasMeter().GasConsumed()
-	ctx, err := antehandler(suite.ctx, tx, false)
+	ctx, err := antehandler(suite.ctx, tx)
 	after := ctx.GasMeter().GasConsumed()
 
 	return after - before, err
@@ -388,18 +388,17 @@ func (suite *AnteTestSuite) TestIncrementSequenceDecorator() {
 
 	testCases := []struct {
 		ctx         sdk.Context
-		simulate    bool
 		expectedSeq uint64
 	}{
-		{suite.ctx.WithIsReCheckTx(true), false, 1},
-		{suite.ctx.WithIsCheckTx(true).WithIsReCheckTx(false), false, 2},
-		{suite.ctx.WithIsReCheckTx(true), false, 3},
-		{suite.ctx.WithIsReCheckTx(true), false, 4},
-		{suite.ctx.WithIsReCheckTx(true), true, 5},
+		{suite.ctx.WithIsReCheckTx(true), 1},
+		{suite.ctx.WithIsCheckTx(true).WithIsReCheckTx(false), 2},
+		{suite.ctx.WithIsReCheckTx(true), 3},
+		{suite.ctx.WithIsReCheckTx(true), 4},
+		{suite.ctx.WithIsReCheckTx(true), 5},
 	}
 
 	for i, tc := range testCases {
-		_, err := antehandler(tc.ctx, tx, tc.simulate)
+		_, err := antehandler(tc.ctx, tx)
 		suite.Require().NoError(err, "unexpected error; tc #%d, %v", i, tc)
 		suite.Require().Equal(tc.expectedSeq, suite.app.AccountKeeper.GetAccount(suite.ctx, addr).GetSequence())
 	}

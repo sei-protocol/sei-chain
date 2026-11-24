@@ -11,12 +11,7 @@ import (
 )
 
 const (
-	// DefaultGasAdjustment is applied to gas estimates to avoid tx execution
-	// failures due to state changes that might occur between the tx simulation
-	// and the actual run.
-	DefaultGasAdjustment = 1.0
-	DefaultGasLimit      = 200000
-	GasFlagAuto          = "auto"
+	DefaultGasLimit = 200000
 
 	// DefaultKeyringBackend
 	DefaultKeyringBackend = keyring.BackendOS
@@ -47,7 +42,6 @@ const (
 	FlagChainID          = "chain-id"
 	FlagNode             = "node"
 	FlagHeight           = "height"
-	FlagGasAdjustment    = "gas-adjustment"
 	FlagFrom             = "from"
 	FlagName             = "name"
 	FlagAccountNumber    = "account-number"
@@ -106,9 +100,7 @@ func AddTxFlagsToCmd(cmd *cobra.Command) {
 	cmd.Flags().String(FlagGasPrices, "", "Gas prices in decimal format to determine the transaction fee (e.g. 0.1uatom)")
 	cmd.Flags().String(FlagNode, "tcp://localhost:26657", "<host>:<port> to tendermint rpc interface for this chain")
 	cmd.Flags().Bool(FlagUseLedger, false, "Use a connected Ledger device")
-	cmd.Flags().Float64(FlagGasAdjustment, DefaultGasAdjustment, "adjustment factor to be multiplied against the estimate returned by the tx simulation; if the gas limit is set manually this flag is ignored ")
 	cmd.Flags().StringP(FlagBroadcastMode, "b", BroadcastSync, "Transaction broadcasting mode (sync|async|block)")
-	cmd.Flags().Bool(FlagDryRun, false, "ignore the --gas flag and perform a simulation of a transaction, but don't broadcast it (when enabled, the local Keybase is not accessible)")
 	cmd.Flags().Bool(FlagGenerateOnly, false, "Build an unsigned transaction and write it to STDOUT (when enabled, the local Keybase only accessed when providing a key name)")
 	cmd.Flags().Bool(FlagOffline, false, "Offline mode (does not allow any online functionality")
 	cmd.Flags().BoolP(FlagSkipConfirmation, "y", false, "Skip tx broadcasting prompt confirmation")
@@ -116,9 +108,7 @@ func AddTxFlagsToCmd(cmd *cobra.Command) {
 	cmd.Flags().String(FlagSignMode, "", "Choose sign mode (direct|amino-json), this is an advanced feature")
 	cmd.Flags().Uint64(FlagTimeoutHeight, 0, "Set a block timeout height to prevent the tx from being committed past a certain height")
 	cmd.Flags().String(FlagFeeAccount, "", "Fee account pays fees for the transaction instead of deducting from the signer")
-
-	// --gas can accept integers and "auto"
-	cmd.Flags().String(FlagGas, "", fmt.Sprintf("gas limit to set per-transaction; set to %q to calculate sufficient gas automatically (default %d)", GasFlagAuto, DefaultGasLimit))
+	cmd.Flags().String(FlagGas, "", fmt.Sprintf("gas limit to set per-transaction (default %d)", DefaultGasLimit))
 
 	_ = cmd.MarkFlagRequired(FlagChainID)
 }
@@ -133,38 +123,15 @@ func AddPaginationFlagsToCmd(cmd *cobra.Command, query string) {
 	cmd.Flags().Bool(FlagReverse, false, "results are sorted in descending order")
 }
 
-// GasSetting encapsulates the possible values passed through the --gas flag.
-type GasSetting struct {
-	Simulate bool
-	Gas      uint64
-}
-
-func (v *GasSetting) String() string {
-	if v.Simulate {
-		return GasFlagAuto
+// ParseGasSetting parses a --gas value into a gas limit. An empty value is
+// DefaultGasLimit, and anything other than an unsigned integer is an error.
+func ParseGasSetting(gasStr string) (uint64, error) {
+	if gasStr == "" {
+		return DefaultGasLimit, nil
 	}
-
-	return strconv.FormatUint(v.Gas, 10)
-}
-
-// ParseGasSetting parses a string gas value. The value may either be 'auto',
-// which indicates a transaction should be executed in simulate mode to
-// automatically find a sufficient gas value, or a string integer. It returns an
-// error if a string integer is provided which cannot be parsed.
-func ParseGasSetting(gasStr string) (GasSetting, error) {
-	switch gasStr {
-	case "":
-		return GasSetting{false, DefaultGasLimit}, nil
-
-	case GasFlagAuto:
-		return GasSetting{true, 0}, nil
-
-	default:
-		gas, err := strconv.ParseUint(gasStr, 10, 64)
-		if err != nil {
-			return GasSetting{}, fmt.Errorf("gas must be either integer or %s", GasFlagAuto)
-		}
-
-		return GasSetting{false, gas}, nil
+	gas, err := strconv.ParseUint(gasStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("gas must be an integer, got %q", gasStr)
 	}
+	return gas, nil
 }
