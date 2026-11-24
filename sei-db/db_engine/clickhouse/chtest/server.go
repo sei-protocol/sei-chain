@@ -220,7 +220,7 @@ func freePort() (int, error) {
 }
 
 // serverConfig returns a server configuration that keeps all state under dir, listens
-// only on port over the native protocol, and caps memory for a shared CI machine.
+// only on port over the native protocol, and keeps its caches small.
 func serverConfig(dir string, port int) string {
 	return fmt.Sprintf(`<clickhouse>
     <logger>
@@ -234,7 +234,6 @@ func serverConfig(dir string, port int) string {
     <tmp_path>%[1]s/tmp/</tmp_path>
     <user_files_path>%[1]s/user_files/</user_files_path>
     <format_schema_path>%[1]s/format_schemas/</format_schema_path>
-    <max_server_memory_usage>2147483648</max_server_memory_usage>
     <mark_cache_size>268435456</mark_cache_size>
     <shutdown_wait_unfinished>0</shutdown_wait_unfinished>
     <users>
