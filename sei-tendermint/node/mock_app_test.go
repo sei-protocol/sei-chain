@@ -526,7 +526,7 @@ func TestABCINodeIgnoresMockAppSetting(t *testing.T) {
 
 	env := node.RPCEnvironment()
 	require.True(t, env.App.IsPresent())
-	require.False(t, env.EVM.IsPresent())
+	require.False(t, node.gigaRPCEnv.IsPresent())
 }
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {

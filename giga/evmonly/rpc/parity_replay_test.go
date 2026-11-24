@@ -143,9 +143,7 @@ func rawTxs(block parity.Block) [][]byte {
 	return txs
 }
 
-// consensusBlock returns block as the consensus layer would hand it to the
-// EVM-only RPC, carrying v2's reported values in the header fields the RPC
-// reads directly.
+// consensusBlock returns the block fields supplied by Autobahn to the EVM-only RPC.
 func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 	header := block.Header
 	txs := make(tmtypes.Txs, len(block.Txs))
@@ -156,13 +154,8 @@ func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 		BlockID: tmtypes.BlockID{Hash: header.Hash.Bytes()},
 		Block: &tmtypes.Block{
 			Header: tmtypes.Header{
-				Height:          int64(header.Number), //nolint:gosec // fixture heights fit int64.
-				Time:            header.Time,
-				LastBlockID:     tmtypes.BlockID{Hash: header.ParentHash.Bytes()},
-				AppHash:         header.StateRoot.Bytes(),
-				ProposerAddress: header.Miner.Bytes(),
-				DataHash:        header.TransactionsRoot.Bytes(),
-				LastResultsHash: header.ReceiptsRoot.Bytes(),
+				Height: int64(header.Number), //nolint:gosec // fixture heights fit int64.
+				Time:   header.Time,
 			},
 			Data:       tmtypes.Data{Txs: txs},
 			LastCommit: &tmtypes.Commit{Height: int64(header.Number) - 1}, //nolint:gosec // fixture heights fit int64.
@@ -170,7 +163,7 @@ func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 	}
 }
 
-func (b *replayBackend) Block(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+func (b *replayBackend) rpcBlock(req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 	if req.Height == nil {
 		return b.blocks[len(b.blocks)-1], nil
 	}
@@ -187,15 +180,28 @@ func (b *replayBackend) Block(_ context.Context, req *coretypes.RequestBlockInfo
 	return b.blocks[height-first], nil
 }
 
-func (b *replayBackend) BlockByHash(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+func (b *replayBackend) rpcBlockByHash(req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 	if block, ok := b.byHash[common.BytesToHash(req.Hash)]; ok {
 		return block, nil
 	}
 	return &coretypes.ResultBlock{}, nil
 }
 
-func (*replayBackend) BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	return nil, errNotReplayed
+func (*replayBackend) BroadcastTx(context.Context, tmtypes.Tx) error { return errNotReplayed }
+
+func (b *replayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+	req := &coretypes.RequestBlockInfo{}
+	if h, ok := height.Get(); ok {
+		value := coretypes.Int64(h)
+		req.Height = &value
+	}
+	result, err := b.rpcBlock(req)
+	return nativeTestBlock(result, err)
+}
+
+func (b *replayBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {
+	result, err := b.rpcBlockByHash(&coretypes.RequestBlockByHash{Hash: hash.Bytes()})
+	return optionalTestBlock(result, err)
 }
 
 func (b *replayBackend) EvmBalance(address common.Address) uint256.Int {

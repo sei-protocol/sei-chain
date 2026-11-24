@@ -14,7 +14,6 @@ import (
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -111,11 +110,11 @@ func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header abevm.BlockRef
 	return abevm.NewStateHandle(&testStateDB{}, func() {}), nil
 }
 
-func TestEVMEnvironmentServesTheApplication(t *testing.T) {
-	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
+func TestGigaEnvironmentServesTheApplication(t *testing.T) {
+	// Setup: an GigaEnvironment around a proxied EVMApplication, as node startup builds it.
 	app := &testEVMApp{}
 	evm := abevm.NewProxy(app)
-	env := &EVMEnvironment{Environment: &Environment{EVM: utils.Some(evm)}, Proxy: evm}
+	env := &GigaEnvironment{Proxy: evm}
 	msg := &ethcore.Message{GasLimit: 21_000}
 
 	t.Run("call", func(t *testing.T) {

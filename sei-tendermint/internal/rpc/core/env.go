@@ -13,10 +13,8 @@ import (
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
-	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -75,7 +73,6 @@ type ConsensusState interface {
 type Environment struct {
 	// external, thread safe interfaces
 	App utils.Option[*proxy.Proxy]
-	EVM utils.Option[*abevm.Proxy]
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
@@ -90,8 +87,6 @@ type Environment struct {
 	NodeInfo    types.NodeInfo
 
 	Router *p2p.Router
-	// Executor runs the Autobahn blocks. None when Autobahn is off.
-	Executor utils.Option[*execution.Executor]
 
 	// objects
 	PubKey           utils.Option[crypto.PubKey]
@@ -137,22 +132,6 @@ func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 	}
 
 	return page, nil
-}
-
-// gigaRouter returns the GigaRouter when one is wired into env.Router (which
-// is the definition of "Autobahn is active for this Environment"). Returns
-// None when running under CometBFT or when the Router itself isn't set.
-// Handlers that produce different shapes under Autobahn just branch on the
-// returned Option:
-//
-//	if r, ok := env.gigaRouter().Get(); ok {
-//	    // Autobahn path, r is the router
-//	}
-func (env *Environment) gigaRouter() utils.Option[p2p.GigaRouter] {
-	if env.Router == nil { // inspect mode
-		return utils.None[p2p.GigaRouter]()
-	}
-	return env.Router.Giga()
 }
 
 func (env *Environment) validatePerPage(perPagePtr *int) int {
@@ -211,22 +190,30 @@ func validateSkipCount(page, perPage int) int {
 
 // latestHeight can be either latest committed or uncommitted (+1) height.
 func (env *Environment) getHeight(latestHeight int64, heightPtr *int64) (int64, error) {
+	height, err := resolveHeight(latestHeight, heightPtr)
+	if err != nil {
+		return 0, err
+	}
 	if heightPtr != nil {
-		height := *heightPtr
-		if height <= 0 {
-			return 0, fmt.Errorf("%w (requested height: %d)", coretypes.ErrZeroOrNegativeHeight, height)
-		}
-		if height > latestHeight {
-			return 0, fmt.Errorf("%w (requested height: %d, blockchain height: %d)",
-				coretypes.ErrHeightExceedsChainHead, height, latestHeight)
-		}
-		base := env.BlockStore.Base()
-		if height < base {
+		if base := env.BlockStore.Base(); height < base {
 			return 0, coretypes.WrapErrHeightNotAvailable(height, utils.Some(base))
 		}
-		return height, nil
 	}
-	return latestHeight, nil
+	return height, nil
+}
+
+func resolveHeight(latestHeight int64, heightPtr *int64) (int64, error) {
+	if heightPtr == nil {
+		return latestHeight, nil
+	}
+	height := *heightPtr
+	if height <= 0 {
+		return 0, fmt.Errorf("%w (requested height: %d)", coretypes.ErrZeroOrNegativeHeight, height)
+	}
+	if height > latestHeight {
+		return 0, fmt.Errorf("%w (requested height: %d, blockchain height: %d)", coretypes.ErrHeightExceedsChainHead, height, latestHeight)
+	}
+	return height, nil
 }
 
 func (env *Environment) latestUncommittedHeight() int64 {
@@ -439,7 +426,6 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 	}
 
 	return listeners, nil
-
 }
 
 func (env *Environment) abciApplication() *proxy.Proxy {
@@ -447,8 +433,5 @@ func (env *Environment) abciApplication() *proxy.Proxy {
 }
 
 func (env *Environment) lastBlockHeight() int64 {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.LastBlockHeight()
-	}
 	return env.abciApplication().LastBlockHeight()
 }

@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 
 	"golang.org/x/sync/semaphore"
@@ -13,9 +12,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -86,25 +83,9 @@ func checkChainID(tx *ethtypes.Transaction, chainID *big.Int) error {
 	return nil
 }
 
-// broadcast submits input to the local mempool, returning a CheckTx rejection as an error.
+// broadcast submits input to the local mempool.
 func (api *sendAPI) broadcast(ctx context.Context, input hexutil.Bytes) error {
-	result, err := api.backend.BroadcastTx(ctx, &coretypes.RequestBroadcastTx{
-		Tx: append(tmtypes.Tx(nil), input...),
-	})
-	if err != nil {
-		return err
-	}
-	if result == nil {
-		return errors.New("missing broadcast response")
-	}
-	if result.Code != abci.CodeTypeOK {
-		message := result.Log
-		if message == "" {
-			message = fmt.Sprintf("transaction rejected with code %d", result.Code)
-		}
-		return errors.New(message)
-	}
-	return nil
+	return api.backend.BroadcastTx(ctx, append(tmtypes.Tx(nil), input...))
 }
 
 // shardProxy returns the RPC client of the validator owning tx's sender shard,

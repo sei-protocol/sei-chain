@@ -20,6 +20,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -39,7 +40,7 @@ type testBackend struct {
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
-	broadcast        func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	broadcast        func(context.Context, tmtypes.Tx) error
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
 	chainConfig      func() *params.ChainConfig
 	chainID          func() uint64
@@ -94,16 +95,48 @@ func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks],
 	return b.executedBlocks()
 }
 
-func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	return b.broadcast(ctx, req)
+func (b *testBackend) BroadcastTx(ctx context.Context, tx tmtypes.Tx) error {
+	return b.broadcast(ctx, tx)
 }
 
-func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-	return b.block(ctx, req)
+func (b *testBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+	req := &coretypes.RequestBlockInfo{}
+	if h, ok := height.Get(); ok {
+		value := coretypes.Int64(h)
+		req.Height = &value
+	}
+	result, err := b.block(ctx, req)
+	return nativeTestBlock(result, err)
 }
 
-func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-	return b.blockByHash(ctx, req)
+func (b *testBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {
+	result, err := b.blockByHash(ctx, &coretypes.RequestBlockByHash{Hash: hash.Bytes()})
+	return optionalTestBlock(result, err)
+}
+
+func nativeTestBlock(result *coretypes.ResultBlock, err error) (*abevm.EvmBlock, error) {
+	if result == nil || result.Block == nil {
+		return nil, err
+	}
+	txs := make([][]byte, len(result.Block.Txs))
+	for i, tx := range result.Block.Txs {
+		txs[i] = tx
+	}
+	return &abevm.EvmBlock{
+		Hash:    common.BytesToHash(result.BlockID.Hash),
+		Height:  utils.Clamp[atypes.RoadHeight](result.Block.Height),
+		Time:    result.Block.Time,
+		Txs:     txs,
+		ChainID: result.Block.ChainID,
+	}, err
+}
+
+func optionalTestBlock(result *coretypes.ResultBlock, err error) (utils.Option[*abevm.EvmBlock], error) {
+	block, err := nativeTestBlock(result, err)
+	if err != nil || block == nil {
+		return utils.None[*abevm.EvmBlock](), err
+	}
+	return utils.Some(block), nil
 }
 
 func (b *testBackend) EvmBalance(address common.Address) uint256.Int {

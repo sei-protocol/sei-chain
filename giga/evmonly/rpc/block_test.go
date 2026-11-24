@@ -317,9 +317,7 @@ func TestEncodeBlockFullTxIncludesDecodedTransactionsInOrder(t *testing.T) {
 	require.Equal(t, (*hexutil.Big)(big.NewInt(0)), got["totalDifficulty"])
 }
 
-// TestEncodeBlockDocumentedHeaderGaps pins the header fields
-// gigaRouterCommon.translateGlobalBlock never populates, confirmed by reading
-// that translation rather than assumed.
+// TestEncodeBlockDocumentedHeaderGaps pins zero-valued header fields absent from EvmBlock.
 func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {

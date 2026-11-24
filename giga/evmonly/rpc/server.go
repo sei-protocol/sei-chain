@@ -27,7 +27,7 @@ import (
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const shutdownWait = 5 * time.Second
@@ -48,9 +48,9 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 // EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
 // is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {
-	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
-	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
-	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	BlockByNumber(context.Context, utils.Option[int64]) (*abevm.EvmBlock, error)
+	BlockByHash(context.Context, common.Hash) (utils.Option[*abevm.EvmBlock], error)
+	BroadcastTx(context.Context, tmtypes.Tx) error
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int

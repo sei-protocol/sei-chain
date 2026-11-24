@@ -63,3 +63,12 @@ func (tx EvmTx) Sender() common.Address { return tx.sender }
 
 // Transaction returns the underlying Ethereum transaction for read-only use.
 func (tx EvmTx) Transaction() *ethtypes.Transaction { return tx.tx }
+
+// EvmBlock contains finalized block data used by EVM RPCs.
+type EvmBlock struct {
+	Hash    common.Hash
+	Height  types.RoadHeight
+	Time    time.Time
+	Txs     [][]byte
+	ChainID string
+}

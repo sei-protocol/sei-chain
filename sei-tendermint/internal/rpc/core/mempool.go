@@ -11,54 +11,13 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// EvmProxy returns the EVM RPC client of the autobahn validator that owns the
-// sender shard, or None if the sender maps to the local validator (handle
-// locally) or autobahn isn't configured.
-func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	if r, ok := env.gigaRouter().Get(); ok {
-		return r.EvmProxy(sender)
-	}
-	return utils.None[*ethrpc.Client]()
-}
-
-// EvmProxyEnabled reports whether EvmProxy can return a client for any sender.
-func (env *Environment) EvmProxyEnabled() bool {
-	if r, ok := env.gigaRouter().Get(); ok {
-		return r.EvmProxyEnabled()
-	}
-	return false
-}
-
-// RememberEvmSender records a verified sender for local admission through Autobahn.
-func (env *Environment) RememberEvmSender(hash common.Hash, sender common.Address) {
-	if r, ok := env.gigaRouter().Get(); ok {
-		r.RememberEvmSender(hash, sender)
-	}
-}
-
-// ForgetEvmSender removes a transaction's cached sender through Autobahn.
-func (env *Environment) ForgetEvmSender(hash common.Hash) {
-	if r, ok := env.gigaRouter().Get(); ok {
-		r.ForgetEvmSender(hash)
-	}
-}
-
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
-	if giga, ok := env.gigaRouter().Get(); ok {
-		if v, ok := giga.Mempool().Get(); ok {
-			return v.EvmTxByHash(hash)
-		}
-		// Fullnode: no local mempool. The tx (if it exists locally at all)
-		// would be at the shard owner; we can't easily query it from here.
-		return nil, false
-	}
 	if mp, ok := env.Mempool.Get(); ok {
 		return mp.EvmTxByHash(hash)
 	}
@@ -77,16 +36,7 @@ func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.Req
 	if err := env.requireWritable(); err != nil {
 		return nil, err
 	}
-	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.Mempool().Get()
-		if !ok {
-			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
-		}
-		if _, err := v.TryInsertTx(ctx, req.Tx); err != nil {
-			return nil, err
-		}
-		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
-	}
+
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -108,24 +58,7 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 	if err := env.requireWritable(); err != nil {
 		return nil, err
 	}
-	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.Mempool().Get()
-		if !ok {
-			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
-		}
-		_, err := v.InsertTx(ctx, req.Tx)
-		r, err := evmAdmissionStatus(err)
-		if err != nil {
-			return nil, err
-		}
-		return &coretypes.ResultBroadcastTx{
-			Code:      r.Code,
-			Data:      r.Data,
-			Codespace: r.Codespace,
-			Hash:      req.Tx.Hash().Bytes(),
-			Log:       r.Log,
-		}, nil
-	}
+
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -143,19 +76,9 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 	}, nil
 }
 
-// ErrBroadcastTxCommitUnsupported is returned by BroadcastTxCommit when Autobahn
-// is active. The transaction is not submitted; use BroadcastTx (CheckTx) and
-// confirm inclusion from committed state.
-var ErrBroadcastTxCommitUnsupported = errors.New("broadcast_tx_commit is not supported on Autobahn; use broadcast_tx_sync")
-
 // BroadcastTxCommit returns the CheckTx and DeliverTx results after inclusion.
-// Under Autobahn it returns ErrBroadcastTxCommitUnsupported without submitting
-// the transaction.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
-	if env.gigaRouter().IsPresent() {
-		return nil, ErrBroadcastTxCommitUnsupported
-	}
 	if err := env.requireWritable(); err != nil {
 		return nil, err
 	}
@@ -234,37 +157,6 @@ func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *c
 // UnconfirmedTxs gets unconfirmed transactions from the mempool in order of priority
 // More: https://docs.tendermint.com/master/rpc/#/Info/unconfirmed_txs
 func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.RequestUnconfirmedTxs) (*coretypes.ResultUnconfirmedTxs, error) {
-	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.Mempool().Get()
-		if !ok {
-			// Fullnode: no mempool; return empty (no pending txs locally).
-			return &coretypes.ResultUnconfirmedTxs{}, nil
-		}
-		// NOTE: this pagination seems to be useless, given that the mempool content is
-		// constantly changing and we don't have any snapshot marker in the request.
-		rawTxs := v.UnconfirmedTxs()
-		perPage := env.validatePerPage(req.PerPage.IntPtr())
-		page, err := validatePage(req.Page.IntPtr(), perPage, len(rawTxs))
-		if err != nil {
-			return nil, err
-		}
-		skipCount := validateSkipCount(page, perPage)
-
-		sizeBytes := 0
-		for _, tx := range rawTxs {
-			sizeBytes += len(tx)
-		}
-		var txs types.Txs
-		for _, tx := range rawTxs[skipCount:min(skipCount+perPage, len(rawTxs))] {
-			txs = append(txs, tx)
-		}
-		return &coretypes.ResultUnconfirmedTxs{
-			Count:      len(txs),
-			Total:      len(rawTxs),
-			TotalBytes: int64(sizeBytes),
-			Txs:        txs,
-		}, nil
-	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -294,22 +186,6 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 // NumUnconfirmedTxs gets number of unconfirmed transactions.
 // More: https://docs.tendermint.com/master/rpc/#/Info/num_unconfirmed_txs
 func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
-	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.Mempool().Get()
-		if !ok {
-			return &coretypes.ResultUnconfirmedTxs{}, nil
-		}
-		rawTxs := v.UnconfirmedTxs()
-		sizeBytes := 0
-		for _, tx := range rawTxs {
-			sizeBytes += len(tx)
-		}
-		return &coretypes.ResultUnconfirmedTxs{
-			Count:      len(rawTxs),
-			Total:      len(rawTxs),
-			TotalBytes: int64(sizeBytes),
-		}, nil
-	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -322,27 +198,9 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 	}, nil
 }
 
-// EvmTransactionCount returns the address transaction count (nonce) from the
-// current committed EVM state.
+// EvmTransactionCount returns the committed application nonce for address.
 func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
-	if evm, ok := env.EVM.Get(); ok {
-		return evm.EvmNonce(address)
-	}
 	return env.abciApplication().EvmNonce(address)
-}
-
-// EvmPendingNonce returns the nonce the local mempool admits next for address. It returns None
-// when this node has no local mempool, as a fullnode does not.
-func (env *Environment) EvmPendingNonce(address common.Address) utils.Option[uint64] {
-	giga, ok := env.gigaRouter().Get()
-	if !ok {
-		return utils.None[uint64]()
-	}
-	mp, ok := giga.Mempool().Get()
-	if !ok {
-		return utils.None[uint64]()
-	}
-	return utils.Some(mp.EvmNextPendingNonce(address))
 }
 
 // EvmBlockNumber returns the height of the most recently committed block.
@@ -363,14 +221,6 @@ func (env *Environment) GenesisInitialHeight() int64 {
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
 func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheckTx) (*coretypes.ResultCheckTx, error) {
-	if router, ok := env.gigaRouter().Get(); ok {
-		tx, res, err := router.CheckTx(req.Tx)
-		response, err := evmAdmissionResponse(tx, res, err)
-		if err != nil {
-			return nil, err
-		}
-		return &coretypes.ResultCheckTx{ResponseCheckTx: response}, nil
-	}
 	res, err := env.abciApplication().CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: req.Tx})
 	if err != nil {
 		return nil, err
@@ -378,26 +228,7 @@ func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheck
 	return &coretypes.ResultCheckTx{ResponseCheckTx: *res.ResponseCheckTx}, nil
 }
 
-// evmAdmissionStatus converts admission errors to public ABCI status fields.
-func evmAdmissionStatus(err error) (abci.ResponseCheckTx, error) {
-	if errors.Is(err, abevm.ErrTxRejected) {
-		return abci.ResponseCheckTx{Code: 1, Log: err.Error()}, nil
-	}
-	return abci.ResponseCheckTx{}, err
-}
-
-// evmAdmissionResponse combines transaction gas data with app admission metadata.
-func evmAdmissionResponse(tx abevm.EvmTx, admitted abevm.AdmittedTx, err error) (abci.ResponseCheckTx, error) {
-	status, err := evmAdmissionStatus(err)
-	if err != nil || status.Code != abci.CodeTypeOK {
-		return status, err
-	}
-	gasWanted, wantedOK := utils.SafeCast[int64](tx.Gas())
-	gasEstimated, estimatedOK := utils.SafeCast[int64](admitted.GasEstimated)
-	if !wantedOK || !estimatedOK {
-		return abci.ResponseCheckTx{}, fmt.Errorf("EVM admission gas exceeds int64")
-	}
-	status.GasWanted = gasWanted
-	status.GasEstimated = gasEstimated
-	return status, nil
+// EvmProxy returns None because CometBFT nodes admit transactions locally.
+func (env *Environment) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
+	return utils.None[*ethrpc.Client]()
 }

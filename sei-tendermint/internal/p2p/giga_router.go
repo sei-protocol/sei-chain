@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -80,8 +79,8 @@ type GigaRouter interface {
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
 	LastCommittedHeight() int64
 	MaxGasEstimatedPerBlock() uint64
-	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error)
-	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
+	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*abevm.EvmBlock, error)
+	BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool

@@ -122,11 +122,10 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// MaxGasEstimatedPerBlock reflects the genesis consensus param.
 	require.Equal(t, int64(0), router.LastCommittedHeight())
 	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
-	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
-	// same shape the validator path returns — no sentinel mode-check.
+	// BlockByHash returns None for an unknown hash on both router roles.
 	rb, err := router.BlockByHash(t.Context(), common.Hash{})
 	require.NoError(t, err)
-	require.Nil(t, rb.Block)
+	require.False(t, rb.IsPresent())
 }
 
 func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) {

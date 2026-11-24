@@ -31,10 +31,6 @@ func (env *Environment) ABCIQuery(ctx context.Context, req *coretypes.RequestABC
 // ABCIInfo gets some info about the application.
 // More: https://docs.tendermint.com/master/rpc/#/ABCI/abci_info
 func (env *Environment) ABCIInfo(ctx context.Context) (*coretypes.ResultABCIInfo, error) {
-	if evm, ok := env.EVM.Get(); ok {
-		r := evm.Info()
-		return &coretypes.ResultABCIInfo{Response: abci.ResponseInfo{Data: r.Data, Version: r.Version, AppVersion: r.AppVersion, LastBlockHeight: r.LastBlockHeight, LastBlockAppHash: r.LastBlockAppHash, MinimumGasPrices: r.MinimumGasPrices}}, nil
-	}
 	resInfo := env.abciApplication().Info()
 	return &coretypes.ResultABCIInfo{Response: *resInfo}, nil
 }

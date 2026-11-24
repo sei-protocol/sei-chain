@@ -21,16 +21,16 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestSendRawTransaction(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	var broadcastRaw []byte
 	backend := &testBackend{
-		broadcast: func(_ context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-			broadcastRaw = append([]byte(nil), req.Tx...)
-			return &coretypes.ResultBroadcastTx{}, nil
+		broadcast: func(_ context.Context, req tmtypes.Tx) error {
+			broadcastRaw = append([]byte(nil), req...)
+			return nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
@@ -57,9 +57,9 @@ func TestSendRawTransaction(t *testing.T) {
 
 func TestRejectsInvalidTransaction(t *testing.T) {
 	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+		broadcast: func(context.Context, tmtypes.Tx) error {
 			t.Fatal("invalid transaction reached broadcaster")
-			return nil, nil
+			return nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
@@ -70,8 +70,8 @@ func TestRejectsInvalidTransaction(t *testing.T) {
 func TestReturnsCheckTxRejection(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-			return &coretypes.ResultBroadcastTx{Code: 1, Log: "bad nonce"}, nil
+		broadcast: func(context.Context, tmtypes.Tx) error {
+			return errors.New("bad nonce")
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
@@ -83,8 +83,8 @@ func TestSendRawTransactionBroadcastError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("mempool full")
 	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-			return nil, want
+		broadcast: func(context.Context, tmtypes.Tx) error {
+			return want
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
@@ -94,38 +94,6 @@ func TestSendRawTransactionBroadcastError(t *testing.T) {
 
 	// Verify: that error is returned as-is.
 	require.ErrorIs(t, err, want)
-}
-
-func TestSendRawTransactionMissingBroadcastResponse(t *testing.T) {
-	_, raw := testSignedTransaction(t)
-	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-			return nil, nil
-		},
-		proxy: utils.None[*ethrpc.Client](),
-	}
-
-	// Test: BroadcastTx returns a nil result without error.
-	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-
-	// Verify: treated as a missing response, not a success.
-	require.EqualError(t, err, "missing broadcast response")
-}
-
-func TestSendRawTransactionRejectedWithoutLog(t *testing.T) {
-	_, raw := testSignedTransaction(t)
-	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-			return &coretypes.ResultBroadcastTx{Code: 7}, nil
-		},
-		proxy: utils.None[*ethrpc.Client](),
-	}
-
-	// Test: CheckTx rejection with an empty log.
-	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
-
-	// Verify: the numeric code is used as the message.
-	require.EqualError(t, err, "transaction rejected with code 7")
 }
 
 // The sender recovered for a locally handled transaction stays remembered only if the
@@ -142,8 +110,11 @@ func TestSendRawTransactionKeepsTheSenderOfAnAdmittedTxOnly(t *testing.T) {
 		{code: 1, want: map[common.Hash]common.Address{}},
 	} {
 		backend := &testBackend{
-			broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-				return &coretypes.ResultBroadcastTx{Code: tc.code}, nil
+			broadcast: func(context.Context, tmtypes.Tx) error {
+				if tc.code != 0 {
+					return errors.New("rejected")
+				}
+				return nil
 			},
 			chainID:      func() uint64 { return 713700 },
 			proxy:        utils.None[*ethrpc.Client](),
@@ -167,9 +138,9 @@ func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(remoteClient.Close)
 	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+		broadcast: func(context.Context, tmtypes.Tx) error {
 			t.Fatal("failed proxy reached local broadcaster")
-			return nil, nil
+			return nil
 		},
 		chainID: func() uint64 { return 713700 },
 		proxy:   utils.Some(remoteClient),
@@ -198,9 +169,9 @@ func TestRejectsUnprotectedTransaction(t *testing.T) {
 	for name, proxyEnabled := range map[string]bool{"local": false, "proxied": true} {
 		t.Run(name, func(t *testing.T) {
 			backend := &testBackend{
-				broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+				broadcast: func(context.Context, tmtypes.Tx) error {
 					t.Fatal("unprotected transaction reached local broadcaster")
-					return nil, nil
+					return nil
 				},
 				chainID:      func() uint64 { return 713700 },
 				proxyEnabled: proxyEnabled,
@@ -232,9 +203,9 @@ func TestRejectsForeignChainTransaction(t *testing.T) {
 		for _, proxyEnabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s proxy %t", name, proxyEnabled), func(t *testing.T) {
 				backend := &testBackend{
-					broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+					broadcast: func(context.Context, tmtypes.Tx) error {
 						t.Fatal("foreign chain transaction reached local broadcaster")
-						return nil, nil
+						return nil
 					},
 					chainID:      func() uint64 { return 713700 },
 					proxyEnabled: proxyEnabled,
@@ -279,9 +250,9 @@ func TestProxiesTransactionToShardOwner(t *testing.T) {
 	t.Cleanup(remoteClient.Close)
 
 	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+		broadcast: func(context.Context, tmtypes.Tx) error {
 			t.Fatal("proxied transaction reached local broadcaster")
-			return nil, nil
+			return nil
 		},
 		chainID: func() uint64 { return 713700 },
 		proxy:   utils.Some(remoteClient),
@@ -320,8 +291,8 @@ func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Trans
 func TestSkipsShardLookupWithoutProxies(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-			return &coretypes.ResultBroadcastTx{}, nil
+		broadcast: func(context.Context, tmtypes.Tx) error {
+			return nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
@@ -338,13 +309,13 @@ func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(gate) }) }
 	backend := &testBackend{
-		broadcast: func(ctx context.Context, _ *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+		broadcast: func(ctx context.Context, _ tmtypes.Tx) error {
 			started <- struct{}{}
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return ctx.Err()
 			case <-gate:
-				return &coretypes.ResultBroadcastTx{}, nil
+				return nil
 			}
 		},
 		proxy: utils.None[*ethrpc.Client](),
@@ -394,11 +365,11 @@ func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("broadcast failed")
 	backend := &testBackend{
-		broadcast: func(ctx context.Context, _ *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+		broadcast: func(ctx context.Context, _ tmtypes.Tx) error {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return err
 			}
-			return nil, want
+			return want
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
@@ -419,9 +390,9 @@ func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	var broadcasts atomic.Int64
 	backend := &testBackend{
-		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+		broadcast: func(context.Context, tmtypes.Tx) error {
 			broadcasts.Add(1)
-			return &coretypes.ResultBroadcastTx{}, nil
+			return nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}

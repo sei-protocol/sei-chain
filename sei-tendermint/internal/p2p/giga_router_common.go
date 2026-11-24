@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -140,66 +139,36 @@ func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
 	return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
 }
 
-// BlockByNumber returns the finalized SuperBlock at road n as a CometBFT ResultBlock.
-// Its hash, height, timestamp, and transactions match the block passed to FinalizeBlock.
-func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error) {
-	gb, err := r.data.SuperBlock(ctx, n)
+// BlockByNumber returns the finalized EVM block at road n.
+func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*abevm.EvmBlock, error) {
+	block, err := r.data.SuperBlock(ctx, n)
 	if err != nil {
-		// Map Autobahn's pruning sentinel to CometBFT's, so callers
-		// (env.Block, evmrpc, ops tooling) get the same error type they
-		// already handle on the CometBFT path. base is None because the
-		// active lower bound lives in BlockStore's prune watermark (internal
-		// to the store); both call sites format through the same helper.
+		// Keep the RPC pruning sentinel for callers that distinguish pruned heights.
+		// The active lower bound lives in the block store's prune watermark.
 		if errors.Is(err, atypes.ErrPruned) {
 			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
 		}
 		return nil, fmt.Errorf("data.SuperBlock(%v): %w", n, err)
 	}
-	return r.translateSuperBlock(gb), nil
+	return r.evmBlock(block), nil
 }
 
-// BlockByHash returns a finalized SuperBlock as a CometBFT ResultBlock.
-// Unknown hashes return an empty ResultBlock with no error.
-func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
-	opt, err := r.data.SuperBlockByHash(atypes.RoadBlockHeaderHash(hash))
+// BlockByHash returns the finalized EVM block with hash, or None when unknown.
+func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {
+	block, err := r.data.SuperBlockByHash(atypes.RoadBlockHeaderHash(hash))
 	if err != nil {
-		return nil, fmt.Errorf("data.SuperBlockByHash: %w", err)
+		return utils.None[*abevm.EvmBlock](), fmt.Errorf("data.SuperBlockByHash: %w", err)
 	}
-	gb, ok := opt.Get()
-	if !ok {
-		return &coretypes.ResultBlock{}, nil
-	}
-	return r.translateSuperBlock(gb), nil
+	return block.Map(r.evmBlock), nil
 }
 
-// translateSuperBlock converts a SuperBlock to the CometBFT result used by block RPCs.
-// LastCommit has empty Signatures, matching executeBlock's empty CommitInfo.
-func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes.ResultBlock {
-	srcTxs := gb.Txs
-	tmTxs := make(types.Txs, len(srcTxs))
-	for i, tx := range srcTxs {
-		tmTxs[i] = tx
-	}
-	h := common.Hash(gb.Hash)
-	return &coretypes.ResultBlock{
-		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
-		Block: &types.Block{
-			Header: types.Header{
-				ChainID: r.cfg.GenDoc.ChainID,
-				// Clamp accepts any constraints.Integer for From, so
-				// gb.Height (a typed uint64) goes in directly — no
-				// intermediate uint64() conversion needed.
-				Height: utils.Clamp[int64](gb.Height),
-				Time:   gb.Timestamp,
-			},
-			Data: types.Data{Txs: tmTxs},
-			// Autobahn does not feed per-validator votes into the app. Filling N
-			// absent signatures would make trace replay's BeginBlock bump
-			// missed-block counters and diverge from production. ToReqBeginBlock
-			// skips the per-validator loop when Signatures is empty, so empty
-			// Votes flow into distribution/slashing on both paths.
-			LastCommit: &types.Commit{},
-		},
+func (r *gigaRouterCommon) evmBlock(block *atypes.SuperBlock) *abevm.EvmBlock {
+	return &abevm.EvmBlock{
+		Hash:    common.Hash(block.Hash),
+		Height:  block.Height,
+		Time:    block.Timestamp,
+		Txs:     block.Txs,
+		ChainID: r.cfg.GenDoc.ChainID,
 	}
 }
 

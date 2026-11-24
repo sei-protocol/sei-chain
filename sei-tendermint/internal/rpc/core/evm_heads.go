@@ -12,7 +12,7 @@ import (
 var ErrNewHeadsUnavailable = errors.New("newHeads subscriptions require Autobahn execution")
 
 // ExecutedBlocks returns the Autobahn executor's executed-block watch.
-func (env *Environment) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
+func (env *GigaEnvironment) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 	executor, ok := env.Executor.Get()
 	if !ok {
 		return utils.AtomicRecv[atypes.ExecutedBlocks]{}, ErrNewHeadsUnavailable

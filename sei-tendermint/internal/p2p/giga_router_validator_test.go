@@ -206,59 +206,31 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("router[%v].BlockByNumber(executed=%v): %w", i, executed.Latest().Height, err)
 			}
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
-			// Autobahn branch in env.Block to serve /block and evmrpc block
-			// lookups. Fetch the last committed block and verify it carries
-			// the expected height + hash, the right chain id, and that the
-			// payload Txs round-tripped (we just submitted txs).
-			rb, err := giga.BlockByNumber(ctx, atypes.RoadHeight(committed)) //nolint:gosec // committed is positive (validated above)
+			// EVM-only RPC backend. Fetch the last committed block and verify its height and hash.
+			rb, err := giga.BlockByNumber(ctx, atypes.RoadHeight(committed)) //nolint:gosec // committed is positive.
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
 			}
-			if rb.Block == nil {
-				return fmt.Errorf("router[%v].BlockByNumber(%v).Block: unexpected nil", i, committed)
-			}
-			if err := utils.TestDiff(committed, rb.Block.Height); err != nil {
+			if err := utils.TestDiff(atypes.RoadHeight(committed), rb.Height); err != nil { //nolint:gosec // committed is positive.
 				return fmt.Errorf("router[%v].BlockByNumber(%v) height: %w", i, committed, err)
 			}
-			if len(rb.BlockID.Hash) == 0 {
-				return fmt.Errorf("router[%v].BlockByNumber(%v) block hash: expected nonempty", i, committed)
+			if rb.Hash == (common.Hash{}) {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): empty hash", i, committed)
 			}
-			if err := utils.TestDiff(genDoc.ChainID, rb.Block.Header.ChainID); err != nil {
+			if err := utils.TestDiff(genDoc.ChainID, rb.ChainID); err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(%v) chain id: %w", i, committed, err)
 			}
-			// LastCommit is non-nil with empty Signatures — mirrors
-			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)
-			// so trace replay and production both see "no votes" on
-			// the prior block. ToReqBeginBlock skips the per-val loop
-			// when Signatures is empty, so this is also enough to
-			// avoid the OOB deref the original PR was guarding against.
-			if rb.Block.LastCommit == nil {
-				return fmt.Errorf("router[%v].BlockByNumber(%v) LastCommit: unexpected nil", i, committed)
-			}
-			if len(rb.Block.LastCommit.Signatures) != 0 {
-				return fmt.Errorf("router[%v].BlockByNumber(%v) Signatures: expected empty", i, committed)
-			}
-			// Round-trip the just-fetched block hash back through
-			// BlockByHash and assert we get the same ResultBlock back.
-			var hashKey common.Hash
-			copy(hashKey[:], rb.BlockID.Hash)
-			rbh, err := giga.BlockByHash(ctx, hashKey)
-			if err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(%x): %w", i, rb.BlockID.Hash, err)
-			}
-			if err := utils.TestDiff(rb.BlockID, rbh.BlockID); err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(%x) block ID: %w", i, rb.BlockID.Hash, err)
-			}
-			wantBlock, err := rb.Block.ToProto()
+			// Round-trip the block hash and assert that both lookups return the same EvmBlock.
+			byHash, err := giga.BlockByHash(ctx, rb.Hash)
 			if err != nil {
 				return err
 			}
-			gotBlock, err := rbh.Block.ToProto()
-			if err != nil {
-				return err
+			rbh, ok := byHash.Get()
+			if !ok {
+				return fmt.Errorf("router[%v].BlockByHash(%x): missing block", i, rb.Hash)
 			}
-			if err := utils.TestDiff(wantBlock, gotBlock); err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(%x) ≠ BlockByNumber(%v): %w", i, rb.BlockID.Hash, committed, err)
+			if err := utils.TestDiff(rb, rbh); err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x) differs from BlockByNumber(%v): %w", i, rb.Hash, committed, err)
 			}
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
@@ -279,14 +251,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
-			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
-			// to compare against gb.Txs directly.
-			rbBytes := make([][]byte, len(rb.Block.Data.Txs))
-			for j, t := range rb.Block.Data.Txs {
-				rbBytes[j] = t
-			}
-			if err := utils.TestDiff(gb.Txs, rbBytes); err != nil {
-				return fmt.Errorf("router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.SuperBlock(%v).Payload.Txs: %w", h, h, err)
+			if err := utils.TestDiff(gb.Txs, rb.Txs); err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v).Txs differs from data.SuperBlock(%v).Txs: %w", h, h, err)
 			}
 		}
 		return nil

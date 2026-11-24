@@ -93,5 +93,65 @@
     "v2": "<absent>",
     "evmOnly": "null",
     "reason": "Same as eth_getTransactionReceipt result.to."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.parentHash",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "EvmBlock does not carry a parent hash; EVM-only block responses report the zero hash."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.stateRoot",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a state root for EvmBlock; EVM-only block responses report the zero hash."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.miner",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a miner for EvmBlock; EVM-only block responses report the zero address."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.transactionsRoot",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a transaction root for EvmBlock; EVM-only block responses report the zero hash."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.receiptsRoot",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a receipt root for EvmBlock; EVM-only block responses report the zero hash."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.parentHash",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "EvmBlock does not carry a parent hash; EVM-only block responses report the zero hash."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.stateRoot",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a state root for EvmBlock; EVM-only block responses report the zero hash."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.miner",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a miner for EvmBlock; EVM-only block responses report the zero address."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.transactionsRoot",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a transaction root for EvmBlock; EVM-only block responses report the zero hash."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.receiptsRoot",
+    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "Autobahn does not supply a receipt root for EvmBlock; EVM-only block responses report the zero hash."
   }
 ]

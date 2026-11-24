@@ -152,7 +152,7 @@ func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evm
 	}
 
 	height := coretypes.Int64(stored.BlockNumber)
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &height})
+	block, err := loadBackendBlock(ctx, api.backend, &height)
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) {
 		return nil, nil, nil
 	}
