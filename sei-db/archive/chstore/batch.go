@@ -22,6 +22,7 @@ import (
 
 // Archive table names.
 const (
+	tableMeta           = "archive_meta"
 	tableCommits        = "archive_commits"
 	tableBlocks         = "blocks"
 	tableTxs            = "transactions_receipts"

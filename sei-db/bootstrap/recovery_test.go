@@ -645,6 +645,7 @@ func TestOpenArchiveRefusesARollbackWindowShorterThanItsLag(t *testing.T) {
 	cfg := &config.GigaStorageConfig{
 		// Nothing listens here, so an archive that passes the check fails to connect instead.
 		ArchiveConfig: &clickhouse.Config{Addr: "127.0.0.1:1", Database: "archive"},
+		EVMChainID:    713715,
 		PruningConfig: &config.StorageGarbageCollectorConfig{RollbackWindow: chstore.MaxLag - 1},
 	}
 	_, err := openArchive(t.Context(), cfg, 1)

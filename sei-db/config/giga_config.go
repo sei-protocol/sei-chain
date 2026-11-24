@@ -26,6 +26,7 @@ type GigaStorageConfig struct {
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 	BUDHasherConfig      *bud.BUDHasherConfig             // required
 	ArchiveConfig        *clickhouse.Config               // optional; nil disables the archive
+	EVMChainID           uint64                           // the EVM chain whose blocks the stores hold
 	// The file present while a node holds these stores open. Empty disables it.
 	RunningMarkerPath string
 }
