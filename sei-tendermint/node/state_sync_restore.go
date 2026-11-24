@@ -20,37 +20,12 @@ func VerifyRestoreProof(checkpointDir string, height int64, proof []byte) ([32]b
 	if height < 1 {
 		return [32]byte{}, fmt.Errorf("checkpoint height %d is not positive", height)
 	}
-	road := atypes.RoadHeight(height)
 	registry, err := evmonlyapp.ReadCheckpointEpochRegistry(checkpointDir)
 	if err != nil {
 		return [32]byte{}, err
 	}
-	ep, err := epochOfRoad(registry, road)
-	if err != nil {
-		return [32]byte{}, err
-	}
-	decoded, err := statesyncproof.Decode(proof, road)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("decode the state sync proof file of road %d: %w", road, err)
-	}
-	if err := decoded.Verify(ep); err != nil {
-		return [32]byte{}, fmt.Errorf("verify the state sync proof file of road %d against epoch %d: %w", road, ep.EpochIndex(), err)
-	}
-	appHash := decoded.AppQC().Proposal().AppHash()
-	if len(appHash) != 32 {
-		return [32]byte{}, fmt.Errorf("the AppQC of road %d signs an app hash of %d bytes, want 32", road, len(appHash))
-	}
-	return [32]byte(appHash), nil
-}
-
-// epochOfRoad returns the epoch of registry that holds road.
-func epochOfRoad(registry *atypes.EpochRegistry, road atypes.RoadHeight) (*atypes.Epoch, error) {
-	for _, ep := range registry.Epochs() {
-		if ep.RoadRange().Has(road) {
-			return ep, nil
-		}
-	}
-	return nil, fmt.Errorf("the epoch registry of the checkpoint holds no epoch of road %d", road)
+	_, appHash, err := statesyncproof.DecodeAndVerify(registry, proof, atypes.RoadHeight(height))
+	return appHash, err
 }
 
 // ErrBelowGigaActivation is returned for a restore height below the giga activation height, which

@@ -59,8 +59,14 @@ func (m *GigaStorageManager) flushStores() error {
 	return nil
 }
 
-// verifyStoreAlignment errors unless every open store stands at height.
+// verifyStoreAlignment errors unless every open store stands at height. A state WAL, historical state DB or receipt
+// store that holds no block also passes while height is the height the stores opened at.
 func (m *GigaStorageManager) verifyStoreAlignment(height uint64) error {
+	// A home restored from a snapshot opens with these stores empty, which recovery accepts at any height, and they
+	// stay empty until the node commits a block.
+	standsAtHeight := func(head uint64) bool {
+		return head == height || (head == 0 && height == m.openHeight)
+	}
 	walPresent, _, walHead, err := m.stateDB.WAL().GetStoredRange()
 	if err != nil {
 		return fmt.Errorf("read the state WAL's range: %w", err)
@@ -68,7 +74,7 @@ func (m *GigaStorageManager) verifyStoreAlignment(height uint64) error {
 	if !walPresent {
 		walHead = 0
 	}
-	if walHead != height {
+	if !standsAtHeight(walHead) {
 		return fmt.Errorf("the state WAL stands at block %d", walHead)
 	}
 	if historicalStateDB := m.stateDB.UndoSS(); historicalStateDB != nil {
@@ -76,13 +82,13 @@ func (m *GigaStorageManager) verifyStoreAlignment(height uint64) error {
 		if err != nil {
 			return fmt.Errorf("read the historical state DB's head: %w", err)
 		}
-		if head != height {
+		if !standsAtHeight(head) {
 			return fmt.Errorf("the historical state DB stands at block %d", head)
 		}
 	}
 	if m.receiptDB != nil {
 		head := uint64(m.receiptDB.LatestVersion()) //nolint:gosec // heights are never negative
-		if head != height {
+		if !standsAtHeight(head) {
 			return fmt.Errorf("the receipt store stands at block %d", head)
 		}
 	}

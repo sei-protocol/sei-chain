@@ -55,11 +55,12 @@ func importCmd() *cobra.Command {
 downloads the archive from [giga.state_sync] snapshot_bucket: at --height, or else at the height
 in latest.txt. It writes every row of the archived checkpoint into a new FlatKV database, verifies
 the archived state sync proof file against the epoch registry of that checkpoint, and stores the
-app hash that the proof signs in the app-hash vault.
+app hash that the proof signs in the app-hash vault. The next start of the node, as a fullnode
+with [giga.state_sync] enabled, seeds the BlockDB with the restored height and syncs from there.
 
-The persistent state dir must hold no data, or only the data of an earlier import, which import
-replaces: it deletes the earlier import before it downloads the new archive. If import fails or
-stops, run the same command again. The persistent state dir and the FlatKV dir must be on one
+The persistent state dir must hold no data, or only the data of an earlier import and of a start
+that did not finish it, which import replaces: it deletes that data before it downloads the new
+archive. If import fails or stops, run the same command again. The persistent state dir and the FlatKV dir must be on one
 filesystem, and import refuses when that filesystem has less free space than twice the archived
 checkpoint.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {

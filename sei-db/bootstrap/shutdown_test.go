@@ -74,6 +74,23 @@ func TestCloseRemovesTheRunningMarker(t *testing.T) {
 	requireRunningMarker(t, cfg, true)
 }
 
+// A home restored from a snapshot opens with the live state DB and the app hash vault at a block, and the state WAL,
+// the historical state DB and the receipt store empty. Closing it before it commits a block is a clean shutdown.
+func TestCloseARestoredHomeBeforeItCommitsABlock(t *testing.T) {
+	cfg := newHome(t, withRunningMarker(t))
+	writeState(t, cfg, 3)
+	truncateWAL(t, cfg, 0)
+	require.NoError(t, os.RemoveAll(cfg.SSConfig.EVMDBDirectory))
+	writeAppHashes(t, cfg, 3)
+
+	manager, err := NewGigaStorageManager(context.Background(), cfg)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), manager.StateDB().SC().Version())
+
+	require.NoError(t, manager.Close())
+	requireRunningMarker(t, cfg, false)
+}
+
 // A shutdown that cannot bring every store to the same block fails Close and leaves the running marker in place.
 func TestCloseKeepsTheRunningMarkerWhenTheStoresDisagree(t *testing.T) {
 	cfg := newHome(t, withRunningMarker(t))
