@@ -15,17 +15,12 @@ type BondedValidator struct {
 	Power           uint64
 }
 
-// EpochValidators returns the latest epoch's snapshot, the bonded set as it
-// would be once the operations staged by that epoch's end took effect, in the
-// order it ranked them, or none before the first snapshot. It fails when the
-// stored set does not add up.
+// EpochValidators returns the latest epoch snapshot, the bonded set as it will be
+// once the operations staged by that epoch's end take effect, in the order it
+// ranks them, or none before the first snapshot. It fails when the stored set
+// does not add up.
 func EpochValidators(state precompiles.State) ([]BondedValidator, error) {
-	s := newStore(state)
-	epoch, ok := s.latestSnapshotEpoch()
-	if !ok {
-		return nil, nil
-	}
-	return s.epochValidators(epoch)
+	return newStore(state).epochValidators()
 }
 
 // bondedValidators returns the bonded set the last EndBlock stored, with each

@@ -68,18 +68,25 @@ func TestEpochValidatorsAreTheSetAtTheLatestEpochEnd(t *testing.T) {
 	}, must(EpochValidators(h.state)))
 }
 
-func TestEpochSnapshotsKeepTheLatestThree(t *testing.T) {
+func TestASmallerSnapshotClearsWhatItNoLongerCovers(t *testing.T) {
 	h := newHarness(t, testParams)
-	for epoch := range uint64(5) {
-		h.endEpoch(epoch)
+	h.endEpoch(0)
+	require.Len(t, must(EpochValidators(h.state)), 2)
+	require.NoError(t, h.stageUndelegate(val2, val2, sei(20)))
+	h.endEpoch(1)
+	require.Equal(t, []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+		{Operator: val3, ConsensusPubkey: common.BytesToHash(val3[:]), Power: 10},
+	}, must(EpochValidators(h.state)), "val3 takes val2's place")
+	require.NoError(t, h.stageUndelegate(val3, val3, sei(10)))
+	h.endEpoch(2)
+	require.Equal(t, []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
+	}, must(EpochValidators(h.state)))
+	data := solstorage.ArrayData(solstorage.Slot(slotEpochValidators))
+	for i := uint64(epochValidatorSlots); i < 2*epochValidatorSlots; i++ {
+		require.Equal(t, common.Hash{}, h.store().Word(solstorage.Offset(data, i)), "slot %d of the second member", i)
 	}
-	s := h.store()
-	for epoch, kept := range []bool{false, false, true, true, true} {
-		require.Equal(t, kept, len(must(s.epochValidators(uint64(epoch)))) > 0, "epoch %d", epoch)
-	}
-	latest, ok := s.latestSnapshotEpoch()
-	require.True(t, ok)
-	require.Equal(t, uint64(4), latest)
 }
 
 func TestNoEpochValidatorsBeforeStakingStarts(t *testing.T) {
@@ -93,15 +100,8 @@ func TestEpochValidatorsOutliveTheirValidators(t *testing.T) {
 	h := newHarness(t, testParams)
 	h.endEpoch(0)
 	want := must(EpochValidators(h.state))
-
-	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	h.endCurrentEpoch()
-	require.NoError(t, h.undelegate(val2, val2, sei(20)))
-	h.advance(testParams.UnbondingTime)
-	require.Empty(t, h.failures)
-	_, ok := h.store().validator(val2)
-	require.False(t, ok, "val2 left the bonded set and was removed once it unbonded with no shares")
-	require.Equal(t, want, must(h.store().epochValidators(0)))
+	require.NoError(t, h.store().deleteValidator(val2))
+	require.Equal(t, want, must(EpochValidators(h.state)), "the snapshot holds val2's key itself")
 }
 
 func TestAnEpochWhoseSetDoesNotAddUpIsNotSnapshotted(t *testing.T) {
@@ -117,7 +117,7 @@ func TestAnEpochWhoseSetDoesNotAddUpIsNotSnapshotted(t *testing.T) {
 func TestEpochValidatorsFailOnAStoredSetThatDoesNotAddUp(t *testing.T) {
 	h := newHarness(t, testParams)
 	h.endEpoch(0)
-	h.store().SetUint64(solstorage.MapUint64(solstorage.Slot(slotEpochValidators), 0), 0, 101)
+	h.store().SetUint64(solstorage.Slot(slotEpochValidators), 0, 101)
 	_, err := EpochValidators(h.state)
 	require.ErrorIs(t, err, errInvalidStoredSet, "a set longer than any MaxValidators allows")
 }

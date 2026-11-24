@@ -243,15 +243,10 @@ func (s store) setLastValidators(set []validatorPower) {
 	s.SetWord(base, solstorage.Slot(uint64(len(set))))
 }
 
-func epochValidatorsBase(epoch uint64) common.Hash {
-	return solstorage.MapUint64(solstorage.Slot(slotEpochValidators), epoch)
-}
-
-// epochValidators returns the bonded set snapshotted at the end of epoch, or
-// none when that epoch has no snapshot. It fails on a set longer than any
-// MaxValidators allows.
-func (s store) epochValidators(epoch uint64) ([]BondedValidator, error) {
-	base := epochValidatorsBase(epoch)
+// epochValidators returns the latest epoch snapshot, or none before the first.
+// It fails on a set longer than any MaxValidators allows.
+func (s store) epochValidators() ([]BondedValidator, error) {
+	base := solstorage.Slot(slotEpochValidators)
 	n := s.Uint64(base, 0)
 	if n > uint64(chainparams.MaxBondedValidators) {
 		return nil, fmt.Errorf("%w: %d validators", errInvalidStoredSet, n)
@@ -269,10 +264,10 @@ func (s store) epochValidators(epoch uint64) ([]BondedValidator, error) {
 	return out, nil
 }
 
-// setEpochValidators replaces epoch's snapshot, zeroing elements the new one no
-// longer covers.
-func (s store) setEpochValidators(epoch uint64, set []BondedValidator) {
-	base := epochValidatorsBase(epoch)
+// setEpochValidators replaces the epoch snapshot, zeroing elements the new one
+// no longer covers.
+func (s store) setEpochValidators(set []BondedValidator) {
+	base := solstorage.Slot(slotEpochValidators)
 	old := min(s.Uint64(base, 0), uint64(chainparams.MaxBondedValidators))
 	data := solstorage.ArrayData(base)
 	for i, v := range set {
@@ -286,17 +281,6 @@ func (s store) setEpochValidators(epoch uint64, set []BondedValidator) {
 		s.SetWord(solstorage.Offset(data, i), common.Hash{})
 	}
 	s.SetWord(base, solstorage.Slot(uint64(len(set))))
-}
-
-// latestSnapshotEpoch returns the latest epoch with a snapshot, and false
-// before any.
-func (s store) latestSnapshotEpoch() (uint64, bool) {
-	next := s.Uint64(solstorage.Slot(slotNextSnapshotEpoch), 0)
-	return next - 1, next > 0
-}
-
-func (s store) setLatestSnapshotEpoch(epoch uint64) {
-	s.SetUint64(solstorage.Slot(slotNextSnapshotEpoch), 0, epoch+1)
 }
 
 // currentEpoch returns the epoch in progress: one after the last epoch a block

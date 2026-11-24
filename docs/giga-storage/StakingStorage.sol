@@ -120,11 +120,10 @@ contract StakingStorage {
 
     ValidatorPower[] internal lastValidators; // 0x11: the bonded set, as last sent to consensus
     uint256 internal lastTotalPower; // 0x12
-    /// @dev The bonded set at the end of each epoch's last block, with each
-    /// member's consensus key. Consensus derives an epoch's committee from the
-    /// set two epochs before it, so the latest three are kept.
-    mapping(uint64 => EpochValidator[]) internal epochValidators; // epoch =>
-    uint64 internal nextSnapshotEpoch; // the epoch after the latest in epochValidators, 0 before any
+    /// @dev The bonded set as it will be once the operations staged by the latest
+    /// epoch's end take effect, with each member's consensus key. The app derives
+    /// the committee two epochs ahead from it.
+    EpochValidator[] internal epochValidators;
 
     mapping(address => Validator) internal validators; // 0x21: operator =>
     AddressSet internal validatorSet; // every operator in validators

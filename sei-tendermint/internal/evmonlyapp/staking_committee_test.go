@@ -43,17 +43,15 @@ func (g stakingGenesis) EndBlock(block precompiles.BlockContext, state precompil
 	return g.Precompile.EndBlock(block, state)
 }
 
-// corruptEpochSnapshot stores, at every EndBlock, an epoch 0 snapshot longer
-// than staking allows.
+// corruptEpochSnapshot stores, at every EndBlock, an epoch snapshot longer than
+// staking allows.
 type corruptEpochSnapshot struct {
 	staking.Precompile
 }
 
 func (corruptEpochSnapshot) EndBlock(_ precompiles.BlockContext, state precompiles.State) ([]error, error) {
-	// Slot 2 of StakingStorage maps each epoch to its snapshot, and slot 3 holds
-	// the epoch after the latest.
-	state.SetState(staking.Address, solstorage.MapUint64(solstorage.Slot(2), 0), common.BigToHash(big.NewInt(101)))
-	state.SetState(staking.Address, solstorage.Slot(3), common.BigToHash(big.NewInt(1)))
+	// Slot 2 of StakingStorage holds the epoch snapshot's length.
+	state.SetState(staking.Address, solstorage.Slot(2), common.BigToHash(big.NewInt(101)))
 	return nil, nil
 }
 

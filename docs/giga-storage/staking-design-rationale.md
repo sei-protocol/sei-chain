@@ -203,7 +203,7 @@ Staking:
 |---|---|---|
 | `0x11` | last validator power | `lastValidators` (array, one slot per bonded validator) |
 | `0x12` | last total power | `lastTotalPower` |
-| none | the bonded set at each epoch end | `epochValidators` (see *The epoch snapshot*) |
+| none | the bonded set the latest epoch end projected | `epochValidators` (see *The epoch snapshot*) |
 | `0x21` | validators | `validators` (+ set) |
 | `0x22` | validator by consensus address | `validatorsByConsensusPubkey`, keyed by the key itself |
 | `0x23` | validators by power | `validatorsByPower` (sorted array) |
@@ -297,25 +297,25 @@ that cost is small.
 
 V2 hands CometBFT a new validator set every block. Autobahn changes its
 committee once per epoch: on an epoch's last block, the app derives the
-committee two epochs ahead and writes it to the epoch registry, which the
-precompiles do not read. Rewards need the committee that served a block.
+committee two epochs ahead and writes it to the epoch registry.
 
-So at the end of an epoch's last block, EndBlock records in
-`epochValidators[epoch]`, with each member's consensus key, the bonded set as it
-will be once the operations still staged take effect, and once the block has
-run the app derives the committee from the latest snapshot: the committee that
-serves a block in epoch E is the snapshot of epoch E−2, or the configured
-validators until staking has taken one. The operations that snapshot counts
+So at the end of an epoch's last block, EndBlock records in `epochValidators`,
+with each member's consensus key, the bonded set as it will be once the
+operations still staged take effect, and once the block has run the app derives
+the committee from it: the committee that serves a block in epoch E is the
+snapshot taken at the end of epoch E−2, or the configured validators until
+staking has taken one. The operations that snapshot counts
 take effect at the end of E−1, so the committee matches the delegations during
 E (see *Staged operations*). The snapshot is committed state, so every node
 reads the same one, and a node that state-syncs gets it too. The app marks the
 block that closes an epoch from its epoch registry, so staking never needs the
-epoch length. The keys are copied because a member can leave the bonded set,
-finish unbonding with no shares and be removed while its snapshot is still
-read.
+epoch length.
 
-Three are kept, E−2 to E, and EndBlock deletes the one before them when it
-takes a new one: about 150 slot writes once an epoch at 35 validators.
+Staking keeps only the latest snapshot: the app reads it in the block that takes
+it, and from then on the epoch registry holds the committee. A snapshot that
+fails leaves the one before it in place, and the keys are copied so that one
+still reads after a member has been removed. Rewards, which need the committee
+that served a block, would take it from the app rather than from staking.
 
 ### Staged operations
 
@@ -601,12 +601,13 @@ of a million state writes per epoch.
 - The fee pot is for the rewards design to define. Giga's coinbase and base fee
   are zero today.
 - Minting belongs to the rewards design. pacific-1's release schedule is empty.
-- Power and the bonded set are read from staking, not copied: the committee
-  that served a block from staking's epoch snapshot.
+- Power and the bonded set are read, not copied: the committee that served a
+  block from the app, which holds it in the epoch registry, and delegations
+  from staking.
 - A block's rewards go only to the committee that served it, split by committee
   power, and within each member among its delegators by the shares they hold,
   as in V2. Both hold still through an epoch, and they match: committee power
-  is the snapshot of two epochs before, which counts the operations that take
+  is the snapshot taken two epochs before, which counts the operations that take
   effect at the end of the epoch before, and delegations change only at epoch
   ends (see *Staged operations*). A delegation's rewards are settled before every change to it,
   through staking's delegation hooks, so staking keeps no history of past

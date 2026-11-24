@@ -86,7 +86,7 @@ func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, epoch ui
 	// A param change takes effect here, not in the block governance makes it in,
 	// so the operations this snapshot projects take effect at the next epoch's end
 	// under the params it projected them with.
-	if err := snapshotEpoch(block, s, s.adoptParams(), epoch); err != nil {
+	if err := snapshotEpoch(block, s, s.adoptParams()); err != nil {
 		*failures = append(*failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
 	}
 }
@@ -191,10 +191,6 @@ func (p Precompile) applyBondedSet(block precompiles.BlockContext, s store, para
 	return nil
 }
 
-// epochSnapshotsKept is how many epoch snapshots are kept, as the committee
-// serving an epoch is the bonded set at the end of the epoch two before it.
-const epochSnapshotsKept = 3
-
 // projectedBondedSet returns the bonded set as it will be once the staged
 // operations queued now take effect: the set an update would bond after applying
 // them, or the set as it is when that update fails. It leaves the state as it was
@@ -213,20 +209,15 @@ func projectedBondedSet(block precompiles.BlockContext, s store, params chainpar
 }
 
 // snapshotEpoch records the projected bonded set, with each member's consensus
-// key, as epoch's snapshot and deletes the one that no longer falls among the
-// latest epochSnapshotsKept.
-func snapshotEpoch(block precompiles.BlockContext, s store, params chainparams.Staking, epoch uint64) error {
+// key, as the epoch snapshot, replacing the one before it.
+func snapshotEpoch(block precompiles.BlockContext, s store, params chainparams.Staking) error {
 	set, err := projectedBondedSet(block, s, params)
 	if err != nil {
 		return err
 	}
-	// The keys are copied rather than looked up when the snapshot is read,
-	// because a member can be removed before its snapshot is retired.
-	s.setEpochValidators(epoch, set)
-	if epoch >= epochSnapshotsKept {
-		s.setEpochValidators(epoch-epochSnapshotsKept, nil)
-	}
-	s.setLatestSnapshotEpoch(epoch)
+	// The keys are copied rather than looked up when the snapshot is read, so a
+	// snapshot kept after a failed one still reads once a member is removed.
+	s.setEpochValidators(set)
 	return nil
 }
 

@@ -53,7 +53,6 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"lastValidators":              slotLastValidators,
 		"lastTotalPower":              slotLastTotalPower,
 		"epochValidators":             slotEpochValidators,
-		"nextSnapshotEpoch":           slotNextSnapshotEpoch,
 		"validators":                  slotValidators,
 		"validatorSet":                slotValidatorSet,
 		"validatorsByConsensusPubkey": slotValidatorsByConsensusPubkey,
@@ -72,9 +71,9 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"stagedDelegations":           slotStagedDelegations,
 		"stagedInbound":               slotStagedInbound,
 		"params":                      slotParams,
-		"migrating":                   25,
-		"migrationCursor":             26,
-		"migrationFailures":           27,
+		"migrating":                   24,
+		"migrationCursor":             25,
+		"migrationFailures":           26,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and
@@ -216,10 +215,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []validatorPower{{op, 30}, {other, 20}}, set)
 	require.Equal(t, big.NewInt(50), s.lastTotalPower())
-	require.Equal(t, []BondedValidator{{Operator: other, ConsensusPubkey: pubkey, Power: 21}}, must(s.epochValidators(7)))
-	latest, ok := s.latestSnapshotEpoch()
-	require.True(t, ok)
-	require.Equal(t, uint64(7), latest)
+	require.Equal(t, []BondedValidator{{Operator: other, ConsensusPubkey: pubkey, Power: 21}}, must(s.epochValidators()))
 
 	v, ok := s.validator(op)
 	require.True(t, ok)
