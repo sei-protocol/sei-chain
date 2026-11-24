@@ -31,7 +31,7 @@ const testServerConfig = `<clickhouse>
     <listen_host>127.0.0.1</listen_host>
     <tcp_port>%d</tcp_port>
     <path>%s/</path>
-    <max_server_memory_usage>1073741824</max_server_memory_usage>
+    <max_server_memory_usage>17179869184</max_server_memory_usage>
     <mark_cache_size>67108864</mark_cache_size>
     <users>
         <default>
