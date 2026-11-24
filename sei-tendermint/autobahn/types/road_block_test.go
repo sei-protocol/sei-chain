@@ -277,8 +277,7 @@ func TestRoadBlockHeaderWithoutParentOmitsTheField(t *testing.T) {
 	require.True(t, fields(utils.Some(GenRoadBlockHeaderHash(rng)))[6])
 }
 
-// A present parent hash decodes only when it is 32 bytes long. A 33 byte value fails the
-// wireguard size check of the unmarshal, before the header decoder runs.
+// A present parent hash of length 0 or 31 passes the unmarshal and fails the header decoder.
 func TestRoadBlockHeaderDecodeRejectsAParentHashOfTheWrongLength(t *testing.T) {
 	rng := utils.TestRng()
 	h := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), nil)
@@ -292,6 +291,7 @@ func TestRoadBlockHeaderDecodeRejectsAParentHashOfTheWrongLength(t *testing.T) {
 	}
 }
 
+// A 33 byte value fails the wireguard size check of the unmarshal, before the header decoder runs.
 func TestRoadBlockHeaderUnmarshalRejectsAParentHashLongerThanTheHash(t *testing.T) {
 	rng := utils.TestRng()
 	h := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), nil)
