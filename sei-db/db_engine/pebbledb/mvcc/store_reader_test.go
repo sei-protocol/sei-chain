@@ -59,3 +59,31 @@ func TestStoreReaderStopsAtTheLatestVersion(t *testing.T) {
 
 	require.Equal(t, []scannedEntry{{key: "a", version: 10, value: "a@10"}}, readStore(t, dir, mergeTestStore))
 }
+
+// A changelog the DB has applied is accepted, and one holding a version above
+// the DB's latest is refused, since a read at the latest version would miss
+// what only opening the DB applies.
+func TestStoreReaderChecksTheChangelog(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		changelogVersion int64
+		wantErr          string
+	}{
+		{name: "applied", changelogVersion: 10},
+		{name: "ahead", changelogVersion: 11, wantErr: "changelog holds version 11 above latest version 10"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, dir := newMergeTestDB(t, true)
+			applyVersion(t, db, mergeTestStore, 10, []byte("a"), []byte("a@10"))
+			require.NoError(t, db.Close())
+			writeChangelogEntry(t, dir, tc.changelogVersion)
+
+			if tc.wantErr == "" {
+				require.Equal(t, []scannedEntry{{key: "a", version: 10, value: "a@10"}}, readStore(t, dir, mergeTestStore))
+				return
+			}
+			_, err := OpenStoreReader(dir, mergeTestStore)
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}

@@ -26,8 +26,9 @@ type StoreReader struct {
 }
 
 // OpenStoreReader opens the DB at dir read-only to walk the keys of storeKey.
+// It fails if the DB's changelog holds a version the DB has not applied.
 func OpenStoreReader(dir, storeKey string) (*StoreReader, error) {
-	m, err := openOfflineDB(dir, true)
+	m, err := openReplayedDB(dir, true)
 	if err != nil {
 		return nil, err
 	}

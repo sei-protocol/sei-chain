@@ -31,7 +31,8 @@ func CompareReceiptStoresCmd() *cobra.Command {
 			"Runs of blocks in one state are listed as ranges; a block neither store holds receipts for does not " +
 			"break a run. --from and --to limit the blocks compared, and --block lists every receipt of one block in " +
 			"both stores with the fields that differ. The stores are keyed by transaction hash, so every comparison " +
-			"reads both in full. Both are opened read-only; stop the nodes that own them first.\n\n" +
+			"reads both in full. Both are opened read-only; stop the nodes that own them first. A store whose " +
+			"changelog holds versions it has not applied is refused until it is opened once to replay them.\n\n" +
 			"Exits non-zero when the stores differ for any block compared, or when either holds an entry that does " +
 			"not decode as a receipt of a block at or below the version it is stored at.",
 		Args:         cobra.NoArgs,

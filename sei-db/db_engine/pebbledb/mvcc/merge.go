@@ -95,12 +95,12 @@ func Merge(targetDir, sourceDir string, opts MergeOptions) (MergeReport, error) 
 	if err := requireDistinctDirs(targetDir, sourceDir); err != nil {
 		return MergeReport{}, err
 	}
-	source, err := openMergeDB(sourceDir, true)
+	source, err := openReplayedDB(sourceDir, true)
 	if err != nil {
 		return MergeReport{}, fmt.Errorf("source %s: %w", sourceDir, err)
 	}
 	defer func() { _ = source.close() }()
-	target, err := openMergeDB(targetDir, opts.DryRun)
+	target, err := openReplayedDB(targetDir, opts.DryRun)
 	if err != nil {
 		return MergeReport{}, fmt.Errorf("target %s: %w", targetDir, err)
 	}
@@ -136,9 +136,9 @@ type offlineDB struct {
 	info DBInfo
 }
 
-// openMergeDB opens the DB at dir as openOfflineDB does, and fails if the DB's
-// changelog holds a version it has not applied.
-func openMergeDB(dir string, readOnly bool) (*offlineDB, error) {
+// openReplayedDB opens the DB at dir as openOfflineDB does, and fails if the
+// DB's changelog holds a version it has not applied.
+func openReplayedDB(dir string, readOnly bool) (*offlineDB, error) {
 	m, err := openOfflineDB(dir, readOnly)
 	if err != nil {
 		return nil, err
