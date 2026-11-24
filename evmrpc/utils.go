@@ -17,6 +17,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
@@ -28,7 +29,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -253,7 +254,7 @@ type indexedMsg struct {
 // as "skip this tx" must fail here, or they answer with empty data.
 func requireReceiptStore(k *keeper.Keeper) error {
 	if k == nil || k.ReceiptStore() == nil {
-		return receipt.ErrNotConfigured
+		return receiptdb.ErrNotConfigured
 	}
 	return nil
 }
@@ -300,7 +301,6 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
 				receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
 				if err != nil {
 					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
@@ -311,6 +311,7 @@ func filterTransactions(
 				if receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
+				sender := receiptSender(receipt, ethtx, block)
 				txCount := txCounts[sender.Hex()]
 				if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
 					// check if the transaction bumped nonce. If not, exclude it
@@ -424,6 +425,16 @@ func typedTxHashesOf(block *coretypes.ResultBlock, txs []indexedMsg) []typedTxHa
 		}
 	}
 	return txHashes
+}
+
+// receiptSender returns the sender receipt records for ethtx, or the sender its signature recovers
+// to when the receipt records none or is for another transaction.
+func receiptSender(receipt *types.Receipt, ethtx *ethtypes.Transaction, block *coretypes.ResultBlock) common.Address {
+	if receipt.From != "" && common.HexToHash(receipt.TxHashHex) == ethtx.Hash() {
+		return common.HexToAddress(receipt.From)
+	}
+	sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
+	return sender
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {

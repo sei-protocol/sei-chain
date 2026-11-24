@@ -16,9 +16,11 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -154,19 +156,20 @@ func genesisDocument(conf *config.Config, gen *tmtypes.GenesisDoc) (*tmtypes.Gen
 	return gen, nil
 }
 
-// makeEVMApplication opens Autobahn storage and constructs its EVM application.
+// makeEVMApplication opens Autobahn storage and the epoch registry it holds, and constructs the EVM
+// application over both.
 // The caller owns the returned storage after construction succeeds.
 func makeEVMApplication(
 	ctx context.Context,
 	conf *config.Config,
 	giga gigaconfig.Config,
 	genDoc *tmtypes.GenesisDoc,
-) (_ proxy.EVMApplication, _ *bootstrap.GigaStorageManager, err error) {
+) (_ abevm.Application, _ *bootstrap.GigaStorageManager, err error) {
 	committee, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load Autobahn committee: %w", err)
 	}
-	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, genDoc)
+	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, giga.Archive, genDoc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open Autobahn storage: %w", err)
 	}
@@ -175,9 +178,17 @@ func makeEVMApplication(
 			err = errors.Join(err, storage.Close())
 		}
 	}()
-	validators, err := evmOnlyValidatorUpdates(committee)
+	validators, err := evmOnlyCommitteeWeights(committee)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load EVM-only validator set: %w", err)
+	}
+	firstRoad, err := genesisFirstRoad(genDoc)
+	if err != nil {
+		return nil, nil, err
+	}
+	epochs, err := evmonlyapp.OpenEpochRegistry(storage, firstRoad, genesisEpochLength(genDoc), validators)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open epoch registry: %w", err)
 	}
 	customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, giga.Execution.UnsafeSkipUpgrades)
 	if err != nil {
@@ -188,6 +199,7 @@ func makeEVMApplication(
 		committee.EVMChainID,
 		validators,
 		storage,
+		epochs,
 		giga.Execution,
 		customPrecompiles,
 		evmOnlyGenesisAlloc(committee, genDoc),
@@ -198,46 +210,60 @@ func makeEVMApplication(
 	}
 	if conf.MockApp {
 		mockApp := NewMockApp(app)
-		mockApp.hashes = utils.Some(storage.AppHashBuilder())
+		mockApp.storage = utils.Some(storage)
+		mockApp.epochRegistry = epochs
 		return mockApp, storage, nil
 	}
 	return app, storage, nil
 }
 
+// genesisFirstRoad returns the first road of epoch 0, which is the genesis initial height.
+func genesisFirstRoad(genDoc *tmtypes.GenesisDoc) (atypes.RoadHeight, error) {
+	first, ok := utils.SafeCast[atypes.RoadHeight](genDoc.InitialHeight)
+	if !ok || first < 1 {
+		return 0, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", genDoc.InitialHeight)
+	}
+	return first, nil
+}
+
+// genesisEpochLength returns the number of roads in each epoch genDoc configures.
+func genesisEpochLength(genDoc *tmtypes.GenesisDoc) atypes.RoadHeight {
+	return genDoc.Autobahn.Or(tmtypes.DefaultAutobahnParams()).EpochLength
+}
+
 // evmOnlyGenesisAlloc returns the committee's evm_alloc at the genesis initial height, or None when it
 // sets none.
 func evmOnlyGenesisAlloc(fc *config.AutobahnFileConfig, genDoc *tmtypes.GenesisDoc) utils.Option[evmonlyapp.GenesisAlloc] {
-	balances, ok := fc.EVMGenesisAlloc().Get()
+	accounts, ok := fc.EVMGenesisAlloc().Get()
 	if !ok {
 		return utils.None[evmonlyapp.GenesisAlloc]()
 	}
-	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Balances: balances})
+	return utils.Some(evmonlyapp.GenesisAlloc{InitialHeight: genDoc.InitialHeight, Accounts: accounts})
 }
 
-func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]proxy.ValidatorUpdate, error) {
-	validators := make([]proxy.ValidatorUpdate, len(fc.Validators))
-	for i, validator := range fc.Validators {
+func evmOnlyCommitteeWeights(fc *config.AutobahnFileConfig) (abevm.CommitteeWeights, error) {
+	weights := make(abevm.CommitteeWeights, len(fc.Validators))
+	for _, validator := range fc.Validators {
+		if _, duplicate := weights[validator.ValidatorKey]; duplicate {
+			return nil, fmt.Errorf("duplicate public key %s", validator.ValidatorKey)
+		}
 		// BuildDataState assigns unit voting power to every configured Autobahn validator.
-		validators[i] = proxy.ValidatorUpdate{PubKey: validator.ValidatorKey, Power: 1}
+		weights[validator.ValidatorKey] = 1
 	}
-	return validators, nil
+	return weights, nil
 }
 
 // evmOnlyCustomPrecompiles returns the gov precompile registry when the
 // committee sets evm_governance, with each validator's evm_voter voting at that
 // validator's power, skipping upgrade plans at skipUpgradeHeights.
-func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.ValidatorUpdate, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators abevm.CommitteeWeights, skipUpgradeHeights []uint64) (utils.Option[precompiles.Registry], error) {
 	governance, ok := fc.EVMGovernance.Get()
 	if !ok {
 		return utils.None[precompiles.Registry](), nil
 	}
-	electorate := make(gov.GenesisElectorate, len(fc.Validators))
-	for i, validator := range fc.Validators {
-		voter, ok := validator.EVMVoter.Get()
-		if !ok {
-			return utils.None[precompiles.Registry](), fmt.Errorf("validator %d is missing evm_voter", i)
-		}
-		electorate[voter] = big.NewInt(validators[i].Power)
+	electorate, err := evmOnlyGenesisElectorate(fc, validators)
+	if err != nil {
+		return utils.None[precompiles.Registry](), err
 	}
 	params, err := governance.Params.Gov()
 	if err != nil {
@@ -247,6 +273,22 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []proxy.
 		Applied:     governance.AppliedUpgrades,
 		SkipHeights: skipUpgradeHeights,
 	})), nil
+}
+
+func evmOnlyGenesisElectorate(fc *config.AutobahnFileConfig, weights abevm.CommitteeWeights) (gov.GenesisElectorate, error) {
+	electorate := make(gov.GenesisElectorate, len(fc.Validators))
+	for i, validator := range fc.Validators {
+		voter, ok := validator.EVMVoter.Get()
+		if !ok {
+			return nil, fmt.Errorf("validator %d is missing evm_voter", i)
+		}
+		weight, ok := weights[validator.ValidatorKey]
+		if !ok {
+			return nil, fmt.Errorf("validator %s has no committee weight", validator.ValidatorKey)
+		}
+		electorate[voter] = new(big.Int).SetUint64(weight)
+	}
+	return electorate, nil
 }
 
 // applyExecutionRuntime applies GCPercent when set, and caps the heap at 80% of the container

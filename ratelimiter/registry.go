@@ -120,14 +120,18 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 }
 
 // AllowN reports whether n requests (e.g. a batch) from ip should be allowed for the
-// given plane. It is atomic: on rejection no tokens are consumed.
+// given plane. It consumes n tokens when allowed and one token when rejected.
 func (r *Registry) AllowN(ctx context.Context, ip, plane, method string, n int) bool {
 	if r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
 		return true
 	}
-	if r.getOrCreate(ip).AllowN(time.Now(), n) {
+	limiter := r.getOrCreate(ip)
+	if limiter.AllowN(time.Now(), n) {
 		return true
 	}
+	// A rejected batch is charged like any other rejected request, since
+	// rate.Limiter.AllowN takes nothing when it cannot take all n.
+	limiter.Allow()
 	registryMetrics.rejectedCounter.Add(
 		ctx,
 		1,

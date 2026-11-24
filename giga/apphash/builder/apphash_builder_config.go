@@ -56,7 +56,7 @@ func DefaultAppHashBuilderConfig() AppHashBuilderConfig {
 		RecentAppHashCacheSize: 1024,
 		ReadCursorIdleTimeout:  60 * time.Second,
 		HashVaultConfig:        *hashVault,
-		HashLogEnabled:         false,
+		HashLogEnabled:         true,
 		HashLogConfig:          *hashlog.DefaultHashLoggerConfig("", "unknown"),
 	}
 }

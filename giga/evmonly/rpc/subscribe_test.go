@@ -14,6 +14,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ import (
 func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, _, _, _ := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
-	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
+	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 6}))
 	subscribed := make(chan struct{}, 1)
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
@@ -52,7 +53,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	require.NoError(t, err)
 	<-subscribed
 
-	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Number: 7, GasUsed: 43_500}))
+	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Height: 7, GasUsed: 43_500}))
 
 	select {
 	case header := <-headers:
@@ -73,7 +74,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 	block7, _, _, _ := multiTxBlock(t, 7, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
 	block8, _, _, _ := multiTxBlock(t, 8, common.HexToHash("0xabce"), time.Unix(1_700_000_001, 0))
-	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
+	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 6}))
 	subscribed := make(chan struct{}, 1)
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		switch *req.Height {
@@ -102,7 +103,7 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 	require.NoError(t, err)
 	<-subscribed
 
-	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Number: 7, GasUsed: 43_500}).Push(atypes.ExecutedBlock{Number: 8, GasUsed: 21_000}))
+	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Height: 7, GasUsed: 43_500}).Push(atypes.ExecutedBlock{Height: 8, GasUsed: 21_000}))
 
 	want := []struct {
 		number  int64
@@ -157,6 +158,27 @@ func TestSubscriptionContext(t *testing.T) {
 			}
 			require.Eventually(t, func() bool { return runtime.NumGoroutine() < before+streams/2 },
 				5*time.Second, 10*time.Millisecond, "watchers outlived their streams")
+		})
+	}
+}
+
+func TestSubscriptionLogCriteria(t *testing.T) {
+	zero := big.NewInt(0)
+	latest := big.NewInt(ethrpc.LatestBlockNumber.Int64())
+	earliest := big.NewInt(ethrpc.EarliestBlockNumber.Int64())
+	for _, tc := range []struct {
+		name string
+		crit filters.FilterCriteria
+		want filters.FilterCriteria
+	}{
+		{name: "open-ended", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: latest}, want: filters.FilterCriteria{}},
+		{name: "open-ended from earliest", crit: filters.FilterCriteria{FromBlock: earliest, ToBlock: latest}, want: filters.FilterCriteria{}},
+		{name: "unknown tag toBlock", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(-6)}, want: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(-6)}},
+		{name: "earliest toBlock", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: earliest}, want: filters.FilterCriteria{FromBlock: zero, ToBlock: earliest}},
+		{name: "numeric toBlock", crit: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(5)}, want: filters.FilterCriteria{FromBlock: zero, ToBlock: big.NewInt(5)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, subscriptionLogCriteria(&tc.crit))
 		})
 	}
 }

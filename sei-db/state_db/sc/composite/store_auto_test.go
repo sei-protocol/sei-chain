@@ -243,6 +243,21 @@ func TestComposite_SetWriteModeBeforeLoadVersion(t *testing.T) {
 	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
 }
 
+func TestComposite_PublishWriteModeFailurePublishesNothing(t *testing.T) {
+	cs := openAutoStore(t, t.TempDir(), 10)
+	defer func() { _ = cs.Close() }()
+	router := cs.loadRouter()
+
+	flatKV, err := cs.materializeFlatKV()
+	require.NoError(t, err)
+	defer func() { _ = flatKV.Close() }()
+
+	require.Error(t, cs.publishWriteMode(types.WriteMode("bogus"), flatKV, true))
+	require.Nil(t, cs.loadFlatKV(), "a failed transition must not publish the new flatkv")
+	require.Equal(t, types.MemiavlOnly, cs.loadWriteMode())
+	require.True(t, router == cs.loadRouter(), "a failed transition must keep the previous router")
+}
+
 func TestMemiavl_SetWriteModeUnsupported(t *testing.T) {
 	cs := memiavl.NewCommitStore(t.TempDir(), config.DefaultStateCommitConfig().MemIAVLConfig)
 	require.Error(t, cs.SetWriteMode(types.MigrateEVM))

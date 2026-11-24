@@ -326,7 +326,7 @@ const DefaultGas = 1200000
 // returned.
 func SignCheckDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
-	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
+	chainID string, accNums, accSeqs []uint64, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 	tx, err := seiapp.GenTx(
 		txCfg,
@@ -339,19 +339,6 @@ func SignCheckDeliver(
 		priv...,
 	)
 	require.NoError(t, err)
-	txBytes, err := txCfg.TxEncoder()(tx)
-	require.Nil(t, err)
-
-	// Must simulate now as CheckTx doesn't run Msgs anymore
-	_, res, err := app.Simulate(context.Background(), txBytes)
-
-	if expSimPass {
-		require.NoError(t, err)
-		require.NotNil(t, res)
-	} else {
-		require.Error(t, err)
-		require.Nil(t, res)
-	}
 
 	// Simulate a sending a transaction and committing a block
 	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
@@ -372,11 +359,11 @@ func SignCheckDeliver(
 	return gInfo, res, err
 }
 
-// SignAndDeliver signs and delivers a transaction without simulation.
+// SignAndDeliver signs and delivers a transaction.
 func SignAndDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp,
 	stakingKeeper stakingkeeper.Keeper, distrKeeper *distrkeeper.Keeper, slashingKeeper *slashingkeeper.Keeper, evidenceKeeper *evidencekeeper.Keeper, header tmproto.Header, msgs []sdk.Msg,
-	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
+	chainID string, accNums, accSeqs []uint64, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 	tx, err := seiapp.GenTx(
 		txCfg,

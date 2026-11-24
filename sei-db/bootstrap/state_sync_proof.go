@@ -19,11 +19,10 @@ import (
 const stateSyncProofSweepInterval = 10 * time.Second
 
 // StartStateSyncProofExport starts writing state sync proof files for retained FlatKV
-// checkpoints. isClosingRoad reports whether a road is the last road of an epoch. Close stops it.
-// It returns an error when the export already started or the manager is closed.
-func (m *GigaStorageManager) StartStateSyncProofExport(isClosingRoad func(types.RoadIndex) bool) error {
+// checkpoints. Close stops it. It returns an error when the export already started or the manager is closed.
+func (m *GigaStorageManager) StartStateSyncProofExport() error {
 	return m.stateSyncProofExport.start(func() *stateSyncProofExportLoop {
-		exporter := statesyncproof.NewExporter(stateSyncProofExportConfig(m.cfg, m.blockStore, isClosingRoad))
+		exporter := statesyncproof.NewExporter(stateSyncProofExportConfig(m.cfg, m.blockStore))
 		return startStateSyncProofExportLoop(exporter, stateSyncProofSweepInterval)
 	})
 }
@@ -33,44 +32,42 @@ func (m *GigaStorageManager) StartStateSyncProofExport(isClosingRoad func(types.
 func stateSyncProofExportConfig(
 	cfg *config.GigaStorageConfig,
 	blockStore *blockstore.Store,
-	isClosingRoad func(types.RoadIndex) bool,
 ) statesyncproof.ExportConfig {
 	flatKVDir := cfg.FlatKVConfig.DataDir
 	return statesyncproof.ExportConfig{
 		Dir: dbutils.GetStateSyncProofPath(cfg.HomePath),
-		CheckpointRoads: func() ([]types.RoadIndex, error) {
+		CheckpointRoads: func() ([]types.RoadHeight, error) {
 			return checkpointRoads(flatKVDir)
 		},
 		BlockStore: blockStore,
 		// The AppQC may not be flushed yet. A crash can then lose it from BlockStore, but a proof file
 		// written before the crash stays valid, because the file holds a verifiable AppQC.
-		LastAppQC:     func() utils.Option[types.RoadIndex] { return lastAppQC(blockStore.Status()) },
-		IsClosingRoad: isClosingRoad,
+		LastAppQC: func() utils.Option[types.RoadHeight] { return lastAppQC(blockStore.Status()) },
 	}
 }
 
-// checkpointRoads returns the road indices of the FlatKV checkpoints retained in dir.
-func checkpointRoads(dir string) ([]types.RoadIndex, error) {
+// checkpointRoads returns the road heights of the FlatKV checkpoints retained in dir.
+func checkpointRoads(dir string) ([]types.RoadHeight, error) {
 	versions, err := flatkv.SnapshotVersions(dir)
 	if err != nil {
 		return nil, err
 	}
-	roads := make([]types.RoadIndex, 0, len(versions))
+	roads := make([]types.RoadHeight, 0, len(versions))
 	for _, version := range versions {
 		if version < 0 {
 			return nil, fmt.Errorf("checkpoint version %d is negative", version)
 		}
-		roads = append(roads, types.RoadIndex(version)) //nolint:gosec // checked above.
+		roads = append(roads, types.RoadHeight(version)) //nolint:gosec // checked above.
 	}
 	return roads, nil
 }
 
 // lastAppQC returns the road of the latest AppQC in a BlockStore with the given status, or None
 // when it holds none.
-func lastAppQC(status utils.Option[blockstore.SuffixRange]) utils.Option[types.RoadIndex] {
+func lastAppQC(status utils.Option[blockstore.SuffixRange]) utils.Option[types.RoadHeight] {
 	suffix, ok := status.Get()
 	if !ok || suffix.NextAppQC <= suffix.First {
-		return utils.None[types.RoadIndex]()
+		return utils.None[types.RoadHeight]()
 	}
 	return utils.Some(suffix.NextAppQC - 1)
 }

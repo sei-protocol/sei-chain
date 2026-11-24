@@ -55,9 +55,6 @@ import (
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
-	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
-	authzmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -99,6 +96,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
@@ -146,16 +144,16 @@ import (
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
-
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
+	receiptpebble "github.com/sei-protocol/sei-chain/sei-db/receipt_db/pebble"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -190,7 +188,6 @@ var (
 	// and genesis verification.
 	ModuleBasics = module.NewBasicManager(
 		auth.AppModuleBasic{},
-		authzmodule.AppModuleBasic{},
 		genutil.AppModuleBasic{},
 		bank.AppModuleBasic{},
 		staking.AppModuleBasic{},
@@ -234,7 +231,7 @@ var (
 	// in this package. Adding or removing an entry here MUST be matched in
 	// sei-db/common/keys/store_keys.go.
 	kvStoreKeyNames = []string{
-		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey,
 		evidencetypes.StoreKey,
@@ -359,7 +356,6 @@ type App struct {
 
 	// keepers
 	AccountKeeper  authkeeper.AccountKeeper
-	AuthzKeeper    authzkeeper.Keeper
 	BankKeeper     bankkeeper.Keeper
 	GigaBankKeeper *gigabankkeeper.BaseKeeper
 	StakingKeeper  stakingkeeper.Keeper
@@ -424,7 +420,7 @@ type App struct {
 
 	stateStore   seidb.StateStore
 	rootStore    *rootmulti.Store
-	receiptStore receipt.ReceiptStore
+	receiptStore receiptdb.ReceiptStore
 
 	forkInitializer func(sdk.Context)
 
@@ -513,7 +509,7 @@ func New(
 	}
 	app.rootStore = rootStore
 
-	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
+	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey], interfaceRegistry)
 
 	// set the BaseApp's parameter store
 	bApp.SetParamStore(app.ParamsKeeper.Subspace(baseapp.Paramspace).WithKeyTable(paramskeeper.ConsensusParamsKeyTable()))
@@ -532,7 +528,6 @@ func New(
 	stakingKeeper := stakingkeeper.NewKeeper(
 		appCodec, keys[stakingtypes.StoreKey], app.AccountKeeper, app.BankKeeper, app.GetSubspace(stakingtypes.ModuleName),
 	)
-	app.AuthzKeeper = authzkeeper.NewKeeper(keys[authzkeeper.StoreKey], appCodec, app.MsgServiceRouter())
 	app.MintKeeper = mintkeeper.NewKeeper(
 		appCodec, keys[minttypes.StoreKey], app.GetSubspace(minttypes.ModuleName), &stakingKeeper,
 		app.AccountKeeper, app.BankKeeper, app.EpochKeeper, authtypes.FeeCollectorName,
@@ -613,7 +608,7 @@ func New(
 	// A nil store is the seam tests inject their own through, and it is also what a disabled
 	// receipt store leaves behind: the EVM keeper reads nil as a node that keeps no receipts.
 	if app.receiptStore == nil && receiptConfig.Enable {
-		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
+		receiptStore, err := receiptpebble.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
@@ -745,7 +740,7 @@ func New(
 	}
 	app.genesisImportConfig = genesisImportConfig
 
-	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
+	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper)
 
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
@@ -780,19 +775,18 @@ func New(
 			encodingConfig.TxConfig,
 		),
 		auth.NewAppModule(appCodec, app.AccountKeeper),
-		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
+		bank.NewAppModule(appCodec, app.BankKeeper),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
-		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		distr.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
+		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.StakingKeeper),
+		distr.NewAppModule(appCodec, app.DistrKeeper),
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		upgrade.NewAppModule(app.UpgradeKeeper),
 		evidence.NewAppModule(app.EvidenceKeeper),
 		params.NewAppModule(app.ParamsKeeper),
-		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper),
+		wasm.NewAppModule(&app.WasmKeeper, app.StakingKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		epochModule,
-		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -840,7 +834,6 @@ func New(
 		minttypes.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
-		authz.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,
@@ -878,7 +871,6 @@ func New(
 				// BatchVerifier:   app.batchVerifier,
 			},
 			TXCounterStoreKey: keys[wasm.StoreKey],
-			WasmConfig:        &wasmConfig,
 			WasmKeeper:        &app.WasmKeeper,
 			EVMKeeper:         &app.EvmKeeper,
 			UpgradeKeeper:     &app.UpgradeKeeper,
@@ -1044,7 +1036,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "3.0.6" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{authzkeeper.StoreKey},
+			Added: []string{retiredauthz.ModuleName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
@@ -1079,9 +1071,9 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 
-	if upgradeInfo.Name == "v6.8" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if deleted, ok := deletedStoresByUpgrade[upgradeInfo.Name]; ok && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Deleted: v68DeletedStores,
+			Deleted: deleted,
 		}
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
@@ -1181,7 +1173,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 					Height:              req.Header.Height,
 					Time:                req.Header.Time,
 				}
-				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, false, typedTxs)
+				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, typedTxs)
 
 				app.optimisticProcessingInfoMutex.Lock()
 				if processErr != nil {
@@ -1274,7 +1266,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		Height:              req.Header.Height,
 		Time:                req.Header.Time,
 	}
-	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.DecidedLastCommit, false, nil)
+	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.DecidedLastCommit, nil)
 	if processErr != nil {
 		logger.Error("ProcessBlock failed in FinalizeBlocker", "err", processErr)
 		return nil, processErr
@@ -1711,7 +1703,7 @@ func (app *App) flushCommittedStateForUpgradeExit() {
 // ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
 // those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
 // on the block context.
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool, preDecoded []sdk.Tx) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessRequest, lastCommit abci.CommitInfo, preDecoded []sdk.Tx) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			panicMsg := fmt.Sprintf("%v", r)
@@ -2359,7 +2351,7 @@ func (app *App) ModuleAccountAddrs() map[string]bool {
 	return modAccAddrs
 }
 
-// LegacyAmino returns SimApp's amino codec.
+// LegacyAmino returns the App's amino codec.
 //
 // NOTE: This is solely to be used for testing purposes as it may be desirable
 // for modules to register their own custom testing types.
@@ -2519,7 +2511,7 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
 func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
-	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.interfaceRegistry)
 	tmservice.RegisterTendermintService(app.QueryServiceRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
@@ -2667,8 +2659,8 @@ func GetMaccPerms() map[string][]string {
 }
 
 // initParamsKeeper init params keeper and its subspaces
-func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
-	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey)
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey, interfaceRegistry types.InterfaceRegistry) paramskeeper.Keeper {
+	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey, interfaceRegistry)
 
 	paramsKeeper.Subspace(authtypes.ModuleName)
 	paramsKeeper.Subspace(banktypes.ModuleName)

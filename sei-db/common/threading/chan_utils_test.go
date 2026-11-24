@@ -50,6 +50,23 @@ func TestInterruptiblePull_ContextCancelled(t *testing.T) {
 	}
 }
 
+func TestInterruptiblePull_ValueReadyAfterContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	for range 100 {
+		ch := make(chan int, 1)
+		ch <- 42
+		v, err := InterruptiblePull(ctx, ch)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if v != 42 {
+			t.Fatalf("expected 42, got %d", v)
+		}
+	}
+}
+
 func TestInterruptiblePull_ChannelClosed(t *testing.T) {
 	ch := make(chan int)
 	close(ch)

@@ -18,7 +18,9 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -81,7 +83,7 @@ func (s *rangeCapReceiptStore) GetReceipt(_ sdk.Context, txHash common.Hash) (*t
 	defer s.mu.Unlock()
 	rcpt, ok := s.receipts[txHash]
 	if !ok {
-		return nil, receipt.ErrNotFound
+		return nil, receiptdb.ErrNotFound
 	}
 	return rcpt, nil
 }
@@ -90,7 +92,9 @@ func (s *rangeCapReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash commo
 	return s.GetReceipt(ctx, txHash)
 }
 
-func (s *rangeCapReceiptStore) SetReceipts(_ sdk.Context, records []receipt.ReceiptRecord) error {
+func (s *rangeCapReceiptStore) Flush() error { return nil }
+
+func (s *rangeCapReceiptStore) SetReceipts(_ sdk.Context, records []receipttypes.ReceiptRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, record := range records {
@@ -99,11 +103,11 @@ func (s *rangeCapReceiptStore) SetReceipts(_ sdk.Context, records []receipt.Rece
 	return nil
 }
 
-func (s *rangeCapReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
-	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+func (s *rangeCapReceiptStore) GetBlockStats(sdk.Context, uint64) (receipttypes.BlockStats, error) {
+	return receipttypes.BlockStats{}, receiptdb.ErrBlockStatsNotSupported
 }
 
-func (s *rangeCapReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *receipt.LogBudget) ([]*ethtypes.Log, error) {
+func (s *rangeCapReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *logfilter.LogBudget) ([]*ethtypes.Log, error) {
 	s.mu.Lock()
 	candidates := append([]*ethtypes.Log(nil), s.candidates...)
 	s.windowCalls = append(s.windowCalls, [2]uint64{fromBlock, toBlock})
@@ -135,8 +139,8 @@ func (s *rangeCapReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint
 	return out, nil
 }
 
-func (s *rangeCapReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+func (s *rangeCapReceiptStore) IterateReceipts(uint64) (receiptdb.ReceiptIterator, error) {
+	return nil, receiptdb.ErrRangeQueryNotSupported
 }
 
 func (s *rangeCapReceiptStore) Close() error { return nil }
@@ -362,7 +366,7 @@ func TestTryFilterLogsRangeCountCap(t *testing.T) {
 	)
 	require.Error(t, err)
 	require.Nil(t, logs)
-	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+	require.True(t, errors.Is(err, logfilter.ErrTooManyLogs))
 }
 
 func TestTryFilterLogsRangeSyntheticFalsePositiveGuard(t *testing.T) {
@@ -400,7 +404,7 @@ func TestTryFilterLogsRangeByteCapAtStore(t *testing.T) {
 	topic := common.HexToHash(LogCapBlockHash)
 	huge := make([]byte, 128<<10)
 	single := buildRangeCapCandidates(1, uint64(rangeCapTestHeight), match, topic, huge)
-	maxBytes := receipt.EstimateLogHeapBytes(single[0]) - 1
+	maxBytes := logfilter.EstimateLogHeapBytes(single[0]) - 1
 	fixture := setupRangeCapFixture(t, 1, single, evmrpc.FilterConfigTest{
 		MaxLog:      1000,
 		MaxLogBytes: maxBytes,
@@ -416,7 +420,7 @@ func TestTryFilterLogsRangeByteCapAtStore(t *testing.T) {
 	)
 	require.Error(t, err)
 	require.Nil(t, logs)
-	require.True(t, errors.Is(err, receipt.ErrTooManyLogBytes))
+	require.True(t, errors.Is(err, logfilter.ErrTooManyLogBytes))
 }
 
 func TestTryFilterLogsRangeByteCapAtNormalize(t *testing.T) {
@@ -431,7 +435,7 @@ func TestTryFilterLogsRangeByteCapAtNormalize(t *testing.T) {
 		ethLogs[i].Data = huge
 	}
 	bloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: ethLogs})
-	maxBytes := receipt.EstimateLogHeapBytes(ethLogs[0])*2 + receipt.EstimateLogHeapBytes(ethLogs[1]) - 1
+	maxBytes := logfilter.EstimateLogHeapBytes(ethLogs[0])*2 + logfilter.EstimateLogHeapBytes(ethLogs[1]) - 1
 
 	candidates := buildRangeCapCandidates(1, uint64(rangeCapTestHeight), match, topic, nil)
 	fixture := setupRangeCapFixture(t, 0, candidates, evmrpc.FilterConfigTest{
@@ -462,7 +466,7 @@ func TestTryFilterLogsRangeByteCapAtNormalize(t *testing.T) {
 	)
 	require.Error(t, err)
 	require.Nil(t, logs)
-	require.True(t, errors.Is(err, receipt.ErrTooManyLogBytes))
+	require.True(t, errors.Is(err, logfilter.ErrTooManyLogBytes))
 }
 
 // TestTryFilterLogsRangeWindowsMultiBlockRange verifies tryFilterLogsRange
@@ -650,7 +654,7 @@ func TestPollLogsPropagatesSingleBlockOverflow(t *testing.T) {
 	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, rangeCapTestHeight)
 	require.Error(t, err)
 	require.Nil(t, logs)
-	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+	require.True(t, errors.Is(err, logfilter.ErrTooManyLogs))
 	require.ErrorContains(t, err, fmt.Sprintf("block %d", rangeCapTestHeight), "the error must name the skipped block")
 	require.Equal(t, rangeCapTestHeight+1, cursor)
 }
@@ -681,7 +685,7 @@ func TestPollLogsSkipsAnOverflowingBlock(t *testing.T) {
 	require.Equal(t, overflowing, cursor)
 
 	logs, cursor, err = fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
-	require.ErrorIs(t, err, receipt.ErrTooManyLogs)
+	require.ErrorIs(t, err, logfilter.ErrTooManyLogs)
 	require.Nil(t, logs)
 	require.Equal(t, overflowing+1, cursor, "a poll failing on the overflowing block must move the cursor past it")
 

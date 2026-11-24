@@ -17,7 +17,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -52,7 +54,7 @@ func (fx *pollFixture) commit(t *testing.T) uint64 {
 	t.Helper()
 	height := fx.head.Add(1)
 	hash := filterTxHash(height, 0)
-	require.NoError(t, fx.store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, fx.store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: hash,
 		Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: height, Logs: []*evmtypes.Log{
 			{Address: filterContractA.Hex(), Topics: []string{filterTopicX.Hex()}},
@@ -92,7 +94,10 @@ func TestNewFilterPollStart(t *testing.T) {
 		{name: "pruned fromBlock", crit: filters.FilterCriteria{FromBlock: big.NewInt(5)}, pruneTo: 7, wantPruned: true},
 		{name: "toBlock before start", crit: filters.FilterCriteria{FromBlock: big.NewInt(6), ToBlock: big.NewInt(5)}, wantInvalid: true},
 		{name: "toBlock before the next block", crit: filters.FilterCriteria{ToBlock: big.NewInt(9)}, wantInvalid: true},
+		{name: "earliest toBlock before the next block", crit: filters.FilterCriteria{ToBlock: big.NewInt(ethrpc.EarliestBlockNumber.Int64())}, wantInvalid: true},
 		{name: "fromBlock beyond int64", crit: filters.FilterCriteria{FromBlock: new(big.Int).Lsh(big.NewInt(1), 70)}, wantInvalid: true},
+		{name: "unknown tag fromBlock", crit: filters.FilterCriteria{FromBlock: big.NewInt(-6)}, wantInvalid: true},
+		{name: "unknown tag toBlock", crit: filters.FilterCriteria{ToBlock: big.NewInt(-6)}, wantInvalid: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fx := newPollFixture(t)
@@ -161,6 +166,42 @@ func TestGetFilterChangesPollsLogsFromCursor(t *testing.T) {
 	require.Equal(t, []uint64{13}, logBlocks(poll(live)))
 }
 
+func TestGetFilterChangesEarliestToBlockStopsAtInstallFloor(t *testing.T) {
+	earliest := big.NewInt(ethrpc.EarliestBlockNumber.Int64())
+	for _, tc := range []struct {
+		name    string
+		crit    filters.FilterCriteria
+		pruneTo uint64
+		want    []uint64
+	}{
+		{name: "0 to earliest", crit: filters.FilterCriteria{FromBlock: big.NewInt(0), ToBlock: earliest}, want: []uint64{}},
+		{name: "earliest to earliest", crit: filters.FilterCriteria{FromBlock: earliest, ToBlock: earliest}, want: []uint64{}},
+		{name: "earliest to earliest after pruning", crit: filters.FilterCriteria{FromBlock: earliest, ToBlock: earliest}, pruneTo: 5, want: []uint64{5, 5, 5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newPollFixture(t)
+			if tc.pruneTo > 0 {
+				require.NoError(t, fx.store.PruneHistory(tc.pruneTo))
+			}
+			wantLogs, err := fx.api.GetLogs(t.Context(), tc.crit)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, logBlocks(wantLogs))
+
+			id, err := fx.api.NewFilter(t.Context(), tc.crit)
+			require.NoError(t, err)
+			got, err := fx.api.GetFilterChanges(t.Context(), id)
+			require.NoError(t, err)
+			require.Equal(t, logBlocks(wantLogs), logBlocks(got.([]*ethtypes.Log)))
+
+			fx.commit(t)
+			require.NoError(t, fx.store.PruneHistory(8))
+			got, err = fx.api.GetFilterChanges(t.Context(), id)
+			require.NoError(t, err)
+			require.Empty(t, got)
+		})
+	}
+}
+
 func TestGetFilterChangesBlockHashFilterPollsOnce(t *testing.T) {
 	fx := newPollFixture(t)
 	blockHash := filterBlockHash(5)
@@ -225,7 +266,7 @@ func TestGetFilterChangesCapsEachPoll(t *testing.T) {
 					logs[i] = &evmtypes.Log{Address: filterContractA.Hex(), Index: uint32(i)} //nolint:gosec // small test count
 				}
 				hash := filterTxHash(height, 0)
-				require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+				require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 					TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: height, Logs: logs},
 				}}))
 			}
@@ -237,7 +278,7 @@ func TestGetFilterChangesCapsEachPoll(t *testing.T) {
 			for i, want := range tc.polls {
 				got, err := api.GetFilterChanges(t.Context(), id)
 				if want == nil {
-					require.ErrorIs(t, err, receipt.ErrTooManyLogs, "poll %d", i)
+					require.ErrorIs(t, err, logfilter.ErrTooManyLogs, "poll %d", i)
 					continue
 				}
 				require.NoError(t, err, "poll %d", i)
@@ -354,6 +395,42 @@ func TestFilterRegistryLifecycle(t *testing.T) {
 			require.False(t, registry.remove(first))
 			_, err = registry.get(first)
 			require.ErrorIs(t, err, errFilterNotFound)
+		})
+	}
+}
+
+func TestUnknownBlockHashEndToEnd(t *testing.T) {
+	fx := newPollFixture(t)
+	limits := noRPCLimits
+	limits.MaxFilters = 1
+	handler, err := newHandler(fx.api.backend, fx.store, limits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	crit := map[string]any{"blockHash": common.HexToHash("0xdead")}
+	var filter string
+	require.NoError(t, client.CallContext(t.Context(), &filter, "eth_newFilter", crit))
+
+	for _, tc := range []struct {
+		method string
+		param  any
+	}{
+		{method: "eth_getLogs", param: crit},
+		{method: "eth_getFilterLogs", param: filter},
+		{method: "eth_getFilterChanges", param: filter},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			var logs []*ethtypes.Log
+			err := client.CallContext(t.Context(), &logs, tc.method, tc.param)
+			var rpcErr ethrpc.Error
+			require.ErrorAs(t, err, &rpcErr)
+			require.Equal(t, -32000, rpcErr.ErrorCode())
+			require.Equal(t, "unknown block", err.Error())
 		})
 	}
 }

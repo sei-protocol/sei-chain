@@ -325,7 +325,7 @@ func confirmTx(cmd *cobra.Command, clientCtx client.Context, tx unsignedTx) erro
 // refuseOfflineModes rejects the V2 flags that build a transaction without
 // broadcasting it, and the fee flags, which an EVM transaction does not use.
 func refuseOfflineModes(cmd *cobra.Command) error {
-	for _, name := range []string{flags.FlagGenerateOnly, flags.FlagDryRun, flags.FlagOffline} {
+	for _, name := range []string{flags.FlagGenerateOnly, flags.FlagOffline} {
 		if v, _ := cmd.Flags().GetBool(name); v {
 			return fmt.Errorf("--%s is not supported with --%s", name, FlagEVMRPC)
 		}
@@ -344,7 +344,7 @@ func readTxOpts(cmd *cobra.Command) (txOpts, error) {
 	var o txOpts
 	if flagChanged(cmd, flags.FlagGas) {
 		s, _ := cmd.Flags().GetString(flags.FlagGas)
-		if s != flags.GasFlagAuto {
+		if s != gasAuto {
 			gas, err := strconv.ParseUint(s, 10, 64)
 			if err != nil {
 				return o, fmt.Errorf("--%s: %w", flags.FlagGas, err)
@@ -352,8 +352,8 @@ func readTxOpts(cmd *cobra.Command) (txOpts, error) {
 			o.gas = gas
 		}
 	}
-	if flagChanged(cmd, flags.FlagGasAdjustment) {
-		o.gasAdjustment, _ = cmd.Flags().GetFloat64(flags.FlagGasAdjustment)
+	if flagChanged(cmd, FlagGasAdjustment) {
+		o.gasAdjustment, _ = cmd.Flags().GetFloat64(FlagGasAdjustment)
 	}
 	if flagChanged(cmd, FlagGasFeeCap) {
 		feeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)

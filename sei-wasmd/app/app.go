@@ -28,9 +28,6 @@ import (
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
-	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
-	authzmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -157,7 +154,6 @@ var (
 		),
 		params.AppModuleBasic{},
 		slashing.AppModuleBasic{},
-		authzmodule.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
 		wasm.AppModuleBasic{},
@@ -207,7 +203,6 @@ type WasmApp struct {
 	upgradeKeeper  upgradekeeper.Keeper
 	paramsKeeper   paramskeeper.Keeper
 	evidenceKeeper evidencekeeper.Keeper
-	authzKeeper    authzkeeper.Keeper
 	wasmKeeper     wasm.Keeper
 
 	// the module manager
@@ -246,7 +241,7 @@ func NewWasmApp(
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey,
 		evidencetypes.StoreKey,
-		authzkeeper.StoreKey, wasm.StoreKey,
+		wasm.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(banktypes.DeferredCacheStoreKey)
@@ -267,6 +262,7 @@ func NewWasmApp(
 		legacyAmino,
 		keys[paramstypes.StoreKey],
 		tkeys[paramstypes.TStoreKey],
+		interfaceRegistry,
 	)
 
 	// set the BaseApp's parameter store
@@ -287,11 +283,6 @@ func NewWasmApp(
 		app.getSubspace(banktypes.ModuleName),
 		app.ModuleAccountAddrs(),
 		memKeys[banktypes.DeferredCacheStoreKey],
-	)
-	app.authzKeeper = authzkeeper.NewKeeper(
-		keys[authzkeeper.StoreKey],
-		appCodec,
-		app.MsgServiceRouter(),
 	)
 	stakingKeeper := stakingkeeper.NewKeeper(
 		appCodec,
@@ -402,16 +393,15 @@ func NewWasmApp(
 			encodingConfig.TxConfig,
 		),
 		auth.NewAppModule(appCodec, app.accountKeeper),
-		bank.NewAppModule(appCodec, app.bankKeeper, app.accountKeeper),
+		bank.NewAppModule(appCodec, app.bankKeeper),
 		gov.NewAppModule(appCodec, app.govKeeper, app.accountKeeper, app.bankKeeper),
 		mint.NewAppModule(appCodec, app.mintKeeper, app.accountKeeper),
-		slashing.NewAppModule(appCodec, app.slashingKeeper, app.accountKeeper, app.bankKeeper, app.stakingKeeper),
-		distr.NewAppModule(appCodec, app.distrKeeper, app.accountKeeper, app.bankKeeper, app.stakingKeeper),
+		slashing.NewAppModule(appCodec, app.slashingKeeper, app.stakingKeeper),
+		distr.NewAppModule(appCodec, app.distrKeeper),
 		staking.NewAppModule(appCodec, app.stakingKeeper, app.accountKeeper, app.bankKeeper),
 		upgrade.NewAppModule(app.upgradeKeeper),
-		wasm.NewAppModule(appCodec, &app.wasmKeeper, app.stakingKeeper),
+		wasm.NewAppModule(&app.wasmKeeper, app.stakingKeeper),
 		evidence.NewAppModule(app.evidenceKeeper),
-		authzmodule.NewAppModule(appCodec, app.authzKeeper, app.accountKeeper, app.bankKeeper, app.interfaceRegistry),
 		params.NewAppModule(app.paramsKeeper),
 	)
 
@@ -429,10 +419,8 @@ func NewWasmApp(
 		minttypes.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
-		authz.ModuleName,
 		paramstypes.ModuleName,
 		upgradetypes.ModuleName,
-		// additional non simd modules
 		wasm.ModuleName,
 	)
 
@@ -458,7 +446,6 @@ func NewWasmApp(
 				SignModeHandler: encodingConfig.TxConfig.SignModeHandler(),
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 			},
-			WasmConfig:        &wasmConfig,
 			TXCounterStoreKey: keys[wasm.StoreKey],
 		},
 	)
@@ -643,7 +630,7 @@ func (app *WasmApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APICo
 
 // RegisterTxService implements the Application.RegisterLocalServices method.
 func (app *WasmApp) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
-	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	authtx.RegisterTxService(app.QueryServiceRouter(), node, txConfig, app.interfaceRegistry)
 	tmservice.RegisterTendermintService(app.QueryServiceRouter(), node, app.interfaceRegistry)
 }
 
@@ -673,8 +660,8 @@ func GetMaccPerms() map[string][]string {
 }
 
 // initParamsKeeper init params keeper and its subspaces
-func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
-	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey)
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey, interfaceRegistry types.InterfaceRegistry) paramskeeper.Keeper {
+	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey, interfaceRegistry)
 
 	paramsKeeper.Subspace(authtypes.ModuleName)
 	paramsKeeper.Subspace(banktypes.ModuleName)

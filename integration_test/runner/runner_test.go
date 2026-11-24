@@ -37,7 +37,6 @@ func TestStakingModule(t *testing.T) {
 func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
 	runner.RunFile(t, "../bank_module/multi_sig_send_test.yaml")
-	runner.RunFile(t, "../bank_module/simulation_tx.yaml")
 }
 
 func TestMintModule(t *testing.T) {
@@ -57,12 +56,6 @@ func TestOracleModule(t *testing.T) {
 func TestDistributionModule(t *testing.T) {
 	runner.RunFile(t, "../distribution_module/community_pool.yaml")
 	runner.RunFile(t, "../distribution_module/rewards.yaml")
-}
-
-func TestAuthzModule(t *testing.T) {
-	runner.RunFile(t, "../authz_module/send_authorization_test.yaml")
-	runner.RunFile(t, "../authz_module/staking_authorization_test.yaml")
-	runner.RunFile(t, "../authz_module/generic_authorization_test.yaml")
 }
 
 // TestWasmModuleCore runs delegation, admin, and withdraw tests after a fresh contract deploy.

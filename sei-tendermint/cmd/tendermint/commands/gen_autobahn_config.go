@@ -4,18 +4,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/upgradenames"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands/preinstalls"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -24,16 +29,16 @@ import (
 
 // MakeGenAutobahnConfigCommand creates a cobra command that generates an autobahn JSON config file.
 // Each node directory must contain validator_pubkey.txt, node_pubkey.txt,
-// autobahn_address.txt, and evmrpc_url.txt, and evm_voter.txt when EVM
-// governance is enabled.
+// autobahn_address.txt, and evm_voter.txt when EVM governance is enabled.
 func MakeGenAutobahnConfigCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen-autobahn-config [node-dirs...]",
 		Short: "Generate autobahn JSON config from node pubkey files",
 		Long: `Generate an autobahn JSON config file by reading validator_pubkey.txt,
-node_pubkey.txt, autobahn_address.txt, and evmrpc_url.txt from each node
+node_pubkey.txt and autobahn_address.txt from each node
 directory. With --evm-governance-voting-period, each directory must also contain
 evm_voter.txt, the EVM address that votes for that validator.
+Use --evmrpc to advertise the local validator's WebSocket EVM RPC URL; omit it for fullnodes.
 Output is written to the file specified by --output.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -87,20 +92,10 @@ Output is written to the file specified by --output.`,
 					return fmt.Errorf("parsing address from %s: %w", dir, err)
 				}
 
-				evmRPCRaw, err := os.ReadFile(filepath.Join(dir, "evmrpc_url.txt")) //nolint:gosec // G304: dir comes from command args; filepath.Join already calls Clean
-				if err != nil {
-					return fmt.Errorf("reading evmrpc_url.txt from %s: %w", dir, err)
-				}
-				var evmRPC config.URL
-				if err := evmRPC.UnmarshalText([]byte(strings.TrimSpace(string(evmRPCRaw)))); err != nil {
-					return fmt.Errorf("parsing evmrpc URL from %s: %w", dir, err)
-				}
-
 				validator := config.AutobahnValidator{
 					ValidatorKey: valKey,
 					NodeKey:      nodeKey,
 					Address:      addr,
-					EVMRPC:       evmRPC,
 				}
 				if governance.IsPresent() {
 					voterRaw, err := os.ReadFile(filepath.Join(dir, "evm_voter.txt")) //nolint:gosec // G304: dir comes from command args; filepath.Join already calls Clean
@@ -125,12 +120,26 @@ Output is written to the file specified by --output.`,
 				DialInterval:       utils.Duration(10 * time.Second),
 				EVMChainID:         evmChainID,
 			}
+			if rawURL, _ := cmd.Flags().GetString("evmrpc"); rawURL != "" {
+				var endpoint config.URL
+				if err := endpoint.UnmarshalText([]byte(rawURL)); err != nil {
+					return fmt.Errorf("local evmrpc URL: %w", err)
+				}
+				cfg.EVMRPC = utils.Some(endpoint)
+			}
 			blockDB, err := buildGenBlockDBConfig(blockDBRetention, blockDBGCPeriod)
 			if err != nil {
 				return err
 			}
 			cfg.BlockDB = blockDB
 			cfg.EVMGovernance = governance
+			allocPath, _ := cmd.Flags().GetString("evm-alloc")
+			preinstallLevel, _ := cmd.Flags().GetString("evm-preinstalls")
+			alloc, err := buildGenEVMAlloc(allocPath, preinstallLevel, evmChainID)
+			if err != nil {
+				return err
+			}
+			cfg.EVMAlloc = alloc
 			if err := cfg.Validate(); err != nil {
 				return fmt.Errorf("generated config: %w", err)
 			}
@@ -147,6 +156,7 @@ Output is written to the file specified by --output.`,
 		},
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
+	cmd.Flags().String("evmrpc", "", "local validator WebSocket EVM RPC URL; omit for fullnodes")
 	cmd.Flags().Uint64("evm-chain-id", 0, "EIP-155 chain ID of the EVM-only chain (required)")
 	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus state and BlockDB across restarts; relative paths are resolved against the node's --home dir")
 	// Default 30s: this helper is used by docker/local clusters, not production
@@ -156,7 +166,56 @@ Output is written to the file specified by --output.`,
 	cmd.Flags().String("blockdb-gc-period", "", "optional BlockDB GC period (e.g. 10s); omit to keep littblock default")
 	cmd.Flags().Duration("evm-governance-voting-period", 0, "enable EVM governance with x/gov's default params, this voting and deposit period (at least 2s) and half of it for expedited voting, reading each node's evm_voter.txt; 0 disables it")
 	cmd.Flags().Uint64("evm-governance-starting-proposal-id", 0, "id of the first EVM governance proposal; 0 means 1")
+	cmd.Flags().String("evm-alloc", "", "JSON file of genesis accounts, address to {balance, nonce, code, storage}, written into evm_alloc; omit to start every account with 2^200 wei")
+	cmd.Flags().String("evm-preinstalls", "", fmt.Sprintf("standard contracts written into evm_alloc, one of %v; empty means full when --evm-alloc funds an account and none otherwise", preinstalls.Levels()))
 	return cmd
+}
+
+// buildGenEVMAlloc returns the accounts in the JSON file at path, when set, and
+// the contracts of the preinstall level for chainID, or None when there are no
+// accounts. An empty level means preinstalls.Full when the file funds an account
+// and preinstalls.None otherwise. A file that funds no account, any other level
+// without a funded account, and a file account at a preinstall's address are
+// refused.
+func buildGenEVMAlloc(path, level string, chainID uint64) (utils.Option[map[common.Address]config.EVMGenesisAccount], error) {
+	none := utils.None[map[common.Address]config.EVMGenesisAccount]()
+	alloc := map[common.Address]config.EVMGenesisAccount{}
+	if path != "" {
+		data, err := os.ReadFile(path) //nolint:gosec // G304: path comes from a command flag
+		if err != nil {
+			return none, fmt.Errorf("reading --evm-alloc: %w", err)
+		}
+		if err := json.Unmarshal(data, &alloc); err != nil {
+			return none, fmt.Errorf("parsing --evm-alloc %s: %w", path, err)
+		}
+	}
+	funded := slices.ContainsFunc(slices.Collect(maps.Values(alloc)), func(a config.EVMGenesisAccount) bool { return a.Balance.IsPresent() })
+	if path != "" && !funded {
+		return none, fmt.Errorf("--evm-alloc %s funds no account", path)
+	}
+	if level == "" {
+		level = preinstalls.None
+		if funded {
+			level = preinstalls.Full
+		}
+	}
+	if level != preinstalls.None && !funded {
+		return none, fmt.Errorf("--evm-preinstalls %s needs --evm-alloc to fund an account", level)
+	}
+	accounts, err := preinstalls.Accounts(level, new(big.Int).SetUint64(chainID))
+	if err != nil {
+		return none, fmt.Errorf("--evm-preinstalls: %w", err)
+	}
+	for _, account := range accounts {
+		if _, ok := alloc[account.Address]; ok {
+			return none, fmt.Errorf("--evm-alloc sets %s, preinstall %s", account.Address, account.Name)
+		}
+		alloc[account.Address] = config.EVMGenesisAccount{Nonce: hexutil.Uint64(account.Nonce), Code: account.Code, Storage: account.Storage}
+	}
+	if len(alloc) == 0 {
+		return none, nil
+	}
+	return utils.Some(alloc), nil
 }
 
 // buildGenBlockDBConfig builds optional block_db overrides from gen-autobahn-config flags.

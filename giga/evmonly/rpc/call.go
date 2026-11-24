@@ -11,7 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
+
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // defaultCallGasCap bounds the gas an eth_call may consume, filling in an
@@ -21,6 +23,7 @@ const defaultCallGasCap = 10_000_000
 
 type callAPI struct {
 	backend Backend
+	store   receiptdb.ReceiptStore
 	blocks  *blockAPI
 	limits  overrideLimits
 }
@@ -35,11 +38,11 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err != nil {
 		return nil, err
 	}
-	height, latest, err := stateHeight(ctx, api.backend, block)
+	height, latest, err := stateHeight(ctx, api.backend, api.store, block)
 	if err != nil {
 		return nil, err
 	}
-	baseFee := api.backend.EvmBaseFee()
+	baseFee := overrides.BaseFee(api.backend.EvmBaseFee())
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err
@@ -61,7 +64,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 
 // execute runs msg with overrides against the latest committed state, or else
 // against the state after the block at height.
-func (api *callAPI) execute(ctx context.Context, msg *core.Message, height int64, latest bool, overrides evmonly.CallOverrides) (*core.ExecutionResult, error) {
+func (api *callAPI) execute(ctx context.Context, msg *core.Message, height int64, latest bool, overrides abevm.CallOverrides) (*core.ExecutionResult, error) {
 	if latest {
 		return api.backend.EvmCall(ctx, msg, overrides)
 	}

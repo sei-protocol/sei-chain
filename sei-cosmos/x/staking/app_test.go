@@ -73,7 +73,7 @@ func TestStakingMsgs(t *testing.T) {
 
 	header := tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
 	txGen := seiapp.MakeEncodingConfig().TxConfig
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{createValidatorMsg}, []uint64{0}, []uint64{0}, true, true, priv1)
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{createValidatorMsg}, []uint64{0}, []uint64{0}, true, priv1)
 	require.NoError(t, err)
 	seiapp.CheckBalance(t, app, addr1, sdk.Coins{genCoin.Sub(bondCoin)})
 
@@ -103,7 +103,7 @@ func TestStakingMsgs(t *testing.T) {
 	editValidatorMsg := types.NewMsgEditValidator(sdk.ValAddress(addr1), description, nil, nil)
 
 	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{editValidatorMsg}, []uint64{0}, []uint64{1}, true, true, priv1)
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{editValidatorMsg}, []uint64{0}, []uint64{1}, true, priv1)
 	require.NoError(t, err)
 
 	validator = checkValidator(t, app, sdk.ValAddress(addr1), true)
@@ -114,7 +114,7 @@ func TestStakingMsgs(t *testing.T) {
 	delegateMsg := types.NewMsgDelegate(addr2, sdk.ValAddress(addr1), bondCoin)
 
 	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{delegateMsg}, []uint64{1}, []uint64{0}, true, true, priv2)
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{delegateMsg}, []uint64{1}, []uint64{0}, true, priv2)
 	require.NoError(t, err)
 
 	seiapp.CheckBalance(t, app, addr2, sdk.Coins{genCoin.Sub(bondCoin)})
@@ -123,7 +123,7 @@ func TestStakingMsgs(t *testing.T) {
 	// begin unbonding
 	beginUnbondingMsg := types.NewMsgUndelegate(addr2, sdk.ValAddress(addr1), bondCoin)
 	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{beginUnbondingMsg}, []uint64{1}, []uint64{1}, true, true, priv2)
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{beginUnbondingMsg}, []uint64{1}, []uint64{1}, true, priv2)
 	require.NoError(t, err)
 
 	// delegation should exist anymore

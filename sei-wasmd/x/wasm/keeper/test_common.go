@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/std"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -19,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -72,10 +70,6 @@ var ModuleBasics = module.NewBasicManager(
 	upgrade.AppModuleBasic{},
 	evidence.AppModuleBasic{},
 )
-
-func MakeTestCodec(t testing.TB) codec.Codec {
-	return MakeEncodingConfig(t).Marshaler
-}
 
 func MakeEncodingConfig(_ testing.TB) wasmappparams.EncodingConfig {
 	encodingConfig := wasmappparams.MakeEncodingConfig()
@@ -191,7 +185,7 @@ func createTestInput(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distributiontypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey,
-		evidencetypes.StoreKey, authzkeeper.StoreKey,
+		evidencetypes.StoreKey,
 		types.StoreKey,
 	)
 	ms := store.NewCommitMultiStore(db)
@@ -219,6 +213,7 @@ func createTestInput(
 		legacyAmino,
 		keys[paramstypes.StoreKey],
 		tkeys[paramstypes.TStoreKey],
+		encodingConfig.InterfaceRegistry,
 	)
 	for _, m := range []string{
 		authtypes.ModuleName,
@@ -338,9 +333,9 @@ func createTestInput(
 	router.AddRoute(sdk.NewRoute(types.RouterKey, TestHandler(contractKeeper)))
 
 	am := module.NewManager( // minimal module set that we use for message/ query tests
-		bank.NewAppModule(appCodec, bankKeeper, accountKeeper),
+		bank.NewAppModule(appCodec, bankKeeper),
 		staking.NewAppModule(appCodec, stakingKeeper, accountKeeper, bankKeeper),
-		distribution.NewAppModule(appCodec, distKeeper, accountKeeper, bankKeeper, stakingKeeper),
+		distribution.NewAppModule(appCodec, distKeeper),
 	)
 	am.RegisterServices(module.NewConfigurator(appCodec, msgRouter, querier))
 	types.RegisterMsgServer(msgRouter, NewMsgServerImpl(&keeper))

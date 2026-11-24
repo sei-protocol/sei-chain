@@ -4,11 +4,14 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/cast"
+
+	"github.com/sei-protocol/sei-chain/ratelimiter"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 // AppOptions is the flat key-value view a section reader consumes. servertypes.AppOptions
@@ -30,6 +33,7 @@ type Config struct {
 	Execution ExecutionConfig `mapstructure:"execution"`
 	RPC       RPCConfig       `mapstructure:"rpc"`
 	StateSync StateSyncConfig `mapstructure:"state_sync"`
+	Archive   ArchiveConfig   `mapstructure:"archive"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -63,6 +67,12 @@ type ExecutionConfig struct {
 	OCCWorkers int `mapstructure:"occ_workers"`
 	// ParseWorkers is the number of parallel transaction decoding workers; 0 uses GOMAXPROCS.
 	ParseWorkers int `mapstructure:"parse_workers"`
+	// EarlySpeculationWorkers, when positive, speculates a block's transactions before the block
+	// executes. Zero disables early speculation.
+	EarlySpeculationWorkers int `mapstructure:"early_speculation_workers"`
+	// MaxBlocksInFlight is how many blocks the node works on at once: one executing, and the rest
+	// being prepared, and speculated when early speculation is on. 1 runs blocks one at a time.
+	MaxBlocksInFlight int `mapstructure:"max_blocks_in_flight"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
 	// EvmRpcPort is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
@@ -119,7 +129,8 @@ type RPCConfig struct {
 	MaxConcurrentSendCalls int `mapstructure:"max_concurrent_send_calls"`
 	// MaxConcurrentTraceCalls caps debug_trace* calls running at once; a call past it is refused.
 	MaxConcurrentTraceCalls int `mapstructure:"max_concurrent_trace_calls"`
-	// TraceTimeout bounds how long one debug_trace* call may run.
+	// TraceTimeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+	// accepted only when MethodTimeouts gives every method in traceMethods a positive deadline.
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 	// MaxTraceStructLogBytes caps the default struct logger's output, in bytes, for each traced
 	// transaction.
@@ -128,15 +139,114 @@ type RPCConfig struct {
 	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
 	// MaxStateOverrideSlots caps the storage slots one call's state override may set for an account.
 	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
+	// DefaultTimeout is the deadline applied to a method with no built-in deadline and no entry in
+	// MethodTimeouts.
+	DefaultTimeout time.Duration `mapstructure:"default_timeout"`
+	// MethodTimeouts sets deadlines for individual methods, over the built-in ones in
+	// defaultMethodTimeouts. Each entry is "method=duration", for example "eth_call=60s"; a method
+	// name ending in "*" matches every method with that prefix, and an exact name or the longest
+	// matching prefix wins, so only an entry with a built-in one's name or prefix replaces it. A
+	// duration of 0 applies no deadline to that method; eth_call, eth_estimateGas,
+	// eth_estimateGasAfterCalls and eth_createAccessList must keep a positive one.
+	MethodTimeouts []string `mapstructure:"method_timeouts"`
 }
 
-// StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
-type StateSyncConfig struct {
-	// Enabled allows the state-sync-snapshot create and restore commands and the seed of a restored
-	// home on start. It also runs a background task that writes a state sync proof file for each
-	// retained FlatKV checkpoint; it does not create checkpoints or snapshots.
-	Enabled bool `mapstructure:"enabled"`
+// defaultMethodTimeouts are the per-method deadlines a node applies to methods MethodTimeouts
+// does not name, in MethodTimeouts' format.
+var defaultMethodTimeouts = []string{
+	"eth_call=60s",
+	"eth_estimateGas=60s",
+	"eth_createAccessList=60s",
+	"eth_estimateGasAfterCalls=5m",
+	"debug_trace*=0",
 }
+
+// simulationMethods are the methods that execute EVM code against a state view for the caller.
+// Gas does not bound their wall-clock cost, so their method deadline must be positive.
+var simulationMethods = []string{
+	"eth_call",
+	"eth_estimateGas",
+	"eth_estimateGasAfterCalls",
+	"eth_createAccessList",
+}
+
+// traceMethods are the debug_trace* methods the node serves. Each re-executes EVM code, so it
+// must be bounded by TraceTimeout or a positive method deadline.
+var traceMethods = []string{
+	"debug_traceTransaction",
+	"debug_traceCall",
+	"debug_traceBlockByNumber",
+	"debug_traceBlockByHash",
+}
+
+// TraceMethods returns the debug_trace* methods the node serves, which trace_timeout or a positive
+// method deadline must bound.
+func TraceMethods() []string {
+	return slices.Clone(traceMethods)
+}
+
+// DeadlineConfig returns the per-method deadlines DefaultTimeout and MethodTimeouts describe, with
+// MethodTimeouts applied over the built-in deadlines.
+func (c RPCConfig) DeadlineConfig() (ratelimiter.DeadlineConfig, error) {
+	if c.DefaultTimeout < 0 {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: must be >= 0, got %s", FlagRPCDefaultTimeout, c.DefaultTimeout)
+	}
+	exact, prefixes, err := ratelimiter.ParseMethodTimeouts(defaultMethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("built-in method timeouts: %w", err)
+	}
+	configuredExact, configuredPrefixes, err := ratelimiter.ParseMethodTimeouts(c.MethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+	}
+	maps.Copy(exact, configuredExact)
+	maps.Copy(prefixes, configuredPrefixes)
+	return ratelimiter.DeadlineConfig{
+		Default:         c.DefaultTimeout,
+		Overrides:       exact,
+		PrefixOverrides: prefixes,
+	}, nil
+}
+
+// StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync, where
+// the giga state sync snapshots of its chain are, and whether it uploads them.
+type StateSyncConfig struct {
+	// Enabled runs a background task that writes a state sync proof file for each retained FlatKV
+	// checkpoint, and the snapshot upload when SnapshotUpload is set. It does not create checkpoints.
+	Enabled bool `mapstructure:"enabled"`
+
+	// SnapshotBucket is the S3 bucket of the giga state sync snapshots, which seid statesync import
+	// reads and the snapshot upload writes.
+	SnapshotBucket string `mapstructure:"snapshot_bucket"`
+
+	// SnapshotRegion is the AWS region of SnapshotBucket. Empty selects the region of the AWS SDK
+	// default configuration.
+	SnapshotRegion string `mapstructure:"snapshot_region"`
+
+	// SnapshotUpload uploads snapshots of the FlatKV checkpoints to SnapshotBucket. It needs Enabled
+	// and SnapshotBucket, and a node that is not a validator.
+	SnapshotUpload bool `mapstructure:"snapshot_upload"`
+
+	// SnapshotUploadInterval is the least time between two snapshot uploads of the chain to
+	// SnapshotBucket, by any node. 0 uploads each checkpoint.
+	SnapshotUploadInterval time.Duration `mapstructure:"snapshot_upload_interval"`
+}
+
+// ArchiveConfig is the [giga.archive] sub-table: the ClickHouse history archive this node writes
+// its blocks to.
+type ArchiveConfig struct {
+	// ClickHouseAddr is the archive's ClickHouse native-protocol address, host:port. Empty
+	// disables the archive.
+	ClickHouseAddr string `mapstructure:"clickhouse_addr"`
+	// Database is the ClickHouse database holding this chain's archive.
+	Database string `mapstructure:"database"`
+	// User and Password authenticate to ClickHouse.
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+}
+
+// Enabled reports whether an archive is configured.
+func (c ArchiveConfig) Enabled() bool { return c.ClickHouseAddr != "" }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
@@ -146,6 +256,7 @@ var DefaultConfig = Config{
 		MinGasPrice:         1_000_000_000,
 		OCCWorkers:          0,
 		ParseWorkers:        0,
+		MaxBlocksInFlight:   3,
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
@@ -172,9 +283,16 @@ var DefaultConfig = Config{
 		MaxTraceStructLogBytes:        32 * 1024 * 1024,
 		MaxStateOverrideAccounts:      100,
 		MaxStateOverrideSlots:         1000,
+		DefaultTimeout:                30 * time.Second,
+		MethodTimeouts:                slices.Clone(defaultMethodTimeouts),
 	},
 	StateSync: StateSyncConfig{
-		Enabled: false,
+		Enabled:                false,
+		SnapshotUploadInterval: time.Hour,
+	},
+	Archive: ArchiveConfig{
+		Database: "sei_archive",
+		User:     "default",
 	},
 }
 
@@ -204,6 +322,8 @@ const (
 	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
 	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
+	FlagExecutionEarlySpeculationWorkers = "giga.execution.early_speculation_workers"
+	FlagExecutionMaxBlocksInFlight       = "giga.execution.max_blocks_in_flight"
 	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
@@ -228,7 +348,17 @@ const (
 	FlagRPCMaxTraceStructLogBytes        = "giga.rpc.max_trace_struct_log_bytes"
 	FlagRPCMaxStateOverrideAccounts      = "giga.rpc.max_state_override_accounts"
 	FlagRPCMaxStateOverrideSlots         = "giga.rpc.max_state_override_slots"
+	FlagRPCDefaultTimeout                = "giga.rpc.default_timeout"
+	FlagRPCMethodTimeouts                = "giga.rpc.method_timeouts"
 	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
+	FlagStateSyncSnapshotBucket          = "giga.state_sync.snapshot_bucket"
+	FlagStateSyncSnapshotRegion          = "giga.state_sync.snapshot_region"
+	FlagStateSyncSnapshotUpload          = "giga.state_sync.snapshot_upload"
+	FlagStateSyncSnapshotUploadInterval  = "giga.state_sync.snapshot_upload_interval"
+	FlagArchiveClickHouseAddr            = "giga.archive.clickhouse_addr"
+	FlagArchiveDatabase                  = "giga.archive.database"
+	FlagArchiveUser                      = "giga.archive.user"
+	FlagArchivePassword                  = "giga.archive.password" //nolint:gosec // a config key, not a credential
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -283,6 +413,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionParseWorkers); v != nil {
 		if cfg.Execution.ParseWorkers, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionParseWorkers, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionEarlySpeculationWorkers); v != nil {
+		if cfg.Execution.EarlySpeculationWorkers, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEarlySpeculationWorkers, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxBlocksInFlight); v != nil {
+		if cfg.Execution.MaxBlocksInFlight, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxBlocksInFlight, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionBlockResultPoolSize); v != nil {
@@ -405,9 +545,59 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxStateOverrideSlots, err)
 		}
 	}
+	if v := opts.Get(FlagRPCDefaultTimeout); v != nil {
+		if cfg.RPC.DefaultTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCDefaultTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMethodTimeouts); v != nil {
+		if cfg.RPC.MethodTimeouts, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMethodTimeouts, err)
+		}
+	}
 	if v := opts.Get(FlagStateSyncEnabled); v != nil {
 		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotBucket); v != nil {
+		if cfg.StateSync.SnapshotBucket, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotBucket, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotRegion); v != nil {
+		if cfg.StateSync.SnapshotRegion, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotRegion, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotUpload); v != nil {
+		if cfg.StateSync.SnapshotUpload, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUpload, err)
+		}
+	}
+	if v := opts.Get(FlagStateSyncSnapshotUploadInterval); v != nil {
+		if cfg.StateSync.SnapshotUploadInterval, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncSnapshotUploadInterval, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveClickHouseAddr); v != nil {
+		if cfg.Archive.ClickHouseAddr, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveClickHouseAddr, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveDatabase); v != nil {
+		if cfg.Archive.Database, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveDatabase, err)
+		}
+	}
+	if v := opts.Get(FlagArchiveUser); v != nil {
+		if cfg.Archive.User, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchiveUser, err)
+		}
+	}
+	if v := opts.Get(FlagArchivePassword); v != nil {
+		if cfg.Archive.Password, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagArchivePassword, err)
 		}
 	}
 	return cfg, cfg.Validate()
@@ -441,6 +631,12 @@ func (c Config) Validate() error {
 	}
 	if c.Execution.ParseWorkers < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionParseWorkers, c.Execution.ParseWorkers)
+	}
+	if c.Execution.EarlySpeculationWorkers < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionEarlySpeculationWorkers, c.Execution.EarlySpeculationWorkers)
+	}
+	if c.Execution.MaxBlocksInFlight < 1 {
+		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionMaxBlocksInFlight, c.Execution.MaxBlocksInFlight)
 	}
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
@@ -504,7 +700,23 @@ func (c Config) Validate() error {
 	if c.RPC.MaxStateOverrideSlots < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxStateOverrideSlots, c.RPC.MaxStateOverrideSlots)
 	}
-	return nil
+	if c.StateSync.SnapshotUpload && !c.StateSync.Enabled {
+		return fmt.Errorf("%s: needs %s = true", FlagStateSyncSnapshotUpload, FlagStateSyncEnabled)
+	}
+	if c.StateSync.SnapshotUpload && c.StateSync.SnapshotBucket == "" {
+		return fmt.Errorf("%s: needs %s", FlagStateSyncSnapshotUpload, FlagStateSyncSnapshotBucket)
+	}
+	if c.StateSync.SnapshotUploadInterval < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagStateSyncSnapshotUploadInterval, c.StateSync.SnapshotUploadInterval)
+	}
+	if c.Archive.Enabled() && c.Archive.Database == "" {
+		return fmt.Errorf("%s: must be set when %s is", FlagArchiveDatabase, FlagArchiveClickHouseAddr)
+	}
+	deadlines, err := c.RPC.DeadlineConfig()
+	if err != nil {
+		return err
+	}
+	return requireSimulationDeadlines(deadlines, c.RPC.TraceTimeout)
 }
 
 // ConfigTemplate is the TOML template for the [giga] section of app.toml.
@@ -553,6 +765,14 @@ occ_workers = {{ .Giga.Execution.OCCWorkers }}
 
 # parse_workers is the number of parallel transaction decoding workers; 0 uses GOMAXPROCS.
 parse_workers = {{ .Giga.Execution.ParseWorkers }}
+
+# early_speculation_workers, when positive, speculates a block's transactions before the block
+# executes. Zero disables early speculation.
+early_speculation_workers = {{ .Giga.Execution.EarlySpeculationWorkers }}
+
+# max_blocks_in_flight is how many blocks the node works on at once: one executing, and the rest
+# being prepared, and speculated when early speculation is on. 1 runs blocks one at a time.
+max_blocks_in_flight = {{ .Giga.Execution.MaxBlocksInFlight }}
 
 # block_result_pool_size is the number of block results kept pooled between executions.
 block_result_pool_size = {{ .Giga.Execution.BlockResultPoolSize }}
@@ -630,7 +850,8 @@ max_concurrent_send_calls = {{ .Giga.RPC.MaxConcurrentSendCalls }}
 # max_concurrent_trace_calls caps debug_trace* calls running at once; a call past it is refused.
 max_concurrent_trace_calls = {{ .Giga.RPC.MaxConcurrentTraceCalls }}
 
-# trace_timeout bounds how long one debug_trace* call may run.
+# trace_timeout bounds how long one debug_trace* call may run. 0 leaves it unbounded, and is
+# accepted only when method_timeouts gives every debug_trace* method a positive deadline.
 trace_timeout = "{{ .Giga.RPC.TraceTimeout }}"
 
 # max_trace_struct_log_bytes caps the default struct logger's output, in bytes, for each traced
@@ -643,12 +864,83 @@ max_state_override_accounts = {{ .Giga.RPC.MaxStateOverrideAccounts }}
 # max_state_override_slots caps the storage slots one call's state override may set for an account.
 max_state_override_slots = {{ .Giga.RPC.MaxStateOverrideSlots }}
 
+# default_timeout is the deadline applied, on both HTTP and WebSocket, to a method with no
+# built-in deadline and no entry in method_timeouts. Set to 0 to disable.
+default_timeout = "{{ .Giga.RPC.DefaultTimeout }}"
+
+# method_timeouts sets deadlines for individual methods. Each entry is "method=duration",
+# e.g. "eth_call=60s". A method name ending in "*" (e.g. "debug_trace*=0") matches every method
+# with that prefix; an exact name or the longest matching prefix wins. A duration of 0 applies
+# no deadline to that method. debug_trace* methods are also bounded by trace_timeout.
+# The default entries are built in, so removing one from this list does not remove it. To change
+# one, give an entry with the same method name or prefix, e.g. "eth_call=1s"; a broader wildcard
+# such as "eth_*=1s" does not change it.
+# eth_call, eth_estimateGas, eth_estimateGasAfterCalls and eth_createAccessList must keep a
+# positive deadline.
+method_timeouts = [{{ range $i, $e := .Giga.RPC.MethodTimeouts }}{{ if $i }}, {{ end }}"{{ $e }}"{{ end }}]
+
 [giga.state_sync]
-# enabled allows the state-sync-snapshot create and restore commands and the seed of a restored
-# home on start. It also runs a background task that writes a state sync proof file for each
-# retained FlatKV checkpoint. It does not create checkpoints or snapshots.
+# These keys are for giga state sync from snapshots of FlatKV checkpoints. They are not the
+# Tendermint state sync snapshots of the [state-sync] section.
+# enabled runs a background task that writes a state sync proof file for each retained FlatKV
+# checkpoint, and the snapshot upload below when snapshot_upload = true. It does not create
+# checkpoints.
 enabled = {{ .Giga.StateSync.Enabled }}
+# snapshot_bucket is the S3 bucket of the giga state sync snapshots of this chain:
+# giga-state-sync/<chain-id>/<height>.tar, with the height in 20 digits, and
+# giga-state-sync/<chain-id>/latest.txt, which holds the newest height. seid statesync import and
+# seid statesync check read it. The AWS credentials come from the AWS SDK default chain.
+snapshot_bucket = "{{ .Giga.StateSync.SnapshotBucket }}"
+# snapshot_region is the AWS region of snapshot_bucket. Empty uses the region of the AWS SDK
+# default configuration.
+snapshot_region = "{{ .Giga.StateSync.SnapshotRegion }}"
+# snapshot_upload uploads a snapshot of the newest checkpoint that has a state sync proof file to
+# snapshot_bucket, and then writes its height to latest.txt. It needs enabled = true and
+# snapshot_bucket, and a validator refuses to start with it. Many nodes of one chain can set it: a
+# node uploads only while it holds the upload claim of the chain in the bucket, and no node
+# replaces a snapshot or moves latest.txt back.
+snapshot_upload = {{ .Giga.StateSync.SnapshotUpload }}
+# snapshot_upload_interval is the least time between two snapshot uploads of this chain, measured
+# from the last write of latest.txt by any node. 0 uploads each checkpoint.
+snapshot_upload_interval = "{{ .Giga.StateSync.SnapshotUploadInterval }}"
+
+[giga.archive]
+# clickhouse_addr is the ClickHouse native-protocol address (host:port) of the history archive
+# this node writes its blocks to. Empty disables the archive. Block execution waits for an
+# archive that falls behind, so do not enable it on a validator.
+clickhouse_addr = "{{ .Giga.Archive.ClickHouseAddr }}"
+
+# database is the ClickHouse database holding this chain's archive: letters, digits and
+# underscores.
+database = "{{ .Giga.Archive.Database }}"
+
+# user and password authenticate to ClickHouse.
+user = "{{ .Giga.Archive.User }}"
+password = {{ printf "%q" .Giga.Archive.Password }}
 `
+
+// requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one
+// of simulationMethods without a positive deadline in deadlines, or one of traceMethods with
+// neither a positive deadline in deadlines nor a positive traceTimeout.
+func requireSimulationDeadlines(deadlines ratelimiter.DeadlineConfig, traceTimeout time.Duration) error {
+	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
+	for _, method := range simulationMethods {
+		if enforcer.Deadline(method) == 0 {
+			return fmt.Errorf("%s: %s must have a positive deadline, from %s or an entry here",
+				FlagRPCMethodTimeouts, method, FlagRPCDefaultTimeout)
+		}
+	}
+	if traceTimeout > 0 {
+		return nil
+	}
+	for _, method := range traceMethods {
+		if enforcer.Deadline(method) == 0 {
+			return fmt.Errorf("%s: must be positive unless %s gives %s a positive deadline",
+				FlagRPCTraceTimeout, FlagRPCMethodTimeouts, method)
+		}
+	}
+	return nil
+}
 
 // skipUpgradeHeights casts v to a list of heights, rejecting a negative one.
 func skipUpgradeHeights(v interface{}) ([]uint64, error) {

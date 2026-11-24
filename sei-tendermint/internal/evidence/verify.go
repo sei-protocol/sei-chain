@@ -76,10 +76,6 @@ func (evpool *Pool) verify(ctx context.Context, evidence types.Evidence) error {
 			return fmt.Errorf("validator %v not in committee", ev.VoteA.ValidatorAddress)
 		}
 		if err := ev.ValidateABCI(val, valSet, evTime); err != nil {
-			ev.GenerateABCI(val, valSet, evTime)
-			if addErr := evpool.addPendingEvidence(ctx, ev); addErr != nil {
-				logger.Error("adding pending duplicate vote evidence failed", "err", addErr)
-			}
 			return err
 		}
 

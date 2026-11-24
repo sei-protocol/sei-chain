@@ -154,7 +154,6 @@ func (suite *AnteTestSuite) CreateTestTx(privs []cryptotypes.PrivKey, accNums []
 type TestCase struct {
 	desc     string
 	malleate func()
-	simulate bool
 	expPass  bool
 	expErr   error
 }
@@ -170,7 +169,7 @@ func (suite *AnteTestSuite) RunTestCase(privs []cryptotypes.PrivKey, msgs []sdk.
 		// ante handlers, but here we sometimes also test the tx creation
 		// process.
 		tx, txErr := suite.CreateTestTx(privs, accNums, accSeqs, chainID)
-		newCtx, anteErr := suite.anteHandler(suite.ctx, tx, tc.simulate)
+		newCtx, anteErr := suite.anteHandler(suite.ctx, tx)
 
 		// Fee Collector actual account balance deposit coins into the fee collector account
 		suite.app.BankKeeper.WriteDeferredBalances(suite.ctx)

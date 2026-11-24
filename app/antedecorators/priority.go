@@ -26,9 +26,9 @@ func intMin(a, b int64) int64 {
 }
 
 // AnteHandle caps transaction priority below the associate transaction tier.
-func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	priority := intMin(ctx.Priority(), MaxPriority)
 	newCtx := ctx.WithPriority(priority)
 
-	return next(newCtx, tx, simulate)
+	return next(newCtx, tx)
 }

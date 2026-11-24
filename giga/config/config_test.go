@@ -11,6 +11,7 @@ import (
 
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
@@ -62,6 +63,52 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	require.Equal(t, v2.MaxBlockFilterHashes, r.MaxBlockFilterHashes)
 }
 
+// TestRPCMethodDeadlinesMatchTheV2EVMRPC holds the default [giga.rpc] method deadlines to the ones
+// the v2 EVM RPC applies out of the box.
+func TestRPCMethodDeadlinesMatchTheV2EVMRPC(t *testing.T) {
+	v2Cfg, err := evmrpcconfig.DefaultConfig.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	gigaCfg, err := gigaconfig.DefaultConfig.RPC.DeadlineConfig()
+	require.NoError(t, err)
+	v2, giga := ratelimiter.NewDeadlineEnforcer(v2Cfg), ratelimiter.NewDeadlineEnforcer(gigaCfg)
+	for _, method := range []string{
+		"eth_getBalance",
+		"eth_getLogs",
+		"eth_call",
+		"eth_estimateGas",
+		"eth_estimateGasAfterCalls",
+		"eth_createAccessList",
+		"debug_traceTransaction",
+		"debug_traceBlockByNumber",
+	} {
+		require.Equal(t, v2.Deadline(method), giga.Deadline(method), method)
+	}
+}
+
+// TestMethodTimeoutsApplyOverTheBuiltInDeadlines holds [giga.rpc] method_timeouts to changing only
+// the deadlines its entries name.
+func TestMethodTimeoutsApplyOverTheBuiltInDeadlines(t *testing.T) {
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
+		"giga.rpc.default_timeout": "0s",
+		"giga.rpc.method_timeouts": []string{"eth_getLogs=10s", "eth_call=2m", "eth_*=0"},
+	})
+	require.NoError(t, err)
+	deadlines, err := cfg.RPC.DeadlineConfig()
+	require.NoError(t, err)
+	enforcer := ratelimiter.NewDeadlineEnforcer(deadlines)
+	for method, want := range map[string]time.Duration{
+		"eth_getLogs":               10 * time.Second,
+		"eth_call":                  2 * time.Minute,
+		"eth_estimateGas":           time.Minute,
+		"eth_createAccessList":      time.Minute,
+		"eth_estimateGasAfterCalls": 5 * time.Minute,
+		"eth_getBalance":            0,
+		"debug_traceTransaction":    0,
+	} {
+		require.Equal(t, want, enforcer.Deadline(method), method)
+	}
+}
+
 // TestConfigTemplateRendersTheDefaults holds the app.toml template to the section: the rendered
 // defaults read back as DefaultConfig.
 func TestConfigTemplateRendersTheDefaults(t *testing.T) {
@@ -90,6 +137,21 @@ func TestConfigTemplateRendersSkipUpgrades(t *testing.T) {
 	require.Equal(t, want, cfg)
 }
 
+func TestConfigTemplateRendersArchivePassword(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	want := gigaconfig.DefaultConfig
+	want.Archive.ClickHouseAddr = "ch:9000"
+	want.Archive.Password = `p"a\ss#word`
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, want, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                         "full",
@@ -102,6 +164,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.min_gas_price":              "7",
 		"giga.execution.occ_workers":                "3",
 		"giga.execution.parse_workers":              "2",
+		"giga.execution.early_speculation_workers":  "5",
+		"giga.execution.max_blocks_in_flight":       "4",
 		"giga.execution.block_result_pool_size":     "4",
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
@@ -126,7 +190,17 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.max_trace_struct_log_bytes":       "512",
 		"giga.rpc.max_state_override_accounts":      "5",
 		"giga.rpc.max_state_override_slots":         "6",
+		"giga.rpc.default_timeout":                  "8s",
+		"giga.rpc.method_timeouts":                  []string{"eth_call=2m", "debug_trace*=0"},
 		"giga.state_sync.enabled":                   "true",
+		"giga.state_sync.snapshot_bucket":           "sei-snapshots",
+		"giga.state_sync.snapshot_region":           "eu-central-1",
+		"giga.state_sync.snapshot_upload":           "true",
+		"giga.state_sync.snapshot_upload_interval":  "6h",
+		"giga.archive.clickhouse_addr":              "ch:9000",
+		"giga.archive.database":                     "arch",
+		"giga.archive.user":                         "writer",
+		"giga.archive.password":                     "secret",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -140,14 +214,16 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			CheckpointBlockInterval: 5000,
 		},
 		Execution: gigaconfig.ExecutionConfig{
-			MinGasPrice:         7,
-			OCCWorkers:          3,
-			ParseWorkers:        2,
-			BlockResultPoolSize: 4,
-			EvmRpcPort:          8600,
-			EvmWsPort:           8601,
-			GCPercent:           200,
-			UnsafeSkipUpgrades:  []uint64{100, 101},
+			MinGasPrice:             7,
+			OCCWorkers:              3,
+			ParseWorkers:            2,
+			EarlySpeculationWorkers: 5,
+			MaxBlocksInFlight:       4,
+			BlockResultPoolSize:     4,
+			EvmRpcPort:              8600,
+			EvmWsPort:               8601,
+			GCPercent:               200,
+			UnsafeSkipUpgrades:      []uint64{100, 101},
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
@@ -169,9 +245,21 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			MaxTraceStructLogBytes:        512,
 			MaxStateOverrideAccounts:      5,
 			MaxStateOverrideSlots:         6,
+			DefaultTimeout:                8 * time.Second,
+			MethodTimeouts:                []string{"eth_call=2m", "debug_trace*=0"},
 		},
 		StateSync: gigaconfig.StateSyncConfig{
-			Enabled: true,
+			Enabled:                true,
+			SnapshotBucket:         "sei-snapshots",
+			SnapshotRegion:         "eu-central-1",
+			SnapshotUpload:         true,
+			SnapshotUploadInterval: 6 * time.Hour,
+		},
+		Archive: gigaconfig.ArchiveConfig{
+			ClickHouseAddr: "ch:9000",
+			Database:       "arch",
+			User:           "writer",
+			Password:       "secret",
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -179,11 +267,21 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 
 func TestReadConfigRejectsUnusableValues(t *testing.T) {
 	for name, opts := range map[string]configtest.AppOpts{
-		"unknown mode":                    {"giga.storage.mode": "archive"},
+		"unknown mode": {"giga.storage.mode": "archive"},
+		"upload without state sync": {
+			"giga.state_sync.snapshot_upload": "true",
+			"giga.state_sync.snapshot_bucket": "sei-snapshots",
+		},
+		"upload without bucket": {
+			"giga.state_sync.enabled":         "true",
+			"giga.state_sync.snapshot_upload": "true",
+		},
 		"non-boolean receipts":            {"giga.storage.receipts": "maybe"},
 		"lookback below -1":               {"giga.storage.lookback_window": "-2"},
 		"zero prune interval":             {"giga.storage.prune_interval": "0s"},
 		"negative occ workers":            {"giga.execution.occ_workers": "-1"},
+		"negative early speculation":      {"giga.execution.early_speculation_workers": "-1"},
+		"zero max blocks in flight":       {"giga.execution.max_blocks_in_flight": "0"},
 		"negative gc percent":             {"giga.execution.gc_percent": "-1"},
 		"empty result pool":               {"giga.execution.block_result_pool_size": "0"},
 		"non-numeric gas price":           {"giga.execution.min_gas_price": "cheap"},
@@ -229,10 +327,72 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-duration filter timeout":     {"giga.rpc.filter_timeout": "later"},
 		"negative filter cap":             {"giga.rpc.max_filters": "-1"},
 		"non-numeric block filter hashes": {"giga.rpc.max_block_filter_hashes": "plenty"},
-		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
+		"negative default timeout":        {"giga.rpc.default_timeout": "-1s"},
+		"non-duration default timeout":    {"giga.rpc.default_timeout": "eventually"},
+		"method timeout without duration": {"giga.rpc.method_timeouts": []string{"eth_call"}},
+		"non-duration method timeout":     {"giga.rpc.method_timeouts": []string{"eth_call=soon"}},
+		"negative method timeout":         {"giga.rpc.method_timeouts": []string{"eth_call=-1s"}},
+		"bare wildcard method timeout":    {"giga.rpc.method_timeouts": []string{"*=1s"}},
+		"unbounded eth_call":              {"giga.rpc.method_timeouts": []string{"eth_call=0"}},
+		"unbounded debug_trace*":          {"giga.rpc.trace_timeout": "0s"},
+		"unbounded debug_trace* by wildcard": {
+			"giga.rpc.trace_timeout":   "0s",
+			"giga.rpc.method_timeouts": []string{"debug_trace*=0"},
+		},
+		"unbounded block traces": {
+			"giga.rpc.trace_timeout":   "0s",
+			"giga.rpc.method_timeouts": []string{"debug_traceCall=30s", "debug_traceTransaction=30s"},
+		},
+		"unbounded debug_traceTransaction": {
+			"giga.rpc.trace_timeout":   "0s",
+			"giga.rpc.method_timeouts": []string{"debug_traceCall=30s", "debug_traceBlock*=30s"},
+		},
+		"unbounded eth_estimateGasAfterCalls": {
+			"giga.rpc.default_timeout": "0s",
+			"giga.rpc.method_timeouts": []string{"eth_estimateGasAfterCalls=0"},
+		},
+		"non-boolean state sync":       {"giga.state_sync.enabled": "maybe"},
+		"non-string bucket":            {"giga.state_sync.snapshot_bucket": []string{"a", "b"}},
+		"non-string region":            {"giga.state_sync.snapshot_region": []string{"a", "b"}},
+		"non-boolean upload":           {"giga.state_sync.snapshot_upload": "maybe"},
+		"negative upload interval":     {"giga.state_sync.snapshot_upload_interval": "-1s"},
+		"non-duration upload interval": {"giga.state_sync.snapshot_upload_interval": "daily"},
+		"archive without database":     {"giga.archive.clickhouse_addr": "ch:9000", "giga.archive.database": ""},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
+	}
+}
+
+// TestSnapshotBucketAloneUploadsNothing holds a node that only names the snapshot bucket, to read
+// snapshots from it, to a valid config that does not upload.
+func TestSnapshotBucketAloneUploadsNothing(t *testing.T) {
+	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{"giga.state_sync.snapshot_bucket": "sei-snapshots"})
+	require.NoError(t, err)
+	require.Equal(t, "sei-snapshots", cfg.StateSync.SnapshotBucket)
+	require.False(t, cfg.StateSync.Enabled)
+	require.False(t, cfg.StateSync.SnapshotUpload)
+	require.Equal(t, time.Hour, cfg.StateSync.SnapshotUploadInterval)
+}
+
+// TestTraceTimeoutZeroNeedsTraceDeadlines holds a zero [giga.rpc] trace_timeout to being
+// accepted only when method_timeouts bounds every debug_trace* method.
+func TestTraceTimeoutZeroNeedsTraceDeadlines(t *testing.T) {
+	for name, entries := range map[string][]string{
+		"exact entries": {
+			"debug_traceTransaction=30s",
+			"debug_traceCall=30s",
+			"debug_traceBlockByNumber=30s",
+			"debug_traceBlockByHash=30s",
+		},
+		"wildcard entry": {"debug_trace*=30s"},
+	} {
+		cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
+			"giga.rpc.trace_timeout":   "0s",
+			"giga.rpc.method_timeouts": entries,
+		})
+		require.NoError(t, err, name)
+		require.Zero(t, cfg.RPC.TraceTimeout, name)
 	}
 }
 

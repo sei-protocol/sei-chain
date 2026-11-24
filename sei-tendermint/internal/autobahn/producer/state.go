@@ -7,10 +7,10 @@ import (
 	"runtime"
 	"time"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"golang.org/x/time/rate"
@@ -43,13 +43,14 @@ func (c *Config) maxConcurrentCheckTx() int {
 const minTxGas = 21000
 
 func (c *Config) maxTxsPerBlock() uint64 {
-	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)
+	return min(types.MaxTxsPerLaneBlock, c.MaxTxsPerBlock)
 }
 
 // State is the block producer state.
 type State struct {
 	cfg             *Config
-	app             *proxy.EVMProxy
+	app             *abevm.Proxy
+	signer          *abevm.Signer
 	mempool         utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus       *consensus.State
 	checkTxSem      *utils.Semaphore // bounds CheckTx calls.
@@ -59,7 +60,7 @@ type State struct {
 
 // NewState constructs a new block producer state.
 // Mempool starts None; alignMempool creates it for each produce session.
-func NewState(cfg *Config, consensus *consensus.State, app *proxy.EVMProxy) *State {
+func NewState(cfg *Config, consensus *consensus.State, app *abevm.Proxy, signer *abevm.Signer) *State {
 	limit := rate.Inf
 	burst := 1
 	if l, ok := cfg.MaxTxsPerSecond.Get(); ok {
@@ -69,6 +70,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.EVMProxy) *Sta
 	return &State{
 		cfg:             cfg,
 		app:             app,
+		signer:          signer,
 		mempool:         utils.NewAtomicSend(utils.None[*mempool]()),
 		consensus:       consensus,
 		checkTxSem:      utils.NewSemaphore(cfg.maxConcurrentCheckTx()),

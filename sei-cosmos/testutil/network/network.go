@@ -53,7 +53,7 @@ var (
 // creates an ABCI Application to provide to Tendermint.
 type AppConstructor = func(val Validator) servertypes.Application
 
-// NewAppConstructor returns a new simapp AppConstructor
+// NewAppConstructor returns an AppConstructor that sets up a new Sei App for each validator.
 func NewAppConstructor(t *testing.T, encodingCfg params.EncodingConfig) AppConstructor {
 	return func(val Validator) servertypes.Application {
 		return app.Setup(t, false, false, false)
@@ -117,7 +117,7 @@ func DefaultConfig(t *testing.T) Config {
 }
 
 type (
-	// Network defines a local in-process testing network using SimApp. It can be
+	// Network defines a local in-process testing network using the Sei App. It can be
 	// configured to start any number of validators, each with its own RPC and API
 	// clients. Typically, this test network would be used in client and integration
 	// testing where user input is expected.
@@ -242,8 +242,8 @@ func New(t *testing.T, cfg Config) *Network {
 		}
 
 		nodeDirName := fmt.Sprintf("node%d", i)
-		nodeDir := filepath.Join(network.BaseDir, nodeDirName, "simd")
-		clientDir := filepath.Join(network.BaseDir, nodeDirName, "simcli")
+		nodeDir := filepath.Join(network.BaseDir, nodeDirName, "seid")
+		clientDir := filepath.Join(network.BaseDir, nodeDirName, "seicli")
 		gentxsDir := filepath.Join(network.BaseDir, "gentxs")
 
 		require.NoError(t, os.MkdirAll(filepath.Join(nodeDir, "config"), 0750))

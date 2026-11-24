@@ -21,38 +21,38 @@ func TestNewInnerInitializesBoundaryLanes(t *testing.T) {
 	stay := ep.Committee().Lane(keys[0].Public()).OrPanic("staying lane")
 	leave := ep.Committee().Lane(keys[1].Public()).OrPanic("departing lane")
 	join := next.Committee().Lane(joiner.Public()).OrPanic("joining lane")
-	committed := types.NewBlock(stay, 5, types.BlockHeaderHash{}, &types.Payload{})
+	committed := types.NewLaneBlock(stay, 5, types.LaneBlockHeaderHash{}, &types.Payload{})
 	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		stay: data.TestLaneQC(keys, committed.Header()),
+		stay: data.TestLaneQC(0, keys, committed.Header()),
 	})
 	anchor := data.Anchor{
 		First:  utils.Some(data.AnchorFirst{CommitQC: qc, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc.View(), nil))}),
 		Epochs: [2]*types.Epoch{ep, next},
 	}
-	committedProposal := types.Sign(keys[0], types.NewLaneProposal(committed))
-	stayProposal := types.Sign(keys[0], types.NewLaneProposal(types.NewBlock(stay, 6, committed.Header().Hash(), &types.Payload{})))
-	leaveProposal := types.Sign(keys[1], types.NewLaneProposal(types.NewBlock(leave, 0, types.BlockHeaderHash{}, &types.Payload{})))
-	joinProposal := types.Sign(joiner, types.NewLaneProposal(types.NewBlock(join, 0, types.BlockHeaderHash{}, &types.Payload{})))
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
-		stay:  {{Number: 5, Proposal: committedProposal}, {Number: 6, Proposal: stayProposal}},
-		leave: {{Number: 0, Proposal: leaveProposal}},
-		join:  {{Number: 0, Proposal: joinProposal}},
+	committedProposal := keys[0].Sign(types.NewLaneProposal(committed))
+	stayProposal := keys[0].Sign(types.NewLaneProposal(types.NewLaneBlock(stay, 6, committed.Header().Hash(), &types.Payload{})))
+	leaveProposal := keys[1].Sign(types.NewLaneProposal(types.NewLaneBlock(leave, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
+	joinProposal := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
+		stay:  {{Height: 5, Proposal: committedProposal}, {Height: 6, Proposal: stayProposal}},
+		leave: {{Height: 0, Proposal: leaveProposal}},
+		join:  {{Height: 0, Proposal: joinProposal}},
 	}})
 	require.NoError(t, err)
 	require.Equal(t, next, i.applied())
-	require.Equal(t, types.BlockNumber(6), i.lanes[stay].blocks.first)
-	require.Equal(t, types.BlockNumber(7), i.lanes[stay].blocks.next)
-	require.Equal(t, types.BlockNumber(6), i.lanes[stay].votes.first)
-	require.Equal(t, types.BlockNumber(7), i.lanes[stay].nextBlockToPersist)
+	require.Equal(t, types.LaneHeight(6), i.lanes[stay].blocks.first)
+	require.Equal(t, types.LaneHeight(7), i.lanes[stay].blocks.next)
+	require.Equal(t, types.LaneHeight(6), i.lanes[stay].votes[next.EpochIndex()].first)
+	require.Equal(t, types.LaneHeight(7), i.lanes[stay].nextBlockToPersist)
 	require.Equal(t, stayProposal, i.lanes[stay].blocks.q[6])
 	require.Equal(t, leaveProposal, i.lanes[leave].blocks.q[0])
 	require.Equal(t, joinProposal, i.lanes[join].blocks.q[0])
 
-	restored, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
+	restored, err := newInner(anchor, testGenesisTimestamp, &loadedState{})
 	require.NoError(t, err)
-	require.Equal(t, types.BlockNumber(6), restored.lanes[stay].blocks.first)
-	require.Equal(t, types.BlockNumber(6), restored.lanes[stay].blocks.next)
-	require.Equal(t, types.BlockNumber(6), restored.lanes[stay].nextBlockToPersist)
+	require.Equal(t, types.LaneHeight(6), restored.lanes[stay].blocks.first)
+	require.Equal(t, types.LaneHeight(6), restored.lanes[stay].blocks.next)
+	require.Equal(t, types.LaneHeight(6), restored.lanes[stay].nextBlockToPersist)
 }
 
 func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
@@ -66,10 +66,10 @@ func TestPruneMaintainsBothAnchorCommittees(t *testing.T) {
 	leave := ep1.Committee().Lane(keys[1].Public()).OrPanic("departing lane")
 	join := ep2.Committee().Lane(joiner.Public()).OrPanic("joining lane")
 	rejoin := ep3.Committee().Lane(keys[1].Public()).OrPanic("rejoining lane")
-	proposal := types.Sign(joiner, types.NewLaneProposal(types.NewBlock(join, 0, types.BlockHeaderHash{}, &types.Payload{})))
+	proposal := joiner.Sign(types.NewLaneProposal(types.NewLaneBlock(join, 0, types.LaneBlockHeaderHash{}, &types.Payload{})))
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{ep1, ep2}}
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
-		join: {{Number: 0, Proposal: proposal}},
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{
+		join: {{Height: 0, Proposal: proposal}},
 	}})
 	require.NoError(t, err)
 	require.Equal(t, ep1, i.applied())
@@ -108,12 +108,12 @@ func TestRestartAcceptsFinalRoadCommitQC(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, state.Close()) })
 	spec := state.ConsensusSpec().Load()
 	require.Equal(t, ep, spec.Epoch)
-	require.Equal(t, registry.LastRoad(0), spec.Index())
+	require.Equal(t, registry.LastRoad(0), spec.Height())
 	// Receiving the final CommitQC must not advance the spec before it is persisted.
 	last := types.BuildCommitQC(ep, keys, ds.Anchor().Load().CommitQC(), nil)
 	require.NoError(t, last.Verify(ep))
 	require.NoError(t, state.PushCommitQC(t.Context(), last))
-	require.Equal(t, last.Index()+1, nextRoad(state))
+	require.Equal(t, last.Height()+1, nextRoad(state))
 	require.Equal(t, ep, state.ConsensusSpec().Load().Epoch)
 	// Persistence moves the spec to LastRoad(0)+1 in the already available epoch 1.
 	state.markCommitQCsPersisted(last)
@@ -122,5 +122,5 @@ func TestRestartAcceptsFinalRoadCommitQC(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, utils.Some(last), spec.CommitQC)
-	require.True(t, spec.Epoch.RoadRange().Has(spec.Index()))
+	require.True(t, spec.Epoch.RoadRange().Has(spec.Height()))
 }

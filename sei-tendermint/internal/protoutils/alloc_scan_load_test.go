@@ -19,19 +19,19 @@ const (
 )
 
 // maxBlock builds a Block at the wireguard limits: maxTxsPerBlock transactions
-// each of maxBytesPerTx bytes, with a minimal valid BlockHeader.
-func maxBlock() *autopb.Block {
+// each of maxBytesPerTx bytes, with a minimal valid LaneBlockHeader.
+func maxBlock() *autopb.LaneBlock {
 	txs := make([][]byte, maxTxsPerBlock)
 	for i := range txs {
 		txs[i] = make([]byte, maxBytesPerTx)
 	}
-	return &autopb.Block{
-		Header: &autopb.BlockHeader{
+	return &autopb.LaneBlock{
+		Header: &autopb.LaneBlockHeader{
 			LaneId: &autopb.LaneID{
 				Validator: &autopb.PublicKey{Ed25519: make([]byte, 32)},
 				Joined:    new(uint64(0)),
 			},
-			BlockNumber: new(uint64(1)),
+			Height:      new(uint64(1)),
 			ParentHash:  make([]byte, 32),
 			PayloadHash: make([]byte, 32),
 		},
@@ -57,7 +57,7 @@ func TestUnmarshalWithLimit_MaxBlockAccepted(t *testing.T) {
 	// Limit is 4MB: 2× the 2MB tx payload, leaving room for header overhead
 	// and the ~8× varint amplification in the worst case.
 	const limitBytes = 4 << 20
-	_, err = protoutils.UnmarshalWithLimit[*autopb.Block](bz, limitBytes)
+	_, err = protoutils.UnmarshalWithLimit[*autopb.LaneBlock](bz, limitBytes)
 	require.NoError(t, err, "legitimately max-sized block must be accepted")
 }
 
@@ -87,7 +87,7 @@ func BenchmarkUnmarshalWithLimit_MaxBlock(b *testing.B) {
 	b.ResetTimer()
 	b.SetBytes(int64(len(bz)))
 	for range b.N {
-		_, err := protoutils.UnmarshalWithLimit[*autopb.Block](bz, limitBytes)
+		_, err := protoutils.UnmarshalWithLimit[*autopb.LaneBlock](bz, limitBytes)
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -14,7 +14,6 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
@@ -30,7 +29,6 @@ func TestPriorityAnteDecorator(t *testing.T) {
 	newCtx, err := chainedHandler(
 		ctx.WithPriority(125),
 		FakeTx{},
-		false,
 	)
 	require.NoError(t, err)
 	require.Equal(t, int64(125), newCtx.Priority())
@@ -51,7 +49,6 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 				&retiredoracle.MsgDelegateFeedConsent{},
 			},
 		},
-		false,
 	)
 	require.NoError(t, err)
 	require.Equal(t, int64(math.MaxInt64-1000), newCtx.Priority())
@@ -72,7 +69,6 @@ func TestPriorityAnteDecoratorOracleMsgUsesNormalPriority(t *testing.T) {
 				&retiredoracle.MsgAggregateExchangeRateVote{},
 			},
 		},
-		false,
 	)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), newCtx.Priority())
@@ -81,11 +77,11 @@ func TestPriorityAnteDecoratorOracleMsgUsesNormalPriority(t *testing.T) {
 // PriorityCaptureDecorator captures ctx.Priority seen by the next decorator in the chain
 type PriorityCaptureDecorator struct{ captured *int64 }
 
-func (d PriorityCaptureDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (d PriorityCaptureDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	if d.captured != nil {
 		*d.captured = ctx.Priority()
 	}
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
@@ -94,18 +90,14 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
 	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
 
-	var seenAfterLimit int64 = -1
+	var seenAfterFee int64 = -1
 	var seenAfterReject int64 = -1
 	var seenAfterPriority int64 = -1
 
 	decorators := []sdk.AnteDecorator{
 		authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)),
 		authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.ParamsKeeper, nil),
-		func() sdk.AnteDecorator {
-			var simLimit sdk.Gas = 1_000_000
-			return wasmkeeper.NewLimitSimulationGasDecorator(&simLimit, antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))
-		}(),
-		PriorityCaptureDecorator{captured: &seenAfterLimit},
+		PriorityCaptureDecorator{captured: &seenAfterFee},
 		authante.NewRejectExtensionOptionsDecorator(),
 		PriorityCaptureDecorator{captured: &seenAfterReject},
 		antedecorators.NewPriorityDecorator(),
@@ -128,7 +120,7 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	txb.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 100_000)))
 	tx := txb.GetTx()
 
-	_, err := handler(ctx, tx, false)
+	_, err := handler(ctx, tx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,8 +128,8 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if seenAfterLimit <= 0 || seenAfterReject <= 0 {
-		t.Fatalf("expected non zero priority after limit/reject, got %d/%d", seenAfterLimit, seenAfterReject)
+	if seenAfterFee <= 0 || seenAfterReject <= 0 {
+		t.Fatalf("expected non zero priority after fee/reject, got %d/%d", seenAfterFee, seenAfterReject)
 	}
 	if seenAfterPriority <= 0 {
 		t.Fatalf("expected PriorityDecorator to set correct priority for BankSend, got %d", seenAfterPriority)
@@ -169,7 +161,7 @@ func TestPriorityWithExactAnteChain_MsgAssociate(t *testing.T) {
 	txb.SetGasLimit(gasLimit)
 	txb.SetFeeAmount(fees)
 
-	newCtx, err := handler(ctx, txb.GetTx(), false)
+	newCtx, err := handler(ctx, txb.GetTx())
 	require.NoError(t, err)
 	require.Equal(t, authante.GetTxPriority(fees, int64(gasLimit)), newCtx.Priority())
 }
@@ -177,9 +169,9 @@ func TestPriorityWithExactAnteChain_MsgAssociate(t *testing.T) {
 // PriorityCaptureDecorator captures ctx.Priority seen by the next decorator in the chain
 type PrioritySetterDecorator struct{ priority int64 }
 
-func (d PrioritySetterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (d PrioritySetterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	newCtx := ctx.WithPriority(d.priority)
-	return next(newCtx, tx, simulate)
+	return next(newCtx, tx)
 }
 
 func TestPrioritySetterWithAnteHandlers(t *testing.T) {
@@ -190,7 +182,6 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 
 	var expectedPriority int64 = 1000000
 	var seenAfterSetter int64 = -1
-	var seenAfterLimit int64 = -1
 	var seenAfterReject int64 = -1
 	var seenAfterPriority int64 = -1
 
@@ -198,11 +189,6 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 		authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)),
 		PrioritySetterDecorator{priority: expectedPriority},
 		PriorityCaptureDecorator{captured: &seenAfterSetter},
-		func() sdk.AnteDecorator {
-			var simLimit sdk.Gas = 1_000_000
-			return wasmkeeper.NewLimitSimulationGasDecorator(&simLimit, antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))
-		}(),
-		PriorityCaptureDecorator{captured: &seenAfterLimit},
 		authante.NewRejectExtensionOptionsDecorator(),
 		PriorityCaptureDecorator{captured: &seenAfterReject},
 		antedecorators.NewPriorityDecorator(),
@@ -225,7 +211,7 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 	txb.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 100_000)))
 	tx := txb.GetTx()
 
-	_, err := handler(ctx, tx, false)
+	_, err := handler(ctx, tx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -233,8 +219,8 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if seenAfterLimit <= 0 || seenAfterReject <= 0 {
-		t.Fatalf("expected non zero priority after limit/reject, got %d/%d", seenAfterLimit, seenAfterReject)
+	if seenAfterSetter <= 0 || seenAfterReject <= 0 {
+		t.Fatalf("expected non zero priority after setter/reject, got %d/%d", seenAfterSetter, seenAfterReject)
 	}
 	require.Equal(t, expectedPriority, seenAfterPriority)
 }

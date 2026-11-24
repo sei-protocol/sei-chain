@@ -14,8 +14,8 @@ const MetricsSubsystem = "internal_autobahn_avail"
 
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
-	// Road index of the highest observed commitQC.
-	commitRoadIndex prometheus.GaugeIntVec
+	// Road height of the highest observed commitQC.
+	commitRoadHeight prometheus.GaugeIntVec `metrics_name:"commit_road_height"`
 
 	// Latency from proposal being constructed to commit being observed.
 	proposalToCommitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
@@ -53,7 +53,7 @@ func ObserveCommitQC(qc *types.CommitQC) {
 	now := time.Now()
 	for mLast := range observedCommitQC.Lock() {
 		if last, ok := mLast.Get(); ok {
-			if last.val.Index() >= qc.Index() {
+			if last.val.Height() >= qc.Height() {
 				return
 			}
 			// "timeouts" label is capped
@@ -64,7 +64,7 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
 		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Header().Timestamp()).Seconds())
-		Global.commitRoadIndexAt().Set(int64(qc.Index())) // nolint: gosec
+		Global.commitRoadHeightAt().Set(int64(qc.Height())) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
@@ -76,7 +76,7 @@ func ObserveProducedTxs(n int) {
 
 // Metrics are the avail instruments callers write directly.
 type Metrics struct {
-	CommitRoadIndex      *prometheus.GaugeInt
+	CommitRoadHeight     *prometheus.GaugeInt
 	LaneCapacityWait     *prometheus.Histogram
 	LaneQCWait           *prometheus.Histogram
 	LaneCapacityInFlight *prometheus.GaugeInt
@@ -90,7 +90,7 @@ type Metrics struct {
 // Get returns the avail instruments.
 func Get() *Metrics {
 	return &Metrics{
-		CommitRoadIndex:      Global.commitRoadIndexAt(),
+		CommitRoadHeight:     Global.commitRoadHeightAt(),
 		LaneCapacityWait:     Global.laneCapacityWaitLatencyAt(),
 		LaneQCWait:           Global.laneQcWaitLatencyAt(),
 		LaneCapacityInFlight: Global.inFlightAt("lane_capacity"),

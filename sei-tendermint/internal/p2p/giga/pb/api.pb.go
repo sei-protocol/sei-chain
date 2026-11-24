@@ -133,7 +133,7 @@ func (*PingResp) Descriptor() ([]byte, []int) {
 
 type LaneVote struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneVoteV2    *pb.SignedBlockHeader  `protobuf:"bytes,2,opt,name=lane_vote_v2,json=laneVoteV2,proto3" json:"lane_vote_v2,omitempty"`
+	LaneVoteV4    *pb.SignedLaneVote     `protobuf:"bytes,4,opt,name=lane_vote_v4,json=laneVoteV4,proto3" json:"lane_vote_v4,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -168,16 +168,16 @@ func (*LaneVote) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *LaneVote) GetLaneVoteV2() *pb.SignedBlockHeader {
+func (x *LaneVote) GetLaneVoteV4() *pb.SignedLaneVote {
 	if x != nil {
-		return x.LaneVoteV2
+		return x.LaneVoteV4
 	}
 	return nil
 }
 
 type LaneProposal struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	LaneProposalV2 *pb.SignedBlock        `protobuf:"bytes,2,opt,name=lane_proposal_v2,json=laneProposalV2,proto3" json:"lane_proposal_v2,omitempty"`
+	LaneProposalV3 *pb.SignedLaneBlock    `protobuf:"bytes,3,opt,name=lane_proposal_v3,json=laneProposalV3,proto3" json:"lane_proposal_v3,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -212,9 +212,9 @@ func (*LaneProposal) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *LaneProposal) GetLaneProposalV2() *pb.SignedBlock {
+func (x *LaneProposal) GetLaneProposalV3() *pb.SignedLaneBlock {
 	if x != nil {
-		return x.LaneProposalV2
+		return x.LaneProposalV3
 	}
 	return nil
 }
@@ -264,11 +264,11 @@ func (x *AppVote) GetAppVoteV2() *pb.SignedAppVote {
 }
 
 type StreamLaneProposalsReq struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	FirstBlockNumber uint64                 `protobuf:"varint,1,opt,name=first_block_number,json=firstBlockNumber,proto3" json:"first_block_number,omitempty"`
-	LaneId           *pb.LaneID             `protobuf:"bytes,2,opt,name=lane_id,json=laneId,proto3,oneof" json:"lane_id,omitempty"` // required
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FirstHeight   uint64                 `protobuf:"varint,3,opt,name=first_height,json=firstHeight,proto3" json:"first_height,omitempty"`
+	LaneId        *pb.LaneID             `protobuf:"bytes,2,opt,name=lane_id,json=laneId,proto3,oneof" json:"lane_id,omitempty"` // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamLaneProposalsReq) Reset() {
@@ -301,9 +301,9 @@ func (*StreamLaneProposalsReq) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *StreamLaneProposalsReq) GetFirstBlockNumber() uint64 {
+func (x *StreamLaneProposalsReq) GetFirstHeight() uint64 {
 	if x != nil {
-		return x.FirstBlockNumber
+		return x.FirstHeight
 	}
 	return 0
 }
@@ -469,7 +469,7 @@ func (x *GetBlockReq) GetPos() *pb.LaneBlockPos {
 
 type GetBlockResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Block         *pb.Block              `protobuf:"bytes,1,opt,name=block,proto3,oneof" json:"block,omitempty"`
+	BlockV2       *pb.LaneBlock          `protobuf:"bytes,2,opt,name=block_v2,json=blockV2,proto3,oneof" json:"block_v2,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -504,9 +504,9 @@ func (*GetBlockResp) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *GetBlockResp) GetBlock() *pb.Block {
+func (x *GetBlockResp) GetBlockV2() *pb.LaneBlock {
 	if x != nil {
-		return x.Block
+		return x.BlockV2
 	}
 	return nil
 }
@@ -606,28 +606,28 @@ const file_p2p_giga_api_proto_rawDesc = "" +
 	"\x12p2p/giga/api.proto\x12\bp2p.giga\x1a\x17autobahn/autobahn.proto\x1a\x19wireguard/wireguard.proto\"\x17\n" +
 	"\rConsensusResp:\x06\xe8\x88\xe2\xab\f\x01\"\x11\n" +
 	"\aPingReq:\x06\xe8\x88\xe2\xab\f\x01\"\x12\n" +
-	"\bPingResp:\x06\xe8\x88\xe2\xab\f\x01\"b\n" +
-	"\bLaneVote\x12=\n" +
-	"\flane_vote_v2\x18\x02 \x01(\v2\x1b.autobahn.SignedBlockHeaderR\n" +
-	"laneVoteV2:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\tlane_vote\"l\n" +
-	"\fLaneProposal\x12?\n" +
-	"\x10lane_proposal_v2\x18\x02 \x01(\v2\x15.autobahn.SignedBlockR\x0elaneProposalV2:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\rlane_proposal\"Z\n" +
+	"\bPingResp:\x06\xe8\x88\xe2\xab\f\x01\"\x87\x01\n" +
+	"\bLaneVote\x12:\n" +
+	"\flane_vote_v4\x18\x04 \x01(\v2\x18.autobahn.SignedLaneVoteR\n" +
+	"laneVoteV4:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\tlane_voteR\flane_vote_v2R\flane_vote_v3\"\x88\x01\n" +
+	"\fLaneProposal\x12C\n" +
+	"\x10lane_proposal_v3\x18\x03 \x01(\v2\x19.autobahn.SignedLaneBlockR\x0elaneProposalV3:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\rlane_proposalR\x10lane_proposal_v2\"Z\n" +
 	"\aAppVote\x127\n" +
-	"\vapp_vote_v2\x18\x02 \x01(\v2\x17.autobahn.SignedAppVoteR\tappVoteV2:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\bapp_vote\"\x8a\x01\n" +
-	"\x16StreamLaneProposalsReq\x12,\n" +
-	"\x12first_block_number\x18\x01 \x01(\x04R\x10firstBlockNumber\x12.\n" +
+	"\vapp_vote_v2\x18\x02 \x01(\v2\x17.autobahn.SignedAppVoteR\tappVoteV2:\x06\xe8\x88\xe2\xab\f\x01J\x04\b\x01\x10\x02R\bapp_vote\"\x99\x01\n" +
+	"\x16StreamLaneProposalsReq\x12!\n" +
+	"\ffirst_height\x18\x03 \x01(\x04R\vfirstHeight\x12.\n" +
 	"\alane_id\x18\x02 \x01(\v2\x10.autobahn.LaneIDH\x00R\x06laneId\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\n" +
 	"\n" +
-	"\b_lane_id\"\x1c\n" +
+	"\b_lane_idJ\x04\b\x01\x10\x02R\x12first_block_number\"\x1c\n" +
 	"\x12StreamCommitQCsReq:\x06\xe8\x88\xe2\xab\f\x01\"\x1c\n" +
 	"\x12StreamLaneVotesReq:\x06\xe8\x88\xe2\xab\f\x01\"\x1b\n" +
 	"\x11StreamAppVotesReq:\x06\xe8\x88\xe2\xab\f\x01\"a\n" +
 	"\vGetBlockReq\x12-\n" +
 	"\x03pos\x18\x02 \x01(\v2\x16.autobahn.LaneBlockPosH\x00R\x03pos\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x06\n" +
-	"\x04_posJ\x04\b\x01\x10\x02R\rglobal_number\"L\n" +
-	"\fGetBlockResp\x12*\n" +
-	"\x05block\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\x05block\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\b\n" +
-	"\x06_block\"?\n" +
+	"\x04_posJ\x04\b\x01\x10\x02R\rglobal_number\"e\n" +
+	"\fGetBlockResp\x123\n" +
+	"\bblock_v2\x18\x02 \x01(\v2\x13.autobahn.LaneBlockH\x00R\ablockV2\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\v\n" +
+	"\t_block_v2J\x04\b\x01\x10\x02R\x05block\"?\n" +
 	"\x16StreamFullCommitQCsReq\x12\x1d\n" +
 	"\n" +
 	"next_block\x18\x01 \x01(\x04R\tnextBlock:\x06\xe8\x88\xe2\xab\f\x01\"8\n" +
@@ -663,20 +663,20 @@ var file_p2p_giga_api_proto_goTypes = []any{
 	(*GetBlockResp)(nil),           // 11: p2p.giga.GetBlockResp
 	(*StreamFullCommitQCsReq)(nil), // 12: p2p.giga.StreamFullCommitQCsReq
 	(*StreamAppQCsReq)(nil),        // 13: p2p.giga.StreamAppQCsReq
-	(*pb.SignedBlockHeader)(nil),   // 14: autobahn.SignedBlockHeader
-	(*pb.SignedBlock)(nil),         // 15: autobahn.SignedBlock
+	(*pb.SignedLaneVote)(nil),      // 14: autobahn.SignedLaneVote
+	(*pb.SignedLaneBlock)(nil),     // 15: autobahn.SignedLaneBlock
 	(*pb.SignedAppVote)(nil),       // 16: autobahn.SignedAppVote
 	(*pb.LaneID)(nil),              // 17: autobahn.LaneID
 	(*pb.LaneBlockPos)(nil),        // 18: autobahn.LaneBlockPos
-	(*pb.Block)(nil),               // 19: autobahn.Block
+	(*pb.LaneBlock)(nil),           // 19: autobahn.LaneBlock
 }
 var file_p2p_giga_api_proto_depIdxs = []int32{
-	14, // 0: p2p.giga.LaneVote.lane_vote_v2:type_name -> autobahn.SignedBlockHeader
-	15, // 1: p2p.giga.LaneProposal.lane_proposal_v2:type_name -> autobahn.SignedBlock
+	14, // 0: p2p.giga.LaneVote.lane_vote_v4:type_name -> autobahn.SignedLaneVote
+	15, // 1: p2p.giga.LaneProposal.lane_proposal_v3:type_name -> autobahn.SignedLaneBlock
 	16, // 2: p2p.giga.AppVote.app_vote_v2:type_name -> autobahn.SignedAppVote
 	17, // 3: p2p.giga.StreamLaneProposalsReq.lane_id:type_name -> autobahn.LaneID
 	18, // 4: p2p.giga.GetBlockReq.pos:type_name -> autobahn.LaneBlockPos
-	19, // 5: p2p.giga.GetBlockResp.block:type_name -> autobahn.Block
+	19, // 5: p2p.giga.GetBlockResp.block_v2:type_name -> autobahn.LaneBlock
 	6,  // [6:6] is the sub-list for method output_type
 	6,  // [6:6] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name

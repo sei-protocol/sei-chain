@@ -17,7 +17,8 @@ import (
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -312,7 +313,7 @@ func (g *GigaSim) stopExecutors() {
 // agreedNextBlockNumber returns the next SuperBlock height shared by the block store and state DB.
 func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks *blockStoreWriter) (int64, error) {
 	next := state.height() + 1
-	blockStoreNext, ok := blocks.nextBlockNumber()
+	blockStoreNext, ok := blocks.nextHeight()
 	if !ok {
 		return next, nil
 	}
@@ -529,7 +530,7 @@ func (g *GigaSim) executeBlock(block *simulatedBlock) {
 // state whose receipts were dropped.
 func (g *GigaSim) persistExecutionResults(
 	number int64,
-	records []receipt.ReceiptRecord,
+	records []receipttypes.ReceiptRecord,
 	receiptBytes int64,
 	writes blockWrites,
 ) error {

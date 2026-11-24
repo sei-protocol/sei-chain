@@ -2,6 +2,9 @@ package avail
 
 import (
 	"testing"
+	"time"
+
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -11,23 +14,26 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
+// testGenesisTimestamp is the genesis timestamp the avail tests run with.
+var testGenesisTimestamp = time.Unix(1_700_000_000, 0).UTC()
+
 func TestConsensusSpecRestoredFromWALAndAnchor(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	anchor := data.Anchor{Epochs: [2]*types.Epoch{registry.MustEpoch(0), registry.MustEpoch(1)}}
 	// Let f be epoch 0's first road. No anchor QC or WAL: spec f, with no CommitQC.
-	i, err := newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
+	i, err := newInner(anchor, testGenesisTimestamp, &loadedState{})
 	require.NoError(t, err)
-	require.Equal(t, types.ConsensusSpec{Epoch: anchor.Epochs[0], GenesisTimestamp: registry.GenesisTimestamp()}, i.consensusSpec.Load())
+	require.Equal(t, types.ConsensusSpec{Epoch: anchor.Epochs[0], GenesisTimestamp: testGenesisTimestamp}, i.consensusSpec.Load())
 
 	// qc0 and qc1 certify f and f+1. Restoring both moves the spec to f+2.
 	qc0 := types.BuildCommitQC(anchor.Epochs[0], keys, utils.None[*types.CommitQC](), nil)
 	qc1 := types.BuildCommitQC(anchor.Epochs[0], keys, utils.Some(qc0), nil)
-	i, err = newInner(anchor, registry.GenesisTimestamp(), &loadedState{commitQCs: []*types.CommitQC{qc0, qc1}})
+	i, err = newInner(anchor, testGenesisTimestamp, &loadedState{commitQCs: []*types.CommitQC{qc0, qc1}})
 	require.NoError(t, err)
 	spec := i.consensusSpec.Load()
 	require.Equal(t, utils.Some(qc1), spec.CommitQC)
-	require.Equal(t, qc1.Index()+1, spec.Index())
+	require.Equal(t, qc1.Height()+1, spec.Height())
 
 	// Anchor at f drops qc0; the spec stays at f+2.
 	anchor.First = utils.Some(data.AnchorFirst{CommitQC: qc0, AppQC: data.TestAppQC(keys, types.NewAppProposal(qc0.View(), nil))})
@@ -40,7 +46,7 @@ func TestConsensusSpecRestoredFromWALAndAnchor(t *testing.T) {
 	require.Equal(t, spec, i.consensusSpec.Load())
 
 	// With an empty WAL, restart recovers the same spec from the anchor.
-	i, err = newInner(anchor, registry.GenesisTimestamp(), &loadedState{})
+	i, err = newInner(anchor, testGenesisTimestamp, &loadedState{})
 	require.NoError(t, err)
 	require.Equal(t, spec, i.consensusSpec.Load())
 }
@@ -50,7 +56,7 @@ func TestConsensusSpecAdvancesOnlyAfterPersistence(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 2)
 	store := blockstore.NewTestStore(t)
 	defer func() { require.NoError(t, store.Close()) }()
-	ds, err := data.NewState(&data.Config{Registry: registry}, store)
+	ds, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
 	require.NoError(t, err)
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
@@ -70,7 +76,7 @@ func TestConsensusSpecAdvancesOnlyAfterPersistence(t *testing.T) {
 	// qc2 is not persisted, so the spec must not advance to f+3.
 	for _, qc := range []*types.CommitQC{qc0, qc1} {
 		state.markCommitQCsPersisted(qc)
-		spec, err = state.ConsensusSpec().Wait(t.Context(), func(spec types.ConsensusSpec) bool { return spec.Index() == qc.Index()+1 })
+		spec, err = state.ConsensusSpec().Wait(t.Context(), func(spec types.ConsensusSpec) bool { return spec.Height() == qc.Height()+1 })
 		require.NoError(t, err)
 		require.Equal(t, utils.Some(qc), spec.CommitQC)
 		require.Equal(t, ep, spec.Epoch)

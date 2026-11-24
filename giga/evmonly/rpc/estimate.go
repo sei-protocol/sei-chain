@@ -11,11 +11,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
+
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 type estimateAPI struct {
 	backend Backend
+	store   receiptdb.ReceiptStore
 	blocks  *blockAPI
 	limits  overrideLimits
 	// maxCalls caps the calls one eth_estimateGasAfterCalls request may apply; zero disables the
@@ -57,17 +60,17 @@ func (api *estimateAPI) estimateAfterCalls(
 	args export.TransactionArgs,
 	calls []export.TransactionArgs,
 	block *ethrpc.BlockNumberOrHash,
-	overrides evmonly.CallOverrides,
+	overrides abevm.CallOverrides,
 ) (hexutil.Uint64, error) {
 	selector := ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber)
 	if block != nil {
 		selector = *block
 	}
-	height, latest, err := stateHeight(ctx, api.backend, selector)
+	height, latest, err := stateHeight(ctx, api.backend, api.store, selector)
 	if err != nil {
 		return 0, err
 	}
-	baseFee := api.backend.EvmBaseFee()
+	baseFee := overrides.BaseFee(api.backend.EvmBaseFee())
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	callMsgs := make([]*core.Message, len(calls))
 	for i := range calls {
@@ -98,7 +101,7 @@ func (api *estimateAPI) estimateAfterCalls(
 
 // estimate searches msg's gas with overrides and then calls applied, against the latest committed
 // state, or else against the state after the block at height.
-func (api *estimateAPI) estimate(ctx context.Context, calls []*core.Message, msg *core.Message, height int64, latest bool, overrides evmonly.CallOverrides) (uint64, []byte, error) {
+func (api *estimateAPI) estimate(ctx context.Context, calls []*core.Message, msg *core.Message, height int64, latest bool, overrides abevm.CallOverrides) (uint64, []byte, error) {
 	if latest {
 		if len(calls) == 0 {
 			return api.backend.EvmEstimateGas(ctx, msg, defaultCallGasCap, overrides)

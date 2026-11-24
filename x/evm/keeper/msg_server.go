@@ -254,28 +254,7 @@ func (k *Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *st
 	evmInstance := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles())
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, msg, gp, true, shouldIncrementNonce) // fee already charged in ante handler
-	return executeEVMStateTransition(ctx, evmInstance, st)
-}
-
-func executeEVMStateTransition(ctx sdk.Context, evmInstance *vm.EVM, st *core.StateTransition) (*core.ExecutionResult, error) {
-	// DeliverTx execution must not depend on process-local context cancellation.
-	if !ctx.IsSimulation() {
-		return st.Execute()
-	}
-
-	stdCtx := ctx.Context()
-	if stdCtx == nil || stdCtx.Done() == nil {
-		return st.Execute()
-	}
-
-	stopCancellation := context.AfterFunc(stdCtx, evmInstance.Cancel)
-	defer stopCancellation()
-
-	res, err := st.Execute()
-	if ctxErr := stdCtx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	return res, err
+	return st.Execute()
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {

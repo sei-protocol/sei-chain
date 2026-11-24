@@ -14,7 +14,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -22,20 +22,49 @@ import (
 
 type txAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 }
 
-// GetTransactionCount returns the address nonce in the committed EVM state after block.
+// errPendingNonceUnavailable is returned for the pending tag when this node has no local mempool
+// and the lane its transactions are forwarded to is not connected.
+var errPendingNonceUnavailable = errors.New("pending nonce unavailable: no local mempool and the sender's lane is not connected")
+
+// GetTransactionCount returns the address nonce in the committed EVM state after block. The pending
+// tag returns the next nonce the sender's transactions are admitted at instead.
 func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
-	height, latest, err := stateHeight(ctx, api.backend, block)
+	if number, ok := block.Number(); ok && number == ethrpc.PendingBlockNumber {
+		return api.pendingTransactionCount(ctx, address)
+	}
+	height, latest, err := stateHeight(ctx, api.backend, api.store, block)
 	if err != nil {
 		return nil, err
 	}
-	var nonce uint64
-	if latest {
-		nonce = api.backend.EvmTransactionCount(address)
-	} else if nonce, err = api.backend.EvmNonceAt(address, height); err != nil {
+	nonce, err := readState(ctx, func() (uint64, error) {
+		if latest {
+			return api.backend.EvmTransactionCount(address), nil
+		}
+		return api.backend.EvmNonceAt(address, height)
+	})
+	if err != nil {
 		return nil, err
+	}
+	return (*hexutil.Uint64)(&nonce), nil
+}
+
+// pendingTransactionCount returns the nonce at the lane the sender's transactions go to. When this
+// node forwards the sender, the lane answers, as it does for eth_sendRawTransaction; otherwise the
+// local mempool does.
+func (api *txAPI) pendingTransactionCount(ctx context.Context, address common.Address) (*hexutil.Uint64, error) {
+	if client, ok := api.backend.EvmProxy(address).Get(); ok {
+		var nonce hexutil.Uint64
+		if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber)); err != nil {
+			return nil, err
+		}
+		return &nonce, nil
+	}
+	nonce, ok := api.backend.EvmPendingNonce(address).Get()
+	if !ok {
+		return nil, errPendingNonceUnavailable
 	}
 	return (*hexutil.Uint64)(&nonce), nil
 }
@@ -89,7 +118,7 @@ func (api *txAPI) GetVMError(ctx context.Context, hash common.Hash) (string, err
 		return "", err
 	}
 	if stored == nil {
-		return "", receiptpkg.ErrNotFound
+		return "", receiptdb.ErrNotFound
 	}
 	return stored.VmError, nil
 }
@@ -109,7 +138,7 @@ func (api *txAPI) GetTransactionErrorByHash(ctx context.Context, hash common.Has
 // not yet finalized.
 func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, *coretypes.ResultBlock, error) {
 	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
-	if errors.Is(err, receiptpkg.ErrNotFound) {
+	if errors.Is(err, receiptdb.ErrNotFound) {
 		return nil, nil, nil
 	}
 	if err != nil {

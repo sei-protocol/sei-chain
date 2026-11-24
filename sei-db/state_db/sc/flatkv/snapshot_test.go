@@ -703,19 +703,17 @@ func TestRollbackRejectsVersionZero(t *testing.T) {
 	requireRollbackRejected(t, rollbackFixture(t), 0, "version 0 means no state")
 }
 
-// TestRewindClosedStoreToRejectsVersionZero verifies the closed-store rewind refuses version 0 as
-// Rollback does. A store keeps a snapshot at 0, so 0 is a version this would otherwise land on and then
-// delete every snapshot above — which is all of them.
-func TestRewindClosedStoreToRejectsVersionZero(t *testing.T) {
+// TestRewindClosedStoreToVersionZero verifies the closed-store rewind to version 0 lands on the initial
+// snapshot and deletes every snapshot above it.
+func TestRewindClosedStoreToVersionZero(t *testing.T) {
 	s := rollbackFixture(t)
-	before := snapshotVersionsOnDisk(t, s)
 	require.NoError(t, s.Close())
 
-	_, err := RewindClosedStoreTo(s.flatkvDir(), 0)
+	landed, err := RewindClosedStoreTo(s.flatkvDir(), 0)
 
-	require.ErrorContains(t, err, "nothing to rewind to")
-	require.Equal(t, before, snapshotVersionsOnDisk(t, s),
-		"a refused rewind must leave the snapshots where they were")
+	require.NoError(t, err)
+	require.Zero(t, landed)
+	require.Equal(t, []int64{0}, snapshotVersionsOnDisk(t, s))
 }
 
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and

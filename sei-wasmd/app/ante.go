@@ -7,14 +7,12 @@ import (
 
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	wasmTypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 // HandlerOptions extends the SDK's AnteHandler options with application configuration.
 type HandlerOptions struct {
 	ante.HandlerOptions
 
-	WasmConfig        *wasmTypes.WasmConfig
 	TXCounterStoreKey sdk.StoreKey
 }
 
@@ -31,16 +29,12 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	if options.ParamsKeeper == nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "params keeper is required for ante builder")
 	}
-	if options.WasmConfig == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
-	}
 	if options.TXCounterStoreKey == nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tx counter key is required for ante builder")
 	}
 
 	anteDecorators := []sdk.AnteDecorator{
 		ante.NewDefaultSetUpContextDecorator(), // outermost AnteDecorator. SetUpContext must be called first
-		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit, wasmkeeper.DefaultGasMeterSetter()), // after setup context to enforce limits early
 		wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey),
 		ante.NewRejectExtensionOptionsDecorator(),
 		ante.NewValidateBasicDecorator(),

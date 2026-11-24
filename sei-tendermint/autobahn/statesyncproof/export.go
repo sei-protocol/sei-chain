@@ -22,22 +22,20 @@ var logger = seilog.NewLogger("tendermint", "autobahn", "statesyncproof")
 type ExportConfig struct {
 	// Dir is the directory where canonical state sync proof files are written.
 	Dir string
-	// CheckpointRoads returns the road indices of the FlatKV checkpoints retained locally.
-	CheckpointRoads func() ([]types.RoadIndex, error)
+	// CheckpointRoads returns the road heights of the FlatKV checkpoints retained locally.
+	CheckpointRoads func() ([]types.RoadHeight, error)
 	// BlockStore provides the road blocks, AppProposals and AppQCs to export.
 	BlockStore BlockStore
 	// LastAppQC returns the road of the latest AppQC in BlockStore, or None when it holds none.
 	// Proofs are written only at or below it.
-	LastAppQC func() utils.Option[types.RoadIndex]
-	// IsClosingRoad reports whether road is the last road of an epoch.
-	IsClosingRoad func(road types.RoadIndex) bool
+	LastAppQC func() utils.Option[types.RoadHeight]
 }
 
 // BlockStore is the part of the Autobahn BlockStore that Exporter reads.
 type BlockStore interface {
-	ReadBlock(types.RoadIndex) (utils.Option[*types.RoadBlock], error)
-	ReadAppProposal(types.RoadIndex) (utils.Option[*types.AppProposal], error)
-	ReadAppQC(types.RoadIndex) (utils.Option[*types.AppQC], error)
+	ReadBlock(types.RoadHeight) (utils.Option[*types.RoadBlock], error)
+	ReadAppProposal(types.RoadHeight) (utils.Option[*types.AppProposal], error)
+	ReadAppQC(types.RoadHeight) (utils.Option[*types.AppQC], error)
 }
 
 // Exporter writes the state sync proof files of retained checkpoints. It is not safe for
@@ -46,20 +44,20 @@ type Exporter struct {
 	cfg ExportConfig
 	// checkpoints is the retained checkpoint set that the last proof dir scan ran against, or None
 	// before the first scan.
-	checkpoints utils.Option[map[types.RoadIndex]struct{}]
+	checkpoints utils.Option[map[types.RoadHeight]struct{}]
 	// exported holds the retained checkpoints whose proof file is on disk and decodes.
-	exported map[types.RoadIndex]struct{}
-	// skipped holds the retained checkpoints that get no proof file: LastRoad(X), or records that are
+	exported map[types.RoadHeight]struct{}
+	// skipped holds the retained checkpoints that get no proof file because their records are
 	// pruned, missing or inconsistent.
-	skipped map[types.RoadIndex]struct{}
+	skipped map[types.RoadHeight]struct{}
 }
 
 // NewExporter returns an Exporter that has not scanned the proof dir yet.
 func NewExporter(cfg ExportConfig) *Exporter {
 	return &Exporter{
 		cfg:      cfg,
-		exported: map[types.RoadIndex]struct{}{},
-		skipped:  map[types.RoadIndex]struct{}{},
+		exported: map[types.RoadHeight]struct{}{},
+		skipped:  map[types.RoadHeight]struct{}{},
 	}
 }
 
@@ -83,8 +81,8 @@ func (e *Exporter) sweep() error {
 	if err := e.syncCheckpoints(checkpoints); err != nil {
 		errs = append(errs, err)
 	}
-	for _, index := range e.exportable(checkpoints) {
-		if err := e.exportCheckpoint(index); err != nil {
+	for _, height := range e.exportable(checkpoints) {
+		if err := e.exportCheckpoint(height); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -96,7 +94,7 @@ func (e *Exporter) sweep() error {
 // Every scan forgets the checkpoints that are no longer retained and the exported checkpoints whose
 // file is gone, so the next export writes them again. A file that cannot be read or removed does
 // not stop the scan: it is not counted as exported, and its error is returned with the others.
-func (e *Exporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) error {
+func (e *Exporter) syncCheckpoints(checkpoints map[types.RoadHeight]struct{}) error {
 	last, scanned := e.checkpoints.Get()
 	if scanned && maps.Equal(last, checkpoints) {
 		return nil
@@ -109,15 +107,15 @@ func (e *Exporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) err
 	present, orphanErr := e.removeOrphans(entries, checkpoints)
 	var invalidErr error
 	if scanned {
-		maps.DeleteFunc(e.exported, func(index types.RoadIndex, _ struct{}) bool {
-			_, ok := present[index]
+		maps.DeleteFunc(e.exported, func(height types.RoadHeight, _ struct{}) bool {
+			_, ok := present[height]
 			return !ok
 		})
 	} else {
 		e.exported, invalidErr = e.removeInvalidFiles(present)
 	}
-	maps.DeleteFunc(e.skipped, func(index types.RoadIndex, _ struct{}) bool {
-		_, retained := checkpoints[index]
+	maps.DeleteFunc(e.skipped, func(height types.RoadHeight, _ struct{}) bool {
+		_, retained := checkpoints[height]
 		return !retained
 	})
 	if err := errors.Join(orphanErr, invalidErr); err != nil {
@@ -131,83 +129,75 @@ func (e *Exporter) syncCheckpoints(checkpoints map[types.RoadIndex]struct{}) err
 // removeInvalidFiles removes the proof files in present that do not decode for the road in their
 // name, and returns the rest. A file it cannot read or remove is left out of the result, and its
 // error is returned joined with the others in ascending road order.
-func (e *Exporter) removeInvalidFiles(present map[types.RoadIndex]struct{}) (map[types.RoadIndex]struct{}, error) {
-	valid := make(map[types.RoadIndex]struct{}, len(present))
+func (e *Exporter) removeInvalidFiles(present map[types.RoadHeight]struct{}) (map[types.RoadHeight]struct{}, error) {
+	valid := make(map[types.RoadHeight]struct{}, len(present))
 	var errs []error
 	// A stable error text lets the caller suppress repeated logs of the same failure.
-	for _, index := range slices.Sorted(maps.Keys(present)) {
-		path := filepath.Join(e.cfg.Dir, FileName(index))
+	for _, height := range slices.Sorted(maps.Keys(present)) {
+		path := filepath.Join(e.cfg.Dir, FileName(height))
 		data, err := os.ReadFile(path) //nolint:gosec // path is derived from the configured state sync proof directory and a canonical file name.
 		if err != nil {
 			errs = append(errs, fmt.Errorf("read state sync proof file %s: %w", path, err))
 			continue
 		}
-		if _, err := Decode(data, index); err != nil {
+		if _, err := Decode(data, height); err != nil {
 			logger.Warn("removing invalid state sync proof file", "path", path, "err", err)
 			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				errs = append(errs, fmt.Errorf("remove invalid state sync proof file %s: %w", path, err))
 			}
 			continue
 		}
-		valid[index] = struct{}{}
+		valid[height] = struct{}{}
 	}
 	return valid, errors.Join(errs...)
 }
 
 // exportable returns the checkpoints that are neither exported nor skipped and are at or below
 // LastAppQC, in ascending order.
-func (e *Exporter) exportable(checkpoints map[types.RoadIndex]struct{}) []types.RoadIndex {
+func (e *Exporter) exportable(checkpoints map[types.RoadHeight]struct{}) []types.RoadHeight {
 	lastAppQC, ok := e.cfg.LastAppQC().Get()
 	if !ok {
 		return nil
 	}
-	out := make([]types.RoadIndex, 0, len(checkpoints))
-	for _, index := range slices.Sorted(maps.Keys(checkpoints)) {
-		if _, ok := e.exported[index]; ok {
+	out := make([]types.RoadHeight, 0, len(checkpoints))
+	for _, height := range slices.Sorted(maps.Keys(checkpoints)) {
+		if _, ok := e.exported[height]; ok {
 			continue
 		}
-		if _, ok := e.skipped[index]; ok {
+		if _, ok := e.skipped[height]; ok {
 			continue
 		}
-		if index > lastAppQC {
+		if height > lastAppQC {
 			continue
 		}
-		out = append(out, index)
+		out = append(out, height)
 	}
 	return out
 }
 
-// exportCheckpoint writes the proof file of checkpoint index, or skips it when it is LastRoad(X).
-func (e *Exporter) exportCheckpoint(index types.RoadIndex) error {
-	// The committee of epoch X+2 is computed when a node executes LastRoad(X). A node restored at
-	// H never executes H, so a checkpoint at LastRoad(X) cannot be restored.
-	// TODO: remove this skip when the restore from a state sync snapshot sets up the committee of
-	// epoch X+2 itself, so that a node can restore from any road.
-	if e.cfg.IsClosingRoad(index) {
-		e.skipped[index] = struct{}{}
-		return nil
-	}
-	return e.exportProof(index)
+// exportCheckpoint writes the proof file of the checkpoint at height.
+func (e *Exporter) exportCheckpoint(height types.RoadHeight) error {
+	return e.exportProof(height)
 }
 
-func (e *Exporter) retainedCheckpoints() (map[types.RoadIndex]struct{}, error) {
+func (e *Exporter) retainedCheckpoints() (map[types.RoadHeight]struct{}, error) {
 	roads, err := e.cfg.CheckpointRoads()
 	if err != nil {
 		return nil, fmt.Errorf("list checkpoint roads: %w", err)
 	}
-	checkpoints := make(map[types.RoadIndex]struct{}, len(roads))
+	checkpoints := make(map[types.RoadHeight]struct{}, len(roads))
 	for _, road := range roads {
 		checkpoints[road] = struct{}{}
 	}
 	return checkpoints, nil
 }
 
-// exportProof writes the proof file of road index and marks it exported. Records that are
+// exportProof writes the proof file of road height and marks it exported. Records that are
 // pruned, missing or inconsistent mark it skipped.
-func (e *Exporter) exportProof(index types.RoadIndex) error {
-	records, err := e.readRecords(index)
+func (e *Exporter) exportProof(height types.RoadHeight) error {
+	records, err := e.readRecords(height)
 	if errors.Is(err, types.ErrPruned) {
-		e.skipped[index] = struct{}{}
+		e.skipped[height] = struct{}{}
 		return nil
 	}
 	if err != nil {
@@ -218,66 +208,66 @@ func (e *Exporter) exportProof(index types.RoadIndex) error {
 		// BlockStore writes the block, AppProposal and AppQC of a road before its AppQC cursor covers
 		// the road, so a record missing at or below LastAppQC never appears later. A checkpoint from
 		// before the BlockStore held any road is one such case.
-		logger.Info("skipping state sync proof: BlockStore has no records for checkpoint", "index", index)
-		e.skipped[index] = struct{}{}
+		logger.Info("skipping state sync proof: BlockStore has no records for checkpoint", "height", height)
+		e.skipped[height] = struct{}{}
 		return nil
 	}
-	encoded, err := r.encode(index)
+	encoded, err := r.encode(height)
 	if err != nil {
 		// Skipping, not halting, keeps a corrupt local BlockStore from stopping the node through an
 		// optional export, and never publishes the bad proof.
 		Global.inconsistentRecordsAt().Add(1)
-		logger.Error("skipping state sync proof: inconsistent BlockStore records", "index", index, "err", err)
-		e.skipped[index] = struct{}{}
+		logger.Error("skipping state sync proof: inconsistent BlockStore records", "height", height, "err", err)
+		e.skipped[height] = struct{}{}
 		return nil
 	}
-	if err := writeFile(filepath.Join(e.cfg.Dir, FileName(index)), encoded); err != nil {
+	if err := writeFile(filepath.Join(e.cfg.Dir, FileName(height)), encoded); err != nil {
 		return err
 	}
-	e.exported[index] = struct{}{}
+	e.exported[height] = struct{}{}
 	return nil
 }
 
 // records are the BlockStore records of one road that a proof file is built from.
 type records struct {
-	roadBlock   *types.RoadBlock
+	block       *types.RoadBlock
 	appProposal *types.AppProposal
 	appQC       *types.AppQC
 }
 
-// encode returns the proof file of road index. It fails when the records do not all belong to road
-// index or the local AppHash does not match the AppQC.
-func (r records) encode(index types.RoadIndex) ([]byte, error) {
+// encode returns the proof file of road height. It fails when the records do not all belong to road
+// height or the local AppHash does not match the AppQC.
+func (r records) encode(height types.RoadHeight) ([]byte, error) {
 	// The data layer checks this before it writes the AppQC. Keep the check here as defense in depth against
 	// a future writer path or corrupted local records.
 	if !bytes.Equal(r.appProposal.AppHash(), r.appQC.Proposal().AppHash()) {
-		return nil, fmt.Errorf("AppProposal(%d) app hash does not match AppQC", index)
+		return nil, fmt.Errorf("AppProposal(%d) app hash does not match AppQC", height)
 	}
-	if r.appQC.Proposal().Index() != index {
-		return nil, fmt.Errorf("AppQC index %d does not match checkpoint index %d", r.appQC.Proposal().Index(), index)
+	if r.appQC.Proposal().Height() != height {
+		return nil, fmt.Errorf("AppQC index %d does not match checkpoint index %d", r.appQC.Proposal().Height(), height)
 	}
-	return Encode(r.roadBlock, r.appQC)
+	return Encode(r.block, r.appQC)
 }
 
-// readRecords reads the records of road index. It returns None when any record is missing, and an
+// readRecords reads the records of road height. It returns None when any record is missing, and an
 // error wrapping types.ErrPruned when any record is pruned.
-func (e *Exporter) readRecords(index types.RoadIndex) (utils.Option[records], error) {
+func (e *Exporter) readRecords(height types.RoadHeight) (utils.Option[records], error) {
 	none := utils.None[records]()
-	roadBlock, err := e.cfg.BlockStore.ReadBlock(index)
+	roadBlock, err := e.cfg.BlockStore.ReadBlock(height)
 	if err != nil {
-		return none, fmt.Errorf("read road block %d: %w", index, err)
+		return none, fmt.Errorf("read road block %d: %w", height, err)
 	}
-	appProposal, err := e.cfg.BlockStore.ReadAppProposal(index)
+	appProposal, err := e.cfg.BlockStore.ReadAppProposal(height)
 	if err != nil {
-		return none, fmt.Errorf("read AppProposal %d: %w", index, err)
+		return none, fmt.Errorf("read AppProposal %d: %w", height, err)
 	}
-	appQC, err := e.cfg.BlockStore.ReadAppQC(index)
+	appQC, err := e.cfg.BlockStore.ReadAppQC(height)
 	if err != nil {
-		return none, fmt.Errorf("read AppQC %d: %w", index, err)
+		return none, fmt.Errorf("read AppQC %d: %w", height, err)
 	}
 	var r records
 	var ok bool
-	if r.roadBlock, ok = roadBlock.Get(); !ok {
+	if r.block, ok = roadBlock.Get(); !ok {
 		return none, nil
 	}
 	if r.appProposal, ok = appProposal.Get(); !ok {
@@ -294,9 +284,9 @@ func (e *Exporter) readRecords(index types.RoadIndex) (utils.Option[records], er
 // file it cannot remove stays in place, and its error is returned joined with the others.
 func (e *Exporter) removeOrphans(
 	entries []os.DirEntry,
-	checkpoints map[types.RoadIndex]struct{},
-) (map[types.RoadIndex]struct{}, error) {
-	present := map[types.RoadIndex]struct{}{}
+	checkpoints map[types.RoadHeight]struct{},
+) (map[types.RoadHeight]struct{}, error) {
+	present := map[types.RoadHeight]struct{}{}
 	var errs []error
 	for _, entry := range entries {
 		name := entry.Name()
@@ -307,12 +297,12 @@ func (e *Exporter) removeOrphans(
 			}
 			continue
 		}
-		index, err := ParseFileName(name)
+		height, err := ParseFileName(name)
 		if err != nil {
 			continue
 		}
-		if _, ok := checkpoints[index]; ok {
-			present[index] = struct{}{}
+		if _, ok := checkpoints[height]; ok {
+			present[height] = struct{}{}
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

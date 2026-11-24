@@ -18,12 +18,16 @@ var autobahnTag = utils.OrPanic1(ed25519.NewTag("sei_giga_autobahn"))
 // Msg is the interface for all messages signable by a stream node.
 type Msg interface{ asMsg() *pb.Msg }
 
+func (m Challenge) asMsg() *pb.Msg {
+	return &pb.Msg{T: &pb.Msg_Challenge{Challenge: ChallengeConv.Encode(m)}}
+}
+
 func (m *LaneProposal) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_LaneProposal{LaneProposal: LaneProposalConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_LaneProposalV2{LaneProposalV2: LaneProposalConv.Encode(m)}}
 }
 
 func (m *LaneVote) asMsg() *pb.Msg {
-	return &pb.Msg{T: &pb.Msg_LaneVote{LaneVote: LaneVoteConv.Encode(m)}}
+	return &pb.Msg{T: &pb.Msg_LaneVoteV3{LaneVoteV3: LaneVoteConv.Encode(m)}}
 }
 
 func (m *AppVote) asMsg() *pb.Msg {
@@ -83,11 +87,6 @@ func (k SecretKey) Public() PublicKey {
 	return PublicKey{key: k.key.Public()}
 }
 
-// SignWithTag signs msg with a domain-separation tag.
-func (k SecretKey) SignWithTag(tag ed25519.Tag, msg []byte) ed25519.Signature {
-	return k.key.SignWithTag(tag, msg)
-}
-
 // PublicKey is the public key of the validator.
 // nolint:recvcheck
 type PublicKey struct {
@@ -103,11 +102,6 @@ func (k PublicKey) Bytes() []byte { return k.key.Bytes() }
 
 // ED25519 returns the underlying Ed25519 public key.
 func (k PublicKey) ED25519() ed25519.PublicKey { return k.key }
-
-// VerifyWithTag verifies a tagged signature.
-func (k PublicKey) VerifyWithTag(tag ed25519.Tag, msg []byte, sig ed25519.Signature) error {
-	return k.key.VerifyWithTag(tag, msg, sig)
-}
 
 // PublicKeyFromBytes constructs a public key from bytes.
 func PublicKeyFromBytes(b []byte) (PublicKey, error) {
@@ -164,18 +158,18 @@ func (k SecretKey) String() string {
 func (k SecretKey) GoString() string { return k.String() }
 
 // Sign signs a message.
-func Sign[T Msg](key SecretKey, msg T) *Signed[T] {
+func (k SecretKey) Sign[T Msg](msg T) *Signed[T] {
 	hMsg := NewHashed(msg)
 	return &Signed[T]{
 		hashed: hMsg,
 		sig: &Signature{
-			key: key.Public(),
-			sig: key.key.SignWithTag(autobahnTag, hMsg.hash[:]),
+			key: k.Public(),
+			sig: k.key.SignWithTag(autobahnTag, hMsg.hash[:]),
 		},
 	}
 }
 
-// Signature represents a signature on the consensus message.
+// Signature represents a signature on a validator's message.
 type Signature struct {
 	utils.ReadOnly
 	key PublicKey
@@ -277,10 +271,10 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return nil, errors.New("empty")
 		}
 		switch t := m.T.(type) {
-		case *pb.Msg_LaneProposal:
-			return LaneProposalConv.DecodeReq(t.LaneProposal)
-		case *pb.Msg_LaneVote:
-			return LaneVoteConv.DecodeReq(t.LaneVote)
+		case *pb.Msg_LaneProposalV2:
+			return LaneProposalConv.DecodeReq(t.LaneProposalV2)
+		case *pb.Msg_LaneVoteV3:
+			return LaneVoteConv.DecodeReq(t.LaneVoteV3)
 		case *pb.Msg_Proposal:
 			return ProposalConv.DecodeReq(t.Proposal)
 		case *pb.Msg_PrepareVoteV2:
@@ -291,6 +285,8 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return TimeoutVoteConv.DecodeReq(t.TimeoutVote)
 		case *pb.Msg_AppVote:
 			return AppVoteConv.DecodeReq(t.AppVote)
+		case *pb.Msg_Challenge:
+			return ChallengeConv.DecodeReq(t.Challenge)
 		default:
 			return nil, fmt.Errorf("unknown Msg type: %T", t)
 		}
@@ -322,14 +318,14 @@ func newSigned[T Msg](msg T, sig *Signature) *Signed[T] {
 }
 
 // SignedLaneProposalConv is a protobuf converter for Signed[LaneProposal].
-var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedBlock]{
-	Encode: func(m *Signed[*LaneProposal]) *pb.SignedBlock {
-		return &pb.SignedBlock{
+var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedLaneBlock]{
+	Encode: func(m *Signed[*LaneProposal]) *pb.SignedLaneBlock {
+		return &pb.SignedLaneBlock{
 			Msg: LaneProposalConv.Encode(m.Msg()),
 			Sig: SignatureConv.Encode(m.Sig()),
 		}
 	},
-	Decode: func(m *pb.SignedBlock) (*Signed[*LaneProposal], error) {
+	Decode: func(m *pb.SignedLaneBlock) (*Signed[*LaneProposal], error) {
 		msg, err := LaneProposalConv.DecodeReq(m.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("msg: %w", err)
@@ -343,14 +339,14 @@ var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedB
 }
 
 // SignedLaneVoteConv is a protobuf converter for Signed[LaneVote].
-var SignedLaneVoteConv = protoutils.Conv[*Signed[*LaneVote], *pb.SignedBlockHeader]{
-	Encode: func(m *Signed[*LaneVote]) *pb.SignedBlockHeader {
-		return &pb.SignedBlockHeader{
+var SignedLaneVoteConv = protoutils.Conv[*Signed[*LaneVote], *pb.SignedLaneVote]{
+	Encode: func(m *Signed[*LaneVote]) *pb.SignedLaneVote {
+		return &pb.SignedLaneVote{
 			Msg: LaneVoteConv.Encode(m.Msg()),
 			Sig: SignatureConv.Encode(m.Sig()),
 		}
 	},
-	Decode: func(m *pb.SignedBlockHeader) (*Signed[*LaneVote], error) {
+	Decode: func(m *pb.SignedLaneVote) (*Signed[*LaneVote], error) {
 		msg, err := LaneVoteConv.DecodeReq(m.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("msg: %w", err)

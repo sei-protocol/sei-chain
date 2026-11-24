@@ -9,7 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 )
@@ -370,7 +371,7 @@ var DefaultConfig = Config{
 	EnableSimulation:             true,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
-	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
+	MaxLogBytes:                  logfilter.DefaultMaxLogBytes,
 	MaxBlocksForLog:              2000,
 	LargeLogQueryRPS:             30,
 	MaxEstimateGasCalls:          100,
@@ -862,40 +863,10 @@ func normalizeNativeTracerNames(flagName string, names []string) ([]string, erro
 	return out, nil
 }
 
-// ParseMethodTimeouts parses RPCMethodTimeouts' "method=duration" entries (for
-// example "eth_call=60s") into an exact-match map and a prefix-match map. An
-// entry whose method name ends in "*" (for example "debug_trace*=0") matches
-// every method starting with the text before "*", instead of one exact name,
-// and is returned in prefixes rather than exact. Returns an error naming the
-// malformed entry.
+// ParseMethodTimeouts parses RPCMethodTimeouts' "method=duration" entries into an exact-match
+// map and a prefix-match map, as ratelimiter.ParseMethodTimeouts does.
 func ParseMethodTimeouts(entries []string) (exact map[string]time.Duration, prefixes map[string]time.Duration, err error) {
-	exact = make(map[string]time.Duration, len(entries))
-	prefixes = make(map[string]time.Duration)
-	for _, entry := range entries {
-		method, raw, ok := strings.Cut(entry, "=")
-		if !ok || method == "" {
-			return nil, nil, fmt.Errorf("%q must be formatted as method=duration, for example eth_estimateGasAfterCalls=5m", entry)
-		}
-		d, err := cast.ToDurationE(raw)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%q: %w", entry, err)
-		}
-		if d < 0 {
-			return nil, nil, fmt.Errorf("%q duration must be >= 0 (0 disables the method deadline), got %s", entry, d)
-		}
-		if prefix, isWildcard := strings.CutSuffix(method, "*"); isWildcard {
-			if prefix == "" || strings.Contains(prefix, "*") {
-				return nil, nil, fmt.Errorf("%q: wildcard entry must have a single non-empty prefix before a trailing \"*\", for example debug_trace*", entry)
-			}
-			prefixes[prefix] = d
-			continue
-		}
-		if strings.Contains(method, "*") {
-			return nil, nil, fmt.Errorf("%q: \"*\" is only supported as a trailing wildcard, for example debug_trace*", entry)
-		}
-		exact[method] = d
-	}
-	return exact, prefixes, nil
+	return ratelimiter.ParseMethodTimeouts(entries)
 }
 
 // RateLimiterConfig builds the ratelimiter.Config used by EVM JSON-RPC admission.
