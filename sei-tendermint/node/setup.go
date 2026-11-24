@@ -493,15 +493,11 @@ func buildGigaStorageConfig(
 	if err != nil {
 		return nil, err
 	}
-	initialHeight := int64(0)
-	if genDoc != nil {
-		initialHeight = genDoc.InitialHeight
+	activationHeight, err := gigaActivationHeight(genDoc)
+	if err != nil {
+		return nil, err
 	}
-	if initialHeight < 1 {
-		return nil, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
-	}
-	//nolint:gosec // G115: InitialHeight is at least 1.
-	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight)
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = activationHeight
 	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
 	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
@@ -515,6 +511,20 @@ func buildGigaStorageConfig(
 		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = seidVersion
 	}
 	return storageConfig, nil
+}
+
+// gigaActivationHeight returns the first block that has an app hash on the chain that genDoc
+// starts, which is its initial height.
+func gigaActivationHeight(genDoc *types.GenesisDoc) (uint64, error) {
+	initialHeight := int64(0)
+	if genDoc != nil {
+		initialHeight = genDoc.InitialHeight
+	}
+	if initialHeight < 1 {
+		return 0, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
+	}
+	//nolint:gosec // G115: InitialHeight is at least 1.
+	return uint64(initialHeight), nil
 }
 
 // resolveGigaStorageMode returns the storage mode a node runs: the pinned one when set,
