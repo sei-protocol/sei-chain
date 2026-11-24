@@ -113,13 +113,31 @@ func (m *RoadBlockHeader) Height() RoadHeight { return m.height }
 // It is None only for the first road block of the chain.
 func (m *RoadBlockHeader) ParentHash() utils.Option[RoadBlockHeaderHash] { return m.parentHash }
 
-// VerifyParent checks that the header names parent as its parent. A header
-// whose parent is None must name no parent.
-func (m *RoadBlockHeader) VerifyParent(parent utils.Option[*RoadBlockHeader]) error {
-	want := parent.Map((*RoadBlockHeader).Hash)
-	if m.parentHash != want {
+// VerifyWithParent checks the header against ep and against parent, the CommitQC of the
+// road block before it. A None parent means the header is the first road block of the chain.
+func (m *RoadBlockHeader) VerifyWithParent(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.Verify(ep); err != nil {
+		return err
+	}
+	// The parent is taken as a CommitQC, not as a header, because only a finalized parent can
+	// be a parent. Its signatures are not checked here.
+	wantHash := parent.Map(func(qc *CommitQC) RoadBlockHeaderHash { return qc.Header().Hash() })
+	if m.parentHash != wantHash {
 		show := func(h utils.Option[RoadBlockHeaderHash]) string { return h.Map(RoadBlockHeaderHash.String).Or("none") }
-		return fmt.Errorf("%w: parentHash = %v, want %v", ErrParentMismatch, show(m.parentHash), show(want))
+		return fmt.Errorf("%w: parentHash = %v, want %v", ErrParentMismatch, show(m.parentHash), show(wantHash))
+	}
+	wantHeight := ep.RoadRange().First
+	if qc, ok := parent.Get(); ok {
+		wantHeight = qc.Height() + 1
+	}
+	if m.height != wantHeight {
+		return fmt.Errorf("%w: height = %v, want %v", ErrParentMismatch, m.height, wantHeight)
+	}
+	// Each lane continues where the parent stopped, so no lane block is skipped or included twice.
+	for lane := range ep.Committee().Lanes().All() {
+		if got, want := m.LaneRange(lane).First(), LaneRangeOpt(parent, lane).Next(); got != want {
+			return fmt.Errorf("%w: laneRange[%v].First() = %v, want %v", ErrParentMismatch, lane, got, want)
+		}
 	}
 	return nil
 }

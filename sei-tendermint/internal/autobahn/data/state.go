@@ -80,13 +80,13 @@ type inner struct {
 	anchor utils.AtomicSend[Anchor]
 }
 
-// lastHeader returns the header of the road block before nextPartialBlock, or None when no road
+// lastCommitQC returns the CommitQC of the road block before nextPartialBlock, or None when no road
 // block is retained before it.
-func (i *inner) lastHeader() utils.Option[*types.RoadBlockHeader] {
+func (i *inner) lastCommitQC() utils.Option[*types.CommitQC] {
 	if i.nextPartialBlock > i.first {
-		return utils.Some(i.blocks[i.nextPartialBlock-1].qc.Header())
+		return utils.Some(i.blocks[i.nextPartialBlock-1].qc.QC())
 	}
-	return utils.None[*types.RoadBlockHeader]()
+	return utils.None[*types.CommitQC]()
 }
 
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
@@ -260,7 +260,7 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		// The parent of the first stored road block may be pruned, so that road block is checked only
 		// at the first road height of the chain, where it must name no parent.
 		if n > inner.first || (epoch.EpochIndex() == 0 && n == epoch.RoadRange().First) {
-			if err := block.Header().VerifyParent(inner.lastHeader()); err != nil {
+			if err := block.Header().VerifyWithParent(epoch, inner.lastCommitQC()); err != nil {
 				return nil, fmt.Errorf("load block %d from BlockStore: %w", n, err)
 			}
 		}
@@ -359,7 +359,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		}
 		updated := false
 		if inner.nextPartialBlock == n {
-			if err := qc.Header().VerifyParent(inner.lastHeader()); err != nil {
+			if err := qc.Header().VerifyWithParent(epoch, inner.lastCommitQC()); err != nil {
 				return fmt.Errorf("qc: %w", err)
 			}
 			updated = true

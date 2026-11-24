@@ -259,7 +259,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	if err := qc.Verify(vs.Epoch); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	if err := qc.Header().VerifyParent(vs.ParentHeader()); err != nil {
+	if err := qc.Header().VerifyWithParent(vs.Epoch, vs.CommitQC); err != nil {
 		return fmt.Errorf("qc: %w", err)
 	}
 	// Update.

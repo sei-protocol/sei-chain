@@ -109,7 +109,7 @@ func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) 
 		if err := checkViewAndSig("PrepareQC", pqc.View(), pqc.Verify(ep)); err != nil {
 			return err
 		}
-		if err := pqc.Header().VerifyParent(spec.ParentHeader()); err != nil {
+		if err := pqc.Header().VerifyWithParent(ep, spec.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: PrepareQC: %w", err)
 		}
 	} else if p.CommitVote.IsPresent() {

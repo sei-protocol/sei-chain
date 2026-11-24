@@ -103,7 +103,7 @@ func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedStat
 		if err := qc.Verify(ep); err != nil {
 			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Height(), err)
 		}
-		if err := qc.Header().VerifyParent(i.lastCommitQC().Map((*types.CommitQC).Header)); err != nil {
+		if err := qc.Header().VerifyWithParent(ep, i.lastCommitQC()); err != nil {
 			return nil, fmt.Errorf("persisted commitQC %d: %w", qc.Height(), err)
 		}
 		i.roads.pushBack(newRoad(qc, ep))

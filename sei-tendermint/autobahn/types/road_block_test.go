@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/hex"
+	"errors"
 	"slices"
 	"time"
 
@@ -217,7 +218,7 @@ func TestSuperBlockNamesTheParentOfItsRoadBlock(t *testing.T) {
 	committee, keys := GenCommittee(rng, 3)
 	ep := GenEpochWithCommittee(rng, committee)
 	for _, parent := range []utils.Option[RoadBlockHeaderHash]{utils.None[RoadBlockHeaderHash](), utils.Some(GenRoadBlockHeaderHash(rng))} {
-		proposal, blocks := proposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 1, parent)
+		proposal, blocks := proposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 1, utils.None[*CommitQC](), parent)
 		prepareQC := BuildPrepareQC(keys, proposal)
 		var votes []*Signed[*CommitVote]
 		for _, key := range keys {
@@ -255,33 +256,59 @@ func TestRoadBlockHeaderParentHashRoundTrips(t *testing.T) {
 	}
 }
 
-func TestRoadBlockHeaderVerifyParent(t *testing.T) {
+func TestRoadBlockHeaderVerifyWithParent(t *testing.T) {
 	rng := utils.TestRng()
-	parent := newRoadBlockHeader(GenEpochIndex(rng), 1, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
-	other := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
-	headerWith := func(parentHash utils.Option[RoadBlockHeaderHash]) *RoadBlockHeader {
-		return newRoadBlockHeader(GenEpochIndex(rng), 3, parentHash, utils.GenTimestamp(rng), nil)
+	committee, keys := GenCommittee(rng, 3)
+	ep := GenEpochWithCommittee(rng, committee)
+	first := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
+	second := BuildCommitQC(ep, keys, utils.Some(first), nil)
+	lane := committee.Lanes().At(0)
+	laneRanges := func(r *LaneRange) []*LaneRange {
+		var out []*LaneRange
+		for l := range committee.Lanes().All() {
+			if l == lane {
+				out = append(out, r)
+			} else {
+				out = append(out, second.Header().LaneRange(l))
+			}
+		}
+		return out
 	}
+	// secondWith is the header of second with one field replaced.
+	secondWith := func(height RoadHeight, parentHash utils.Option[RoadBlockHeaderHash], r *LaneRange) *RoadBlockHeader {
+		return newRoadBlockHeader(ep.EpochIndex(), height, parentHash, second.Header().Timestamp(), laneRanges(r))
+	}
+	h := second.Header()
+	parentHash := utils.Some(first.Header().Hash())
 	for name, tc := range map[string]struct {
-		header *RoadBlockHeader
-		parent utils.Option[*RoadBlockHeader]
-		ok     bool
+		header   *RoadBlockHeader
+		parent   utils.Option[*CommitQC]
+		mismatch bool
 	}{
-		"no parent expected, none named": {headerWith(utils.None[RoadBlockHeaderHash]()), utils.None[*RoadBlockHeader](), true},
-		"parent expected, same named":    {headerWith(utils.Some(parent.Hash())), utils.Some(parent), true},
-		"parent expected, other named":   {headerWith(utils.Some(other.Hash())), utils.Some(parent), false},
-		"parent expected, none named":    {headerWith(utils.None[RoadBlockHeaderHash]()), utils.Some(parent), false},
-		"no parent expected, one named":  {headerWith(utils.Some(parent.Hash())), utils.None[*RoadBlockHeader](), false},
+		"first road block":                {first.Header(), utils.None[*CommitQC](), false},
+		"next road block":                 {h, utils.Some(first), false},
+		"wrong parent hash":               {secondWith(h.Height(), utils.Some(GenRoadBlockHeaderHash(rng)), h.LaneRange(lane)), utils.Some(first), true},
+		"missing parent hash":             {secondWith(h.Height(), utils.None[RoadBlockHeaderHash](), h.LaneRange(lane)), utils.Some(first), true},
+		"parent hash on first road block": {newRoadBlockHeader(ep.EpochIndex(), first.Height(), parentHash, first.Header().Timestamp(), nil), utils.None[*CommitQC](), true},
+		"height after a gap":              {secondWith(h.Height()+1, parentHash, h.LaneRange(lane)), utils.Some(first), true},
+		"lane range after a gap":          {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()+1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
+		"lane range overlaps the parent":  {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()-1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := tc.header.VerifyParent(tc.parent)
-			if tc.ok {
-				require.NoError(t, err)
-			} else {
+			err := tc.header.VerifyWithParent(ep, tc.parent)
+			if tc.mismatch {
 				require.ErrorIs(t, err, ErrParentMismatch)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
+	t.Run("header fails its own check", func(t *testing.T) {
+		other := NewEpoch(ep.EpochIndex()+1, ep.RoadRange(), committee)
+		err := h.VerifyWithParent(other, utils.Some(first))
+		require.Error(t, err)
+		require.False(t, errors.Is(err, ErrParentMismatch))
+	})
 }
 
 // A header with no parent omits field 6 from its canonical encoding.

@@ -871,8 +871,13 @@ func TestTimeoutQCVerifyRejectsALockedHeaderWithAWrongParent(t *testing.T) {
 	ep := genFreshEpoch(rng, committee)
 	prev := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
 	view := View{Height: prev.Height() + 1, Number: 0, EpochIndex: ep.EpochIndex()}
+	// The locked header includes no lane blocks, so each lane range is empty and starts where prev stopped.
+	var laneRanges []*LaneRange
+	for lane := range committee.Lanes().All() {
+		laneRanges = append(laneRanges, NewLaneRange(lane, prev.LaneRange(lane).Next(), utils.None[*LaneBlockHeader]()))
+	}
 	timeoutQC := func(parentHash utils.Option[RoadBlockHeaderHash]) *TimeoutQC {
-		locked := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, parentHash, prev.Header().NextTimestamp(), nil)}
+		locked := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, parentHash, prev.Header().NextTimestamp(), laneRanges)}
 		prepareQC := BuildPrepareQC(keys, locked)
 		var votes []*FullTimeoutVote
 		for _, k := range keys {
