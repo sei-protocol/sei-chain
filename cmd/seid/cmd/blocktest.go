@@ -56,8 +56,10 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 			home := serverCtx.Viper.GetString(flags.FlagHome)
 
 			cache := store.NewCommitKVStoreCacheManager()
-			// turn on Cancun for block test
+			// The harness runs the fixtures' Prague variants, so run them under Prague rules.
 			evmtypes.CancunTime = 0
+			evmtypes.OsakaTime = -1
+			evmtypes.SeiAmsterdamTime = -1
 			a := app.New(
 				nil,
 				nil,

@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"golang.org/x/sync/errgroup"
 
@@ -1248,11 +1249,21 @@ func assertEVMOnlyBlockQueries(t *testing.T, ctx context.Context, clients []*eth
 			t.Fatalf("node %d block %d reports gasUsed %d, its receipts sum to %d", nodeIndex, height, block.GasUsed, gasUsed)
 		}
 
-		var logs []json.RawMessage
+		// EIP-7708: each value transfer logs one Transfer from the system address.
+		var logs []struct {
+			Address         common.Address `json:"address"`
+			Topics          []common.Hash  `json:"topics"`
+			TransactionHash common.Hash    `json:"transactionHash"`
+		}
 		logsRaw := call("eth_getLogs", map[string]any{"fromBlock": height, "toBlock": height})
 		decodeEVMOnlyResult(t, nodeIndex, "eth_getLogs", logsRaw, &logs)
-		if logs == nil || len(logs) != 0 {
-			t.Fatalf("node %d eth_getLogs over transfer block %d = %s, want []", nodeIndex, height, logsRaw)
+		if len(logs) != len(block.Transactions) {
+			t.Fatalf("node %d eth_getLogs over transfer block %d returned %d logs, want one per transaction (%d)", nodeIndex, height, len(logs), len(block.Transactions))
+		}
+		for i, l := range logs {
+			if l.Address != params.SystemAddress || len(l.Topics) != 3 || l.Topics[0] != params.EthTransferLogEvent || l.TransactionHash != block.Transactions[i] {
+				t.Fatalf("node %d eth_getLogs over transfer block %d log %d = %+v, want the EIP-7708 transfer log of %s", nodeIndex, height, i, l, block.Transactions[i])
+			}
 		}
 
 		var history struct {
