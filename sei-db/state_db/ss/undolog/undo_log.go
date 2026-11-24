@@ -5,11 +5,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 )
 
 var _ gigatypes.HistoricalStateStore = (*undoLog)(nil)
 
-// undoLog is a HistoricalStateStore that keeps recent history as a bucketed undo log.
+// undoLog is a HistoricalStateStore that keeps the recent history of the live state store's rows as a bucketed undo
+// log.
 type undoLog struct {
 	*undo.Database
 }
@@ -39,8 +42,8 @@ func (l *undoLog) Resume(version int64, current gigatypes.StateView) error {
 	return l.Database.Resume(version, current)
 }
 
-func (l *undoLog) ApplyBlock(version int64, changes *gigatypes.StateChangeSet, current gigatypes.StateView) {
-	l.Database.ApplyBlock(version, priorsOf(changes), current)
+func (l *undoLog) ApplyBlock(version int64, mutations []mutation.Mutation, current gigatypes.StateView) {
+	l.Database.ApplyBlock(version, mutationPriors(mutations), current)
 }
 
 func (l *undoLog) OpenView(version int64) (gigatypes.StateView, bool) {
@@ -48,5 +51,5 @@ func (l *undoLog) OpenView(version int64) (gigatypes.StateView, bool) {
 	if !ok {
 		return nil, false
 	}
-	return &historicalStateView{height: version, read: view.Get, release: view.Close}, true
+	return flatkv.NewStateView(version, historicalRowReader(view, version), view.Close), true
 }

@@ -322,6 +322,12 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
 		Accounts: []gigatypes.AccountChange{{
 			Address: addr,
+			Account: gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
+		}},
+	}))
+	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
+		Accounts: []gigatypes.AccountChange{{
+			Address: addr,
 			Account: gigatypes.AccountState{Balance: big.NewInt(9), Code: newCode},
 			Prior:   gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
 		}},
@@ -331,7 +337,7 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	for height, want := range map[int64]struct {
 		balance int64
 		code    []byte
-	}{0: {4, oldCode}, 1: {9, newCode}} {
+	}{1: {4, oldCode}, 2: {9, newCode}} {
 		view, ok := db.OpenViewAt(height)
 		require.True(t, ok)
 		require.Equal(t, common.BigToHash(big.NewInt(want.balance)), view.GetBalance(addr), "height %d", height)
@@ -341,24 +347,32 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	}
 }
 
-// A block that writes only outside the EVM module hands over an empty change set, and the undo log
-// takes it as a block that changed nothing.
-func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
+// The undo log keeps the history of every module the live state DB holds, not only the EVM one.
+func TestUndoStateDBServesHistoryOutsideTheEVMModule(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{3}
 	require.NoError(t, db.CommitStateChanges(1, nonceChanges(addr, 0, 1)))
-
-	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
-		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{2}}},
-	}))
+	writeHead := func(value byte) *gigatypes.StateChangeSet {
+		return &gigatypes.StateChangeSet{
+			Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{value}}},
+		}
+	}
+	require.NoError(t, db.CommitStateChanges(2, writeHead(2)))
+	require.NoError(t, db.CommitStateChanges(3, writeHead(3)))
 	db.HistoricalStateDB().WaitForPendingWrites()
 
-	require.Equal(t, int64(2), db.HistoricalStateDB().GetLatestVersion())
-	for height, want := range []uint64{0, 1, 1} {
+	require.Equal(t, int64(3), db.HistoricalStateDB().GetLatestVersion())
+	for height, want := range []struct {
+		nonce uint64
+		head  []byte
+	}{{0, nil}, {1, nil}, {1, []byte{2}}, {1, []byte{3}}} {
 		view, ok := db.OpenViewAt(int64(height))
 		require.True(t, ok, "height %d", height)
-		require.Equal(t, want, view.GetNonce(addr), "height %d", height)
+		require.Equal(t, want.nonce, view.GetNonce(addr), "height %d", height)
+		head, found := view.Get("cursor", []byte("head"))
+		require.Equal(t, want.head != nil, found, "height %d", height)
+		require.Equal(t, want.head, head, "height %d", height)
 		view.Close()
 	}
 }

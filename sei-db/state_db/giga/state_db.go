@@ -234,7 +234,7 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 	// so what is timed here is the wait to hand the block over.
 	if s.historicalStateDB != nil {
 		s.commitPhases.SetPhase("enqueue_ss")
-		s.historicalStateDB.ApplyBlock(blockNum, changes, s.liveStateDB.OpenView())
+		s.historicalStateDB.ApplyBlock(blockNum, mutations, s.liveStateDB.OpenView())
 	}
 
 	return nil

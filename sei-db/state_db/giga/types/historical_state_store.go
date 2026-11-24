@@ -4,6 +4,7 @@ import (
 	"io"
 
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 // HistoricalStateStore records the blocks the live state store commits and serves the state after
@@ -21,10 +22,11 @@ type HistoricalStateStore interface {
 	// Resumed reports whether a Resume has succeeded and the store is not closed.
 	Resumed() bool
 
-	// ApplyBlock records block version's changes and takes ownership of current, the live state store's
-	// view after the block. It may write in the background, so changes must not be modified afterwards;
-	// nil means the block changed nothing. It panics before a successful Resume or after Close.
-	ApplyBlock(version int64, changes *StateChangeSet, current StateView)
+	// ApplyBlock records block version's mutations, the ones the live state store committed, and takes ownership
+	// of current, the live state store's view after the block. It may write in the background, so mutations must
+	// not be modified afterwards; nil means the block changed nothing. It panics before a successful Resume or
+	// after Close.
+	ApplyBlock(version int64, mutations []mutation.Mutation, current StateView)
 
 	// WaitForPendingWrites blocks until every block passed to ApplyBlock so far is written.
 	WaitForPendingWrites()

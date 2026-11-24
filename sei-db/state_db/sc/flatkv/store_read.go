@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -24,9 +23,7 @@ func (s *CommitStore) OpenView() gigatypes.StateView {
 		// The views themselves are healthy, so the reservation goes back rather than pinning the block.
 		panic(fmt.Sprintf("flatkv: OpenView: %v", errors.Join(err, blockView.Release())))
 	}
-	v := &liveStateView{blockView: blockView}
-	v.closed = utils.MustClose(v, "flatkv state view")
-	return v
+	return newRowStateView(liveRows{blockView: blockView})
 }
 
 // Get returns the value for the given key within the specified module.

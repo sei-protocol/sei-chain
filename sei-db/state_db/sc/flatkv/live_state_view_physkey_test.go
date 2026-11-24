@@ -68,7 +68,7 @@ func TestStateViewReadsBuildExactPhysicalKeys(t *testing.T) {
 	misc := &recordingView{}
 	sv, err := sview.NewStoreView(1, acct, code, storage, misc)
 	require.NoError(t, err)
-	v := &liveStateView{blockView: sv}
+	v := &rowStateView{rows: liveRows{blockView: sv}}
 
 	addr := gigatypes.Address{
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,

@@ -2,368 +2,59 @@ package flatkv
 
 import (
 	"fmt"
-	"maps"
-	"slices"
-	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-var _ gigatypes.StateView = (*liveStateView)(nil)
+var _ rowReader = liveRows{}
 
-// liveStateView serves the Giga read API from one committed block.
-type liveStateView struct {
-	// The block being read. Close() releases the reservation it carries.
+// liveRows reads the rows of one committed block from the views of the stores that hold them. Releasing them
+// returns the block's reservation.
+type liveRows struct {
 	blockView *sview.StoreView
-
-	// Guards the release, so a second Close does not release a reservation this view no longer owns.
-	closeOnce sync.Once
-
-	// Closed by Close.
-	closed utils.CloseMarker[liveStateView]
 }
 
-// GetBlockHeight returns the block height of this view.
-func (v *liveStateView) GetBlockHeight() int64 {
-	return v.blockView.BlockHeight()
+func (r liveRows) height() int64 {
+	return r.blockView.BlockHeight()
 }
 
-// Close releases the reservation this view holds. The view must not be read afterwards.
-// Idempotent.
-func (v *liveStateView) Close() {
-	v.closeOnce.Do(func() {
-		v.closed.Close(v)
-		if err := v.blockView.Release(); err != nil {
-			panic(fmt.Sprintf("flatkv: close state view at height %d: %v", v.blockView.BlockHeight(), err))
-		}
-	})
-}
-
-func (v *liveStateView) Get(module string, key []byte) ([]byte, bool) {
-	if module != keys.EVMStoreKey {
-		return v.miscValue(module, key)
-	}
-
-	kind, keyBytes := keys.ParseEVMKey(key)
-	switch kind {
-	case keys.EVMKeyEmpty:
-		return nil, false
-
-	case keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
-		account := v.accountData(keyBytes)
-		if account == nil {
-			return nil, false
-		}
-		return accountFieldValue(kind, account)
-
-	case keys.EVMKeyStorage:
-		storage := v.storageData(keyBytes)
-		if storage == nil {
-			return nil, false
-		}
-		value := storage.GetValue()
-		return value[:], true
-
-	case keys.EVMKeyCode:
-		code := v.codeData(keyBytes)
-		if code == nil {
-			return nil, false
-		}
-		return code.GetBytecode(), true
-
-	case keys.EVMKeyMisc:
-		return v.miscValue(keys.EVMStoreKey, keyBytes)
-
-	default:
-		panic(fmt.Sprintf("flatkv: Get unsupported key type: %v", kind))
-	}
-}
-
-// GetRaw returns the bytes stored under a physical key in this block, and whether it was found. It
-// panics on a key under the store's metadata prefix.
-func (v *liveStateView) GetRaw(key []byte) ([]byte, bool) {
-	dbView, err := v.storeViewFor(key)
-	if err != nil {
-		panic(err)
-	}
-	value, found, err := dbView.Get(key, true)
-	if err != nil {
-		panic(fmt.Sprintf("flatkv: %s read of key %x at height %d: %v",
-			dbView.Name(), key, v.blockView.BlockHeight(), err))
-	}
-	return value, found
-}
-
-// BatchGetRaw returns the bytes stored in this block under each found physical key, keyed by string(key).
-// It panics on a key under the store's metadata prefix.
-func (v *liveStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
-	// There are at most four stores, so a list searched linearly beats a map keyed by store.
-	var batches []storeBatch
-	for k, key := range keys {
-		dbView, err := v.storeViewFor(key)
-		if err != nil {
-			panic(err)
-		}
-		i := slices.IndexFunc(batches, func(b storeBatch) bool { return b.dbView == dbView })
-		if i < 0 {
-			i = len(batches)
-			// Sized for every remaining key, since a batch's keys usually all belong to one store.
-			batches = append(batches, storeBatch{dbView: dbView, keys: make([][]byte, 0, len(keys)-k)})
-		}
-		batches[i].keys = append(batches[i].keys, key)
-	}
-
-	// Each store's answer is a map of its own, so the largest one collects the others rather than all of
-	// them being copied into a new one. A batch within one store returns that store's answer as is.
-	var values map[string][]byte
-	for _, batch := range batches {
-		found, err := batch.dbView.BatchGet(batch.keys)
-		if err != nil {
-			panic(fmt.Sprintf("flatkv: %s batch read of %d keys at height %d: %v",
-				batch.dbView.Name(), len(batch.keys), v.blockView.BlockHeight(), err))
-		}
-		if len(found) > len(values) {
-			values, found = found, values
-		}
-		maps.Copy(values, found)
-	}
-	if values == nil {
-		return map[string][]byte{}
-	}
-	return values
-}
-
-// storeBatch is the keys of one BatchGetRaw() call that belong to one store.
-type storeBatch struct {
-	// The view of the store the keys belong to.
-	dbView view.View
-	// The keys, in the order they were requested.
-	keys [][]byte
-}
-
-// AccountExists reports whether addr has an account in this block.
-func (v *liveStateView) AccountExists(addr gigatypes.Address) bool {
-	_, ok := v.accountRow(addr)
-	return ok
-}
-
-// GetNonce returns addr's account nonce, or 0 when the account does not exist.
-func (v *liveStateView) GetNonce(addr gigatypes.Address) uint64 {
-	account, ok := v.accountRow(addr)
-	if !ok {
-		return 0
-	}
-	return account.Nonce()
-}
-
-// GetBalance returns addr's balance as a 256-bit big-endian value, or the zero value when addr holds
-// no balance.
-func (v *liveStateView) GetBalance(addr gigatypes.Address) gigatypes.Hash {
-	account, ok := v.accountRow(addr)
-	if !ok {
-		return gigatypes.Hash{}
-	}
-	return gigatypes.Hash(account.Balance())
-}
-
-// GetCodeHash returns the hash of addr's contract code, gigatypes.EmptyCodeHash when the account exists
-// and holds no code, or the zero hash when it does not exist.
-func (v *liveStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
-	account, ok := v.accountRow(addr)
-	if !ok {
-		return gigatypes.Hash{}
-	}
-	codeHash := gigatypes.Hash(account.CodeHash())
-	if codeHash == (gigatypes.Hash{}) {
-		// A row only exists while some field is non-zero (see AccountData.IsDelete), and the code hash
-		// is not that field here, so this account has a nonce or a balance and no code — the case EVM
-		// semantics answer with the empty-code hash rather than with zero.
-		return gigatypes.EmptyCodeHash
-	}
-	return codeHash
-}
-
-// ReadAccount returns addr's balance, nonce and code hash from one account row read.
-func (v *liveStateView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
-	account, ok := v.accountRow(addr)
-	if !ok {
-		return gigatypes.Account{}, false
-	}
-	codeHash := gigatypes.Hash(account.CodeHash())
-	if codeHash == (gigatypes.Hash{}) {
-		// The row exists, so some field is non-zero and it is not this one: no code. See GetCodeHash.
-		codeHash = gigatypes.EmptyCodeHash
-	}
-	return gigatypes.Account{
-		Balance:  gigatypes.Hash(account.Balance()),
-		Nonce:    account.Nonce(),
-		CodeHash: codeHash,
-	}, true
-}
-
-// GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
-func (v *liveStateView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
-	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, addr[:], key[:])
-	if !found {
-		return gigatypes.Hash{}
-	}
-	storage, err := vtype.ParseStorageRow(raw)
-	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse storage %x/%x at height %d: %v",
-			addr, key, v.blockView.BlockHeight(), err))
-	}
-	if storage.IsDelete() {
-		return gigatypes.Hash{}
-	}
-	return gigatypes.Hash(storage.Value())
-}
-
-// GetCode returns addr's contract code, or nil when it has none. The slice aliases the store's row
-// and is valid until the view is closed.
-func (v *liveStateView) GetCode(addr gigatypes.Address) []byte {
-	code := v.codeData(addr[:])
-	if code == nil {
-		return nil
-	}
-	return code.GetBytecode()
-}
-
-// GetCodeSize returns the length of addr's contract code in bytes, or 0 when it has none.
-func (v *liveStateView) GetCodeSize(addr gigatypes.Address) int {
-	return len(v.GetCode(addr))
-}
-
-// physKeyBufLen holds the longest EVM physical key: "evm/" + kind byte + address + slot.
-const physKeyBufLen = len(keys.EVMStoreKey) + 2 + ktype.AddressLen + ktype.SlotLen
-
-// physKeyBufs holds scratch buffers for building physical keys that live only for one read.
-var physKeyBufs = sync.Pool{New: func() any { return new([physKeyBufLen]byte) }}
-
-// accountRow returns addr's account row, or false when no account exists in this block. The row
-// aliases store memory and is valid until the view is closed.
-func (v *liveStateView) accountRow(addr gigatypes.Address) (vtype.AccountRow, bool) {
-	raw, found := v.readEVMRow(v.blockView.AccountView(), ktype.EVMKeyAccount, addr[:])
-	if !found {
-		return vtype.AccountRow{}, false
-	}
-	account, err := vtype.ParseAccountRow(raw)
-	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v", addr, v.blockView.BlockHeight(), err))
-	}
-	if account.IsDelete() {
-		return vtype.AccountRow{}, false
-	}
-	return account, true
-}
-
-// accountData returns the account row for the 20-byte address in keyBytes, or nil when no account
-// exists in this block.
-func (v *liveStateView) accountData(keyBytes []byte) *vtype.AccountData {
-	raw, found := v.readEVMRow(v.blockView.AccountView(), ktype.EVMKeyAccount, keyBytes)
-	account, err := parseRow(raw, found, vtype.DeserializeAccountData)
-	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v",
-			keyBytes, v.blockView.BlockHeight(), err))
-	}
-	if account == nil || account.IsDelete() {
-		return nil
-	}
-	return account
-}
-
-// storageData returns the storage row for the addr||slot in keyBytes, or nil when the slot is unset.
-func (v *liveStateView) storageData(keyBytes []byte) *vtype.StorageData {
-	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, keyBytes)
-	storage, err := parseRow(raw, found, vtype.DeserializeStorageData)
-	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v",
-			keyBytes, v.blockView.BlockHeight(), err))
-	}
-	if storage == nil || storage.IsDelete() {
-		return nil
-	}
-	return storage
-}
-
-// codeData returns the code row for the 20-byte address in keyBytes, or nil when it has no code.
-func (v *liveStateView) codeData(keyBytes []byte) *vtype.CodeData {
-	raw, found := v.readEVMRow(v.blockView.CodeView(), keys.EVMKeyCode, keyBytes)
-	code, err := parseRow(raw, found, vtype.DeserializeCodeData)
-	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse code for %x at height %d: %v",
-			keyBytes, v.blockView.BlockHeight(), err))
-	}
-	if code == nil || code.IsDelete() {
-		return nil
-	}
-	return code
-}
-
-// miscValue returns the value stored under keyBytes in the named module, and whether it was found.
-func (v *liveStateView) miscValue(module string, keyBytes []byte) ([]byte, bool) {
-	raw, found := v.readRow(v.blockView.MiscView(), ktype.BuildPhysicalKey(module, keyBytes))
-	misc, err := parseRow(raw, found, vtype.DeserializeMiscData)
-	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse misc %s/%x at height %d: %v",
-			module, keyBytes, v.blockView.BlockHeight(), err))
-	}
-	if misc == nil || misc.IsDelete() {
-		return nil, false
-	}
-	value := misc.GetValue()
-	return value, value != nil
-}
-
-// readEVMRow returns the bytes stored under an EVM physical key for kind and key parts.
-func (v *liveStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, keyParts ...[]byte) ([]byte, bool) {
-	buf := physKeyBufs.Get().(*[physKeyBufLen]byte)
-	physKey := ktype.WritePhysicalEVMKeyToBuffer(buf[:], kind, keyParts[0])
-	for _, keyPart := range keyParts[1:] {
-		physKey = append(physKey, keyPart...)
-	}
-	value, found := v.readRow(dbView, physKey)
-	// Not deferred: readRow panics when the manager shuts down while a read worker may still hold
-	// physKey, and a buffer that may still be read must not go back to the pool.
-	physKeyBufs.Put(buf)
-	return value, found
-}
-
-// storeViewFor returns the view of the store that holds physKey. It returns an error for a metadata
-// key, since the store's own metadata is not part of any block's state, and for a key no store holds.
-func (v *liveStateView) storeViewFor(physKey []byte) (view.View, error) {
-	if ktype.IsMetaKey(physKey) {
-		return nil, fmt.Errorf("flatkv: raw key %x is store metadata, not block state", physKey)
-	}
-	dbDir, err := routePhysicalKey(physKey)
-	if err != nil {
-		return nil, fmt.Errorf("flatkv: route raw key %x at height %d: %w", physKey, v.blockView.BlockHeight(), err)
-	}
-	switch dbDir {
-	case accountDBDir:
-		return v.blockView.AccountView(), nil
-	case codeDBDir:
-		return v.blockView.CodeView(), nil
-	case storageDBDir:
-		return v.blockView.StorageView(), nil
-	case miscDBDir:
-		return v.blockView.MiscView(), nil
-	default:
-		return nil, fmt.Errorf("flatkv: raw key %x routes to unknown store %q", physKey, dbDir)
-	}
-}
-
-// readRow returns the bytes stored under physKey, without deserializing them.
-func (v *liveStateView) readRow(dbView view.View, physKey []byte) ([]byte, bool) {
+func (r liveRows) getRow(store rowStore, physKey []byte) ([]byte, bool) {
+	dbView := r.storeView(store)
 	value, found, err := dbView.Get(physKey, true)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: %s read of key %x at height %d: %v",
-			dbView.Name(), physKey, v.blockView.BlockHeight(), err))
+			dbView.Name(), physKey, r.blockView.BlockHeight(), err))
 	}
 	return value, found
+}
+
+func (r liveRows) batchGetRows(store rowStore, physKeys [][]byte) map[string][]byte {
+	dbView := r.storeView(store)
+	found, err := dbView.BatchGet(physKeys)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: %s batch read of %d keys at height %d: %v",
+			dbView.Name(), len(physKeys), r.blockView.BlockHeight(), err))
+	}
+	return found
+}
+
+func (r liveRows) release() {
+	if err := r.blockView.Release(); err != nil {
+		panic(fmt.Sprintf("flatkv: close state view at height %d: %v", r.blockView.BlockHeight(), err))
+	}
+}
+
+// storeView returns the block's view of store.
+func (r liveRows) storeView(store rowStore) view.View {
+	switch store {
+	case accountRows:
+		return r.blockView.AccountView()
+	case codeRows:
+		return r.blockView.CodeView()
+	case storageRows:
+		return r.blockView.StorageView()
+	default:
+		return r.blockView.MiscView()
+	}
 }

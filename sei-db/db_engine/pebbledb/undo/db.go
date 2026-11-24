@@ -2,7 +2,7 @@
 //
 // When block h changes a key, the store records the value the key held before h, under
 //
-//	bucket(h) | key | h        with bucket(h) = h / bucketSize
+//	bucket(h) | len(key) | key | h        with bucket(h) = h / bucketSize
 //
 // and nothing else: the value after the latest block lives in the state commit store, which this
 // store reads through a LiveStateView. The state after block T is the first record above T, or the
@@ -33,7 +33,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -68,10 +67,6 @@ const (
 
 	valueAbsent  = 0
 	valuePresent = 1
-
-	// module is the state commit store module whose history the store keeps.
-	module = keys.EVMStoreKey
-
 	// how many blocks a bucket covers. changing this is breaking.
 	// the retention window divided by this value should be a single digit or two digits
 	defaultBucketSize = 10000
@@ -83,10 +78,10 @@ var (
 	bucketSizeKey      = metadataKey("bucket_size")
 )
 
-// LiveStateView is a read-only view of the live state store at one committed block.
-// It remains unchanged as the store advances.
+// LiveStateView is a read-only view of the live state store at one committed block, read by the keys this store
+// records. It remains unchanged as the store advances.
 type LiveStateView interface {
-	Get(module string, key []byte) (value []byte, found bool)
+	GetRaw(key []byte) (value []byte, found bool)
 	Close()
 }
 
@@ -95,7 +90,7 @@ type PriorValues interface {
 	// Len returns how many pairs All yields.
 	Len() int
 
-	// All yields each changed EVM key with its value before the block, nil when it held none. Both
+	// All yields each changed key with its value before the block, nil when it held none. Both
 	// slices are valid only until the next pair is requested.
 	All() iter.Seq2[[]byte, []byte]
 }
@@ -482,14 +477,14 @@ type recordWriter struct {
 	g      errgroup.Group
 }
 
-// add stages the record of key, holding value, or absent when value is nil. A key outside the
-// supported EVM families fails the block, since the comparator could not split its records.
+// add stages the record of key, holding value, or absent when value is nil. A key no record can hold fails the
+// block.
 func (w *recordWriter) add(key, value []byte) {
 	if w.err != nil {
 		return
 	}
-	if keyLen, _ := keyLayout(key); keyLen == 0 || len(key) != keyLen {
-		w.err = fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+	if err := checkKey(key); err != nil {
+		w.err = err
 		return
 	}
 	if w.batch == nil {
@@ -637,12 +632,11 @@ func (v *View) Close() {
 	})
 }
 
-// Get returns a supported EVM key's value at the view's height, nil when it did not exist.
-// Unsupported or malformed keys, and reads after the database is closed, return an error.
+// Get returns key's value at the view's height, nil when it did not exist. A key no record can hold, and a read
+// after the database is closed, return an error.
 func (v *View) Get(key []byte) (_ []byte, err error) {
-	keyLen, _ := keyLayout(key)
-	if keyLen == 0 || len(key) != keyLen {
-		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+	if err := checkKey(key); err != nil {
+		return nil, err
 	}
 	v.db.lifecycleMu.RLock()
 	defer v.db.lifecycleMu.RUnlock()
@@ -660,7 +654,7 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 	h := v.db.acquireHead()
 	defer h.release()
 	if v.height == h.height {
-		return foundValue(h.view.Get(module, key)), nil
+		return foundValue(h.view.GetRaw(key)), nil
 	}
 
 	first := (v.height + 1) / v.db.bucketSize
@@ -695,7 +689,7 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		}
 		return decodeValue(itr.Value())
 	}
-	return foundValue(h.view.Get(module, key)), nil
+	return foundValue(h.view.GetRaw(key)), nil
 }
 
 // GetLatestVersion returns the latest block whose records are written and readable.
@@ -753,7 +747,7 @@ func (db *Database) firstNeededBucket() uint64 {
 
 // Name identifies the store to the collector it is pruned by.
 func (db *Database) Name() string {
-	return "EVM SS undo"
+	return "SS undo"
 }
 
 // PruneHistory drops the history below blockNumber, clamped to the head, keeping blockNumber
