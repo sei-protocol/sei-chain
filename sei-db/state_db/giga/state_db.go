@@ -239,7 +239,7 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 	// writes asynchronously and is not waited on, so what is timed here is the wait to hand the block over.
 	if s.undo != nil {
 		s.commitPhases.SetPhase("enqueue_ss")
-		s.undo.ApplyBlock(blockNum, changes, s.sc.OpenView())
+		s.undo.ApplyBlock(blockNum, mutations, s.sc.OpenView())
 	}
 
 	return nil
@@ -262,7 +262,7 @@ func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 	if !ok {
 		return nil, false
 	}
-	return &historicalView{height: blockNum, read: view.Get, release: view.Close}, true
+	return flatkv.NewRowView(blockNum, historicalRows{height: blockNum, view: view}, view.Close), true
 }
 
 // RegisterHashListener forwards to the state commit store, which is the layer that hashes blocks and
