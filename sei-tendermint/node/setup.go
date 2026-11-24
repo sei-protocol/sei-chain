@@ -439,6 +439,7 @@ func openAutobahnStorageManager(
 	}
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
+	storageConfig.EVMChainID = fc.EVMChainID
 	if archiveConfig.Enabled() {
 		storageConfig.ArchiveConfig = &clickhouse.Config{
 			Addr:     archiveConfig.ClickHouseAddr,

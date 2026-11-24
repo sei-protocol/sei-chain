@@ -35,6 +35,16 @@ ENGINE = MergeTree
 ORDER BY (end_block, committed)
 SETTINGS auto_statistics_types = '';
 
+-- The archive's metadata: one row, recorded by the first node that opens the empty archive. chain_id
+-- is the EVM chain whose blocks the archive holds. A node of another chain refuses the archive.
+CREATE TABLE IF NOT EXISTS archive_meta
+(
+    chain_id                UInt64
+)
+ENGINE = MergeTree
+ORDER BY tuple()
+SETTINGS auto_statistics_types = '';
+
 CREATE TABLE IF NOT EXISTS blocks
 (
     block_number            UInt64 CODEC(Delta, ZSTD(1)),
