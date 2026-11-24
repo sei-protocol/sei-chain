@@ -1,11 +1,14 @@
 package evm
 
 import (
-	"slices"
-	"math/big"
 	"cmp"
-	
+	"encoding/binary"
+	"math/big"
+	"math/bits"
+	"slices"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 )
 
 /*
@@ -14,9 +17,9 @@ A `CommitQC` finalizes a cut of lane blocks. Implementations MAY enumerate the c
 
 1. Normalize metadata. For each prevalidated transaction occurrence, derive its transaction hash, recovered sender, nonce, and effective priority tip using the common fee context for the ordering batch. For a valid EIP-1559 transaction, the effective tip is:
 
-   min(max_priority_fee_per_gas, max_fee_per_gas - base_fee)
+	min(max_priority_fee_per_gas, max_fee_per_gas - base_fee)
 
-   Fee validity MUST be checked before the subtraction. The ordering input MUST also include the canonical parent state's next executable nonce for every represented sender. Missing or inconsistent metadata is invalid input and MUST NOT be resolved using local observation.
+	Fee validity MUST be checked before the subtraction. The ordering input MUST also include the canonical parent state's next executable nonce for every represented sender. Missing or inconsistent metadata is invalid input and MUST NOT be resolved using local observation.
 
 2. Remove exact duplicates. If the same transaction hash occurs more than once, retain one canonical occurrence. Equal hashes MUST have identical canonical metadata under a collision resistant hash function, otherwise the ordering batch is invalid. Because later ordering does not depend on lane identity, selecting one occurrence MUST NOT affect execution order.
 
@@ -31,57 +34,80 @@ A `CommitQC` finalizes a cut of lane blocks. Implementations MAY enumerate the c
 The result is the priority maximal topological order of the retained transactions. Step 6 is a dynamic ready set algorithm, not a sort of static topological layers, a newly unlocked high tip successor can execute before a lower tip transaction that was already ready from another sender. For example, if sender A has (nonce 0, tip 5) followed by (nonce 1, tip 1), while sender B has (nonce 0, tip 4) followed by (nonce 1, tip 10), the tip sequence is `5, 4, 10, 1`.
 */
 type CanonicalOrder struct {
-	BaseFee *big.Int
-	GetNonce func(common.Address)uint64
-	Txs []EvmTx
+	BaseFee  *big.Int
+	GetNonce func(common.Address) uint64
+	Txs      []EvmTx
+}
+
+// nTipHash orders tips descending and transaction hashes ascending.
+type nTipHash [8]uint64
+
+func newNTipHash(tip uint256.Int, hash common.Hash) nTipHash {
+	// Complementing the tip reverses unsigned order, including zero, without carries.
+	return nTipHash{
+		^tip[3], ^tip[2], ^tip[1], ^tip[0],
+		binary.BigEndian.Uint64(hash[0:8]),
+		binary.BigEndian.Uint64(hash[8:16]),
+		binary.BigEndian.Uint64(hash[16:24]),
+		binary.BigEndian.Uint64(hash[24:32]),
+	}
+}
+
+func (a nTipHash) Cmp(b nTipHash) int {
+	for i := range a {
+		if a[i] != b[i] {
+			_, borrow := bits.Sub64(a[i], b[i], 0)
+			return 1 - 2*int(borrow)
+		}
+	}
+	return 0
 }
 
 func (o CanonicalOrder) Run() []EvmTx {
-	tip := make([]*big.Int,len(o.Txs))
-	ord := make([]int,len(o.Txs))
-	for i,tx := range o.Txs {
-		ord[i] = i
-		tip[i] = tx.EffectiveGasTipValue(o.BaseFee)
-	}
-	// Sort by (nonce,-tip). 
-	// Stable for determinism.
-	slices.SortStableFunc(ord, func(a,b int) int {
-		if x:=cmp.Compare(o.Txs[a].Nonce(),o.Txs[b].Nonce()); x!=0 {
-			return x
-		}
-		return -tip[a].Cmp(tip[b])
-	})
-	// Filter out bad nonces, negative tips. Clamp the tips.
-	last := map[common.Address]int{}
-	next := 0
-	for _,i := range ord {
-		if tip[i].Sign()<0 {
+	keys := make([]nTipHash, len(o.Txs))
+	ord := make([]int, 0, len(o.Txs))
+	for i, tx := range o.Txs {
+		tip, ok := tx.EffectiveGasTip(o.BaseFee)
+		if !ok {
 			continue
 		}
+		keys[i] = newNTipHash(tip, tx.Hash())
+		ord = append(ord, i)
+	}
+	// Sort by (nonce,-tip,hash).
+	slices.SortFunc(ord, func(a, b int) int {
+		if x := cmp.Compare(o.Txs[a].Nonce(), o.Txs[b].Nonce()); x != 0 {
+			return x
+		}
+		return keys[a].Cmp(keys[b])
+	})
+	// Retain contiguous sender prefixes and clamp each key to its dependencies.
+	last := map[common.Address]int{}
+	next := 0
+	for _, i := range ord {
 		s := o.Txs[i].Sender()
-		if j,ok := last[s]; ok {
-			if o.Txs[j].Nonce()+1!=o.Txs[i].Nonce() {
+		if j, ok := last[s]; ok {
+			if o.Txs[j].Nonce()+1 != o.Txs[i].Nonce() {
 				continue
 			}
-			if tip[j].Cmp(tip[i])<0 {
-				tip[i] = tip[j]
+			if keys[i].Cmp(keys[j]) < 0 {
+				keys[i] = keys[j]
 			}
-		} else if o.GetNonce(s)!=o.Txs[i].Nonce() {
+		} else if o.GetNonce(s) != o.Txs[i].Nonce() {
 			continue
 		}
 		last[s] = i
 		ord[next] = i
-		next += 1
+		next++
 	}
 	ord = ord[:next]
-	// Stable sort by -tip. It preserves nonce order per account.
-	slices.SortStableFunc(ord, func(a,b int) int {
-		return -tip[a].Cmp(tip[b])
+	// Stable sorting preserves nonce order among transactions sharing a clamped key.
+	slices.SortStableFunc(ord, func(a, b int) int {
+		return keys[a].Cmp(keys[b])
 	})
-	// Extract the final order.
-	txs := make([]EvmTx,next)
-	for pos,i := range ord {
+	txs := make([]EvmTx, next)
+	for pos, i := range ord {
 		txs[pos] = o.Txs[i]
 	}
-	return txs	
+	return txs
 }
