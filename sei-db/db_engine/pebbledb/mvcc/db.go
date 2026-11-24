@@ -433,7 +433,13 @@ func (db *Database) mvccEncode(key []byte, version int64) []byte {
 // decodeVersion decodes an on-disk MVCC version using the encoding matching
 // this Database's mode.
 func (db *Database) decodeVersion(vBz []byte) (int64, error) {
-	if db.descending {
+	return decodeMVCCVersion(vBz, db.descending)
+}
+
+// decodeMVCCVersion decodes an on-disk MVCC version written in the descending
+// encoding when descending is set, and in the ascending one otherwise.
+func decodeMVCCVersion(vBz []byte, descending bool) (int64, error) {
+	if descending {
 		return decodeUint64Descending(vBz)
 	}
 	return decodeUint64Ascending(vBz)
@@ -522,19 +528,9 @@ func (db *Database) GetLatestVersion() int64 {
 //   - If both markers are absent the DB is fresh; we write the descending
 //     marker and return descending mode.
 func detectMVCCMode(db *pebble.DB) (bool, error) {
-	if _, closer, err := db.Get([]byte(descendingMVCCMarkerKey)); err == nil {
-		_ = closer.Close()
-		return true, nil
-	} else if !errors.Is(err, pebble.ErrNotFound) {
-		return false, fmt.Errorf("reading descending-MVCC marker: %w", err)
-	}
-
-	if _, closer, err := db.Get([]byte(latestVersionKey)); err == nil {
-		_ = closer.Close()
-		// Legacy DB: no marker, has data. Open in ascending mode.
-		return false, nil
-	} else if !errors.Is(err, pebble.ErrNotFound) {
-		return false, fmt.Errorf("reading latest version marker: %w", err)
+	descending, fresh, err := readMVCCMode(db)
+	if err != nil || !fresh {
+		return descending, err
 	}
 
 	// Fresh DB: mark it and use descending mode.
@@ -542,6 +538,26 @@ func detectMVCCMode(db *pebble.DB) (bool, error) {
 		return false, fmt.Errorf("writing descending-MVCC marker: %w", err)
 	}
 	return true, nil
+}
+
+// readMVCCMode reports which MVCC encoding db uses, without writing to it. fresh
+// is true for a DB carrying neither the descending marker nor a latest version.
+func readMVCCMode(db *pebble.DB) (descending, fresh bool, err error) {
+	if _, closer, err := db.Get([]byte(descendingMVCCMarkerKey)); err == nil {
+		_ = closer.Close()
+		return true, false, nil
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		return false, false, fmt.Errorf("reading descending-MVCC marker: %w", err)
+	}
+
+	if _, closer, err := db.Get([]byte(latestVersionKey)); err == nil {
+		_ = closer.Close()
+		// Legacy DB: no marker, has data. Open in ascending mode.
+		return false, false, nil
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		return false, false, fmt.Errorf("reading latest version marker: %w", err)
+	}
+	return false, true, nil
 }
 
 func retrieveLatestVersion(db *pebble.DB) (int64, error) {
