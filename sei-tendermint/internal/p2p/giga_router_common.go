@@ -4,12 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
-	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -116,36 +112,6 @@ func BuildDataState(
 	ds, err := data.NewState(&data.Config{App: app, GenesisTimestamp: genesisTimestamp}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
-	}
-	return ds, nil
-}
-
-// BuildFullnodeDataState is BuildDataState on cfg.App for a fullnode. When start names a pending
-// restore, it seeds blockStore with the restored road from the state sync proof file, and removes
-// the state sync proof file and the restore marker once the data state is built.
-func BuildFullnodeDataState(
-	ctx context.Context,
-	cfg *GigaRouterCommonConfig,
-	blockStore *ablockstore.Store,
-	genesisTimestamp time.Time,
-	start StateSyncStart,
-) (*data.State, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	if err := seedBlockStore(ctx, cfg, blockStore, start); err != nil {
-		return nil, err
-	}
-	ds, err := data.NewState(&data.Config{App: cfg.App, GenesisTimestamp: genesisTimestamp}, blockStore)
-	if err != nil {
-		return nil, fmt.Errorf("data.NewState: %w", err)
-	}
-	// The marker stays until data.NewState accepts the seeded BlockDB, so that a failed start can
-	// run again or be imported over.
-	if start.PendingRestore.IsPresent() {
-		if err := removeRestoreFiles(cfg.PersistentStateDir); err != nil {
-			return nil, err
-		}
 	}
 	return ds, nil
 }
@@ -304,25 +270,6 @@ func RestoreMarkerFile(psd string) string {
 // state sync restore installs in the persistent state dir psd.
 func RestoreProofFile(psd string) string {
 	return filepath.Join(psd, "state-sync-proof")
-}
-
-// ReadRestoreMarker returns the road that the state sync restore marker in the persistent state
-// dir psd names, or None when psd holds no marker.
-func ReadRestoreMarker(psd string) (utils.Option[atypes.RoadHeight], error) {
-	path := RestoreMarkerFile(psd)
-	raw, err := os.ReadFile(path) //nolint:gosec // path is the marker under the node's own state dir.
-	if errors.Is(err, os.ErrNotExist) {
-		return utils.None[atypes.RoadHeight](), nil
-	}
-	if err != nil {
-		return utils.None[atypes.RoadHeight](), fmt.Errorf("read the state sync restore marker %s: %w", path, err)
-	}
-	// FlatKV versions and manifest heights are int64, so a higher road cannot be a restored height.
-	road, err := strconv.ParseUint(strings.TrimSuffix(string(raw), "\n"), 10, 64)
-	if err != nil || road == 0 || road > math.MaxInt64 {
-		return utils.None[atypes.RoadHeight](), fmt.Errorf("the state sync restore marker %s holds %q, want one positive decimal height of at most %d", path, raw, math.MaxInt64)
-	}
-	return utils.Some(atypes.RoadHeight(road)), nil
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,

@@ -89,7 +89,7 @@ func makeSeedNode(
 		dbProvider,
 		utils.None[*bootstrap.GigaStorageManager](),
 		gigaconfig.StateSyncConfig{},
-		p2p.StateSyncStart{},
+		stateSyncStart{},
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

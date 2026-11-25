@@ -296,7 +296,7 @@ func buildValidatorGigaConfig(
 // operator misconfiguration is visible at startup.
 //
 // blockStore backs the returned router for its lifetime. The caller closes it.
-// A fullnode first seeds blockStore when stateSync names a pending restore.
+// A fullnode finishes the pending restore that start names.
 func buildGigaRouter(
 	ctx context.Context,
 	cfg *config.Config,
@@ -308,7 +308,7 @@ func buildGigaRouter(
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
 	persistentPeers []p2p.NodeAddress,
-	stateSync p2p.StateSyncStart,
+	start stateSyncStart,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -370,7 +370,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildFullnodeDataState(ctx, fnCfg, blockStore, genDoc.GenesisTime, stateSync)
+	dataState, err := buildFullnodeDataState(ctx, fnCfg, blockStore, genDoc.GenesisTime, start)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +412,7 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
 // persistent-state directory, laid out for nodeMode unless storage pins a mode,
-// with the history archive when archiveConfig enables one.
+// with the history archive when archiveConfig enables one. The BlockDB opens with seed.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
@@ -421,6 +421,7 @@ func openAutobahnStorageManager(
 	storage gigaconfig.StorageConfig,
 	archiveConfig gigaconfig.ArchiveConfig,
 	genDoc *types.GenesisDoc,
+	seed utils.Option[ablockstore.Seed],
 ) (*bootstrap.GigaStorageManager, error) {
 	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
 	if err != nil {
@@ -437,6 +438,7 @@ func openAutobahnStorageManager(
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
+	blockConfig.Seed = seed
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
 	storageConfig.EVMChainID = fc.EVMChainID
@@ -652,7 +654,7 @@ func createRouter(
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
 	stateSync gigaconfig.StateSyncConfig,
-	stateSyncStart p2p.StateSyncStart,
+	start stateSyncStart,
 ) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[*ablockstore.Store]()
@@ -723,7 +725,7 @@ func createRouter(
 			ctx, cfg, nodeKey, validatorKey, proxyApp, signer.OrPanic("Autobahn requires a transaction signer"), genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
 			options.PersistentPeers,
-			stateSyncStart,
+			start,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

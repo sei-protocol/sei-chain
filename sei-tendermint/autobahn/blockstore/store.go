@@ -78,7 +78,8 @@ type Suffix struct {
 	AppQCs       []*types.AppQC
 }
 
-// New opens a consensus block store and restores its retention floor and write cursors.
+// New opens a consensus block store, restores its retention floor and write cursors, and writes
+// config.Seed when it is set.
 func New(config *Config) (*Store, error) {
 	start := time.Now()
 	logger.Info("Opening the block store")
@@ -123,6 +124,12 @@ func New(config *Config) (*Store, error) {
 	if err := s.restore(first, suffix); err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("s.restore(%v): %w", first, err)
+	}
+	if seed, ok := config.Seed.Get(); ok {
+		if err := s.seed(seed); err != nil {
+			_ = s.Close()
+			return nil, fmt.Errorf("s.seed(): %w", err)
+		}
 	}
 	logger.Info("Opened the block store", "elapsed", time.Since(start))
 	return s, nil

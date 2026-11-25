@@ -19,8 +19,15 @@ import (
 // value at key of module.
 func checkpointWithRow(t *testing.T, module string, key, value []byte) string {
 	t.Helper()
+	return commitRow(t, filepath.Join(t.TempDir(), "flatkv"), module, key, value)
+}
+
+// commitRow commits block 1, which writes value at key of module, to a FlatKV store in dataDir.
+// It returns the FlatKV checkpoint of that block.
+func commitRow(t *testing.T, dataDir string, module string, key, value []byte) string {
+	t.Helper()
 	cfg := flatkvconfig.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(t.TempDir(), "flatkv")
+	cfg.DataDir = dataDir
 	cfg.SnapshotInterval = 1
 	wal, err := flatkv.OpenStateWAL(cfg)
 	require.NoError(t, err)

@@ -152,10 +152,11 @@ func TestAnInterruptedImportDoesNotStart(t *testing.T) {
 	require.NoFileExists(t, home.target.layout.RestoreMarkerFile)
 }
 
-// TestAFailedSeedImportsAgain runs a start that opens the storage of a restored home and then
-// fails to seed it. The start keeps the restore marker, a second import replaces the data of both,
-// and the start then seeds road block H.
-func TestAFailedSeedImportsAgain(t *testing.T) {
+// TestAStartWithoutASeedImportsAgain runs a start on a restored home that lost its state sync
+// proof file, so the start opens the storage and has nothing to seed the BlockDB from. The start
+// keeps the restore marker, a second import replaces the data of both, and the start then seeds
+// road block H.
+func TestAStartWithoutASeedImportsAgain(t *testing.T) {
 	p := newProducer(t)
 	h := p.commit(t, 1)
 	archive := p.archive(t, testChainID, h)
@@ -164,7 +165,7 @@ func TestAFailedSeedImportsAgain(t *testing.T) {
 	require.NoError(t, os.Remove(home.target.layout.RestoreProofFile))
 
 	_, _, err := startFullnode(home, t)
-	require.ErrorContains(t, err, "read the state sync proof file; run seid statesync import again")
+	require.ErrorContains(t, err, "this home holds no state sync proof file to seed it from; run seid statesync import again")
 	require.FileExists(t, home.target.layout.RestoreMarkerFile)
 	leftovers, err := foreignFiles(home.target.layout)
 	require.NoError(t, err)
@@ -175,4 +176,71 @@ func TestAFailedSeedImportsAgain(t *testing.T) {
 	require.Equal(t, h, appHeight)
 	require.Equal(t, seeded(h), status)
 	require.NoFileExists(t, home.target.layout.RestoreMarkerFile)
+}
+
+// writeAnchor replaces the app-hash vault of home with one that holds only the restore anchor of
+// height with appHash.
+func writeAnchor(t *testing.T, home fullnodeHome, height int64, appHash [32]byte) {
+	t.Helper()
+	tg := home.target
+	require.NoError(t, os.RemoveAll(tg.layout.AppHashVaultDir))
+	require.NoError(t, node.WriteRestoredAppHash(tg.layout, tg.mode, tg.storage, tg.genDoc, height, appHash))
+}
+
+// TestAStartRefusesARestoreAnchorThatTheAppQCDoesNotSign starts a restored home whose restore
+// anchor is not the app hash that the AppQC of the state sync proof file signs. The start seeds
+// the BlockDB, refuses the home and keeps the restore files. With the right anchor in place, the
+// next start finds the seeded BlockDB and finishes the restore.
+func TestAStartRefusesARestoreAnchorThatTheAppQCDoesNotSign(t *testing.T) {
+	p := newProducer(t)
+	h := p.commit(t, 1)
+	home := newFullnodeHome(t)
+	require.NoError(t, runImport(t.Context(), home.target, bytesSource(p.archive(t, testChainID, h)), io.Discard))
+	writeAnchor(t, home, h, [32]byte{9})
+
+	_, _, err := startFullnode(home, t)
+	require.ErrorContains(t, err, "but the AppQC of the BlockDB signs")
+	require.FileExists(t, home.target.layout.RestoreMarkerFile)
+	require.FileExists(t, home.target.layout.RestoreProofFile)
+
+	writeAnchor(t, home, h, fixtureAt(t, h).AppHash)
+	status, appHeight := startRestoredFullnode(home, t)
+	require.Equal(t, h, appHeight)
+	require.Equal(t, seeded(h), status)
+	require.NoFileExists(t, home.target.layout.RestoreMarkerFile)
+	require.NoFileExists(t, home.target.layout.RestoreProofFile)
+}
+
+// TestAStartThatStoppedBeforeItRemovedTheRestoreFilesFinishes starts a restored home, and then
+// puts back the restore files that a start which stopped early leaves. The next start finds the
+// seeded BlockDB and removes them.
+func TestAStartThatStoppedBeforeItRemovedTheRestoreFilesFinishes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// keepProof is false when the earlier start also removed the state sync proof file.
+		keepProof bool
+	}{
+		{name: "before the state sync proof file", keepProof: true},
+		{name: "before the restore marker", keepProof: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newProducer(t)
+			h := p.commit(t, 1)
+			home := newFullnodeHome(t)
+			require.NoError(t, runImport(t.Context(), home.target, bytesSource(p.archive(t, testChainID, h)), io.Discard))
+			marker, err := os.ReadFile(home.target.layout.RestoreMarkerFile)
+			require.NoError(t, err)
+			startRestoredFullnode(home, t)
+
+			require.NoError(t, os.WriteFile(home.target.layout.RestoreMarkerFile, marker, 0o600))
+			if tc.keepProof {
+				require.NoError(t, os.WriteFile(home.target.layout.RestoreProofFile, proofAt(t, h), 0o600))
+			}
+			status, appHeight := startRestoredFullnode(home, t)
+			require.Equal(t, h, appHeight)
+			require.Equal(t, seeded(h), status)
+			require.NoFileExists(t, home.target.layout.RestoreMarkerFile)
+			require.NoFileExists(t, home.target.layout.RestoreProofFile)
+		})
+	}
 }

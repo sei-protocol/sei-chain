@@ -21,7 +21,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -167,18 +166,18 @@ func makeEVMApplication(
 	conf *config.Config,
 	giga gigaconfig.Config,
 	genDoc *tmtypes.GenesisDoc,
-) (_ abevm.Application, _ *bootstrap.GigaStorageManager, _ p2p.StateSyncStart, err error) {
+) (_ abevm.Application, _ *bootstrap.GigaStorageManager, _ stateSyncStart, err error) {
 	committee, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, fmt.Errorf("load Autobahn committee: %w", err)
+		return nil, nil, stateSyncStart{}, fmt.Errorf("load Autobahn committee: %w", err)
 	}
 	start, err := readStateSyncStart(conf, committee, giga, genDoc)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, err
+		return nil, nil, stateSyncStart{}, err
 	}
-	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, giga.Archive, genDoc)
+	storage, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, committee, giga.Storage, giga.Archive, genDoc, start.seed)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, fmt.Errorf("open Autobahn storage: %w", err)
+		return nil, nil, stateSyncStart{}, fmt.Errorf("open Autobahn storage: %w", err)
 	}
 	defer func() {
 		if err != nil {
@@ -187,19 +186,19 @@ func makeEVMApplication(
 	}()
 	validators, err := evmOnlyCommitteeWeights(committee)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, fmt.Errorf("load EVM-only validator set: %w", err)
+		return nil, nil, stateSyncStart{}, fmt.Errorf("load EVM-only validator set: %w", err)
 	}
 	firstRoad, err := genesisFirstRoad(genDoc)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, err
+		return nil, nil, stateSyncStart{}, err
 	}
 	epochs, err := evmonlyapp.OpenEpochRegistry(storage, firstRoad, genesisEpochLength(genDoc), validators)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, fmt.Errorf("open epoch registry: %w", err)
+		return nil, nil, stateSyncStart{}, fmt.Errorf("open epoch registry: %w", err)
 	}
 	customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, giga.Execution.UnsafeSkipUpgrades)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, fmt.Errorf("load EVM-only governance: %w", err)
+		return nil, nil, stateSyncStart{}, fmt.Errorf("load EVM-only governance: %w", err)
 	}
 	logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 	app, err := evmonlyapp.NewEVMOnlyApplication(
@@ -213,7 +212,7 @@ func makeEVMApplication(
 		utils.Some(conf.RootDir),
 	)
 	if err != nil {
-		return nil, nil, p2p.StateSyncStart{}, fmt.Errorf("restore EVM-only application: %w", err)
+		return nil, nil, stateSyncStart{}, fmt.Errorf("restore EVM-only application: %w", err)
 	}
 	if conf.MockApp {
 		mockApp := NewMockApp(app)
