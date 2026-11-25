@@ -1,4 +1,4 @@
-# Fork test directories applicable at Prague.
+# Fork test directories applicable at Osaka.
 tests/frontier
 tests/homestead
 tests/tangerine_whistle
@@ -11,3 +11,4 @@ tests/paris
 tests/shanghai
 tests/cancun
 tests/prague
+tests/osaka

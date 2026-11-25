@@ -1,7 +1,7 @@
 # Ethereum Execution Specs
 
 This suite runs the upstream Ethereum execution-spec tests against a live,
-local Sei devnet through EEST's remote execution mode. It covers the Prague
+local Sei devnet through EEST's remote execution mode. It covers the Osaka
 transaction, RLP, and state-transition vectors that can be represented on a
 persistent Sei chain.
 
@@ -91,7 +91,7 @@ pinned EEST revision.
 - `eip6780-repeated-selfdestruct` is tracked by
   [#4069](https://github.com/sei-protocol/sei-chain/issues/4069).
 
-Other exclusions in `plugin/eest_plugin.py` and `config/prague-ignores.list`
+Other exclusions in `plugin/eest_plugin.py` and `config/osaka-ignores.list`
 describe persistent-chain or genesis-configuration limitations rather than
 known execution defects.
 

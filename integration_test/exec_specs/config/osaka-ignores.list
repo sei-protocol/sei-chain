@@ -18,3 +18,11 @@ tests/ported_static/stPreCompiledContracts/test_precomps_eip2929_cancun.py
 
 # Requires execution-request fields and block processing absent from Sei.
 tests/prague/eip7685_general_purpose_el_requests
+
+# Sei does not admit blob transactions, so blob sampling and blob fee rules do
+# not apply.
+tests/osaka/eip7594_peerdas
+tests/osaka/eip7918_blob_reserve_price
+
+# Block size is bounded by Sei consensus, not an RLP size check.
+tests/osaka/eip7934_block_rlp_limit
