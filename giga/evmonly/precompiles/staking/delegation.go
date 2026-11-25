@@ -65,6 +65,9 @@ func (p Precompile) undelegateCall(ctx *precompiles.Context, s store, method *ab
 	if err != nil {
 		return nil, err
 	}
+	// MaxEntries is checked only here. Entries mature between the projection
+	// that counts this undelegation and the epoch's end that applies it, so a
+	// check at both could leave out of the snapshot one that then takes effect.
 	if err := checkUnbondingEntries(s, s.params(), ctx.Caller, op, s.stagedDelegation(ctx.Caller, op)); err != nil {
 		return nil, err
 	}
@@ -199,8 +202,8 @@ func validateUnbondAmount(s store, delegator, op common.Address, amount *big.Int
 	return v, shares, nil
 }
 
-// checkUnbondingEntries fails when delegator's unbonding from op holds
-// MaxEntries entries, counting the undelegations staged, as x/staking's
+// checkUnbondingEntries fails when delegator's unbonding from op, with the
+// undelegations it has staged, holds MaxEntries entries, as x/staking's
 // Undelegate checks.
 func checkUnbondingEntries(s store, params chainparams.Staking, delegator, op common.Address, staged stagedDelegation) error {
 	if s.unbondingEntryCount(delegator, op)+staged.undelegations >= uint64(params.MaxEntries) {
@@ -281,16 +284,14 @@ func (p Precompile) unbond(block precompiles.BlockContext, s store, delegator, o
 
 // undelegate unbonds shares of delegator's delegation to op into a new
 // unbonding entry, paid one unbonding period from now, as x/staking's
-// Undelegate does. It returns the entry's balance and completion time.
+// Undelegate does, except that MaxEntries is left to the call that staged it.
+// It returns the entry's balance and completion time.
 func (p Precompile) undelegate(
 	block precompiles.BlockContext, s store, params chainparams.Staking, delegator, op common.Address, shares *big.Int,
 ) (*big.Int, uint64, error) {
 	v, ok := s.validator(op)
 	if !ok {
 		return nil, 0, fmt.Errorf("%w: %s", errNoValidatorFound, op)
-	}
-	if err := checkUnbondingEntries(s, params, delegator, op, stagedDelegation{}); err != nil {
-		return nil, 0, err
 	}
 	amount, err := p.unbond(block, s, delegator, op, shares)
 	if err != nil {
