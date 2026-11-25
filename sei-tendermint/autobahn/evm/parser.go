@@ -68,7 +68,7 @@ func (s *Signer) ParseTx(raw RawTx) (EvmTxRaw, error) {
 	if cached, ok := s.cache.Get(); ok {
 		for senders := range cached.Lock() {
 			if sender, ok := senders.get(hash).Get(); ok {
-				return EvmTxRaw{tx: tx, sender: sender, raw: raw}, nil
+				return EvmTxRaw{tx: tx, sender: sender, raw: append(RawTx(nil), raw...)}, nil
 			}
 		}
 	}

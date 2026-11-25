@@ -38,7 +38,7 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return common.Hash{}, limitExceededError{}
 	}
 	defer api.requestLimiter.Release(1)
-	hash, err := api.backend.InsertTx(ctx, append(abevm.RawTx(nil), input...))
+	hash, err := api.backend.InsertTx(ctx, abevm.RawTx(input))
 	if errors.Is(err, ethtypes.ErrInvalidChainId) {
 		return hash, errors.New("invalid chain-id")
 	}
