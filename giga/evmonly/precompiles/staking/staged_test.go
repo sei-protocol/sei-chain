@@ -110,6 +110,34 @@ func TestALoweredMaxEntriesKeepsAStagedUndelegationInItsProjection(t *testing.T)
 	h.requireInvariants(alice)
 }
 
+// TestALoweredMaxEntriesKeepsAStagedRedelegationInItsProjection lowers
+// MaxEntries below alice's open redelegation entries after she stages a
+// redelegation, and lets her open entry mature between the projection and the
+// end that applies it.
+func TestALoweredMaxEntriesKeepsAStagedRedelegationInItsProjection(t *testing.T) {
+	params := testParams
+	params.MaxEntries = 2
+	h := newHarness(t, params)
+	require.NoError(t, h.delegate(alice, val1, sei(10)))
+	require.NoError(t, h.redelegate(alice, val1, val2, sei(1)))
+	require.NoError(t, h.stageRedelegate(alice, val1, val2, sei(1)), "one open entry and one staged fit in two")
+	h.govern("MaxEntries", big.NewInt(1))
+	h.endEpoch(0)
+	require.Empty(t, h.failures)
+	projected := []BondedValidator{
+		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 38},
+		{Operator: val2, ConsensusPubkey: common.BytesToHash(val2[:]), Power: 22},
+	}
+	require.Equal(t, projected, must(EpochValidators(h.state)), "epoch 0's snapshot counts the staged redelegation")
+
+	h.advance(params.UnbondingTime)
+	require.Empty(t, h.failures)
+	require.Equal(t, dec.FromInt(sei(2)), h.shares(alice, val2))
+	require.Equal(t, big.NewInt(1), h.store().redelegationEntryCount(alice, val1, val2), "the first entry matured before the second was added")
+	require.Equal(t, projected, must(bondedValidators(h.store())))
+	h.requireInvariants(alice)
+}
+
 func TestAStagedDelegationThatCanNoLongerBeMadeIsRefunded(t *testing.T) {
 	params := testParams
 	params.MaxVotingPowerRatio = new(big.Int).Div(dec.One(), big.NewInt(2))
