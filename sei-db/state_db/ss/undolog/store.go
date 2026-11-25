@@ -2,8 +2,6 @@
 package undolog
 
 import (
-	"fmt"
-
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -43,13 +41,18 @@ func (s *undoLogStore) Resume(version int64, current gigatypes.RawStateView) err
 }
 
 func (s *undoLogStore) ApplyBlock(version int64, mutations []mutation.Mutation, current gigatypes.RawStateView) {
-	for _, m := range mutations {
-		if err := checkRecord(m.Key, m.PreviousValue); err != nil {
-			current.Close()
-			panic(fmt.Errorf("undolog: block %d: key %x: %w", version, m.Key, err))
-		}
+	if err := checkMutations(version, mutations); err != nil {
+		current.Close()
+		panic(err)
 	}
 	s.Database.ApplyBlock(version, mutations, current)
+}
+
+func (s *undoLogStore) ReplayBlock(version int64, mutations []mutation.Mutation) error {
+	if err := checkMutations(version, mutations); err != nil {
+		return err
+	}
+	return s.Database.ReplayBlock(version, mutations)
 }
 
 func (s *undoLogStore) OpenView(version int64) (gigatypes.RawStateView, bool) {

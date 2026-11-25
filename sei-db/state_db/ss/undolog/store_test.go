@@ -93,3 +93,20 @@ func TestApplyBlockRefusesAMutationTheLiveStateStoreCouldNotCommit(t *testing.T)
 	log.WaitForPendingWrites()
 	require.Equal(t, int64(0), log.GetLatestVersion())
 }
+
+func TestReplayBlockRefusesAMutationTheLiveStateStoreCouldNotCommit(t *testing.T) {
+	addr := gigatypes.Address{0x42}
+	accountKey := ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:])
+	log, err := Open(t.TempDir(), config.DefaultStateStoreConfig())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, log.Close()) }()
+
+	err = log.ReplayBlock(1, []mutation.Mutation{
+		{Key: accountKey, PreviousValue: make([]byte, vtype.BalanceLength), NewValue: accountValue(1, 1)},
+	})
+	require.ErrorContains(t, err, "account value")
+	require.Equal(t, int64(0), log.GetLatestVersion())
+
+	require.NoError(t, log.ReplayBlock(1, []mutation.Mutation{{Key: accountKey, NewValue: accountValue(1, 1)}}))
+	require.Equal(t, int64(1), log.GetLatestVersion())
+}

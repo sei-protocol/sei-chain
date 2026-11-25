@@ -170,6 +170,40 @@ func TestUndoStateDBServesHistoryAcrossReopen(t *testing.T) {
 	require.NoError(t, db.Close())
 }
 
+// An undo log behind the live state DB, as a crash leaves it, replays the blocks it lacks from the state WAL when the
+// StateDB opens, and keeps the history below them.
+func TestUndoStateDBReplaysTheStateWALBlocksItLacks(t *testing.T) {
+	home := newUndoTestHome(t)
+	addr := common.Address{1}
+	keyList := [][]byte{nonceKey(addr), storageKey(addr, 1)}
+	model := &undoModel{states: []map[string][]byte{{}}}
+	commitBlocks := func(db *StateDB, through int) {
+		for block := len(model.states); block <= through; block++ {
+			model.commitBlock(t, db, map[string][]byte{
+				string(nonceKey(addr)):      nonceValue(uint64(block)),
+				string(storageKey(addr, 1)): common.Hash{byte(block), 0xff}.Bytes(),
+			})
+		}
+	}
+	db := home.open(t)
+	commitBlocks(db, 5)
+	require.NoError(t, db.Close())
+
+	// Blocks 6-8 reach the state WAL and the live state DB, but not the undo log.
+	withoutUndoLog := home.ss
+	withoutUndoLog.Enable = false
+	db, err := assembleStateDB(t, home, withoutUndoLog, true)
+	require.NoError(t, err)
+	commitBlocks(db, 8)
+	require.NoError(t, db.Close())
+
+	db = home.open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(8), db.HistoricalStateDB().GetLatestVersion())
+	require.Equal(t, int64(0), db.HistoricalStateDB().GetEarliestVersion())
+	model.requireHistory(t, db, 0, 8, keyList)
+}
+
 func TestUndoStateDBPrunesThroughTheCollectorInterface(t *testing.T) {
 	home := newUndoTestHome(t)
 	db := home.open(t)
