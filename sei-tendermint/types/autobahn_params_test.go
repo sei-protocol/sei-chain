@@ -75,6 +75,11 @@ func TestAutobahnParamsLaneBlockInterval(t *testing.T) {
 	// A negative value is rejected.
 	_, err = GenesisDocFromJSON([]byte(`{"chain_id":"test-chain","autobahn":{"view_timeout":"1500000000","lane_block_interval":"-1"}}`))
 	require.Error(t, err)
+
+	// Validate rejects a zero interval, since only ValidateAndComplete fills it.
+	unfilled := DefaultAutobahnParams()
+	unfilled.LaneBlockInterval = 0
+	require.Error(t, unfilled.Validate())
 }
 
 func TestAutobahnParamsIntervalEncoding(t *testing.T) {
