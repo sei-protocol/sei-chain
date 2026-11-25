@@ -185,34 +185,24 @@ func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (abevm.EvmTx, abevm.
 		return abevm.EvmTx{}, abevm.AdmittedTx{}, err
 	}
 	defer release()
-	return abevm.CheckTx(s.app, s.signer, tx)
+	decoded, err := s.signer.ParseTx(tx)
+	if err != nil {
+		return abevm.EvmTx{}, abevm.AdmittedTx{}, fmt.Errorf("%w: %w", abevm.ErrTxRejected, err)
+	}
+	admitted, err := s.app.CheckTx(decoded)
+	if err != nil {
+		return decoded, admitted, err
+	}
+	s.signer.Remember(decoded.Hash(), decoded.Sender())
+	return decoded, admitted, nil
 }
 
 // InsertTx inserts tx into the mempool, waiting for capacity when full.
 // Concurrent calls waiting for capacity are admitted in arrival order.
-func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) error {
-	err := s.doInsertTx(ctx, tx)
-	var result string
-	switch {
-	case errors.Is(err, errTooLarge):
-		result = "too_large"
-	case errors.Is(err, ErrNotProducing):
-		result = "not_producing"
-	case errors.Is(err, errBadNonce):
-		result = "bad_nonce"
-	case errors.Is(err, abevm.ErrTxRejected):
-		result = "rejected"
-	case err != nil:
-		result = "error"
-	default:
-		result = "ok"
-	}
-	metrics.Global.InsertsAt(result).Add(1)
-	return err
-}
-
-// Inserts transaction. Blocks until there is capacity in the mempool.
-func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) error {
+func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (err error) {
+	defer func() {
+		metrics.Global.InsertsAt(insertTxResult(err)).Add(1)
+	}()
 	mp, ok := s.mempool.Load().Get()
 	if !ok {
 		return ErrNotProducing
@@ -307,4 +297,22 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) error {
 		b.txs = append(b.txs, p)
 	}
 	return nil
+}
+
+// insertTxResult returns the metric label for an insertion outcome.
+func insertTxResult(err error) string {
+	switch {
+	case errors.Is(err, errTooLarge):
+		return "too_large"
+	case errors.Is(err, ErrNotProducing):
+		return "not_producing"
+	case errors.Is(err, errBadNonce):
+		return "bad_nonce"
+	case errors.Is(err, abevm.ErrTxRejected):
+		return "rejected"
+	case err != nil:
+		return "error"
+	default:
+		return "ok"
+	}
 }

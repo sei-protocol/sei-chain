@@ -161,7 +161,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					return fmt.Errorf("producer.WaitForMempool(): %w", err)
 				}
 				for _, tx := range txs {
-					if _, err := v.InsertTx(ctx, tx); err != nil {
+					if err := v.InsertTx(ctx, tx); err != nil {
 						return fmt.Errorf("producer.InsertTx(): %w", err)
 					}
 				}

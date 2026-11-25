@@ -372,14 +372,14 @@ func TestCheckMockTxEVMTransaction(t *testing.T) {
 	require.NotEqual(t, common.Address{}, decoded.Sender())
 }
 
-func TestMockAppRejectsUnprotectedTransaction(t *testing.T) {
+func TestMockAppSignerRejectsUnprotectedTransaction(t *testing.T) {
 	wrapped := NewMockApp(mockAppFixture{})
 	key, err := ethcrypto.GenerateKey()
 	require.NoError(t, err)
 	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
 	require.NoError(t, err)
-	_, _, err = abevm.CheckTx(abevm.NewProxy(wrapped), newTestSigner(wrapped.EvmChainID(), 0), utils.OrPanic1(signed.MarshalBinary()))
-	require.ErrorIs(t, err, abevm.ErrTxRejected)
+	_, err = newTestSigner(wrapped.EvmChainID(), 0).ParseTx(utils.OrPanic1(signed.MarshalBinary()))
+	require.Error(t, err)
 }
 
 func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {

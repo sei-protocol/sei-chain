@@ -50,7 +50,7 @@ func TestGigaPendingNonceForwardsToShardOwner(t *testing.T) {
 			address := common.Address{1}
 			client, requests := newNonceProxy(t, 9, utils.None[error]())
 			env := newAutobahnEnv(t, utils.TestRng(), validator)
-			router := trackSendRouter(env, true, utils.Some(client))
+			router := trackSendRouter(env, utils.Some(client))
 			nonce, err := router.EvmPendingNonce(t.Context(), address)
 			require.NoError(t, err)
 			require.Equal(t, uint64(9), nonce)
@@ -69,7 +69,7 @@ func TestGigaPendingNonceForwardsToShardOwner(t *testing.T) {
 func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	client, requests := newNonceProxy(t, 0, utils.Some[error](sendProxyError{}))
 	env := newAutobahnBroadcastEnv(t, utils.TestRng())
-	router := trackSendRouter(env, true, utils.Some(client))
+	router := trackSendRouter(env, utils.Some(client))
 	nonce, err := router.EvmPendingNonce(t.Context(), common.Address{1})
 	rpcErr, ok := errors.AsType[ethrpc.Error](err)
 	require.True(t, ok)
@@ -83,7 +83,7 @@ func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 func TestGigaPendingNoncePropagatesCanceledRequest(t *testing.T) {
 	client, _ := newNonceProxy(t, 9, utils.None[error]())
 	env := newAutobahnBroadcastEnv(t, utils.TestRng())
-	router := trackSendRouter(env, true, utils.Some(client))
+	router := trackSendRouter(env, utils.Some(client))
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := router.EvmPendingNonce(ctx, common.Address{1})

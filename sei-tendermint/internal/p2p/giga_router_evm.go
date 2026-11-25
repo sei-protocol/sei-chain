@@ -33,20 +33,15 @@ func (r *gigaRouterCommon) insertTx(ctx context.Context, input types.Tx, router 
 	}
 	mempool, ok := router.Mempool().Get()
 	if !ok {
-		return errors.New("autobahn fullnode has no local mempool; transactions must be sent to a validator")
+		return hash, errors.New("autobahn fullnode has no local mempool; transactions must be sent to a validator")
 	}
 	// Local admission reuses the verified sender through the shared signer.
 	r.signer.Remember(hash, tx.Sender())
-	if _, err := mempool.InsertTx(ctx, input); err != nil {
+	if err := mempool.InsertTx(ctx, input); err != nil {
 		r.signer.Forget(hash)
 		return hash, err
 	}
 	return hash, nil
-}
-
-func (r *gigaRouterCommon) insertLocalTx(ctx context.Context, input types.Tx, router gigaEvmRouting) error {
-	
-	return err
 }
 
 // evmPendingNonce returns the next nonce admitted by the sender's shard.

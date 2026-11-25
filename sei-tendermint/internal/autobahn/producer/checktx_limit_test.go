@@ -98,7 +98,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			for _, tx := range txs {
 				s.Spawn(func() error {
-					_, err := env.state.InsertTx(ctx, tx)
+					err := env.state.InsertTx(ctx, tx)
 					return err
 				})
 			}
@@ -143,7 +143,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 			defer app.openGate()
 			holder := newTx()
 			s.Spawn(func() error {
-				_, err := env.state.InsertTx(ctx, holder)
+				err := env.state.InsertTx(ctx, holder)
 				return err
 			})
 			// The single permit is now held by holder, blocked in CheckTx.
@@ -155,7 +155,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 				for range 4 {
 					tx := newTx()
 					s.Spawn(func() error {
-						_, err := env.state.InsertTx(ctx, tx)
+						err := env.state.InsertTx(ctx, tx)
 						if !errors.Is(err, context.Canceled) {
 							return fmt.Errorf("InsertTx() = %v, want context.Canceled", err)
 						}
@@ -169,7 +169,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 			}
 			app.openGate()
 			// Once holder finishes, a fresh insert must acquire the permit.
-			_, err := env.state.InsertTx(ctx, newTx())
+			err := env.state.InsertTx(ctx, newTx())
 			return err
 		}); err != nil {
 			return err

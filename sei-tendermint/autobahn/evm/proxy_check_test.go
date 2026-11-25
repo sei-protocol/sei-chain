@@ -1,7 +1,6 @@
 package evm
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math/big"
@@ -18,8 +17,7 @@ import (
 
 type evmCheckApp struct {
 	Application
-	check     func(EvmTx) (AdmittedTx, error)
-	finalized []EvmTx
+	check func(EvmTx) (AdmittedTx, error)
 }
 
 func (a *evmCheckApp) EvmChainID() uint64 { return 1 }
@@ -59,11 +57,6 @@ func TestParseTxRejectsMalformedInput(t *testing.T) {
 	require.Error(t, err)
 }
 
-func (a *evmCheckApp) FinalizeBlock(_ context.Context, req FinalizeBlockReq) (FinalizeBlockResp, error) {
-	a.finalized = req.Txs
-	return FinalizeBlockResp{}, nil
-}
-
 func signedProxyTestTx(nonce uint64) *ethtypes.Transaction {
 	key := utils.OrPanic1(crypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe512961708279011d44f4d6b2c7d7f7"))
 	tx := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: nonce}), ethtypes.LatestSignerForChainID(big.NewInt(1)), key))
@@ -72,50 +65,6 @@ func signedProxyTestTx(nonce uint64) *ethtypes.Transaction {
 
 func proxyTestSender(tx *ethtypes.Transaction) common.Address {
 	return utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))
-}
-
-func TestAdmissionSenderCacheLifecycle(t *testing.T) {
-	tx := signedProxyTestTx(0)
-	raw := utils.OrPanic1(tx.MarshalBinary())
-	app := &evmCheckApp{check: func(got EvmTx) (AdmittedTx, error) {
-		require.Equal(t, proxyTestSender(tx), got.Sender())
-		return AdmittedTx{}, nil
-	}}
-	proxy := NewProxy(app)
-	signer := newTestSigner(1, 0)
-	decoded, _, err := CheckTx(proxy, signer, raw)
-	require.NoError(t, err)
-	require.Equal(t, proxyTestSender(tx), decoded.Sender())
-	for senders := range signer.cache.OrPanic("cache enabled").Lock() {
-		require.Equal(t, utils.Some(proxyTestSender(tx)), senders.get(tx.Hash()))
-	}
-	decodedBlock, err := signer.ParseTxs([][]byte{raw})
-	require.NoError(t, err)
-	signer.ForgetTxs(decodedBlock)
-	_, err = proxy.FinalizeBlock(t.Context(), FinalizeBlockReq{Txs: decodedBlock})
-	require.NoError(t, err)
-	require.Equal(t, proxyTestSender(tx), app.finalized[0].Sender())
-	for senders := range signer.cache.OrPanic("cache enabled").Lock() {
-		require.False(t, senders.get(tx.Hash()).IsPresent())
-	}
-	signer.Remember(tx.Hash(), proxyTestSender(tx))
-	signer.Forget(tx.Hash())
-	for senders := range signer.cache.OrPanic("cache enabled").Lock() {
-		require.False(t, senders.get(tx.Hash()).IsPresent())
-	}
-}
-
-func TestAdmissionDoesNotCacheRejectedTransaction(t *testing.T) {
-	tx := signedProxyTestTx(0)
-	app := NewProxy(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) {
-		return AdmittedTx{}, errors.New("invalid transaction")
-	}})
-	signer := newTestSigner(1, 0)
-	_, _, err := CheckTx(app, signer, utils.OrPanic1(tx.MarshalBinary()))
-	require.ErrorIs(t, err, ErrTxRejected)
-	for senders := range signer.cache.OrPanic("cache enabled").Lock() {
-		require.False(t, senders.get(tx.Hash()).IsPresent())
-	}
 }
 
 func TestParseTxRejectsBlobTransactions(t *testing.T) {
