@@ -193,7 +193,7 @@ func TestStoreViewForRejectsMetaKey(t *testing.T) {
 
 	stateView := s.OpenView()
 	defer stateView.Close()
-	flatView := stateView.(*flatKVStateView)
+	flatView := stateView.(*liveStateView)
 
 	for _, key := range [][]byte{[]byte(ktype.MetaKeyPrefix + "version"), []byte("no-separator")} {
 		var err error

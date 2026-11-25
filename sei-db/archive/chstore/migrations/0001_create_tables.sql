@@ -1,8 +1,9 @@
 -- The archive's tables.
 --
 -- Block-ordered tables are partitioned by 10M-block ranges, and hash-keyed tables into 32 buckets
--- so a lookup reads one bucket's parts. Every table has automatic statistics off: they cost CPU on
--- every insert and merge.
+-- so a lookup reads one bucket's parts. block_hash_locator is the exception: at about 10 bytes a
+-- block it never nears the merge cap below, so it stays one partition. Every table has automatic
+-- statistics off: they cost CPU on every insert and merge.
 --
 -- Inserts are not fsynced. A process crash loses nothing, but a machine crash or power loss can
 -- lose the newest inserts in any order, leaving an archive_commits row whose rows are gone, or
@@ -14,12 +15,12 @@
 -- A read of a slot at block H takes the newest block <= H from storage_history, then that block's
 -- row from storage_changes.
 --
--- A lookup in a hash-keyed table (hash_locator, account_history, storage_history) reads one
--- granule from every part in its bucket. Background merges stop at 150 GB per part, so a bucket
+-- A lookup in a hash-keyed table (transaction_hash_locator, account_history, storage_history) reads
+-- one granule from every part in its bucket. Background merges stop at 150 GB per part, so a bucket
 -- gains about one part per 150 GB it grows. If those lookups get slow, raising the cap for that
 -- table cuts its part count, at the cost of longer merges and free disk for the largest one.
 -- Untested at production size:
---   ALTER TABLE hash_locator MODIFY SETTING max_bytes_to_merge_at_max_space_in_pool = 1099511627776;
+--   ALTER TABLE transaction_hash_locator MODIFY SETTING max_bytes_to_merge_at_max_space_in_pool = 1099511627776;
 
 -- Two rows per batch: a pending row written before the batch's rows, and a committed row written
 -- after them. Every block from start_block to end_block of a committed row is in every table. A
@@ -33,6 +34,16 @@ CREATE TABLE IF NOT EXISTS archive_commits
 )
 ENGINE = MergeTree
 ORDER BY (end_block, committed)
+SETTINGS auto_statistics_types = '';
+
+-- The archive's metadata: one row, recorded by the first node that opens the empty archive. chain_id
+-- is the EVM chain whose blocks the archive holds. A node of another chain refuses the archive.
+CREATE TABLE IF NOT EXISTS archive_meta
+(
+    chain_id                UInt64
+)
+ENGINE = MergeTree
+ORDER BY tuple()
 SETTINGS auto_statistics_types = '';
 
 CREATE TABLE IF NOT EXISTS blocks
@@ -73,19 +84,33 @@ PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, transaction_index)
 SETTINGS auto_statistics_types = '';
 
--- Finds a block or transaction by hash: hash_prefix is the hash's big-endian first eight bytes,
--- and location the block number, or the block number << 24 | transaction index. A hash with
--- several locations resolves to the earliest. The prefixes are random but sorted, so their deltas
--- are small.
-CREATE TABLE IF NOT EXISTS hash_locator
+-- Finds a block by hash: hash_prefix is the hash's big-endian first eight bytes. A prefix can
+-- match more than one block, so a reader checks the full hash in blocks. The prefixes are random
+-- but sorted, so their deltas are small.
+CREATE TABLE IF NOT EXISTS block_hash_locator
 (
     hash_prefix             UInt64 CODEC(Delta, ZSTD(1)),
-    object_kind             UInt8,
-    location                UInt64 CODEC(ZSTD(1))
+    block_number            UInt64 CODEC(ZSTD(1))
+)
+ENGINE = MergeTree
+ORDER BY (hash_prefix, block_number)
+SETTINGS index_granularity = 4096, auto_statistics_types = '';
+
+-- Finds a transaction by hash: hash_prefix is the hash's big-endian first eight bytes, and
+-- location the block number << 24 | transaction index, read back through the block_number and
+-- transaction_index alias columns. A hash with several locations resolves to the earliest. A
+-- prefix can match more than one transaction, so a reader checks the full hash in
+-- transactions_receipts.
+CREATE TABLE IF NOT EXISTS transaction_hash_locator
+(
+    hash_prefix             UInt64 CODEC(Delta, ZSTD(1)),
+    location                UInt64 CODEC(ZSTD(1)),
+    block_number            UInt64 ALIAS bitShiftRight(location, 24),
+    transaction_index       UInt32 ALIAS toUInt32(bitAnd(location, 16777215))
 )
 ENGINE = MergeTree
 PARTITION BY modulo(hash_prefix, 32)
-ORDER BY (hash_prefix, object_kind, location)
+ORDER BY (hash_prefix, location)
 SETTINGS index_granularity = 4096, auto_statistics_types = '';
 
 -- The text index holds, per log, 'a' plus the raw address and the topic position digit

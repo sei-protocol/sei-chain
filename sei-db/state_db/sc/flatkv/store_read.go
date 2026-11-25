@@ -24,7 +24,7 @@ func (s *CommitStore) OpenView() gigatypes.StateView {
 		// The views themselves are healthy, so the reservation goes back rather than pinning the block.
 		panic(fmt.Sprintf("flatkv: OpenView: %v", errors.Join(err, blockView.Release())))
 	}
-	v := &flatKVStateView{blockView: blockView}
+	v := &liveStateView{blockView: blockView}
 	v.closed = utils.MustClose(v, "flatkv state view")
 	return v
 }

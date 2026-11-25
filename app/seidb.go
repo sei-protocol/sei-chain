@@ -12,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 const (
@@ -67,7 +67,7 @@ func SetupSeiDB(
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
-) ([]func(*baseapp.BaseApp), seidb.StateStore) {
+) ([]func(*baseapp.BaseApp), sstypes.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		panic("SeiDB state-commit (SC) must be enabled; IAVL backend has been fully deprecated")

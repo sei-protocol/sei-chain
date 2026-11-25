@@ -17,6 +17,7 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -204,7 +205,7 @@ func TestRestoreRejectsEmptyStream(t *testing.T) {
 // fakeStateStore is a state store whose Import returns importErr, either at once or after reading and
 // recording every node, and which counts the version writes restore makes.
 type fakeStateStore struct {
-	seidbtypes.StateStore
+	sstypes.StateStore
 	returnEarly   bool
 	importErr     error
 	imported      []seidbtypes.SnapshotNode

@@ -191,23 +191,22 @@ func (evpool *Pool) ReportConflictingVotes(voteA, voteB *types.Vote) {
 }
 
 // CheckEvidence takes an array of evidence from a block and verifies all the evidence there.
-// If it has already verified the evidence then it jumps to the next one. It ensures that no
+// It skips verification of duplicate vote evidence that it already holds as pending. It ensures that no
 // evidence has already been committed or is being proposed twice. It also adds any
 // evidence that it doesn't currently have so that it can quickly form ABCI Evidence later.
 func (evpool *Pool) CheckEvidence(ctx context.Context, evList types.EvidenceList) error {
 	hashes := make([][]byte, len(evList))
 	for idx, ev := range evList {
+		// check that the evidence isn't already committed
+		if evpool.isCommitted(ev) {
+			return &types.ErrInvalidEvidence{Evidence: ev, Reason: errors.New("evidence was already committed")}
+		}
 
 		_, isLightEv := ev.(*types.LightClientAttackEvidence)
 
 		// We must verify light client attack evidence regardless because there could be a
 		// different conflicting block with the same hash.
 		if isLightEv || !evpool.isPending(ev) {
-			// check that the evidence isn't already committed
-			if evpool.isCommitted(ev) {
-				return &types.ErrInvalidEvidence{Evidence: ev, Reason: errors.New("evidence was already committed")}
-			}
-
 			err := evpool.verify(ctx, ev)
 			if err != nil {
 				return err

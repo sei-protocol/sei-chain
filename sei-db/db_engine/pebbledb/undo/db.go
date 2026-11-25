@@ -28,7 +28,6 @@ import (
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
 	"github.com/cockroachdb/pebble/v2/vfs"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
@@ -38,7 +37,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "undo")
@@ -91,8 +90,8 @@ type LiveStateView interface {
 	Close()
 }
 
-// Database is an undo-log state store. Blocks arrive in height order, each with the prior values of
-// the keys it changed and a view of current state after it.
+// Database is an undo-log state store. Blocks arrive in height order, each with its mutations and a view
+// of current state after it.
 type Database struct {
 	storage    *pebble.DB
 	bucketSize uint64
@@ -129,10 +128,10 @@ type Database struct {
 
 // pendingBlock is one entry of the write queue: a block, or, with done set, a barrier.
 type pendingBlock struct {
-	version int64
-	changes *gigatypes.StateChangeSet
-	current LiveStateView
-	done    chan struct{}
+	version   int64
+	mutations []mutation.Mutation
+	current   LiveStateView
+	done      chan struct{}
 }
 
 // OpenDB opens the undo-log database in dataDir, creating it when there is none. A dataDir holding no
@@ -347,11 +346,11 @@ func (db *Database) resume(version int64) (uint64, error) {
 	return height, nil
 }
 
-// ApplyBlock queues block version's change set, whose prior values the store records, and takes
-// ownership of the post-block current view. changes is read in the background, so it must not change
-// afterwards; nil means the block changed nothing. It panics before a successful Resume or after Close.
-func (db *Database) ApplyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) {
-	if err := db.enqueue(pendingBlock{version: version, changes: changes, current: current}); err != nil {
+// ApplyBlock queues block version's mutations for recording and takes ownership of current, the state
+// after the block. mutations must not be modified afterwards. It panics before a successful Resume or
+// after Close.
+func (db *Database) ApplyBlock(version int64, mutations []mutation.Mutation, current LiveStateView) {
+	if err := db.enqueue(pendingBlock{version: version, mutations: mutations, current: current}); err != nil {
 		current.Close()
 		panic(err)
 	}
@@ -388,7 +387,7 @@ func (db *Database) writeInBackground() {
 			close(block.done)
 			continue
 		}
-		if err := db.applyBlock(block.version, block.changes, block.current); err != nil {
+		if err := db.applyBlock(block.version, block.mutations, block.current); err != nil {
 			// A block that cannot be written leaves a gap every later read below it would answer wrongly.
 			panic(err)
 		}
@@ -396,8 +395,8 @@ func (db *Database) writeInBackground() {
 }
 
 // applyBlock writes block version and makes current the view reads fall back to.
-func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) error {
-	height, err := db.writeBlock(version, changes)
+func (db *Database) applyBlock(version int64, mutations []mutation.Mutation, current LiveStateView) error {
+	height, err := db.writeBlock(version, mutations)
 	if err != nil {
 		current.Close()
 		return err
@@ -409,12 +408,11 @@ func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet,
 // writeBlock writes block version's records, then moves the latest-height marker to it, and returns
 // the block's height. A crash in between leaves records only above the marker, which the block
 // rewrites when it is applied again.
-func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet) (height uint64, err error) {
+func (db *Database) writeBlock(version int64, mutations []mutation.Mutation) (height uint64, err error) {
 	start := time.Now()
-	records := recordCount(changes)
 	defer func() {
 		otelMetrics.applyLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
-		otelMetrics.applyRecords.Record(context.Background(), int64(records))
+		otelMetrics.applyRecords.Record(context.Background(), int64(len(mutations)))
 	}()
 	if height, err = heightOf(version); err != nil {
 		return 0, err
@@ -424,7 +422,7 @@ func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet)
 	if latest := db.latestHeight.Load(); height != latest+1 {
 		return 0, fmt.Errorf("undo: block %d does not follow the latest applied block %d", height, latest)
 	}
-	if err := db.writeRecords(changes, records, height/db.bucketSize, height); err != nil {
+	if err := db.writeRecords(mutations, height/db.bucketSize, height); err != nil {
 		return 0, err
 	}
 	if err := writeMarker(db.storage, latestVersionKey, height, pebble.NoSync); err != nil {
@@ -433,79 +431,19 @@ func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet)
 	return height, nil
 }
 
-// recordCount returns how many records changes writes: one per key it changed, and two per code
-// change, which changes the code hash too.
-func recordCount(changes *gigatypes.StateChangeSet) int {
-	if changes == nil {
-		return 0
-	}
-	count := len(changes.Storage)
-	for _, change := range changes.Accounts {
-		if change.BalanceChanged() {
-			count++
-		}
-		if change.NonceChanged() {
-			count++
-		}
-		if change.CodeChanged() {
-			count += 2
-		}
-	}
-	return count
-}
-
-// writeRecords writes a record of the value before the block at height of every key changes writes,
-// absent for a key that held a zero value or none; records is how many that is, as recordCount
-// reports. A storage clear writes none: it only clears accounts created in the same transaction,
-// whose storage was empty.
-func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, records int, bucket, height uint64) error {
-	if changes == nil {
-		return nil
-	}
+// writeRecords writes a record at height of each mutation's key holding its previous value, absent when that
+// is nil.
+func (db *Database) writeRecords(mutations []mutation.Mutation, bucket, height uint64) error {
 	w := &recordWriter{
 		db:     db,
 		bucket: bucket,
 		height: height,
-		size:   max(minBatchRecords, (records+writeParallelism-1)/writeParallelism),
+		size:   max(minBatchRecords, (len(mutations)+writeParallelism-1)/writeParallelism),
 	}
-	for _, change := range changes.Accounts {
-		prior := change.Prior
-		if change.BalanceChanged() {
-			var balance [wordLen]byte
-			if prior.Balance != nil {
-				prior.Balance.FillBytes(balance[:])
-			}
-			w.add(BalanceKeyPrefix[0], change.Address[:], nil, nonZero(balance[:]))
-		}
-		if change.NonceChanged() {
-			var nonce [8]byte
-			binary.BigEndian.PutUint64(nonce[:], prior.Nonce)
-			w.add(NonceKeyPrefix[0], change.Address[:], nil, nonZero(nonce[:]))
-		}
-		if change.CodeChanged() {
-			// Code is absent only when empty: zero bytes are valid code.
-			var code, codeHash []byte
-			if len(prior.Code) != 0 {
-				code, codeHash = prior.Code, crypto.Keccak256(prior.Code)
-			}
-			w.add(CodeHashKeyPrefix[0], change.Address[:], nil, codeHash)
-			w.add(CodeKeyPrefix[0], change.Address[:], nil, code)
-		}
-	}
-	for _, change := range changes.Storage {
-		w.add(StateKeyPrefix[0], change.Address[:], change.Key[:], nonZero(change.PriorValue[:]))
+	for i := range mutations {
+		w.add(mutations[i].Key, mutations[i].PreviousValue)
 	}
 	return w.finish()
-}
-
-// nonZero returns value, or nil when it is empty or all zeros.
-func nonZero(value []byte) []byte {
-	for _, b := range value {
-		if b != 0 {
-			return value
-		}
-	}
-	return nil
 }
 
 // recordWriter stages one block's records into batches of size records, each committed in the
@@ -522,17 +460,19 @@ type recordWriter struct {
 	g      errgroup.Group
 }
 
-// add stages the record of the key prefix | addr | slot, holding value, or absent when value is nil.
-func (w *recordWriter) add(prefix byte, addr, slot, value []byte) {
+// add stages the record of key, holding value, or absent when value is nil. A key outside the
+// supported EVM families fails the block, since the comparator could not split its records.
+func (w *recordWriter) add(key, value []byte) {
 	if w.err != nil {
+		return
+	}
+	if keyLen, _ := keyLayout(key); keyLen == 0 || len(key) != keyLen {
+		w.err = fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
 		return
 	}
 	if w.batch == nil {
 		w.batch = w.db.storage.NewBatch()
 	}
-	var buf [storageKeyLen]byte
-	buf[0] = prefix
-	key := buf[:1+copy(buf[1:], addr)+copy(buf[1+len(addr):], slot)]
 	d := w.batch.SetDeferred(recordKeyLen(key), 1+len(value))
 	encodeRecordKey(d.Key, w.bucket, key, w.height)
 	d.Value[0] = valueAbsent
