@@ -200,7 +200,7 @@ func (u *stateSyncUploader) logStoreAccess(ctx context.Context) {
 			logger.Error("state sync archive store is not readable", "err", err)
 		}
 	default:
-		u.metrics.recordLatest(ctx, latest, info.Modified)
+		u.metrics.recordBucket(ctx, latest, info.Modified)
 		logger.Info("state sync archive store is readable", "latest", latest)
 	}
 }
@@ -228,13 +228,13 @@ func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	if err != nil || !ok {
 		return err
 	}
-	u.metrics.recordCheckpoint(ctx, height)
+	u.metrics.recordLocalCheckpoint(ctx, height)
 	if height <= u.uploaded {
 		return nil
 	}
 	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
 	if err == nil {
-		u.metrics.recordLatest(ctx, latest, info.Modified)
+		u.metrics.recordBucket(ctx, latest, info.Modified)
 	}
 	switch {
 	case errors.Is(err, statesync.ErrObjectNotFound):
@@ -256,18 +256,18 @@ func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	}
 	u.uploaded = max(u.uploaded, newest)
 	if newest > 0 {
-		u.recordLatest(ctx)
+		u.recordBucket(ctx)
 	}
 	return nil
 }
 
-// recordLatest reads latest.txt and records it. A failed read records nothing.
-func (u *stateSyncUploader) recordLatest(ctx context.Context) {
-	// Later sweeps stop at u.uploaded and do not read latest.txt, so this read is the only record of
-	// a height that another node wrote during the upload.
+// recordBucket reads latest.txt and records it. A failed read records nothing.
+func (u *stateSyncUploader) recordBucket(ctx context.Context) {
+	// Sweeps read latest.txt again only for a checkpoint above u.uploaded, so without this read a
+	// height that another node wrote during the upload stays unrecorded until that checkpoint.
 	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
 	if err == nil {
-		u.metrics.recordLatest(ctx, latest, info.Modified)
+		u.metrics.recordBucket(ctx, latest, info.Modified)
 	}
 }
 

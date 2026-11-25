@@ -85,9 +85,9 @@ func TestStateSyncUploadMetricsRecordAnUpload(t *testing.T) {
 	require.NoError(t, u.sweep(t.Context()))
 
 	data := collectUploadMetrics(t, reader)
-	requireUploadGauge(t, data, "state_sync_upload_checkpoint_height", height)
-	requireUploadGauge(t, data, "state_sync_upload_latest_height", height)
-	requireUploadGauge(t, data, "state_sync_upload_latest_time", storeNow().Unix())
+	requireUploadGauge(t, data, "state_sync_upload_local_checkpoint_height", height)
+	requireUploadGauge(t, data, "state_sync_upload_bucket_height", height)
+	requireUploadGauge(t, data, "state_sync_upload_bucket_time", storeNow().Unix())
 	archive, ok := store.object(statesync.ArchiveKey(uploadChainID, height))
 	require.True(t, ok)
 	requireUploadGauge(t, data, "state_sync_upload_archive_size", int64(len(archive)))
@@ -123,8 +123,8 @@ func TestStateSyncUploadMetricsRecordAHeightWrittenDuringTheUpload(t *testing.T)
 	require.NoError(t, u.sweep(t.Context()))
 
 	data := collectUploadMetrics(t, reader)
-	requireUploadGauge(t, data, "state_sync_upload_latest_height", height+5)
-	requireUploadGauge(t, data, "state_sync_upload_latest_time", written.Unix())
+	requireUploadGauge(t, data, "state_sync_upload_bucket_height", height+5)
+	requireUploadGauge(t, data, "state_sync_upload_bucket_time", written.Unix())
 }
 
 // TestStateSyncUploadMetricsRecordTheArchiveOfAnotherNode runs a sweep on a node whose newest
@@ -145,9 +145,9 @@ func TestStateSyncUploadMetricsRecordTheArchiveOfAnotherNode(t *testing.T) {
 	require.NoError(t, u.sweep(t.Context()))
 
 	data := collectUploadMetrics(t, reader)
-	requireUploadGauge(t, data, "state_sync_upload_checkpoint_height", height)
-	requireUploadGauge(t, data, "state_sync_upload_latest_height", height+10)
-	requireUploadGauge(t, data, "state_sync_upload_latest_time", written.Unix())
+	requireUploadGauge(t, data, "state_sync_upload_local_checkpoint_height", height)
+	requireUploadGauge(t, data, "state_sync_upload_bucket_height", height+10)
+	requireUploadGauge(t, data, "state_sync_upload_bucket_time", written.Unix())
 	requireNoUploadMetric(t, data, "state_sync_upload_archive_size")
 	requireNoUploadMetric(t, data, "state_sync_upload_duration")
 }
@@ -177,7 +177,7 @@ func TestStateSyncUploadMetricsCountEachFailedSweep(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, failures.DataPoints, 1)
 	require.Equal(t, int64(2), failures.DataPoints[0].Value)
-	requireNoUploadMetric(t, data, "state_sync_upload_latest_height")
+	requireNoUploadMetric(t, data, "state_sync_upload_bucket_height")
 	requireNoUploadMetric(t, data, "state_sync_upload_archive_size")
 }
 
@@ -192,7 +192,7 @@ func TestStateSyncUploadMetricsRecordTheStoreAtStart(t *testing.T) {
 	u.logStoreAccess(t.Context())
 
 	data := collectUploadMetrics(t, reader)
-	requireUploadGauge(t, data, "state_sync_upload_latest_height", 42)
-	requireUploadGauge(t, data, "state_sync_upload_latest_time", storeNow().Unix())
-	requireNoUploadMetric(t, data, "state_sync_upload_checkpoint_height")
+	requireUploadGauge(t, data, "state_sync_upload_bucket_height", 42)
+	requireUploadGauge(t, data, "state_sync_upload_bucket_time", storeNow().Unix())
+	requireNoUploadMetric(t, data, "state_sync_upload_local_checkpoint_height")
 }
