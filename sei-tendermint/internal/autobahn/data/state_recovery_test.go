@@ -224,6 +224,20 @@ func TestRecoveryRejectsIncompleteQC(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 }
 
+// TestRecoveryRejectsIncompleteFirstBlockAfterPruning verifies that recovery still verifies the
+// first stored road block when its parent is pruned.
+func TestRecoveryRejectsIncompleteFirstBlockAfterPruning(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
+	qc1, _ := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, ep0, keys, utils.Some(qc1.QC()))
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc2}, [][]*types.LaneBlock{blocks2[:len(blocks2)-1]})
+	_, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, store)
+	require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
+}
+
 func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)

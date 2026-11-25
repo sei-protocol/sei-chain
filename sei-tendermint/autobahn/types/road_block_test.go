@@ -260,23 +260,23 @@ func TestRoadBlockVerifyChecksParentUnlessSkipped(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 3)
 	ep := GenEpochWithCommittee(rng, committee)
-	proposal, blocks := ProposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 3)
+	parent := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
+	proposal, blocks := proposalAtBlocks(ep, View{Height: parent.Height() + 1}, 3, utils.Some(parent), utils.Some(parent.Header().Hash()))
 	headers := make([]*LaneBlockHeader, len(blocks))
 	for i, block := range blocks {
 		headers[i] = block.Header()
 	}
-	signedBy := func(keys []SecretKey) *RoadBlock {
+	signedBy := func(signers []SecretKey) *RoadBlock {
 		var votes []*Signed[*CommitVote]
-		for _, key := range keys {
-			votes = append(votes, key.Sign(NewCommitVote(BuildPrepareQC(keys, proposal))))
+		for _, key := range signers {
+			votes = append(votes, key.Sign(NewCommitVote(BuildPrepareQC(signers, proposal))))
 		}
 		return NewRoadBlock(NewFullCommitQC(NewCommitQC(votes), headers), blocks)
 	}
 	block := signedBy(keys)
-	wrongParent := utils.Some(BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil))
 
-	require.NoError(t, block.Verify(ep, utils.None[*CommitQC]()))
-	require.ErrorIs(t, block.Verify(ep, wrongParent), ErrParentMismatch)
+	require.NoError(t, block.Verify(ep, utils.Some(parent)))
+	require.ErrorIs(t, block.Verify(ep, utils.None[*CommitQC]()), ErrParentMismatch)
 	require.NoError(t, block.VerifyWithoutParent(ep))
 
 	_, otherKeys := GenCommittee(rng, 3)
