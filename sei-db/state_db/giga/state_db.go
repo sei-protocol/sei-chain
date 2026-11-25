@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
@@ -57,8 +58,8 @@ const commitPhaseTimerName = "giga_state_commit"
 const gigaMeterName = "seidb_giga"
 
 // NewStateDB assembles a StateDB over stores that are already open, so that it commits the block after the WAL's
-// head. It errors unless the live state DB stands at that head, and attaches the historical state DB to the live
-// state DB's current block.
+// head. It errors unless the live state DB stands at that head, then replays the WAL blocks the historical state DB
+// lacks into it and attaches it to the live state DB's current block.
 //
 // The returned StateDB owns the three stores and closes them on Close. A failed call leaves them with the caller.
 func NewStateDB(
@@ -73,6 +74,9 @@ func NewStateDB(
 	budHasher bud.BUDHasher,
 ) (*StateDB, error) {
 	if err := requireLiveStateDBAtTheWALHead(liveStateDB, wal); err != nil {
+		return nil, err
+	}
+	if err := catchUpHistoricalStateDB(liveStateDB, historicalStateDB, wal); err != nil {
 		return nil, err
 	}
 	if err := resumeHistoricalStateDBOverHeldState(liveStateDB, historicalStateDB); err != nil {
@@ -105,6 +109,53 @@ func requireLiveStateDBAtTheWALHead(liveStateDB gigatypes.LiveStateStore, wal st
 		return fmt.Errorf("the live state DB is at %d but the state WAL ends at %d; roll the live state DB "+
 			"back to align them", version, last)
 	}
+	return nil
+}
+
+// catchUpHistoricalStateDB replays the WAL's blocks after historicalStateDB's latest block, up to liveStateDB's
+// version, into historicalStateDB. It skips a historical state DB that is disabled, empty, not behind, or behind
+// further than the WAL reaches.
+func catchUpHistoricalStateDB(
+	liveStateDB gigatypes.LiveStateStore,
+	historicalStateDB gigatypes.HistoricalStateStore,
+	wal statewal.StateWAL,
+) error {
+	if historicalStateDB == nil {
+		return nil
+	}
+	latest, target := historicalStateDB.GetLatestVersion(), liveStateDB.Version()
+	if latest == 0 || latest >= target {
+		return nil
+	}
+	stored, first, _, err := wal.GetStoredRange()
+	if err != nil {
+		return fmt.Errorf("read state WAL range: %w", err)
+	}
+	from, to := uint64(latest)+1, uint64(target) //nolint:gosec // versions are never negative
+	if !stored || first > from {
+		return nil
+	}
+	start := time.Now()
+	it, err := wal.Iterator(from, to)
+	if err != nil {
+		return fmt.Errorf("state WAL iterator [%d,%d]: %w", from, to, err)
+	}
+	defer func() { _ = it.Close() }()
+	for {
+		hasNext, err := it.Next()
+		if err != nil {
+			return fmt.Errorf("iterate state WAL: %w", err)
+		}
+		if !hasNext {
+			break
+		}
+		block, mutations := it.Entry()
+		if err := historicalStateDB.ReplayBlock(int64(block), mutations); err != nil { //nolint:gosec // block heights fit in an int64
+			return fmt.Errorf("replay block %d into the historical state DB: %w", block, err)
+		}
+	}
+	logger.Info("Replayed the state WAL into the historical state DB",
+		"from", from, "to", to, "elapsed", time.Since(start).Truncate(time.Millisecond))
 	return nil
 }
 

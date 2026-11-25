@@ -217,7 +217,8 @@ func requireStateWALReplayableFromTheLiveStateDB(heads storeHeads) error {
 }
 
 // recoveryTarget returns the height the stores align on: the lowest of the live state's reachable height, the
-// app hash vault's head, and the heads of the historical state DB and receipt store that hold blocks.
+// app hash vault's head, the historical state DB's reachable height when it holds blocks, and the receipt store's
+// head when it holds blocks.
 func recoveryTarget(heads storeHeads) uint64 {
 
 	heights := make([]uint64, 0)
@@ -228,10 +229,11 @@ func recoveryTarget(heads storeHeads) uint64 {
 
 	// The remaining stores can legally be empty at any height, and so we can ignore them when deciding
 	// the recovery target when they are empty.
-	for _, head := range []uint64{heads.historicalStateDB, heads.receiptStore} {
-		if head > 0 {
-			heights = append(heights, head)
-		}
+	if heads.historicalStateDB > 0 {
+		heights = append(heights, heads.historicalStateReachableHeight())
+	}
+	if heads.receiptStore > 0 {
+		heights = append(heights, heads.receiptStore)
 	}
 	return slices.Min(heights)
 }
@@ -245,6 +247,15 @@ func (h storeHeads) liveStateReachableHeight() uint64 {
 		return h.stateWAL
 	}
 	return h.liveStateDB
+}
+
+// historicalStateReachableHeight returns the highest block the historical state DB can stand at: the state WAL's
+// head when the WAL holds every block after the historical state DB's head, or that head otherwise.
+func (h storeHeads) historicalStateReachableHeight() uint64 {
+	if h.stateWAL > h.historicalStateDB && h.stateWALFirst <= h.historicalStateDB+1 {
+		return h.stateWAL
+	}
+	return h.historicalStateDB
 }
 
 // alignStores brings the state WAL, the live state DB, the historical state DB and the receipt store onto target,
