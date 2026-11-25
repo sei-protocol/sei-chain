@@ -365,6 +365,9 @@ func (a *evmOnlyApplication) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	if tx.Gas() > math.MaxInt64 {
 		return abevm.AdmittedTx{}, errors.New("transaction gas limit exceeds int64")
 	}
+	if err := checkFeeAndAuthFields(tx.Transaction()); err != nil {
+		return abevm.AdmittedTx{}, err
+	}
 	if err := a.checkGasCoversIntrinsic(tx.Transaction(), tx.Sender()); err != nil {
 		return abevm.AdmittedTx{}, err
 	}
@@ -372,6 +375,20 @@ func (a *evmOnlyApplication) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 		return abevm.AdmittedTx{}, err
 	}
 	return abevm.AdmittedTx{GasEstimated: tx.Gas()}, nil
+}
+
+// checkFeeAndAuthFields refuses tx when its priority fee exceeds its fee cap, or when it is a set-code
+// transaction with an empty authorization list.
+func checkFeeAndAuthFields(tx *ethtypes.Transaction) error {
+	// Execution refuses these before charging gas or advancing the nonce, so admitting one lets the
+	// same bytes be included repeatedly without payment.
+	if tx.GasTipCapIntCmp(tx.GasFeeCap()) > 0 {
+		return fmt.Errorf("%w: maxPriorityFeePerGas %s, maxFeePerGas %s", ethcore.ErrTipAboveFeeCap, tx.GasTipCap(), tx.GasFeeCap())
+	}
+	if tx.Type() == ethtypes.SetCodeTxType && len(tx.SetCodeAuthorizations()) == 0 {
+		return ethcore.ErrEmptyAuthList
+	}
+	return nil
 }
 
 // checkGasCoversIntrinsic refuses tx when its gas limit is below the intrinsic gas, or the EIP-7623

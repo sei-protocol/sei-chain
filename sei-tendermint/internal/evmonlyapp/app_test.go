@@ -1703,6 +1703,60 @@ func TestEVMOnlyApplicationAdmitsOnlyTxsWhoseGasCoversIntrinsicGas(t *testing.T)
 	}
 }
 
+func TestEVMOnlyApplicationRefusesTxsExecutionRejectsBeforeChargingGas(t *testing.T) {
+	sender, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	authority, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	app := newEVMOnlyTestAppWithAlloc(t, GenesisAlloc{InitialHeight: 1, Accounts: balanceAlloc(map[common.Address]*uint256.Int{
+		crypto.PubkeyToAddress(sender.PublicKey): new(uint256.Int).Lsh(uint256.NewInt(1), 70),
+	})})
+	err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	auth, err := ethtypes.SignSetCode(authority, ethtypes.SetCodeAuthorization{
+		ChainID: *uint256.MustFromBig(chainID),
+		Address: common.HexToAddress("0x2000000000000000000000000000000000000002"),
+	})
+	require.NoError(t, err)
+	minPrice := big.NewInt(evmOnlyMinGasPrice)
+	feeCap := big.NewInt(100 * evmOnlyMinGasPrice)
+	dynamicFee := func(tip *big.Int) ethtypes.TxData {
+		return &ethtypes.DynamicFeeTx{ChainID: chainID, GasTipCap: tip, GasFeeCap: feeCap, Gas: 21_000, To: &recipient, Value: big.NewInt(1)}
+	}
+	setCode := func(auths []ethtypes.SetCodeAuthorization) ethtypes.TxData {
+		return &ethtypes.SetCodeTx{
+			ChainID: uint256.MustFromBig(chainID), GasTipCap: uint256.MustFromBig(minPrice), GasFeeCap: uint256.MustFromBig(feeCap),
+			Gas: 100_000, To: recipient, Value: new(uint256.Int), AuthList: auths,
+		}
+	}
+
+	for _, tc := range []struct {
+		name    string
+		tx      ethtypes.TxData
+		wantErr error
+	}{
+		{name: "tip equal to fee cap", tx: dynamicFee(feeCap)},
+		{name: "tip above fee cap", tx: dynamicFee(new(big.Int).Add(feeCap, big.NewInt(1))), wantErr: ethcore.ErrTipAboveFeeCap},
+		{name: "set-code with an authorization", tx: setCode([]ethtypes.SetCodeAuthorization{auth})},
+		{name: "set-code with an empty auth list", tx: setCode(nil), wantErr: ethcore.ErrEmptyAuthList},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			signed, err := ethtypes.SignTx(ethtypes.NewTx(tc.tx), ethtypes.LatestSignerForChainID(chainID), sender)
+			require.NoError(t, err)
+			raw, err := signed.MarshalBinary()
+			require.NoError(t, err)
+			err = admissionError(app, raw)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func applicationHash(t *testing.T, app abevm.Application) []byte {
 	t.Helper()
 	concrete, ok := app.(*evmOnlyApplication)
