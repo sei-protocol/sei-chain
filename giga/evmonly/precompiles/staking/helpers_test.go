@@ -3,7 +3,6 @@ package staking
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"math/big"
 	"testing"
@@ -24,17 +23,13 @@ import (
 
 // memState is a map-backed precompiles.State and LogSink.
 type memState struct {
-	balances  map[common.Address]*big.Int
-	storage   map[common.Address]map[common.Hash]common.Hash
-	logs      []*ethtypes.Log
-	snapshots []memSnapshot
-}
-
-// memSnapshot is a copy of memState's balances, storage and log count.
-type memSnapshot struct {
 	balances map[common.Address]*big.Int
 	storage  map[common.Address]map[common.Hash]common.Hash
-	logs     int
+	logs     []*ethtypes.Log
+	// journal undoes each write, in the order they were made.
+	journal []func()
+	// snapshots is the journal's length at each snapshot still open.
+	snapshots []int
 }
 
 var (
@@ -50,21 +45,16 @@ func newMemState() *memState {
 }
 
 func (m *memState) Snapshot() int {
-	snap := memSnapshot{balances: map[common.Address]*big.Int{}, storage: map[common.Address]map[common.Hash]common.Hash{}, logs: len(m.logs)}
-	for a, b := range m.balances {
-		snap.balances[a] = new(big.Int).Set(b)
-	}
-	for a, slots := range m.storage {
-		snap.storage[a] = maps.Clone(slots)
-	}
-	m.snapshots = append(m.snapshots, snap)
+	m.snapshots = append(m.snapshots, len(m.journal))
 	return len(m.snapshots) - 1
 }
 
 func (m *memState) RevertToSnapshot(id int) {
-	snap := m.snapshots[id]
-	m.balances, m.storage, m.logs = snap.balances, snap.storage, m.logs[:snap.logs]
-	m.snapshots = m.snapshots[:id]
+	mark := m.snapshots[id]
+	for i := len(m.journal) - 1; i >= mark; i-- {
+		m.journal[i]()
+	}
+	m.journal, m.snapshots = m.journal[:mark], m.snapshots[:id]
 }
 
 func (m *memState) GetBalance(a common.Address) *big.Int {
@@ -75,7 +65,7 @@ func (m *memState) GetBalance(a common.Address) *big.Int {
 }
 
 func (m *memState) AddBalance(a common.Address, v *big.Int) {
-	m.balances[a] = new(big.Int).Add(m.GetBalance(a), v)
+	m.setBalance(a, new(big.Int).Add(m.GetBalance(a), v))
 }
 
 func (m *memState) SubBalance(a common.Address, v *big.Int) error {
@@ -83,15 +73,27 @@ func (m *memState) SubBalance(a common.Address, v *big.Int) error {
 	if b.Cmp(v) < 0 {
 		return errors.New("insufficient balance")
 	}
-	m.balances[a] = b.Sub(b, v)
+	m.setBalance(a, b.Sub(b, v))
 	return nil
+}
+
+// setBalance sets a's balance to b, journaling the balance it replaces.
+func (m *memState) setBalance(a common.Address, b *big.Int) {
+	prev, had := m.balances[a]
+	m.journal = append(m.journal, func() {
+		if had {
+			m.balances[a] = prev
+		} else {
+			delete(m.balances, a)
+		}
+	})
+	m.balances[a] = b
 }
 
 func (m *memState) GetNonce(common.Address) uint64  { return 0 }
 func (m *memState) SetNonce(common.Address, uint64) {}
 func (m *memState) GetCode(common.Address) []byte   { return nil }
 func (m *memState) Failed() bool                    { return false }
-func (m *memState) AddLog(l *ethtypes.Log)          { m.logs = append(m.logs, l) }
 
 func (m *memState) GetState(a common.Address, k common.Hash) common.Hash {
 	return m.storage[a][k]
@@ -101,11 +103,26 @@ func (m *memState) SetState(a common.Address, k, v common.Hash) {
 	if m.storage[a] == nil {
 		m.storage[a] = map[common.Hash]common.Hash{}
 	}
+	slots := m.storage[a]
+	prev, had := slots[k]
+	m.journal = append(m.journal, func() {
+		if had {
+			slots[k] = prev
+		} else {
+			delete(slots, k)
+		}
+	})
 	if v == (common.Hash{}) {
-		delete(m.storage[a], k)
+		delete(slots, k)
 		return
 	}
-	m.storage[a][k] = v
+	slots[k] = v
+}
+
+func (m *memState) AddLog(l *ethtypes.Log) {
+	n := len(m.logs)
+	m.journal = append(m.journal, func() { m.logs = m.logs[:n] })
+	m.logs = append(m.logs, l)
 }
 
 const (
