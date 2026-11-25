@@ -354,15 +354,17 @@ not slash.
 The projection is exact. Nothing between the ends of T and T+1 changes a
 delegation, the validator set or the params staking applies, so the operations
 it applies meet the same state, under the same params, when they take effect,
-and one that will be dropped then is left out of it too. Unbonding and
-redelegation entries do mature in between, so `maxEntries`, which counts them,
-is checked only when an undelegation or redelegation is called; one already
-staged takes effect even if `maxEntries` has since been lowered. Validators
-finish unbonding after the operations due and before the projection for the same
+and one that will be dropped then is left out of it too. Validators finish
+unbonding after the operations due and before the projection for the same
 reason. `stagedInbound` counts, for each validator, the delegates and
 redelegates staged to it, and a validator is not removed while that count is
 above zero, even once it is unbonded with no shares, so an operation finds its
-validator as the projection did.
+validator as the projection did. Unbonding and redelegation entries do mature in
+between, so `maxEntries`, which counts them, is checked only when an
+undelegation or redelegation is called; one already staged takes effect even if
+`maxEntries` has since been lowered. The projection calls no hooks, so a hook
+must not fail: in EndBlock, one that does has its writes reverted and is
+reported, and the operation that called it goes ahead.
 
 The params need the same, so staking applies its own copy, `params`, rather
 than the params precompile's. A proposal can change those in any block, and a
