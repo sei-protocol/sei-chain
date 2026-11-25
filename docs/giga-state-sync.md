@@ -43,7 +43,10 @@ We recommend:
 - Write access only for the uploading nodes. A new node trusts the snapshot that it imports.
 - An alert when `latest.txt` is older than the interval plus two hours. When a node stops during
   an upload, the other node continues one hour later. A successful upload logs only at the info
-  level.
+  level. The metric `sei_chain_state_sync_upload_bucket_time_seconds` is the time of `latest.txt`
+  as each uploading node last read it. Only uploading nodes report it, so also alert when it is
+  absent. Use the `max` of all uploading nodes, because a node that does not upload can report an
+  older time.
 - A `checkpoint_time_interval` of `[giga.storage]` that is not longer than the interval. A node
   uploads only a new checkpoint.
 
@@ -55,7 +58,7 @@ The rules above apply to each Autobahn chain. These values are for giga-testnet:
 |---|---|
 | `snapshot_upload_interval` | `"1h"` |
 | Lifecycle rule | Expire objects after 2 days, and incomplete multipart uploads after 1 day |
-| Alert | `latest.txt` older than 3 hours |
+| Alert | `time() - max by (chain_id) (sei_chain_state_sync_upload_bucket_time_seconds) > 3 * 3600`, or the metric is absent for the chain |
 
 ## Start a new node
 
