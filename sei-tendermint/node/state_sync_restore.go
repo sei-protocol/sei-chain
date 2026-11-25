@@ -13,44 +13,36 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// errRestoreNeedsNextEpoch is returned for a restore whose checkpoint holds no epoch after the
+// epoch of the restored road.
+var errRestoreNeedsNextEpoch = errors.New("the epoch registry of the FlatKV checkpoint holds no epoch after the epoch of the restored road, so a BlockDB cannot start at it")
+
 // VerifyRestoreProof returns the app hash that the AppQC of the state sync proof file proof signs
-// for road height. It returns an error unless the road block and the AppQC of proof verify against
-// the epoch of height in the epoch registry of the FlatKV checkpoint in checkpointDir.
+// for road height. It returns an error unless the epoch registry of the FlatKV checkpoint in
+// checkpointDir holds the epoch of height and the epoch after it, and proof verifies against the
+// epoch of height.
 func VerifyRestoreProof(checkpointDir string, height int64, proof []byte) ([32]byte, error) {
 	if height < 1 {
 		return [32]byte{}, fmt.Errorf("checkpoint height %d is not positive", height)
 	}
-	road := atypes.RoadHeight(height)
-	registry, err := evmonlyapp.ReadCheckpointEpochRegistry(checkpointDir)
-	if err != nil {
-		return [32]byte{}, err
-	}
-	ep, err := epochOfRoad(registry, road)
-	if err != nil {
-		return [32]byte{}, err
-	}
-	decoded, err := statesyncproof.Decode(proof, road)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("decode the state sync proof file of road %d: %w", road, err)
-	}
-	if err := decoded.Verify(ep); err != nil {
-		return [32]byte{}, fmt.Errorf("verify the state sync proof file of road %d against epoch %d: %w", road, ep.EpochIndex(), err)
-	}
-	appHash := decoded.AppQC().Proposal().AppHash()
-	if len(appHash) != 32 {
-		return [32]byte{}, fmt.Errorf("the AppQC of road %d signs an app hash of %d bytes, want 32", road, len(appHash))
-	}
-	return [32]byte(appHash), nil
+	_, appHash, err := verifyRestoreProof(checkpointDir, atypes.RoadHeight(height), proof)
+	return appHash, err
 }
 
-// epochOfRoad returns the epoch of registry that holds road.
-func epochOfRoad(registry *atypes.EpochRegistry, road atypes.RoadHeight) (*atypes.Epoch, error) {
-	for _, ep := range registry.Epochs() {
-		if ep.RoadRange().Has(road) {
-			return ep, nil
-		}
+// verifyRestoreProof returns the state sync proof file proof of road and the app hash that its
+// AppQC signs. It returns an error unless the epoch registry of the FlatKV checkpoint in
+// checkpointDir holds the epoch of road and the epoch after it, and proof verifies against the
+// epoch of road.
+func verifyRestoreProof(checkpointDir string, road atypes.RoadHeight, proof []byte) (*statesyncproof.Proof, [32]byte, error) {
+	registry, err := evmonlyapp.ReadCheckpointEpochRegistry(checkpointDir)
+	if err != nil {
+		return nil, [32]byte{}, err
 	}
-	return nil, fmt.Errorf("the epoch registry of the checkpoint holds no epoch of road %d", road)
+	// data.NewState anchors a BlockDB that starts at road on these two epochs.
+	if _, ok := registry.ForAnchor(road); !ok {
+		return nil, [32]byte{}, fmt.Errorf("%w; import a checkpoint of another height", errRestoreNeedsNextEpoch)
+	}
+	return statesyncproof.DecodeAndVerify(registry, proof, road)
 }
 
 // ErrBelowGigaActivation is returned for a restore height below the giga activation height, which

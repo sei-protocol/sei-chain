@@ -85,7 +85,7 @@ func (x *Service) RunServer(ctx context.Context, server rpc.Server[API], isCommi
 func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], peer types.PublicKey, getBlock bool) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.clientPing(ctx, client) })
-		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client, peer) })
 		s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
 		// TODO: implement a uniform robust GetBlock peer-selection / retry strategy
 		// so connections that lack a height (including self) do not need a separate

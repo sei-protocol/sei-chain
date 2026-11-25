@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -92,7 +93,7 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 	start := time.Now()
 	download := filepath.Join(staging, "download")
 	m, proof, err := ssarchive.ReadArchive(ctx, ctxReader{ctx: ctx, r: in}, download, func(m *ssarchive.Manifest) error {
-		return prepareHome(t, lock, src, m, resume, stop)
+		return prepareHome(t, lock, src, m, resume, stderr, stop)
 	})
 	if err != nil {
 		return fmt.Errorf("read %s: %w", src.name, err)
@@ -123,15 +124,16 @@ func importWith(ctx context.Context, t target, src source, stderr io.Writer, sto
 	if err := os.RemoveAll(staging); err != nil {
 		return fmt.Errorf("remove staging dir: %w", err)
 	}
-	_, _ = fmt.Fprintf(stderr, "Imported height %d.\n", m.Height)
+	_, _ = fmt.Fprintf(stderr, "Imported height %d. Start the node as a fullnode; on start it seeds height %d from %s and syncs from there.\n",
+		m.Height, m.Height, t.layout.RestoreProofFile)
 	return nil
 }
 
 // prepareHome checks the manifest of the archive against the home of t and src, and the height of
-// the archive against the giga activation height of t. It then removes the FlatKV data and the
-// app-hash vault of an earlier import when resume is set, and checks that the home has room for the
-// import.
-func prepareHome(t target, lock *flatkv.RootLock, src source, m *ssarchive.Manifest, resume bool, stop stepHook) error {
+// the archive against the giga activation height of t. It then removes the data of an earlier
+// import and of the start that did not finish it when resume is set, and checks that the home has
+// room for the import.
+func prepareHome(t target, lock *flatkv.RootLock, src source, m *ssarchive.Manifest, resume bool, stderr io.Writer, stop stepHook) error {
 	if m.ChainID != t.chainID {
 		return fmt.Errorf("%w: archive chain id %q, genesis chain id %q", errOtherChain, m.ChainID, t.chainID)
 	}
@@ -147,6 +149,9 @@ func prepareHome(t target, lock *flatkv.RootLock, src source, m *ssarchive.Manif
 		}
 		if err := os.RemoveAll(t.layout.AppHashVaultDir); err != nil {
 			return fmt.Errorf("remove the app-hash vault of an earlier import: %w", err)
+		}
+		if err := removeFailedStartData(t.layout, stderr); err != nil {
+			return err
 		}
 		if err := stop(importStepFlatKVCleared); err != nil {
 			return err
@@ -266,23 +271,24 @@ func installRestore(
 	return stop(importStepInstalled)
 }
 
-// checkHome returns an error when the persistent state dir holds a file that import did not
-// write, or FlatKV data or an app-hash vault without the restore marker. It reports whether the
-// marker is present, in which case that data is from an earlier import, which import replaces.
+// checkHome reports whether the persistent state dir holds the restore marker, in which case its
+// data is from an earlier import and the start that did not finish it, which import replaces.
+// Without the marker, it returns an error when the persistent state dir holds a file that import
+// did not write, FlatKV data or an app-hash vault.
 func checkHome(layout node.AutobahnLayout, lock *flatkv.RootLock) (resume bool, err error) {
+	// Only import writes the marker, and it writes it before the FlatKV checkpoint. A start removes
+	// the marker once its data state accepts the seeded BlockDB, before it runs a block.
+	if _, err := os.Stat(layout.RestoreMarkerFile); err == nil {
+		return true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("stat the restore marker: %w", err)
+	}
 	foreign, err := foreignFiles(layout)
 	if err != nil {
 		return false, err
 	}
 	if len(foreign) > 0 {
 		return false, fmt.Errorf("import needs a persistent state dir without other data; remove %s", strings.Join(foreign, ", "))
-	}
-	// Only import writes the marker, and it writes it before the FlatKV checkpoint. A node does not
-	// start on a home with the marker, so the FlatKV data is import's own.
-	if _, err := os.Stat(layout.RestoreMarkerFile); err == nil {
-		return true, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("stat the restore marker: %w", err)
 	}
 	empty, err := lock.Empty()
 	if err != nil {
@@ -347,6 +353,42 @@ func foreignFiles(layout node.AutobahnLayout) ([]string, error) {
 		return nil, fmt.Errorf("read the persistent state dir: %w", err)
 	}
 	return foreign, nil
+}
+
+// removeFailedStartData removes each entry under the persistent state dir of layout other than the
+// FlatKV root, the app-hash vault, the staging dir, the restore marker, the restore proof file and
+// the dirs that hold them, and names each removed entry on stderr.
+func removeFailedStartData(layout node.AutobahnLayout, stderr io.Writer) error {
+	kept := []string{layout.FlatKVDir, layout.AppHashVaultDir, layout.ImportStagingDir, layout.RestoreMarkerFile, layout.RestoreProofFile}
+	holdsKept := func(path string) bool {
+		return slices.ContainsFunc(kept, func(k string) bool { return strings.HasPrefix(k, path+string(filepath.Separator)) })
+	}
+	var walk func(dir string) error
+	walk = func(dir string) error {
+		// ReadDir follows a symlink at dir, as foreignFiles does for each dir that holds the FlatKV root.
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", dir, err)
+		}
+		for _, entry := range entries {
+			path := filepath.Join(dir, entry.Name())
+			switch {
+			case slices.Contains(kept, path):
+				continue
+			case holdsKept(path):
+				if err := walk(path); err != nil {
+					return err
+				}
+			default:
+				if err := os.RemoveAll(path); err != nil {
+					return fmt.Errorf("remove %s of the start that did not finish the earlier import: %w", path, err)
+				}
+				_, _ = fmt.Fprintf(stderr, "Removed %s, left by the start that did not finish the earlier import\n", path)
+			}
+		}
+		return nil
+	}
+	return walk(layout.PersistentStateDir)
 }
 
 // requireSameFilesystem refuses when the persistent state dir psd, which holds the staging dir, and
