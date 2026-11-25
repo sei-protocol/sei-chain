@@ -283,10 +283,8 @@ func heightOf(version int64) (uint64, error) {
 }
 
 // Resume binds current state as of version and enables block writes. It must succeed once before
-// ApplyBlock is called. version must be at or above the log's latest block.
-//
-// A log behind version is missing the records of the blocks in between, which only their execution
-// could supply, so history below version stops being served.
+// ApplyBlock is called. version must be at or above the log's latest block, and a log still behind it
+// stops serving history below it.
 func (db *Database) Resume(version int64, current LiveStateView) error {
 	db.lifecycleMu.Lock()
 	defer db.lifecycleMu.Unlock()
@@ -347,6 +345,25 @@ func (db *Database) ApplyBlock(version int64, mutations []mutation.Mutation, cur
 		current.Close()
 		panic(err)
 	}
+}
+
+// ReplayBlock writes block version's mutations before Resume. version must follow the latest block. It errors
+// once the store has resumed or closed.
+func (db *Database) ReplayBlock(version int64, mutations []mutation.Mutation) error {
+	db.lifecycleMu.Lock()
+	defer db.lifecycleMu.Unlock()
+	if db.closed {
+		return errors.New("undo: replay on a closed store")
+	}
+	if db.head.Load() != nil {
+		return errors.New("undo: replay after Resume")
+	}
+	height, err := db.writeBlock(version, mutations)
+	if err != nil {
+		return err
+	}
+	db.latestHeight.Store(height)
+	return nil
 }
 
 // WaitForPendingWrites blocks until every block queued so far is applied, including during Close.

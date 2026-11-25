@@ -24,6 +24,11 @@ type HistoricalStateStore interface {
 	// Close, or on a mutation the live state store could not have committed.
 	ApplyBlock(version int64, mutations []mutation.Mutation, current RawStateView)
 
+	// ReplayBlock records block version's mutations, read back from the state WAL, before Resume. version must be
+	// the block after GetLatestVersion. It errors after Resume or Close, or on a mutation the live state store
+	// could not have committed.
+	ReplayBlock(version int64, mutations []mutation.Mutation) error
+
 	// WaitForPendingWrites blocks until every block passed to ApplyBlock so far is written.
 	WaitForPendingWrites()
 

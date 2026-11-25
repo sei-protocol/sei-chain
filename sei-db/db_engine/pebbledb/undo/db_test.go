@@ -215,14 +215,15 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 	return v, ok
 }
 
-// apply commits one block setting (or, for a nil value, deleting) each key, and feeds its prior
-// values to the store.
-func (c *chain) apply(changes map[string][]byte, async bool) {
+// advance adds one block setting (or, for a nil value, deleting) each key to the model, and returns its version,
+// the value each key held before it, and the state after it.
+func (c *chain) advance(changes map[string][]byte) (int64, priorMap, map[string][]byte) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	prev := c.states[len(c.states)-1]
 	version := c.base + int64(len(c.states))
 	next := maps.Clone(prev)
-	prior := map[string][]byte{}
+	prior := priorMap{}
 	for key, value := range changes {
 		prior[key] = prev[key]
 		if value == nil {
@@ -232,13 +233,25 @@ func (c *chain) apply(changes map[string][]byte, async bool) {
 		}
 	}
 	c.states = append(c.states, next)
-	c.mu.Unlock()
+	return version, prior, next
+}
 
+// apply commits one block setting (or, for a nil value, deleting) each key, and feeds its prior
+// values to the store.
+func (c *chain) apply(changes map[string][]byte, async bool) {
+	version, prior, next := c.advance(changes)
 	if async {
-		c.db.ApplyBlock(version, priorMap(prior).mutations(), c.view(next))
+		c.db.ApplyBlock(version, prior.mutations(), c.view(next))
 		return
 	}
-	require.NoError(c.t, c.db.applyBlock(version, priorMap(prior).mutations(), c.view(next)))
+	require.NoError(c.t, c.db.applyBlock(version, prior.mutations(), c.view(next)))
+}
+
+// replay commits one block setting (or, for a nil value, deleting) each key, and replays its prior values into
+// the store.
+func (c *chain) replay(changes map[string][]byte) {
+	version, prior, _ := c.advance(changes)
+	require.NoError(c.t, c.db.ReplayBlock(version, prior.mutations()))
 }
 
 // read returns key's value after block height through a view of the store.
@@ -1236,6 +1249,39 @@ func TestWritesRejectKeysNoRecordCanHold(t *testing.T) {
 		require.ErrorContains(t, err, "outside 1..")
 	}
 	require.Empty(t, records(t, db))
+}
+
+// Blocks the live state store committed but the log never wrote are replayed before Resume, which then binds the
+// live state without dropping the history below it.
+func TestReplayedBlocksAreServedOnceTheStoreResumes(t *testing.T) {
+	dir := t.TempDir()
+	c := newChain(t, dir, 2, 0)
+	key := nonceKey(alice)
+	c.apply(map[string][]byte{key: nonce(1)}, false)
+	c.apply(map[string][]byte{key: nonce(2)}, false)
+	require.NoError(t, c.db.Close())
+
+	c.db = openTestDB(t, dir, 2)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	c.replay(map[string][]byte{key: nonce(3)})
+	c.replay(map[string][]byte{key: nil})
+	require.NoError(t, c.db.Resume(4, c.view(c.states[4])))
+
+	require.Equal(t, int64(0), c.db.GetEarliestVersion())
+	for height := int64(0); height <= 4; height++ {
+		c.requireRead(height, key)
+	}
+}
+
+func TestReplayBlockIsRefusedOutOfOrderAfterResumeAndAfterClose(t *testing.T) {
+	db := openTestDB(t, t.TempDir(), 10)
+	key := nonceKey(alice)
+	require.ErrorContains(t, db.ReplayBlock(2, nil), "does not follow")
+	require.NoError(t, db.ReplayBlock(1, priorMap{key: nil}.mutations()))
+	require.NoError(t, db.Resume(1, liveState{key: nonce(1)}))
+	require.ErrorContains(t, db.ReplayBlock(2, nil), "after Resume")
+	require.NoError(t, db.Close())
+	require.ErrorContains(t, db.ReplayBlock(2, nil), "closed")
 }
 
 func TestOldComparerIsRefused(t *testing.T) {

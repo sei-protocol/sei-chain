@@ -5,9 +5,20 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
+
+// checkMutations returns an error for the first of block version's mutations whose record checkRecord refuses.
+func checkMutations(version int64, mutations []mutation.Mutation) error {
+	for _, m := range mutations {
+		if err := checkRecord(m.Key, m.PreviousValue); err != nil {
+			return fmt.Errorf("undolog: block %d: key %x: %w", version, m.Key, err)
+		}
+	}
+	return nil
+}
 
 // checkRecord returns an error for a key without a module prefix, an EVM key other than a well-formed account, code
 // or storage key, or an EVM account or storage value of the wrong length.
