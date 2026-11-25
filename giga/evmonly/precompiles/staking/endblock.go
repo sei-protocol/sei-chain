@@ -39,18 +39,17 @@ const endBlockBudget = 3_000
 //
 // Its failures are staged operations that could not be applied, which are
 // dropped; a bonded set that could not be updated, which is kept as it was; a
-// snapshot that could not be taken; queue entries whose stored data does not
-// add up, which are dropped; and hooks that failed, which are reverted while the
-// operation that called them goes ahead. It returns no error.
+// snapshot that could not be taken; and queue entries whose stored data does
+// not add up, which are dropped. It returns an error, failing the block, only
+// when a hook fails.
 func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) ([]error, error) {
 	if !chainparams.HasStaking(state) {
 		return nil, nil
 	}
 	s := newStore(state)
 	var failures []error
-	// The snapshot projects operations without hooks, so an operation a hook
-	// failed would leave the committee holding power that no stake backs.
-	p = p.withHookFailures(&failures)
+	var hookErr error
+	p = p.recordingHookErrors(&hookErr)
 	// Delegations, the validator set and the params staking applies change only
 	// when an epoch closes, so no block between two epochs' ends moves what the
 	// first one's snapshot projected.
@@ -66,6 +65,13 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 			return 1 + s.unbondingEntryCount(delegator, op)
 		},
 		func(e common.Hash) error { return completeUnbonding(block, s, e) }, nil)
+	// A hook that failed leaves its precompile out of step with staking whether
+	// the operation that called it is dropped or goes ahead, and dropping it
+	// would also leave the committee holding power no stake backs. The block
+	// fails instead, halting the chain until an upgrade fixes the hook.
+	if hookErr != nil {
+		return failures, hookErr
+	}
 	return failures, nil
 }
 

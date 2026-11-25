@@ -10,12 +10,9 @@ import (
 
 // Hooks are the calls staking makes into the precompiles that track its
 // delegations and validators, at the points x/staking's StakingHooks are
-// called. A hook must not fail, and follows the precompiles guide's EndBlock
-// rules. In EndBlock, a hook that returns an error has its writes reverted and
-// its failure reported, and the operation that called it goes ahead; at
-// genesis, its error fails the genesis write. A failed state access, such as a
-// balance change made without checking it first, is not undone by the revert
-// and fails the block.
+// called. A hook must not fail: an error it returns, or a state access it
+// fails, fails the block that called it, which halts the chain. At genesis, its
+// error fails the genesis write.
 type Hooks interface {
 	AfterValidatorCreated(block precompiles.BlockContext, state precompiles.State, validator common.Address) error
 	BeforeDelegationCreated(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error
@@ -64,75 +61,72 @@ func (NoHooks) AfterValidatorRemoved(precompiles.BlockContext, precompiles.State
 	return nil
 }
 
-// hooks returns p's Hooks, or NoHooks when it has none. When p reports hook
-// failures, each hook runs as reportingHooks runs it.
+// hooks returns p's Hooks, or NoHooks when it has none. When p records hook
+// errors, each hook runs as recordingHooks runs it.
 func (p Precompile) hooks() Hooks {
 	var hooks Hooks = NoHooks{}
 	if p.Hooks != nil {
 		hooks = p.Hooks
 	}
-	if p.hookFailures == nil {
+	if p.hookErr == nil {
 		return hooks
 	}
-	return reportingHooks{hooks: hooks, failures: p.hookFailures}
+	return recordingHooks{hooks: hooks, err: p.hookErr}
 }
 
-// withHookFailures returns p reporting its hooks' failures in failures in place
-// of returning them.
-func (p Precompile) withHookFailures(failures *[]error) Precompile {
-	p.hookFailures = failures
+// recordingHookErrors returns p keeping the first error its hooks return in
+// err.
+func (p Precompile) recordingHookErrors(err *error) Precompile {
+	p.hookErr = err
 	return p
 }
 
-// reportingHooks runs each of hooks in its own snapshot. A hook that returns an
-// error has its writes reverted and its failure added to failures, and returns
-// nil. A state access the hook failed stays failed.
-type reportingHooks struct {
-	hooks    Hooks
-	failures *[]error
+// recordingHooks runs hooks, keeping the first error one returns in err. The
+// error is also returned, so the operation that called the hook stops there.
+type recordingHooks struct {
+	hooks Hooks
+	err   *error
 }
 
-var _ Hooks = reportingHooks{}
+var _ Hooks = recordingHooks{}
 
-// run runs hook, the hook named name, reverting its writes to state and
-// reporting why when it fails.
-func (r reportingHooks) run(state precompiles.State, name string, hook func() error) error {
-	snap := state.Snapshot()
-	if err := hook(); err != nil {
-		state.RevertToSnapshot(snap)
-		*r.failures = append(*r.failures, fmt.Errorf("%w: %s hook reverted: %w", precompiles.ErrDegraded, name, err))
+// record keeps err, the error the hook named name returned, unless an earlier
+// hook's is kept, and returns it.
+func (r recordingHooks) record(name string, err error) error {
+	if err != nil && *r.err == nil {
+		*r.err = fmt.Errorf("%s hook: %w", name, err)
 	}
-	return nil
+	return err
 }
 
-func (r reportingHooks) AfterValidatorCreated(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
-	return r.run(state, "AfterValidatorCreated", func() error { return r.hooks.AfterValidatorCreated(block, state, validator) })
+func (r recordingHooks) AfterValidatorCreated(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
+	return r.record("AfterValidatorCreated", r.hooks.AfterValidatorCreated(block, state, validator))
 }
 
-func (r reportingHooks) BeforeDelegationCreated(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
-	return r.run(state, "BeforeDelegationCreated", func() error { return r.hooks.BeforeDelegationCreated(block, state, delegator, validator) })
+func (r recordingHooks) BeforeDelegationCreated(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
+	return r.record("BeforeDelegationCreated", r.hooks.BeforeDelegationCreated(block, state, delegator, validator))
 }
 
-func (r reportingHooks) BeforeDelegationSharesModified(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
-	return r.run(state, "BeforeDelegationSharesModified", func() error { return r.hooks.BeforeDelegationSharesModified(block, state, delegator, validator) })
+func (r recordingHooks) BeforeDelegationSharesModified(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
+	return r.record("BeforeDelegationSharesModified", r.hooks.BeforeDelegationSharesModified(block, state, delegator, validator))
 }
 
-func (r reportingHooks) BeforeDelegationRemoved(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
-	return r.run(state, "BeforeDelegationRemoved", func() error { return r.hooks.BeforeDelegationRemoved(block, state, delegator, validator) })
+func (r recordingHooks) BeforeDelegationRemoved(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
+	return r.record("BeforeDelegationRemoved", r.hooks.BeforeDelegationRemoved(block, state, delegator, validator))
 }
 
-func (r reportingHooks) AfterDelegationModified(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
-	return r.run(state, "AfterDelegationModified", func() error { return r.hooks.AfterDelegationModified(block, state, delegator, validator) })
+func (r recordingHooks) AfterDelegationModified(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error {
+	return r.record("AfterDelegationModified", r.hooks.AfterDelegationModified(block, state, delegator, validator))
 }
 
-func (r reportingHooks) AfterValidatorBonded(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
-	return r.run(state, "AfterValidatorBonded", func() error { return r.hooks.AfterValidatorBonded(block, state, validator) })
+func (r recordingHooks) AfterValidatorBonded(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
+	return r.record("AfterValidatorBonded", r.hooks.AfterValidatorBonded(block, state, validator))
 }
 
-func (r reportingHooks) AfterValidatorBeginUnbonding(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
-	return r.run(state, "AfterValidatorBeginUnbonding", func() error { return r.hooks.AfterValidatorBeginUnbonding(block, state, validator) })
+func (r recordingHooks) AfterValidatorBeginUnbonding(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
+	return r.record("AfterValidatorBeginUnbonding", r.hooks.AfterValidatorBeginUnbonding(block, state, validator))
 }
 
-func (r reportingHooks) AfterValidatorRemoved(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
-	return r.run(state, "AfterValidatorRemoved", func() error { return r.hooks.AfterValidatorRemoved(block, state, validator) })
+func (r recordingHooks) AfterValidatorRemoved(block precompiles.BlockContext, state precompiles.State, validator common.Address) error {
+	return r.record("AfterValidatorRemoved", r.hooks.AfterValidatorRemoved(block, state, validator))
 }
