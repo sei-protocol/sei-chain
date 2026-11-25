@@ -13,15 +13,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// makeValidationFailurePair returns a one-validator genesis state, block 1, and a block 2
+// whose commit for block 1 has a signature that does not verify.
 func makeValidationFailurePair(
 	ctx context.Context,
 	t *testing.T,
@@ -37,32 +41,40 @@ func makeValidationFailurePair(
 	initialState, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 
-	lastCommit := &types.Commit{}
-	block1, _, _, seenCommit1 := makeNextBlock(ctx, t, initialState, privVals[0], 1, lastCommit)
-	block2, _, _, _ := makeNextBlock(ctx, t, initialState, privVals[0], 2, seenCommit1)
+	block1 := makeCommittedBlock(ctx, t, initialState, privVals, 1, &types.Commit{})
+	block2 := makeCommittedBlock(ctx, t, initialState, privVals, 2, block1.commit)
 
-	badBlock2Proto, err := block2.ToProto()
-	require.NoError(t, err)
-	badBlock2Proto.LastCommit.Signatures[0].Signature[0] ^= 0xFF
-	badCommit, err := types.CommitFromProto(badBlock2Proto.LastCommit)
-	require.NoError(t, err)
-	badBlock2Proto.Header.LastCommitHash = badCommit.Hash()
-	badBlock2, err := types.BlockFromProto(badBlock2Proto)
-	require.NoError(t, err)
+	return initialState, block1.block, withInvalidLastSignature(t, block2.block, tmproto.BlockIDFlagCommit)
+}
 
-	return initialState, block1, badBlock2
+// withInvalidLastSignature returns a copy of block whose last commit has a last signature that
+// does not verify, with flag as the block ID flag of that signature.
+func withInvalidLastSignature(t *testing.T, block *types.Block, flag tmproto.BlockIDFlag) *types.Block {
+	t.Helper()
+	blockProto, err := block.ToProto()
+	require.NoError(t, err)
+	sigs := blockProto.LastCommit.Signatures
+	lastSig := &sigs[len(sigs)-1]
+	lastSig.Signature[0] ^= 0xFF
+	lastSig.BlockIdFlag = flag
+	invalidCommit, err := types.CommitFromProto(blockProto.LastCommit)
+	require.NoError(t, err)
+	blockProto.Header.LastCommitHash = invalidCommit.Hash()
+	invalidCommitBlock, err := types.BlockFromProto(blockProto)
+	require.NoError(t, err)
+	return invalidCommitBlock
 }
 
 func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 	ctx := t.Context()
 
-	initialState, block1, badBlock2 := makeValidationFailurePair(ctx, t, "block_sync_validation_failure_does_not_return")
+	initialState, block1, invalidCommitBlock2 := makeValidationFailurePair(ctx, t, "block_sync_validation_failure_does_not_return")
 
-	badPeer := types.NodeID(strings.Repeat("a", 40))
-	goodPeer := types.NodeID(strings.Repeat("b", 40))
+	invalidCommitPeer := types.NodeID(strings.Repeat("a", 40))
+	correctPeer := types.NodeID(strings.Repeat("b", 40))
 	router := makeRouter(testPeers{
-		badPeer:  {id: badPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
-		goodPeer: {id: goodPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
+		invalidCommitPeer: {id: invalidCommitPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
+		correctPeer:       {id: correctPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
 	})
 	pool := NewBlockPool(1, router)
 	done := make(chan error, 1)
@@ -72,7 +84,7 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 			t.Fatalf("pool.run(): %v", err)
 		}
 	})
-	pool.SetPeerRange(badPeer, 1, 2)
+	pool.SetPeerRange(invalidCommitPeer, 1, 2)
 
 	evictNetwork := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 	syncer := &syncController{
@@ -89,13 +101,13 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 	})
 
-	introducedGoodPeer := false
+	introducedCorrectPeer := false
 	for {
 		select {
 		case err := <-results:
 			t.Fatalf("poolRoutine returned early after validation failure: %v", err)
 		case request := <-pool.Requests():
-			if request.PeerID == goodPeer {
+			if request.PeerID == correctPeer {
 				return
 			}
 
@@ -103,10 +115,10 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 			case 1:
 				_ = pool.AddBlock(request.PeerID, block1, block1.Size())
 			case 2:
-				_ = pool.AddBlock(request.PeerID, badBlock2, badBlock2.Size())
-				if !introducedGoodPeer {
-					introducedGoodPeer = true
-					pool.SetPeerRange(goodPeer, 1, 2)
+				_ = pool.AddBlock(request.PeerID, invalidCommitBlock2, invalidCommitBlock2.Size())
+				if !introducedCorrectPeer {
+					introducedCorrectPeer = true
+					pool.SetPeerRange(correctPeer, 1, 2)
 				}
 			}
 		}
@@ -116,20 +128,20 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 	ctx := t.Context()
 
-	initialState, block1, badBlock2 := makeValidationFailurePair(ctx, t, "block_sync_retry_after_validation_failure")
+	initialState, block1, invalidCommitBlock2 := makeValidationFailurePair(ctx, t, "block_sync_retry_after_validation_failure")
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 
-	badPeer := types.NodeID(strings.Repeat("a", 40))
-	goodPeer1 := types.NodeID(strings.Repeat("b", 40))
-	goodPeer2 := types.NodeID(strings.Repeat("c", 40))
+	invalidCommitPeer := types.NodeID(strings.Repeat("a", 40))
+	correctPeer1 := types.NodeID(strings.Repeat("b", 40))
+	correctPeer2 := types.NodeID(strings.Repeat("c", 40))
 	peers := testPeers{
-		badPeer:   {id: badPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
-		goodPeer1: {id: goodPeer1, base: 1, height: 2, inputChan: make(chan inputData, 1)},
-		goodPeer2: {id: goodPeer2, base: 1, height: 2, inputChan: make(chan inputData, 1)},
+		invalidCommitPeer: {id: invalidCommitPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
+		correctPeer1:      {id: correctPeer1, base: 1, height: 2, inputChan: make(chan inputData, 1)},
+		correctPeer2:      {id: correctPeer2, base: 1, height: 2, inputChan: make(chan inputData, 1)},
 	}
 	pool := NewBlockPool(1, makeRouter(peers))
 	runPoolForTest(t, pool)
-	pool.SetPeerRange(badPeer, 1, 2)
+	pool.SetPeerRange(invalidCommitPeer, 1, 2)
 
 	syncer := &syncController{
 		router: network.Node(network.NodeIDs()[0]).Router,
@@ -145,7 +157,7 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 	})
 
-	introducedGoodPeers := false
+	introducedCorrectPeers := false
 	height1Requests := map[types.NodeID]int{}
 
 	for {
@@ -155,25 +167,128 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 		case request := <-pool.Requests():
 			if request.Height == 1 {
 				height1Requests[request.PeerID]++
-				if request.PeerID != badPeer && height1Requests[request.PeerID] == 1 {
+				if request.PeerID != invalidCommitPeer && height1Requests[request.PeerID] == 1 {
 					return
 				}
 			}
 
-			if request.PeerID == badPeer && request.Height == 2 && !introducedGoodPeers {
-				introducedGoodPeers = true
-				pool.SetPeerRange(goodPeer1, 1, 2)
-				pool.SetPeerRange(goodPeer2, 1, 2)
+			if request.PeerID == invalidCommitPeer && request.Height == 2 && !introducedCorrectPeers {
+				introducedCorrectPeers = true
+				pool.SetPeerRange(correctPeer1, 1, 2)
+				pool.SetPeerRange(correctPeer2, 1, 2)
 			}
 
-			if request.PeerID == badPeer {
+			if request.PeerID == invalidCommitPeer {
 				switch request.Height {
 				case 1:
 					_ = pool.AddBlock(request.PeerID, block1, block1.Size())
 				case 2:
-					_ = pool.AddBlock(request.PeerID, badBlock2, badBlock2.Size())
+					_ = pool.AddBlock(request.PeerID, invalidCommitBlock2, invalidCommitBlock2.Size())
 				}
 			}
 		}
+	}
+}
+
+// TestReactor_RejectsInvalidCommitFromPeer checks that a syncing node saves the blocks an invalid-commit
+// peer serves up to the first block whose commit fails verification, evicts that peer, and then
+// still makes progress by saving that block from a correct peer.
+func TestReactor_RejectsInvalidCommitFromPeer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		flag tmproto.BlockIDFlag
+	}{
+		{name: "commit vote", flag: tmproto.BlockIDFlagCommit},
+		{name: "nil vote", flag: tmproto.BlockIDFlagNil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_invalid_commit")
+			require.NoError(t, err)
+			valSet, privVals := factory.ValidatorSet(ctx, 4, 30)
+			genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+			network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
+			nodeIDs := network.NodeIDs()
+			invalidCommitID, syncID := nodeIDs[0], nodeIDs[1]
+			syncNode := network.Node(syncID)
+
+			invalidCommitReactor, _ := makeReactor(ctx, t, genDoc, network.Node(invalidCommitID).Router, false, func() {}, config.DefaultSelfRemediationConfig())
+			syncReactor, syncBus := makeReactor(ctx, t, genDoc, syncNode.Router, true, func() {}, config.DefaultSelfRemediationConfig())
+
+			// Connect the invalid-commit node and the syncing node.
+			network.Start(t)
+			invalidCommitConn := syncNode.WaitForConnAndGet(ctx, invalidCommitID)
+
+			// The correct node is not connected to anyone yet.
+			correctNode := network.MakeNode(t, p2p.TestNodeOptions{})
+			correctReactor, _ := makeReactor(ctx, t, genDoc, correctNode.Router, false, func() {}, config.DefaultSelfRemediationConfig())
+
+			// The correct node applies and stores correct blocks 1 to 4.
+			correctExec := correctReactor.syncer.OrPanic("syncer should be configured in tests").blockExec
+			state, err := correctReactor.stateStore.Load()
+			require.NoError(t, err)
+			var correct []committedBlock
+			lastCommit := &types.Commit{}
+			for height := int64(1); height <= 4; height++ {
+				b := makeCommittedBlock(ctx, t, state, privVals, height, lastCommit)
+				state, err = correctExec.ApplyBlock(ctx, state, b.id, b.block, nil)
+				require.NoError(t, err)
+				correctReactor.store.SaveBlock(b.block, b.parts, b.commit)
+				correct = append(correct, b)
+				lastCommit = b.commit
+			}
+
+			// The invalid-commit node has the state of the correct node. It stores blocks 1 to 3, and a block 4
+			// whose commit for block 3 is invalid.
+			require.NoError(t, invalidCommitReactor.stateStore.Save(state))
+			for _, b := range correct[:3] {
+				invalidCommitReactor.store.SaveBlock(b.block, b.parts, b.commit)
+			}
+			invalidCommitBlock4 := withInvalidLastSignature(t, correct[3].block, tc.flag)
+			invalidCommitParts4, err := invalidCommitBlock4.MakePartSet(types.BlockPartSizeBytes)
+			require.NoError(t, err)
+			invalidCommitReactor.store.SaveBlock(invalidCommitBlock4, invalidCommitParts4, correct[3].commit)
+
+			// Subscribe to the blocks that the syncing node applies, before the reactors start, so that no
+			// event is missed. The limit leaves room for blocks 1 to 3, the most the syncing node can apply in
+			// this test.
+			newBlocks, err := syncBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{ClientID: "test", Query: types.EventQueryNewBlock, Limit: 3})
+			require.NoError(t, err)
+
+			// Start the reactors.
+			for _, r := range []*Reactor{correctReactor, invalidCommitReactor, syncReactor} {
+				require.NoError(t, r.Start(ctx))
+				t.Cleanup(r.Wait)
+			}
+
+			// Check that the syncing node applies blocks 1 and 2, in this order.
+			for _, height := range []int64{1, 2} {
+				msg, err := newBlocks.Next(ctx)
+				require.NoError(t, err)
+				require.Equal(t, height, msg.Data().(types.EventDataNewBlock).Block.Height)
+			}
+
+			// The syncing node rejects block 3 and closes its connection to the invalid-commit node. Its store
+			// then ends at block 2, with the correct seen commit of block 2.
+			syncNode.WaitForDisconnect(ctx, invalidCommitConn)
+			require.Equal(t, int64(2), syncReactor.store.Height())
+			require.NoError(t, utils.TestDiff(correct[1].block.Hash(), syncReactor.store.LoadBlock(2).Hash()))
+			require.NoError(t, utils.TestDiff(correct[1].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
+
+			// Stop the invalid-commit node and remove it from the network.
+			invalidCommitReactor.Stop()
+			network.Remove(t, invalidCommitID)
+
+			// Connect the correct node. Check that the syncing node then saves and applies block 3, with its
+			// correct seen commit.
+			require.NoError(t, correctNode.Connect(ctx, syncNode))
+			msg, err := newBlocks.Next(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(3), msg.Data().(types.EventDataNewBlock).Block.Height)
+			require.Equal(t, int64(3), syncReactor.store.Height())
+			require.NoError(t, utils.TestDiff(correct[2].block.Hash(), syncReactor.store.LoadBlock(3).Hash()))
+			require.NoError(t, utils.TestDiff(correct[2].commit.Hash(), syncReactor.store.LoadSeenCommit().Hash()))
+		})
 	}
 }

@@ -21,8 +21,9 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 		return fmt.Errorf("client.StreamFullCommitQCs(): %w", err)
 	}
 	defer stream.Close()
+	next := s.data.NextQC()
 	if err := stream.Send(ctx, StreamFullCommitQCsReqConv.Encode(&StreamFullCommitQCsReq{
-		NextBlock: s.data.NextQC(),
+		NextBlock: next,
 	})); err != nil {
 		recordFetch(ctx, resFullCommitQC, "send")
 		return fmt.Errorf("stream.Send(): %w", err)
@@ -38,7 +39,11 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			recordFetch(ctx, resFullCommitQC, "decode")
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		// TODO: add DoS protection (i.e. that only useful state.Data() has been actually sent).
+		if qc.Height() < next {
+			recordFetch(ctx, resFullCommitQC, "out_of_order")
+			return fmt.Errorf("qc.Height() = %v, want >= %v: %w", qc.Height(), next, types.ErrUnexpectedHeight)
+		}
+		next = qc.Height() + 1
 		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
 			recordFetch(ctx, resFullCommitQC, "process")
 			return fmt.Errorf("s.PushCommitQC(): %w", err)
@@ -161,7 +166,7 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 				return err
 			}
 			for offset := range qc.Headers() {
-				pos := types.LaneBlockPos{Index: n, Offset: uint64(offset)}
+				pos := types.LaneBlockPos{Height: n, Offset: uint64(offset)}
 				release, err := sem.Acquire(ctx)
 				if err != nil {
 					return err
@@ -218,7 +223,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 				return fmt.Errorf("s.data.QC(): %w", err)
 			}
 			// Don't send the same QC twice.
-			next = qc.QC().Index() + 1
+			next = qc.QC().Height() + 1
 			if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
@@ -245,7 +250,7 @@ func (s *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 				}
 				return fmt.Errorf("x.validatorState().Data().AppQC(): %w", err)
 			}
-			next = appQC.Proposal().Index() + 1
+			next = appQC.Proposal().Height() + 1
 			if err := stream.Send(ctx, types.AppQCConv.Encode(appQC)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
@@ -271,11 +276,11 @@ func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) er
 			// disguise it as "not available".
 			if errors.Is(err, types.ErrPruned) {
 				recordServe(resBlock, "pruned")
-				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
+				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.LaneBlock]()))
 			}
 			if errors.Is(err, types.ErrNotFound) {
 				recordServe(resBlock, "not_found")
-				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
+				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.LaneBlock]()))
 			}
 			recordServe(resBlock, "store_error")
 			return fmt.Errorf("TryBlock(%d): %w", req.Pos, err)

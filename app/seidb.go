@@ -7,11 +7,12 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 const (
@@ -66,7 +67,7 @@ func SetupSeiDB(
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
-) ([]func(*baseapp.BaseApp), seidb.StateStore) {
+) ([]func(*baseapp.BaseApp), sstypes.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		panic("SeiDB state-commit (SC) must be enabled; IAVL backend has been fully deprecated")
@@ -135,6 +136,10 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	}
 	if v := appOpts.Get(FlagSCFlatKVReadWriteMetrics); v != nil {
 		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
+	}
+	if cast.ToBool(appOpts.Get(server.FlagIngress)) {
+		scConfig.MemIAVLConfig.SnapshotKeepLatestOnly = true
+		scConfig.FlatKVConfig.ApplyLowFootprintProfile()
 	}
 
 	// sc-write-mode-enable-auto (default true) decides whether the node may run

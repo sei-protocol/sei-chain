@@ -1,13 +1,20 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"net/url"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -36,10 +43,6 @@ type AutobahnValidator struct {
 	ValidatorKey atypes.PublicKey  `json:"validator_key"`
 	NodeKey      p2p.NodePublicKey `json:"node_key"`
 	Address      tcp.HostPort      `json:"address"`
-	// Each validator is assigned a shard of EVM address space.
-	// Upon receiving an EVM transaction, a node needs to proxy it
-	// to validator owning the shard.
-	EVMRPC URL `json:"evmrpc"`
 	// EVMVoter is the EVM address that votes for this validator in EVM
 	// governance, read at every start. Required for every validator when
 	// evm_governance is set, and forbidden otherwise.
@@ -54,6 +57,9 @@ type EVMGovernance struct {
 	// StartingProposalID is the id of the first proposal, so ids continue
 	// past another chain's. Zero means 1.
 	StartingProposalID uint64 `json:"starting_proposal_id,omitzero"`
+	// AppliedUpgrades are the upgrade names the chain starts past, in order;
+	// the last is the upgrade applied last. A plan cannot reuse one.
+	AppliedUpgrades []string `json:"applied_upgrades,omitzero"`
 }
 
 // EVMGovernanceParams are gov's genesis params. Periods are duration strings
@@ -146,6 +152,8 @@ type AutobahnBlockDBConfig struct {
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
+	// EVMRPC is this validator's advertised WebSocket RPC endpoint. Fullnodes omit it.
+	EVMRPC           utils.Option[URL]    `json:"evmrpc,omitzero"`
 	Validators       []AutobahnValidator  `json:"validators"`
 	MaxTxsPerBlock   uint64               `json:"max_txs_per_block"`
 	MaxTxsPerSecond  utils.Option[uint64] `json:"max_txs_per_second"`
@@ -161,7 +169,8 @@ type AutobahnFileConfig struct {
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
-	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
+	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject every
+	// inbound fullnode that is neither in p2p.persistent-peers nor in p2p.blocksync-peers.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
 	// MaxConcurrentCheckTx caps the number of CheckTx calls the local mempool
 	// runs concurrently for incoming broadcast_tx requests, so that ingest
@@ -184,20 +193,75 @@ type AutobahnFileConfig struct {
 	// start and kept nowhere else, so this section and every evm_voter must be
 	// identical on every node; a node that differs forks at its next tally.
 	EVMGovernance utils.Option[EVMGovernance] `json:"evm_governance,omitzero"`
+	// EVMAlloc, when set, is each listed EVM account's balance, nonce, code and
+	// storage at the chain's initial height, and every other account starts
+	// empty. Absent ⇒ every account the state holds nothing for has 2^200 wei.
+	// Set it only in a new chain's genesis and identically on every node; a
+	// node refuses to resume a chain that started with any other alloc, or
+	// without one.
+	EVMAlloc utils.Option[map[common.Address]EVMGenesisAccount] `json:"evm_alloc,omitzero"`
+	// EVMChainID is the EIP-155 chain ID the EVM-only executor signs and
+	// serves. Required, and identical on every node; a node refuses to resume
+	// a chain that ran on any other ID.
+	EVMChainID uint64 `json:"evm_chain_id"`
 }
 
-// AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
-const AutobahnEVMOnlyChainID uint64 = 713715
+// EVMGenesisAlloc returns the accounts EVMAlloc sets, or None when it is absent.
+func (fc *AutobahnFileConfig) EVMGenesisAlloc() utils.Option[map[common.Address]evmonly.GenesisAccount] {
+	alloc, ok := fc.EVMAlloc.Get()
+	if !ok {
+		return utils.None[map[common.Address]evmonly.GenesisAccount]()
+	}
+	accounts := make(map[common.Address]evmonly.GenesisAccount, len(alloc))
+	for addr, account := range alloc {
+		genesis := evmonly.GenesisAccount{Nonce: uint64(account.Nonce), Code: account.Code, Storage: account.Storage}
+		if balance, ok := account.Balance.Get(); ok {
+			genesis.Balance = new(uint256.Int).Set((*uint256.Int)(&balance))
+		}
+		accounts[addr] = genesis
+	}
+	return utils.Some(accounts)
+}
+
+// EVMGenesisAccount is an evm_alloc entry: an account's balance, nonce, code
+// and storage at the chain's initial height.
+type EVMGenesisAccount struct {
+	Balance utils.Option[hexutil.U256]  `json:"balance,omitzero"`
+	Nonce   hexutil.Uint64              `json:"nonce,omitzero"`
+	Code    hexutil.Bytes               `json:"code,omitempty"`
+	Storage map[common.Hash]common.Hash `json:"storage,omitempty"`
+}
+
+// UnmarshalJSON reads an account object, or a hex string that is the account's
+// balance alone. An object with an unknown field is refused.
+func (a *EVMGenesisAccount) UnmarshalJSON(data []byte) error {
+	// legacy parsing support
+	if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 && trimmed[0] == '"' {
+		var balance hexutil.U256
+		if err := json.Unmarshal(trimmed, &balance); err != nil {
+			return err
+		}
+		*a = EVMGenesisAccount{Balance: utils.Some(balance)}
+		return nil
+	}
+	type account EVMGenesisAccount
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded account
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*a = EVMGenesisAccount(decoded)
+	return nil
+}
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
-// AutobahnFileConfig.MaxInboundFullnodePeers is absent.
-//
-// TODO(autobahn-trusted-fullnode-peers): add an optional trusted-peer
-// list whose keys bypass the cap.
+// AutobahnFileConfig.MaxInboundFullnodePeers is absent. Peers in
+// p2p.persistent-peers and p2p.blocksync-peers do not consume it.
 const DefaultMaxInboundFullnodePeers = 10
 
 // Validate performs basic validation of the autobahn file config.
@@ -205,12 +269,12 @@ func (fc *AutobahnFileConfig) Validate() error {
 	if len(fc.Validators) == 0 {
 		return errors.New("validators must not be empty")
 	}
-	for _, v := range fc.Validators {
-		if v.EVMRPC.URL == nil {
-			return fmt.Errorf("validator %s is missing evmrpc URL", v.ValidatorKey)
+	if endpoint, ok := fc.EVMRPC.Get(); ok {
+		if endpoint.URL == nil {
+			return errors.New("evmrpc URL is missing")
 		}
-		if err := utils.CheckRPCURL(*v.EVMRPC.URL); err != nil {
-			return fmt.Errorf("validator %s evmrpc: %w", v.ValidatorKey, err)
+		if err := utils.CheckRPCURL(*endpoint.URL); err != nil {
+			return fmt.Errorf("evmrpc: %w", err)
 		}
 	}
 	if fc.MaxTxsPerBlock == 0 {
@@ -228,6 +292,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	if fc.PersistentStateDir == "" {
 		return errors.New("persistent_state_dir must not be empty")
 	}
+	if fc.EVMChainID == 0 {
+		return errors.New("evm_chain_id must be set")
+	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
 	}
@@ -237,8 +304,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	return nil
 }
 
-// validateEVMGovernance checks that evm_governance's params are valid and that
-// every validator has a distinct nonzero evm_voter exactly when it is set.
+// validateEVMGovernance checks evm_governance's params and applied upgrade
+// names, and that every validator has a distinct nonzero evm_voter exactly when
+// evm_governance is set.
 func (fc *AutobahnFileConfig) validateEVMGovernance() error {
 	governance, enabled := fc.EVMGovernance.Get()
 	if !enabled {
@@ -251,6 +319,9 @@ func (fc *AutobahnFileConfig) validateEVMGovernance() error {
 	}
 	if _, err := governance.Params.Gov(); err != nil {
 		return err
+	}
+	if err := upgrade.CheckGenesisNames(governance.AppliedUpgrades); err != nil {
+		return fmt.Errorf("applied_upgrades: %w", err)
 	}
 	voters := make(map[common.Address]bool, len(fc.Validators))
 	for _, v := range fc.Validators {

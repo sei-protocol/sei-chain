@@ -106,9 +106,9 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 			return nil, err
 		}
 		// Cast happens at the boundary so giga.BlockByNumber stays
-		// strongly typed on atypes.RoadIndex. autobahnCheckAndGetHeight
+		// strongly typed on atypes.RoadHeight. autobahnCheckAndGetHeight
 		// has already validated height is positive and within chain head.
-		gbn, ok := utils.SafeCast[atypes.RoadIndex](height)
+		gbn, ok := utils.SafeCast[atypes.RoadHeight](height)
 		if !ok {
 			return nil, fmt.Errorf("invalid height %d", height)
 		}
@@ -148,7 +148,7 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 // wired into block execution: switch this and BlockByNumber to read from
 // BlockDB, and source `base` from BlockDB.GetLowestBlockHeight.
 func (env *Environment) autobahnCheckAndGetHeight(heightPtr *int64) (int64, error) {
-	return env.getHeight(env.App.Info().LastBlockHeight, heightPtr)
+	return env.getHeight(env.lastBlockHeight(), heightPtr)
 }
 
 // BlockByHash gets block by hash.

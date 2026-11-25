@@ -33,7 +33,7 @@ func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestVa
 		if height == 0 {
 			height = env.GenDoc.InitialHeight
 		}
-		gbn, ok := utils.SafeCast[atypes.RoadIndex](height)
+		gbn, ok := utils.SafeCast[atypes.RoadHeight](height)
 		if !ok {
 			return nil, fmt.Errorf("invalid height %d", height)
 		}

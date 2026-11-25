@@ -2,12 +2,12 @@ package evidence_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 
@@ -102,7 +103,7 @@ func TestEvidencePoolBasic(t *testing.T) {
 	}
 
 	next := pool.EvidenceFront()
-	require.Equal(t, ev, next.Value())
+	require.Equal(t, types.Evidence(ev), next.Value())
 
 	const evidenceBytes int64 = 372
 	evs, size = pool.PendingEvidence(evidenceBytes)
@@ -413,10 +414,10 @@ func TestLightClientAttackEvidenceLifecycle(t *testing.T) {
 
 	pendingEv, _ := pool.PendingEvidence(state.ConsensusParams.Evidence.MaxBytes)
 	require.Equal(t, 1, len(pendingEv))
-	require.Equal(t, ev, pendingEv[0])
+	require.Equal(t, types.Evidence(ev), pendingEv[0])
 
 	require.NoError(t, pool.CheckEvidence(ctx, pendingEv))
-	require.Equal(t, ev, pendingEv[0])
+	require.Equal(t, types.Evidence(ev), pendingEv[0])
 
 	state.LastBlockHeight++
 	state.LastBlockTime = state.LastBlockTime.Add(1 * time.Minute)
@@ -506,7 +507,178 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	require.Equal(t, 1, len(evList))
 
 	next := newPool.EvidenceFront()
-	require.Equal(t, goodEvidence, next.Value())
+	require.Equal(t, types.Evidence(goodEvidence), next.Value())
+}
+
+// TestAddEvidenceRejectsWrongABCIField checks that AddEvidence rejects a
+// DuplicateVoteEvidence with a wrong ABCI field and writes nothing to the pool.
+func TestAddEvidenceRejectsWrongABCIField(t *testing.T) {
+	const height int64 = 10
+	ctx := t.Context()
+
+	pool, val, _ := defaultTestPool(ctx, t, height)
+
+	// defaultTestPool stores the block at height with time defaultEvidenceTime + height
+	// minutes, so this evidence carries the correct ABCI fields for its height.
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+	require.NoError(t, err)
+	require.NoError(t, pool.AddEvidence(ctx, ev))
+
+	// commit the evidence
+	state := pool.State()
+	state.LastBlockHeight++
+	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
+	pool.Update(ctx, state, types.EvidenceList{ev})
+	pendingEvs, _ := pool.PendingEvidence(defaultEvidenceMaxBytes)
+	require.Empty(t, pendingEvs)
+	require.Zero(t, pool.Size())
+
+	// the copy differs from the committed evidence in one ABCI field
+	copied := copyDuplicateVoteEvidence(ev)
+	copied.Timestamp = copied.Timestamp.Add(time.Nanosecond)
+	require.NotEqual(t, ev.Hash(), copied.Hash())
+
+	err = pool.AddEvidence(ctx, copied)
+	require.Error(t, err)
+	// the error is not ErrInvalidEvidence, so the reactor keeps the sender connected.
+	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
+	require.False(t, isInvalidEvidence)
+
+	// CheckEvidence rejects a second copy with the same wrong timestamp
+	checked := copyDuplicateVoteEvidence(ev)
+	checked.Timestamp = checked.Timestamp.Add(time.Nanosecond)
+	require.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{checked}))
+
+	// nothing reached the pending bucket
+	pendingEvs, _ = pool.PendingEvidence(defaultEvidenceMaxBytes)
+	require.Empty(t, pendingEvs)
+	require.Zero(t, pool.Size())
+
+	// CheckEvidence still rejects the committed evidence
+	err = pool.CheckEvidence(ctx, types.EvidenceList{ev})
+	_, isInvalidEvidence = errors.AsType[*types.ErrInvalidEvidence](err)
+	require.True(t, isInvalidEvidence)
+}
+
+// TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged checks that CheckEvidence rejects
+// a DuplicateVoteEvidence with one wrong ABCI field and leaves the pending bucket and
+// the size of the pool as they were.
+func TestCheckEvidenceWrongABCIFieldLeavesPoolUnchanged(t *testing.T) {
+	const height int64 = 10
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+
+	testCases := []struct {
+		name string
+		// wrong returns the evidence under test, which has one wrong ABCI field.
+		wrong func(t *testing.T, pendingEv *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence
+	}{
+		{"new evidence with wrong total voting power", func(t *testing.T, _ *types.DuplicateVoteEvidence, val types.MockPV) *types.DuplicateVoteEvidence {
+			ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(t.Context(), height, blockTime, val, evidenceChainID)
+			require.NoError(t, err)
+			ev.TotalVotingPower++
+			return ev
+		}},
+		{"copy of pending evidence with wrong validator power", func(_ *testing.T, pendingEv *types.DuplicateVoteEvidence, _ types.MockPV) *types.DuplicateVoteEvidence {
+			ev := copyDuplicateVoteEvidence(pendingEv)
+			ev.ValidatorPower++
+			return ev
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			pool, val, _ := defaultTestPool(ctx, t, height)
+			pendingEv, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+			require.NoError(t, err)
+			require.NoError(t, pool.AddEvidence(ctx, pendingEv))
+
+			wrongEv := tc.wrong(t, pendingEv, val)
+			wrongHash := wrongEv.Hash()
+			require.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{wrongEv}))
+			require.Equal(t, wrongHash, wrongEv.Hash())
+
+			pendingEvs, _ := pool.PendingEvidence(defaultEvidenceMaxBytes)
+			require.Equal(t, []types.Evidence{pendingEv}, pendingEvs)
+			require.Equal(t, uint32(1), pool.Size())
+		})
+	}
+}
+
+// TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending checks that CheckEvidence
+// rejects committed evidence when the pool also holds it as pending.
+func TestCheckEvidenceRejectsCommittedEvidenceThatIsAlsoPending(t *testing.T) {
+	const height int64 = 10
+	ctx := t.Context()
+
+	val := types.NewMockPV()
+	evidenceDB := dbm.NewMemDB()
+	// newPool starts a pool over evidenceDB with val as its only validator
+	newPool := func() *evidence.Pool {
+		stateStore := initializeValidatorState(ctx, t, val, height)
+		state, err := stateStore.Load()
+		require.NoError(t, err)
+		blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, val.PrivKey.Public().Address())
+		require.NoError(t, err)
+		eventBus := eventbus.NewDefault()
+		require.NoError(t, eventBus.Start(ctx))
+		pool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
+		startPool(t, pool, stateStore)
+		return pool
+	}
+	pool := newPool()
+
+	blockTime := defaultEvidenceTime.Add(time.Duration(height) * time.Minute)
+	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, blockTime, val, evidenceChainID)
+	require.NoError(t, err)
+	require.NoError(t, pool.AddEvidence(ctx, ev))
+	pendingEntries := dbEntries(t, evidenceDB)
+
+	// commit the evidence
+	state := pool.State()
+	state.LastBlockHeight++
+	state.LastBlockTime = state.LastBlockTime.Add(time.Minute)
+	pool.Update(ctx, state, types.EvidenceList{ev})
+
+	// restore the entries that Update deleted, so the database holds the evidence as
+	// pending and as committed
+	for key, value := range pendingEntries {
+		has, err := evidenceDB.Has([]byte(key))
+		require.NoError(t, err)
+		if !has {
+			require.NoError(t, evidenceDB.Set([]byte(key), value))
+		}
+	}
+
+	// a pool started over the same database holds the evidence as pending
+	restarted := newPool()
+	pendingEvs, _ := restarted.PendingEvidence(defaultEvidenceMaxBytes)
+	require.Equal(t, []types.Evidence{ev}, pendingEvs)
+
+	err = restarted.CheckEvidence(ctx, types.EvidenceList{ev})
+	_, isInvalidEvidence := errors.AsType[*types.ErrInvalidEvidence](err)
+	require.True(t, isInvalidEvidence, "CheckEvidence returned %v", err)
+}
+
+// dbEntries returns a copy of every key and value in db.
+func dbEntries(t *testing.T, db dbm.DB) map[string][]byte {
+	t.Helper()
+	it, err := db.Iterator(nil, nil)
+	require.NoError(t, err)
+	defer func() { _ = it.Close() }()
+	entries := map[string][]byte{}
+	for ; it.Valid(); it.Next() {
+		entries[string(it.Key())] = append([]byte(nil), it.Value()...)
+	}
+	require.NoError(t, it.Error())
+	return entries
+}
+
+// copyDuplicateVoteEvidence returns a shallow copy of ev. The copy has its own ABCI fields
+// and shares the votes of ev.
+func copyDuplicateVoteEvidence(ev *types.DuplicateVoteEvidence) *types.DuplicateVoteEvidence {
+	copied := *ev
+	return &copied
 }
 
 func initializeStateFromValidatorSet(t *testing.T, valSet *types.ValidatorSet, height int64) sm.Store {

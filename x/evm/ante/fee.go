@@ -32,11 +32,7 @@ func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper, upgradeKeeper *upgrade
 	}
 }
 
-func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	if simulate {
-		return next(ctx, tx, simulate)
-	}
-
+func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	txData, err := evmtypes.UnpackTxData(msg.Data)
 	if err != nil {
@@ -68,7 +64,10 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 	// check if the sender has enough balance to cover fees
 	etx, _ := msg.AsTransaction()
-	emsg := fc.evmKeeper.GetEVMMessage(ctx, etx, msg.Derived.SenderEVMAddr)
+	emsg, err := fc.evmKeeper.GetEVMMessage(ctx, etx, msg.Derived.SenderEVMAddr)
+	if err != nil {
+		return ctx, err
+	}
 	stateDB := state.NewDBImpl(ctx, fc.evmKeeper, false)
 	gp := fc.evmKeeper.GetGasPool()
 	blockCtx, err := fc.evmKeeper.GetVMBlockContext(ctx, gp)
@@ -76,9 +75,9 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		return ctx, err
 	}
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, ethCfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles())
+	evmInstance := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, ethCfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles())
 	evmInstance.SetTxContext(txCtx)
-	st := core.NewStateTransition(evmInstance, emsg, &gp, true, false)
+	st := core.NewStateTransition(evmInstance, emsg, gp, true, false)
 	// run stateless checks before charging gas (mimicking Geth behavior)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
 		// we don't want to run nonce check here for CheckTx because we have special
@@ -104,7 +103,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	priority := fc.CalculatePriority(ctx, txData)
 	ctx = ctx.WithPriority(priority.Int64())
 
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 // minimum fee per gas required for a tx to be processed

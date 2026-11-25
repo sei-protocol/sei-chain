@@ -7,8 +7,10 @@ import (
 	"math"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
@@ -57,8 +59,20 @@ func TestGetVMBlockContext(t *testing.T) {
 	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
-	_, err := k.GetVMBlockContext(ctx, 0)
+	_, err := k.GetVMBlockContext(ctx, core.NewGasPool(0))
 	require.NotNil(t, err)
+}
+
+// TestGetVMBlockContextPrevRandao pins the PREVRANDAO value block execution uses for a block
+// time. The expected hash is a literal so that a change to the derivation, which would fork the
+// chain, fails here.
+func TestGetVMBlockContextPrevRandao(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper(t)
+	blockTime := time.Date(2026, 1, 2, 14, 28, 1, 540537286, time.UTC)
+	ctx = ctx.WithBlockTime(blockTime.In(time.FixedZone("UTC", 0)))
+	blockCtx, err := k.GetVMBlockContext(ctx, k.GetGasPool())
+	require.NoError(t, err)
+	require.Equal(t, common.HexToHash("0x753efd32f4a9d19b90b63f109cd4674b3104591ac57d57627625d92751ed8a50"), *blockCtx.Random)
 }
 
 func TestGetHashFn(t *testing.T) {

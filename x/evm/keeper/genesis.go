@@ -41,20 +41,22 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 
 func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	db, err := node.OpenDatabase(node.OpenOptions{
-		Type:              "pebble",
-		Directory:         k.EthReplayConfig.EthDataDir,
-		AncientsDirectory: fmt.Sprintf("%s/ancient", k.EthReplayConfig.EthDataDir),
-		Namespace:         "",
-		Cache:             256,
-		Handles:           256,
-		ReadOnly:          true,
+		Type:      "pebble",
+		Directory: k.EthReplayConfig.EthDataDir,
+		DatabaseOptions: node.DatabaseOptions{
+			AncientsDirectory: fmt.Sprintf("%s/ancient", k.EthReplayConfig.EthDataDir),
+			MetricsNamespace:  "",
+			Cache:             256,
+			Handles:           256,
+			ReadOnly:          true,
+		},
 	})
 	if err != nil {
 		panic(err)
 	}
 	config := &triedb.Config{
 		Preimages: true,
-		IsVerkle:  false,
+		IsUBT:     false,
 	}
 	scheme, err := rawdb.ParseStateScheme(rawdb.ReadStateScheme(db), db)
 	if err != nil {
@@ -69,7 +71,8 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 		trieDB = triedb.NewDatabase(db, config)
 	}
 	header := rawdb.ReadHeadHeader(db)
-	sdb := state.NewDatabase(trieDB, nil)
+	codeDB := state.NewCodeDB(db)
+	sdb := state.NewDatabase(trieDB, codeDB)
 	tr, err := sdb.OpenTrie(header.Root)
 	if err != nil {
 		panic(err)
@@ -77,6 +80,6 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	k.Root = header.Root
 	k.DB = sdb
 	k.Trie = tr
-	k.CachingDB = state.NewDatabase(trieDB, nil)
+	k.CodeDB = codeDB
 	return header
 }

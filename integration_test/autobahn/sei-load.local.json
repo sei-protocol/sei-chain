@@ -1,5 +1,5 @@
 {
-  "chainId": 713715,
+  "chainId": 713700,
   "seiChainID": "autobahn-evmonly",
   "endpoints": [
     "http://127.0.0.1:8545",

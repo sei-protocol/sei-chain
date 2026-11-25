@@ -17,7 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers/tracersutils"
 	cosmoclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -63,7 +64,7 @@ func NewFilterConfigForTest(cfg FilterConfigTest) *FilterConfig {
 		filterCfg.maxLog = DefaultMaxLogLimit
 	}
 	if filterCfg.maxLogBytes <= 0 {
-		filterCfg.maxLogBytes = receipt.DefaultMaxLogBytes
+		filterCfg.maxLogBytes = logfilter.DefaultMaxLogBytes
 	}
 	return filterCfg
 }
@@ -160,7 +161,7 @@ func ProfiledTraceBlockParallelForTest(
 	block *ethtypes.Block,
 	metadata []tracersutils.TraceBlockMetadata,
 	config *tracers.TraceConfig,
-	statedb vm.StateDB,
+	statedb vm.SeiStateDB,
 	signer ethtypes.Signer,
 	blockHash gethcommon.Hash,
 	results []*tracers.TxTraceResult,
@@ -194,4 +195,11 @@ func (i *InfoAPI) CalculateGasUsedRatioForTest(ctx context.Context, blockHeight 
 // compare eth_getBlockReceipts bodies against it.
 func EncodeReceiptForTest(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) cosmoclient.TxConfig, receipt *evmtypes.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) (map[string]any, error) {
 	return encodeReceipt(ctxProvider, txConfigProvider, receipt, k, block, false, globalBlockCache, cacheCreationMutex)
+}
+
+// ReadReceiptTotalsForTest exposes the logsBloom and gasUsed a newHeads header reads from the receipts of
+// the block at height, or the error that makes it fall back instead.
+func (a *SubscriptionAPI) ReadReceiptTotalsForTest(height int64) (ethtypes.Bloom, uint64, error) {
+	totals, err := a.readReceiptTotals(height)
+	return totals.logsBloom, totals.gasUsed, err
 }

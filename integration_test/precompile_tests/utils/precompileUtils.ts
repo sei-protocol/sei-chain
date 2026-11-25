@@ -113,7 +113,7 @@ export function callerContract(
  * (format "execution reverted|<go error>"). This is the ONLY channel that
  * carries exact precompile error strings: eth_call rewrites every executor
  * error to a bare "execution reverted" with no reason data (except the oracle
- * retirement error, which ships real revert data). Polls briefly — the
+ * and authz retirement errors, which ship real revert data). Polls briefly — the
  * persisted receipt can lag tx.wait() by a beat on the 4-node devnet.
  */
 export async function getVmError(txHash: string): Promise<string> {

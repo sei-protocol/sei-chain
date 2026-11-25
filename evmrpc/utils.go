@@ -17,6 +17,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
@@ -27,7 +28,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -64,18 +66,25 @@ func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, 
 	return getBlockNumber(ctx, tmClient, *blockNrOrHash.BlockNumber)
 }
 
+// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
+func normalizeEarliest(number rpc.BlockNumber) rpc.BlockNumber {
+	if number == 0 {
+		return rpc.EarliestBlockNumber
+	}
+	return number
+}
+
 func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (*int64, error) {
 	var numberPtr *int64
-	switch number {
+	switch normalizeEarliest(number) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		numberPtr = nil // requesting Block with nil means the latest block
 	case rpc.EarliestBlockNumber:
-		genesisRes, err := tmClient.Genesis(ctx)
+		earliest, err := earliestBlockHeight(ctx, tmClient)
 		if err != nil {
 			return nil, err
 		}
-		TraceTendermintIfApplicable(ctx, "Genesis", []string{}, genesisRes)
-		numberPtr = &genesisRes.Genesis.InitialHeight
+		numberPtr = &earliest
 	default:
 		numberI64 := number.Int64()
 		numberPtr = &numberI64
@@ -83,7 +92,46 @@ func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc
 	return numberPtr, nil
 }
 
-func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
+// resolveHeight returns the block height number selects, with head tags resolving to latest.
+func resolveHeight(ctx context.Context, tmClient client.LocalClient, latest int64, number rpc.BlockNumber) (int64, error) {
+	height, err := getBlockNumber(ctx, tmClient, number)
+	if err != nil {
+		return 0, err
+	}
+	if height == nil {
+		return latest, nil
+	}
+	return *height, nil
+}
+
+// earliestBlockHeight returns the lowest block height this node serves, never below the chain's first block.
+func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int64, error) {
+	if tmClient == nil {
+		return 0, errors.New("tendermint client is not configured")
+	}
+	status, err := tmClient.Status(ctx)
+	if err != nil {
+		return 0, err
+	}
+	TraceTendermintIfApplicable(ctx, "Status", []string{}, status)
+	return max(status.SyncInfo.EarliestBlockHeight, firstBlockHeight(tmClient)), nil
+}
+
+// firstBlockHeight returns the height of the chain's first committed block.
+func firstBlockHeight(tmClient client.LocalClient) int64 {
+	return max(tmClient.GenesisInitialHeight(), genesistypes.DefaultGenesisInitialHeight)
+}
+
+// isEarliestBound reports whether a log filter bound is "earliest" or 0x0.
+func isEarliestBound(bound *big.Int) bool {
+	return bound != nil && bound.IsInt64() && normalizeEarliest(rpc.BlockNumber(bound.Int64())) == rpc.EarliestBlockNumber
+}
+
+// getHeightFromBigIntBlockNumber resolves a log filter bound; "earliest" and 0x0 are earliest.
+func getHeightFromBigIntBlockNumber(latest, earliest int64, blockNumber *big.Int) int64 {
+	if isEarliestBound(blockNumber) {
+		return earliest
+	}
 	switch blockNumber.Int64() {
 	case rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64(), rpc.SafeBlockNumber.Int64(), rpc.PendingBlockNumber.Int64():
 		return latest
@@ -206,7 +254,7 @@ type indexedMsg struct {
 // as "skip this tx" must fail here, or they answer with empty data.
 func requireReceiptStore(k *keeper.Keeper) error {
 	if k == nil || k.ReceiptStore() == nil {
-		return receipt.ErrNotConfigured
+		return receiptdb.ErrNotConfigured
 	}
 	return nil
 }
@@ -253,7 +301,6 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
 				receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
 				if err != nil {
 					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
@@ -264,6 +311,7 @@ func filterTransactions(
 				if receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
+				sender := receiptSender(receipt, ethtx, block)
 				txCount := txCounts[sender.Hex()]
 				if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
 					// check if the transaction bumped nonce. If not, exclude it
@@ -379,6 +427,16 @@ func typedTxHashesOf(block *coretypes.ResultBlock, txs []indexedMsg) []typedTxHa
 	return txHashes
 }
 
+// receiptSender returns the sender receipt records for ethtx, or the sender its signature recovers
+// to when the receipt records none or is for another transaction.
+func receiptSender(receipt *types.Receipt, ethtx *ethtypes.Transaction, block *coretypes.ResultBlock) common.Address {
+	if receipt.From != "" && common.HexToHash(receipt.TxHashHex) == ethtx.Hash() {
+		return common.HexToAddress(receipt.From)
+	}
+	sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
+	return sender
+}
+
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	// hacky heuristic
 	if semver.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
@@ -442,15 +500,22 @@ func recoverAndLog() {
 func ctxAtHeight(ctxProvider func(int64) sdk.Context, height int64) (ctx sdk.Context, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			e, ok := r.(error)
-			var runtimeErr runtime.Error
-			if !ok || errors.As(e, &runtimeErr) {
-				panic(r)
-			}
-			err = fmt.Errorf("state at height %d is unavailable: %w", height, e)
+			err = fmt.Errorf("state at height %d is unavailable: %w", height, errorFromPanic(r))
 		}
 	}()
 	return ctxProvider(height), nil
+}
+
+// errorFromPanic returns the recovered panic value r as an error when a read panicked with one because
+// its data is unavailable. It panics with r again when r is not an error or is a runtime.Error.
+func errorFromPanic(r any) error {
+	e, ok := r.(error)
+	var runtimeErr runtime.Error
+	// A non-error value or a runtime error is a bug, which must not pass for missing data.
+	if !ok || errors.As(e, &runtimeErr) {
+		panic(r)
+	}
+	return e
 }
 
 func must[V any](v V, err error) V {

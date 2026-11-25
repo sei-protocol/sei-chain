@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 )
 
-const testChainID uint64 = 713715
+const testChainID uint64 = 713700
 
 // How long a test waits for the builder to publish an app hash.
 const publishTimeout = 10 * time.Second
@@ -103,13 +103,14 @@ func closeBuilder(b *StandardAppHashBuilder) error {
 	return errors.Join(b.Close(), b.vault.Close())
 }
 
-// testConfig returns the default configuration for the test chain, with its hash vault in dir and its giga activation
-// at gigaActivationHeight.
+// testConfig returns the default configuration for the test chain, with its hash vault in dir, its giga activation
+// at gigaActivationHeight, and no hash log.
 func testConfig(dir string, gigaActivationHeight uint64) AppHashBuilderConfig {
 	config := DefaultAppHashBuilderConfig()
 	config.ChainID = testChainID
 	config.GigaActivationHeight = gigaActivationHeight
 	config.HashVaultConfig.Path = dir
+	config.HashLogEnabled = false
 	return config
 }
 

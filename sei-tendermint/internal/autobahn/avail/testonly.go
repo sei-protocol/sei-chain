@@ -7,165 +7,143 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
+
+func RunTestConn(ctx context.Context, from, to *State) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			lane, ok := from.LocalLane().Get()
+			if !ok {
+				return errors.New("SubscribeLaneProposals: no local lane")
+			}
+			sub := from.SubscribeLaneProposals(lane, 0)
+			for {
+				p, err := sub.Recv(ctx)
+				if err != nil {
+					return err
+				}
+				if err := to.PushBlock(ctx, p); err != nil {
+					return err
+				}
+			}
+		})
+		s.Spawn(func() error {
+			sub := from.SubscribeLaneVotes()
+			for {
+				batch, err := sub.RecvBatch(ctx)
+				if err != nil {
+					return err
+				}
+				for _, vote := range batch {
+					if err := to.PushVote(ctx, vote); err != nil {
+						return err
+					}
+				}
+			}
+		})
+		s.Spawn(func() error {
+			sub := from.SubscribeAppVotes()
+			for {
+				vote, err := sub.Recv(ctx)
+				if err != nil {
+					return err
+				}
+				if err := to.PushAppVote(ctx, vote); err != nil {
+					return err
+				}
+			}
+		})
+		s.Spawn(func() error {
+			next := from.First()
+			for {
+				qc, err := from.CommitQC(ctx, next)
+				if err != nil {
+					if errors.Is(err, types.ErrPruned) {
+						next = from.First()
+						continue
+					}
+					return err
+				}
+				next = qc.Height() + 1
+				if err := to.PushCommitQC(ctx, qc); err != nil {
+					return err
+				}
+			}
+		})
+		return nil
+	})
+}
 
 func RunTestNetwork(ctx context.Context, states []*State) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for _, from := range states {
 			for _, to := range states {
-				s.Spawn(func() error {
-					lane, ok := from.LocalLane().Get()
-					if !ok {
-						return errors.New("SubscribeLaneProposals: no local lane")
-					}
-					sub := from.SubscribeLaneProposals(lane, 0)
-					for {
-						p, err := sub.Recv(ctx)
-						if err != nil {
-							return err
-						}
-						if err := to.PushBlock(ctx, p); err != nil {
-							return err
-						}
-					}
-				})
-				s.Spawn(func() error {
-					sub := from.SubscribeLaneVotes()
-					for {
-						batch, err := sub.RecvBatch(ctx)
-						if err != nil {
-							return err
-						}
-						for _, vote := range batch {
-							if err := to.PushVote(ctx, vote); err != nil {
-								return err
-							}
-						}
-					}
-				})
-				s.Spawn(func() error {
-					sub := from.SubscribeAppVotes()
-					for {
-						vote, err := sub.Recv(ctx)
-						if err != nil {
-							return err
-						}
-						if err := to.PushAppVote(ctx, vote); err != nil {
-							return err
-						}
-					}
-				})
-				s.Spawn(func() error {
-					next := from.First()
-					for {
-						qc, err := from.CommitQC(ctx, next)
-						if err != nil {
-							if errors.Is(err, types.ErrPruned) {
-								next = from.First()
-								continue
-							}
-							return err
-						}
-						next = qc.Index() + 1
-						if err := to.PushCommitQC(ctx, qc); err != nil {
-							return err
-						}
-					}
-				})
+				s.Spawn(func() error { return RunTestConn(ctx, from, to) })
 			}
 		}
 		return nil
 	})
 }
 
-func persistEpochSeal(s *State, ep *types.Epoch, keys []types.SecretKey) {
-	last := ep.RoadRange().Next - 1
+func testAnchorAt(ep, next *types.Epoch, keys []types.SecretKey, height types.RoadHeight) data.Anchor {
 	cks := make([]types.SecretKey, 0, len(keys))
-	for _, k := range keys {
-		if ep.Committee().HasReplica(k.Public()) {
-			cks = append(cks, k)
+	for _, key := range keys {
+		if ep.Committee().HasReplica(key.Public()) {
+			cks = append(cks, key)
 		}
 	}
-	var qc *types.CommitQC
-	if last == 0 {
-		qc = types.BuildCommitQC(ep, cks, utils.None[*types.CommitQC](), nil)
-	} else {
-		qc = types.BuildCommitQC(ep, cks, utils.Some(tipLink(ep, cks[0], last-1)), nil)
+	at := types.NewEpoch(ep.EpochIndex(), types.RoadRange{First: height, Next: ep.RoadRange().Next}, ep.Committee())
+	view := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{Epoch: at}}
+	leader := ep.Committee().Leader(view.View())
+	leaderKey := cks[0]
+	for _, key := range cks {
+		if key.Public() == leader {
+			leaderKey = key
+			break
+		}
 	}
-	s.markCommitQCsPersisted(qc)
+	proposal := utils.OrPanic1(types.NewProposal(leaderKey, view, view.GenesisTimestamp, nil))
+	prepare := types.BuildPrepareQC(cks, proposal.Proposal().Msg())
+	votes := make([]*types.Signed[*types.CommitVote], len(cks))
+	for n, key := range cks {
+		votes[n] = key.Sign(types.NewCommitVote(prepare))
+	}
+	qc := types.NewCommitQC(votes)
+	return data.Anchor{Epochs: [2]*types.Epoch{ep, next}, First: utils.Some(data.AnchorFirst{
+		CommitQC: qc, AppQC: data.TestAppQC(cks, types.NewAppProposal(qc.View(), types.AppHash{})),
+	})}
 }
 
-func seekRoads(s *State, idx types.RoadIndex) {
-	for inner, ctrl := range s.inner.Lock() {
-		inner.roads.first = idx
-		inner.roads.next = idx
-		ctrl.Updated()
-	}
-}
-
-func setRoadAppQC(s *State, idx types.RoadIndex, appQC *types.AppQC) {
-	for inner, ctrl := range s.inner.Lock() {
-		r := inner.roads.q[idx]
-		r.appQC = utils.Some(appQC)
-		// Tests inject road AppQCs without going through data's persist/Anchor
-		// pipeline; stamp the Anchor watermark to the road's epoch so the prune
-		// leash sees the same coverage production would after one flush.
-		inner.anchorEpoch = utils.Some(r.epoch)
-		ctrl.Updated()
-	}
-}
-
-func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.CommitQC {
-	voteProposal := types.ProposalAt(ep, types.View{Index: idx, Number: 0})
+func tipLink(ep *types.Epoch, key types.SecretKey, height types.RoadHeight) *types.CommitQC {
+	voteProposal := types.ProposalAt(ep, types.View{Height: height, Number: 0})
 	return types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(key, types.NewCommitVote(types.BuildPrepareQC([]types.SecretKey{key}, voteProposal))),
+		key.Sign(types.NewCommitVote(types.BuildPrepareQC([]types.SecretKey{key}, voteProposal))),
 	})
 }
 
-// TestDriveAdvance seals each applied epoch through want-1 and waits for
-// runEpochAdvance to advance to want. The registry must already contain want;
-// runEpochAdvance must be running.
-func TestDriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, want types.EpochIndex) error {
-	for state.Epoch().Load().EpochIndex() < want {
-		cur := state.Epoch().Load()
-		last := cur.RoadRange().Next - 1
-		if cur.RoadRange().Next == utils.Max[types.RoadIndex]() {
-			return fmt.Errorf("TestDriveAdvance: cannot seal open road range at epoch %d", cur.EpochIndex())
+// TestAdvanceToEpoch publishes certified epoch seals through want-1.
+// The registry must already contain each successor epoch.
+func TestAdvanceToEpoch(ctx context.Context, state *State, keys []types.SecretKey, registry *epoch.TestRegistry, want types.EpochIndex) error {
+	for state.ConsensusSpec().Load().Epoch.EpochIndex() < want {
+		cur := state.ConsensusSpec().Load().Epoch
+		if cur.RoadRange().Next == utils.Max[types.RoadHeight]() {
+			return fmt.Errorf("TestAdvanceToEpoch: cannot seal open road range at epoch %d", cur.EpochIndex())
 		}
-		cks := make([]types.SecretKey, 0, len(keys))
-		for _, k := range keys {
-			if cur.Committee().HasReplica(k.Public()) {
-				cks = append(cks, k)
-			}
-		}
-		if len(cks) == 0 {
-			return fmt.Errorf("TestDriveAdvance: no committee keys for epoch %d", cur.EpochIndex())
-		}
-		seekRoads(state, last)
-		var qc *types.CommitQC
-		if last == 0 {
-			qc = types.BuildCommitQC(cur, cks, utils.None[*types.CommitQC](), nil)
-		} else {
-			qc = types.BuildCommitQC(cur, cks, utils.Some(tipLink(cur, cks[0], last-1)), nil)
-		}
-		if qc.Index() != last {
-			return fmt.Errorf("TestDriveAdvance: qc index %d != last %d", qc.Index(), last)
-		}
-		if err := state.PushCommitQC(ctx, qc); err != nil {
+		next, err := registry.Epoch(cur.EpochIndex() + 1)
+		if err != nil {
 			return err
 		}
-		state.markCommitQCsPersisted(qc)
-		setRoadAppQC(state, qc.Index(), data.TestAppQC(cks, types.NewAppProposal(qc.View(), types.AppHash{})))
-		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
-			return ep.EpochIndex() > cur.EpochIndex()
-		}); err != nil {
+		anchor := testAnchorAt(cur, next, keys, cur.RoadRange().Next-1)
+		for inner, ctrl := range state.inner.Lock() {
+			inner.setAnchor(anchor)
+			ctrl.Updated()
+		}
+		if _, err := state.ConsensusSpec().Wait(ctx, func(spec types.ConsensusSpec) bool { return spec.Epoch.EpochIndex() > cur.EpochIndex() }); err != nil {
 			return err
 		}
-	}
-	if got := state.Epoch().Load().EpochIndex(); got < want {
-		return fmt.Errorf("TestDriveAdvance: epoch %d < want %d", got, want)
 	}
 	return nil
 }

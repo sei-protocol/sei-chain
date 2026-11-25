@@ -42,8 +42,8 @@ func (r frozenStateReader) GetState(addr common.Address, key common.Hash) common
 	return common.Hash{}
 }
 
-func (r frozenStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
-	return AccountState{Balance: r.GetBalance(addr), Nonce: r.GetNonce(addr), Code: r.GetCode(addr)}, true
+func (r frozenStateReader) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
+	return AccountState{Balance: r.GetBalance(addr), Nonce: r.GetNonce(addr), Code: r.GetCode(addr)}, common.Hash{}, true
 }
 
 // BenchmarkOCCValidateAndMerge times validation and merge of one block's speculative results, which
@@ -63,7 +63,7 @@ func BenchmarkOCCValidateAndMerge(b *testing.B) {
 			source := frozenStateReader{accounts: genesis.accounts}
 			executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, RejectUnappliableTxs: true}, withTestState(genesis))
 			b.Cleanup(executor.Close)
-			prepared, err := executor.PrepareBlock(ctx, scenario.block(b, 1))
+			prepared, err := executor.PrepareBlock(scenario.block(b, 1))
 			require.NoError(b, err)
 			runner := newOCCSpeculativeRunner(executor, prepared)
 			speculative := make([]occTxExecution, len(prepared.Txs))

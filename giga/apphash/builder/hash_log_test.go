@@ -95,18 +95,6 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 	}
 }
 
-func TestHashLogThatFailsToOpenDoesNotStopBuilder(t *testing.T) {
-	config := hashLoggingConfig(t.TempDir())
-	config.HashLogConfig.Version = ""
-	b, err := openBuilderWithConfig(t.Context(), config)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = closeBuilder(b) })
-
-	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	reportLoggedBlock(t, b, 1, 0)
-	requireSameAppHashes(t, expectedChain(1, 1, 1), awaitAppHashes(t, b, 1, 1))
-}
-
 func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
 	dir := requireScenarioPanics(t, "stored-ahead-hash-log", func(t *testing.T, dir string) {
 		buildChain(t, filepath.Join(dir, "vault"), 5)
@@ -127,4 +115,23 @@ func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
 		expectedChain(1, 3, 3)[0].AppHash(),
 	)
 	requireLoggedRow(t, dir, changed)
+}
+
+// Flush() stores every block reported before it and leaves their hash log rows on disk while the builder stays open.
+func TestFlushWritesTheHashLogWithoutClosing(t *testing.T) {
+	dir := t.TempDir()
+	b := openHashLoggingBuilder(t, dir)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	for height := uint64(1); height <= 3; height++ {
+		reportLoggedBlock(t, b, height, 0)
+	}
+	require.NoError(t, b.Flush(t.Context()))
+	_, highest, ok, err := b.Bounds()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(3), highest)
+
+	for _, record := range expectedChain(1, 1, 3) {
+		requireLoggedRow(t, dir, record)
+	}
 }

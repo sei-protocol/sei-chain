@@ -1,120 +1,188 @@
 {
   "storage": [
     {
-      "astId": 99,
-      "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+      "astId": 109,
+      "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
       "label": "gov",
       "offset": 0,
       "slot": "0",
-      "type": "t_struct(Gov)96_storage"
+      "type": "t_struct(Gov)90_storage"
+    },
+    {
+      "astId": 112,
+      "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+      "label": "staking",
+      "offset": 0,
+      "slot": "16",
+      "type": "t_struct(Staking)106_storage"
     }
   ],
   "types": {
     "t_array(t_uint256)8_storage": {
+      "base": "t_uint256",
       "encoding": "inplace",
       "label": "uint256[8]",
-      "numberOfBytes": "256",
-      "base": "t_uint256"
+      "numberOfBytes": "256"
     },
-    "t_struct(Gov)96_storage": {
+    "t_struct(Gov)90_storage": {
       "encoding": "inplace",
       "label": "struct ParamsStorage.Gov",
-      "numberOfBytes": "512",
       "members": [
         {
-          "astId": 73,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 67,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "maxDepositPeriod",
           "offset": 0,
           "slot": "0",
           "type": "t_uint64"
         },
         {
-          "astId": 75,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 69,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "votingPeriod",
           "offset": 8,
           "slot": "0",
           "type": "t_uint64"
         },
         {
-          "astId": 77,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 71,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedVotingPeriod",
           "offset": 16,
           "slot": "0",
           "type": "t_uint64"
         },
         {
-          "astId": 79,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 73,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "minDeposit",
           "offset": 0,
           "slot": "1",
           "type": "t_uint256"
         },
         {
-          "astId": 81,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 75,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "minExpeditedDeposit",
           "offset": 0,
           "slot": "2",
           "type": "t_uint256"
         },
         {
-          "astId": 83,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 77,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "quorum",
           "offset": 0,
           "slot": "3",
           "type": "t_uint256"
         },
         {
-          "astId": 85,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 79,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "threshold",
           "offset": 0,
           "slot": "4",
           "type": "t_uint256"
         },
         {
-          "astId": 87,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 81,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "vetoThreshold",
           "offset": 0,
           "slot": "5",
           "type": "t_uint256"
         },
         {
-          "astId": 89,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 83,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedQuorum",
           "offset": 0,
           "slot": "6",
           "type": "t_uint256"
         },
         {
-          "astId": 91,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 85,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "expeditedThreshold",
           "offset": 0,
           "slot": "7",
           "type": "t_uint256"
         },
         {
-          "astId": 95,
-          "contract": "src/storage/ParamsStorage.sol:ParamsStorage",
+          "astId": 89,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
           "label": "__gap",
           "offset": 0,
           "slot": "8",
           "type": "t_array(t_uint256)8_storage"
         }
-      ]
+      ],
+      "numberOfBytes": "512"
+    },
+    "t_struct(Staking)106_storage": {
+      "encoding": "inplace",
+      "label": "struct ParamsStorage.Staking",
+      "members": [
+        {
+          "astId": 93,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "unbondingTime",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 95,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "maxValidators",
+          "offset": 8,
+          "slot": "0",
+          "type": "t_uint32"
+        },
+        {
+          "astId": 97,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "maxEntries",
+          "offset": 12,
+          "slot": "0",
+          "type": "t_uint32"
+        },
+        {
+          "astId": 99,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "maxVotingPowerRatio",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 101,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "maxVotingPowerEnforcementThreshold",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 105,
+          "contract": "giga-storage/ParamsStorage.sol:ParamsStorage",
+          "label": "__gap",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_array(t_uint256)8_storage"
+        }
+      ],
+      "numberOfBytes": "352"
     },
     "t_uint256": {
       "encoding": "inplace",
       "label": "uint256",
       "numberOfBytes": "32"
+    },
+    "t_uint32": {
+      "encoding": "inplace",
+      "label": "uint32",
+      "numberOfBytes": "4"
     },
     "t_uint64": {
       "encoding": "inplace",

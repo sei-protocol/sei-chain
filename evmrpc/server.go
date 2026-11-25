@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
@@ -51,7 +50,7 @@ func NewEVMHTTPServer(
 	logCtxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
-	stateStore types.StateStore,
+	stateStore StateVersionBounds,
 	autobahnEnabled bool,
 	blockHeaderNotifier *BlockHeaderNotifier,
 	traceCtxProviders ...TraceContextProvider,
@@ -246,7 +245,7 @@ func NewEVMWebSocketServer(
 	logCtxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
-	stateStore types.StateStore,
+	stateStore StateVersionBounds,
 	autobahnEnabled bool,
 	blockHeaderNotifier *BlockHeaderNotifier,
 ) (EVMServer, error) {

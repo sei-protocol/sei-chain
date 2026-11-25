@@ -14,6 +14,9 @@ var ErrCustomPrecompilesOpen = errors.New("evm-only custom precompiles are not i
 type Registry interface {
 	Get(common.Address) (Contract, bool)
 	Addresses() []common.Address
+	// BeginBlockers returns the addresses whose contracts run BeginBlock, in
+	// the order they run.
+	BeginBlockers() []common.Address
 	// EndBlockers returns the addresses whose contracts run EndBlock, in the
 	// order they run.
 	EndBlockers() []common.Address
@@ -34,6 +37,13 @@ type Contract interface {
 // ErrDegraded marks an end blocker failure over stored data that does not add
 // up, such as a proposal failed in place; the executor logs it as an error.
 var ErrDegraded = errors.New("stored data does not add up")
+
+// BeginBlocker is a Contract that also runs once at the start of every block,
+// before the block's transactions, under the same rules as EndBlock. Its writes
+// land in the block's changeset and the block's transactions see them.
+type BeginBlocker interface {
+	BeginBlock(BlockContext, State) (failures []error, err error)
+}
 
 // EndBlocker is a Contract that also runs once at the end of every block, after
 // the block's transactions, under the same rules as Run. Its writes land in the
@@ -69,6 +79,9 @@ type BlockContext struct {
 	BlobBaseFee *big.Int
 	Coinbase    common.Address
 	PrevRandao  common.Hash
+	// Replay is set when the block runs only to rebuild its state, as for a
+	// trace, rather than to execute it.
+	Replay bool
 }
 
 // State is the precompile-facing state API. Implementations must make these

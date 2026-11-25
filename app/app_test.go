@@ -29,6 +29,7 @@ import (
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	sccomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -146,7 +147,6 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		txs,
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
-		false,
 		nil,
 	)
 	fmt.Println("txResults1", txResults)
@@ -170,7 +170,6 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		diffOrderTxs,
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
-		false,
 		nil,
 	)
 	fmt.Println("txResults2", txResults2)
@@ -246,7 +245,6 @@ func TestProcessBlockWithPreDecoded(t *testing.T) {
 		txs,
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
-		false,
 		preDecoded,
 	)
 	require.NoError(t, err)
@@ -902,7 +900,6 @@ func TestDecodeFailureTxReportsZeroGas(t *testing.T) {
 		txs,
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
-		false,
 		nil,
 	)
 
@@ -1025,7 +1022,7 @@ func TestSnapshotAwareRPCContextProviderPopulatesConsensusParams(t *testing.T) {
 	require.True(t, ok)
 	snap := rs.SnapshotSCStore()
 	require.NotNil(t, snap)
-	testApp.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(8))
+	testApp.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore[*sccomposite.CompositeCommitStore](8))
 	testApp.EvmKeeper.TraceSnapshotStore().Put(snap.Version(), snap)
 
 	ctx, release := testApp.SnapshotAwareRPCContextProvider()(snap.Version())

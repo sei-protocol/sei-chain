@@ -7,7 +7,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -64,11 +63,8 @@ func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
 // loadEVMOnlyCursor reads the cursor of the store's latest version. It is None
 // for an empty store and for one seeded by InitChain with no block committed
 // yet; both are resumed through InitChain.
-func loadEVMOnlyCursor(store *flatkv.CommitStore) (utils.Option[evmOnlyCursor], error) {
-	latest, err := store.GetLatestVersion()
-	if err != nil {
-		return utils.None[evmOnlyCursor](), fmt.Errorf("read EVM-only state version: %w", err)
-	}
+func loadEVMOnlyCursor(store gigatypes.LiveStateStore) (utils.Option[evmOnlyCursor], error) {
+	latest := store.Version()
 	if latest == 0 {
 		return utils.None[evmOnlyCursor](), nil
 	}

@@ -69,7 +69,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, pending)
+	source = pending.overlay(source)
 
 	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -137,6 +137,16 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := e.startPipelineCommit(blockNumber, misc, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
+	// A restart replays blocks the archive may already hold.
+	if store := e.archive; store != nil && req.Context.Number > store.LatestBlock() {
+		block, err := archiveBlock(req, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode archive block %d: %w", req.Context.Number, err)
+		}
+		if err := store.ArchiveBlock(ctx, block); err != nil {
+			return nil, fmt.Errorf("archive block %d: %w", req.Context.Number, err)
+		}
+	}
 	ok = true
 	return result, nil
 }
@@ -168,12 +178,12 @@ func (e *Executor) AwaitCommits() error {
 	return e.awaitPipelineCommit()
 }
 
-// pipelinePending returns the changes of a block whose commit has not been waited on yet, or nil
-// when the store is caught up.
-func (e *Executor) pipelinePending() *StateChangeSet {
+// pipelinePending returns the indexed changes of a block whose commit has not been waited on yet, or
+// nil when the store is caught up.
+func (e *Executor) pipelinePending() *pendingIndex {
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
-	return e.pipelineChanges
+	return e.pipelineIndex
 }
 
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
@@ -201,7 +211,7 @@ func (e *Executor) awaitPipelineCommit() error {
 				e.pipelineFailure = fmt.Errorf("commit state changes: %w", e.pipelineErr)
 			}
 			e.pipelineDone = nil
-			e.pipelineChanges = nil
+			e.pipelineIndex = nil
 			e.pipelineErr = nil
 		}
 		e.pipelineMu.Unlock()
@@ -239,10 +249,12 @@ func (e *Executor) startPipelineCommit(blockNumber int64, misc []gigatypes.MiscC
 		e.pipelineMu.Unlock()
 		return failure
 	}
-	e.pipelineChanges = pending
+	index := newPendingIndex(pending)
+	e.pipelineIndex = index
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
+	e.recordExecutedChanges(uint64(blockNumber), index) //nolint:gosec // blockNumber is non-negative.
 
 	go func() {
 		err := e.stateStore.CommitStateChanges(blockNumber, pending)
@@ -287,13 +299,13 @@ func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
 	return cloneBytes(code)
 }
 
-// ReadAccount returns addr's balance, nonce and code in one row read, and fetches code only for an
-// account that has some. It declines an account the snapshot lacks when missingState must answer
-// for it. Satisfies baseAccountReader.
-func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, bool) {
+// ReadAccount returns addr's balance, nonce, code and stored code hash in one row read, and fetches
+// code only for an account that has some. It declines an account the snapshot lacks when
+// missingState must answer for it. Satisfies baseAccountReader.
+func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState, common.Hash, bool) {
 	row, exists := r.snapshot.ReadAccount(addr)
 	if !exists {
-		return AccountState{}, r.missingState == nil
+		return AccountState{}, common.Hash{}, r.missingState == nil
 	}
 	account := AccountState{
 		Balance: new(big.Int).SetBytes(row.Balance[:]),
@@ -303,12 +315,18 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (AccountState,
 	if row.CodeHash != gigatypes.EmptyCodeHash {
 		account.Code = cloneBytes(r.snapshot.GetCode(addr))
 	}
-	return account, true
+	return account, row.CodeHash, true
 }
 
 // GetState reads addr's slot from the snapshot, whether or not addr has an account there.
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
 	return r.snapshot.GetStorage(addr, key)
+}
+
+// StoredBalance returns addr's balance in the snapshot, 0 when it has no account row.
+func (r gigaSnapshotStateReader) StoredBalance(addr common.Address) *big.Int {
+	balance := r.snapshot.GetBalance(addr)
+	return new(big.Int).SetBytes(balance[:])
 }
 
 // useMissingState reports whether addr's balance, nonce and code must be served

@@ -9,4 +9,6 @@ import (
 func (k Keeper) InitGenesis(ctx sdk.Context, data *types.GenesisState) {
 	k.SetFeesParams(ctx, data.FeesParams)
 	k.SetCosmosGasParams(ctx, data.CosmosGasParams)
+	// Governance can only change a parameter that is already stored.
+	k.SetDisabledMsgTypeURLs(ctx, []string{})
 }

@@ -11,9 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
-
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -34,6 +33,8 @@ var (
 	errLogRangeInverted   = errors.New("eth_getLogs fromBlock is after toBlock")
 	errLogRangePruned     = errors.New("eth_getLogs block is pruned")
 	errLogRangeNotIndexed = errors.New("eth_getLogs block is not yet indexed")
+	// errUnknownBlock is go-ethereum's error for a blockHash filter naming a block it does not have.
+	errUnknownBlock = errors.New("unknown block")
 )
 
 // invalidParamsError is a JSON-RPC error reporting that the request's
@@ -53,7 +54,7 @@ func (e *invalidParamsError) Unwrap() error {
 
 type filterAPI struct {
 	backend Backend
-	store   receiptpkg.ReceiptStore
+	store   receiptdb.ReceiptStore
 	filters *filterRegistry
 	// maxBlockFilterHashes caps the unpolled blocks a block filter may fall behind by; zero
 	// disables the cap.
@@ -78,8 +79,8 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 // rangeLogs returns the logs crit's addresses and topics match in the indexed blocks fromBlock
 // through toBlock, within the per-query log caps.
 func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria, fromBlock, toBlock uint64) ([]*ethtypes.Log, error) {
-	budget := receiptpkg.NewLogBudget(maxLogsPerQuery, receiptpkg.DefaultMaxLogBytes)
-	logs, err := api.store.FilterLogs(receiptContext(receiptpkg.WithStrictTopicCount(ctx)), fromBlock, toBlock, crit, budget)
+	budget := logfilter.NewLogBudget(maxLogsPerQuery, logfilter.DefaultMaxLogBytes)
+	logs, err := api.store.FilterLogs(receiptContext(logfilter.WithStrictTopicCount(ctx)), fromBlock, toBlock, crit, budget)
 	if err != nil {
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
@@ -106,14 +107,14 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 			return 0, 0, err
 		}
 		if block == nil || block.Block == nil {
-			return 0, 0, fmt.Errorf("block %s not found", crit.BlockHash)
+			return 0, 0, errUnknownBlock
 		}
 		height := uint64(block.Block.Height) //nolint:gosec // block heights are positive
-		earliest, latest := indexedRange(api.backend, api.store)
+		earliest, latest := indexedRange(ctx, api.backend, api.store)
 		return height, height, checkIndexed(height, height, earliest, latest)
 	}
 
-	earliest, latest := indexedRange(api.backend, api.store)
+	earliest, latest := indexedRange(ctx, api.backend, api.store)
 	fromBlock, err := resolveLogBound(crit.FromBlock, earliest, latest)
 	if err != nil {
 		return 0, 0, err
@@ -131,16 +132,12 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 // indexedRange returns the inclusive height range the receipt store can
 // answer for: from its retention floor to the lower of the committed head and
 // the last block whose receipts it has indexed.
-func indexedRange(backend Backend, store receiptpkg.ReceiptStore) (uint64, uint64) {
-	latest := backend.EvmBlockNumber()
+func indexedRange(ctx context.Context, backend Backend, store receiptdb.ReceiptStore) (uint64, uint64) {
+	latest := committedHead(ctx, backend)
 	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative
 	}
-	// EarliestVersion is 0 until something has pruned the store; blocks start at 1.
-	earliest := uint64(1)
-	if stored := store.EarliestVersion(); stored > 1 {
-		earliest = uint64(stored) //nolint:gosec // stored is positive
-	}
+	earliest := uint64(earliestRetainedHeight(backend, store)) //nolint:gosec // never below the first block
 	return earliest, latest
 }
 
@@ -156,18 +153,17 @@ func checkIndexed(fromBlock, toBlock, earliest, latest uint64) error {
 	return nil
 }
 
-// resolveLogBound maps a filter bound to a height: nil and the head tags mean
-// the latest indexed block, and the earliest tag (which decodes to 0) means
-// the retention floor. Other explicit numbers pass through so the caller can
-// check them against the indexed range.
+// resolveLogBound maps a filter bound to a height: an omitted bound or a head tag is latest,
+// earliest and 0x0 are the retention floor, and a height passes through.
 func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
-	if bound == nil || bound.Sign() < 0 {
+	kind, err := classifyFilterBound(bound)
+	if err != nil {
+		return 0, err
+	}
+	switch kind {
+	case headBlock:
 		return latest, nil
-	}
-	if !bound.IsUint64() || bound.Uint64() > math.MaxInt64 {
-		return 0, &invalidParamsError{error: fmt.Errorf("eth_getLogs block number %s exceeds int64", bound)}
-	}
-	if bound.Int64() == ethrpc.EarliestBlockNumber.Int64() {
+	case earliestBlock:
 		return earliest, nil
 	}
 	return bound.Uint64(), nil

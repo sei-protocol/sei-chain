@@ -4,69 +4,71 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var errTraceGenesis = errors.New("block 0 has no parent state to trace against")
 
-// EvmBlockContext returns the go-ethereum block context this application executed header's block
-// at. Only header's number, time and parent hash are read.
-func (a *evmOnlyApplication) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
-	number, err := headerNumber(header)
+// EvmBlockContext returns the EVM execution context of block.
+func (a *evmOnlyApplication) EvmBlockContext(block abevm.BlockRef) (vm.BlockContext, error) {
+	number, err := blockNumber(block)
 	if err != nil {
 		return vm.BlockContext{}, err
 	}
-	return evmonly.EVMBlockContext(a.traceBlockContext(number, header)), nil
+	return evmonly.EVMBlockContext(a.traceBlockContext(number, block)), nil
 }
 
-// EvmStateAt returns the committed EVM state after height, or the latest committed state when height
-// is rpc.LatestBlockNumber, held in memory, and the function that releases it. The state must not be
-// used once released.
-func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
-	return a.replayState(ctx, height, evmonly.BlockRequest{})
+// EvmStateAt returns the committed state after height, or the latest committed state for
+// rpc.LatestBlockNumber. The caller must close the returned handle.
+func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (*abevm.StateHandle, error) {
+	return a.openTraceState(height, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.SeiStateDB, error) {
+		return executor.ViewState(view), nil
+	})
 }
 
-// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
-// executed against, and the function that releases it: the committed state after the previous
-// block with txs, the block's transactions before it, applied. The state must not be used once
-// released.
-func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
-	number, err := headerNumber(header)
+// EvmStateBeforeTx returns the state before transaction len(txs) in block, after replaying txs.
+// The caller must close the returned handle.
+func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block abevm.BlockRef, txs [][]byte) (*abevm.StateHandle, error) {
+	number, err := blockNumber(block)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if number == 0 {
-		return nil, nil, errTraceGenesis
+		return nil, errTraceGenesis
 	}
-	parent := int64(number - 1) //nolint:gosec // G115: headerNumber bounds number to int64.
-	return a.replayState(ctx, parent, evmonly.BlockRequest{Context: a.traceBlockContext(number, header), Txs: txs})
+	parent := int64(number - 1) //nolint:gosec // G115: blockNumber bounds number to int64.
+	req := evmonly.BlockRequest{Context: a.traceBlockContext(number, block), Txs: txs}
+	return a.openTraceState(parent, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.SeiStateDB, error) {
+		return executor.ReplayState(ctx, view, req)
+	})
 }
 
-// traceBlockContext returns the context header's block number executed at. The block hash, which
+// traceBlockContext returns the context block executed at. The block hash, which
 // only stamps receipts, is left zero.
-func (a *evmOnlyApplication) traceBlockContext(number uint64, header *ethtypes.Header) evmonly.BlockContext {
+func (a *evmOnlyApplication) traceBlockContext(number uint64, block abevm.BlockRef) evmonly.BlockContext {
 	// The gas limit is fixed at InitChain, so the committed one is every block's.
-	return a.blockContext(number, header.Time, a.EvmGasLimit(), header.ParentHash, common.Hash{})
+	return a.blockContext(number, block.Time, a.EvmGasLimit(), block.ParentHash, common.Hash{})
 }
 
-// replayState opens the committed EVM state after height, or the latest committed state when height
-// is rpc.LatestBlockNumber, and applies req's transactions to it. A read the state store can no
-// longer serve, such as one at a height pruned mid-replay, is returned as an error.
-func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (_ vm.StateDB, _ func(), err error) {
+// openTraceState opens the committed EVM state after height, or the latest committed state when
+// height is rpc.LatestBlockNumber, and returns the state build makes of it. A read the state store
+// can no longer serve, such as one at a height pruned mid-replay, is returned as an error.
+func (a *evmOnlyApplication) openTraceState(height int64, build func(*evmonly.Executor, gigatypes.StateView) (vm.SeiStateDB, error)) (_ *abevm.StateHandle, err error) {
 	executor, err := a.loadedExecutor("trace")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	view, err := a.traceView(height)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -74,12 +76,12 @@ func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req 
 			err = fmt.Errorf("replay the EVM state after block %d: %v", view.GetBlockHeight(), r)
 		}
 	}()
-	stateDB, err := executor.ReplayState(ctx, view, req)
+	stateDB, err := build(executor, view)
 	if err != nil {
 		view.Close()
-		return nil, nil, err
+		return nil, err
 	}
-	return stateDB, view.Close, nil
+	return abevm.NewStateHandle(stateDB, view.Close), nil
 }
 
 // traceView opens the committed EVM state after height, or the latest committed state when height is
@@ -104,10 +106,10 @@ func (a *evmOnlyApplication) loadedExecutor(action string) (*evmonly.Executor, e
 	panic("unreachable")
 }
 
-// headerNumber returns header's block number, which must fit in an int64.
-func headerNumber(header *ethtypes.Header) (uint64, error) {
-	if !header.Number.IsInt64() || header.Number.Sign() < 0 {
-		return 0, fmt.Errorf("block number %s is out of range", header.Number)
+// blockNumber returns the block height, which must fit in an int64.
+func blockNumber(block abevm.BlockRef) (uint64, error) {
+	if uint64(block.Height) > math.MaxInt64 {
+		return 0, fmt.Errorf("block number %d is out of range", block.Height)
 	}
-	return header.Number.Uint64(), nil
+	return uint64(block.Height), nil
 }

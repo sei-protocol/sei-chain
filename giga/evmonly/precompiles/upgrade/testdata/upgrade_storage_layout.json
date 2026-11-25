@@ -1,0 +1,102 @@
+{
+  "storage": [
+    {
+      "astId": 17,
+      "contract": "src/UpgradeStorage.sol:UpgradeStorage",
+      "label": "plan",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_struct(Plan)14_storage"
+    },
+    {
+      "astId": 22,
+      "contract": "src/UpgradeStorage.sol:UpgradeStorage",
+      "label": "appliedHeight",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_mapping(t_string_memory_ptr,t_uint64)"
+    },
+    {
+      "astId": 25,
+      "contract": "src/UpgradeStorage.sol:UpgradeStorage",
+      "label": "lastApplied",
+      "offset": 0,
+      "slot": "8",
+      "type": "t_string_storage"
+    }
+  ],
+  "types": {
+    "t_array(t_uint256)4_storage": {
+      "encoding": "inplace",
+      "label": "uint256[4]",
+      "numberOfBytes": "128",
+      "base": "t_uint256"
+    },
+    "t_mapping(t_string_memory_ptr,t_uint64)": {
+      "encoding": "mapping",
+      "key": "t_string_memory_ptr",
+      "label": "mapping(string => uint64)",
+      "numberOfBytes": "32",
+      "value": "t_uint64"
+    },
+    "t_string_memory_ptr": {
+      "encoding": "bytes",
+      "label": "string",
+      "numberOfBytes": "32"
+    },
+    "t_string_storage": {
+      "encoding": "bytes",
+      "label": "string",
+      "numberOfBytes": "32"
+    },
+    "t_struct(Plan)14_storage": {
+      "encoding": "inplace",
+      "label": "struct UpgradeStorage.Plan",
+      "numberOfBytes": "224",
+      "members": [
+        {
+          "astId": 5,
+          "contract": "src/UpgradeStorage.sol:UpgradeStorage",
+          "label": "name",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_string_storage"
+        },
+        {
+          "astId": 7,
+          "contract": "src/UpgradeStorage.sol:UpgradeStorage",
+          "label": "height",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 9,
+          "contract": "src/UpgradeStorage.sol:UpgradeStorage",
+          "label": "info",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_string_storage"
+        },
+        {
+          "astId": 13,
+          "contract": "src/UpgradeStorage.sol:UpgradeStorage",
+          "label": "__gap",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_array(t_uint256)4_storage"
+        }
+      ]
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint64": {
+      "encoding": "inplace",
+      "label": "uint64",
+      "numberOfBytes": "8"
+    }
+  }
+}

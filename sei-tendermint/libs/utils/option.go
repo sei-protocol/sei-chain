@@ -47,8 +47,8 @@ func (o Option[T]) OrPanic(msg string) T {
 	panic(msg)
 }
 
-// MapOpt applies a function to the value if present, returning a new Option.
-func MapOpt[T, R any](o Option[T], f func(T) R) Option[R] {
+// Map applies a function to the value if present, returning a new Option.
+func (o Option[T]) Map[R any](f func(T) R) Option[R] {
 	if o.isPresent {
 		return Some(f(o.value))
 	}

@@ -21,6 +21,11 @@ func (n *noOpBUDHasher) Submit(context.Context, uint64, []mutation.Mutation) err
 	return nil
 }
 
+func (n *noOpBUDHasher) Flush(context.Context) error {
+	// intentional no-op
+	return nil
+}
+
 func (n *noOpBUDHasher) Close() error {
 	// intentional no-op
 	return nil

@@ -90,8 +90,7 @@ var (
 	// ErrorInvalidSigner defines an error when the tx intended signer does not match the given signer.
 	ErrorInvalidSigner = Register(RootCodespace, 24, "tx intended signer does not match the given signer")
 
-	// ErrorInvalidGasAdjustment defines an error for an invalid gas adjustment
-	ErrorInvalidGasAdjustment = Register(RootCodespace, 25, "invalid gas adjustment")
+	// Code 25 is retired and must not be reused.
 
 	// ErrInvalidHeight defines an error for an invalid height
 	ErrInvalidHeight = Register(RootCodespace, 26, "invalid height")
@@ -161,6 +160,10 @@ var (
 
 	// ErrInvalidRecipient defines an error for sending to disallowed recipients in bank
 	ErrInvalidRecipient = Register(RootCodespace, 46, "invalid bank recipient")
+
+	// ErrMsgTypeDisabled defines an error for a transaction carrying a message whose type URL
+	// governance has disabled.
+	ErrMsgTypeDisabled = Register(RootCodespace, 47, "message type is disabled")
 
 	// ErrPanic is only set when we recover from a panic, so we know to
 	// redact potentially sensitive system info

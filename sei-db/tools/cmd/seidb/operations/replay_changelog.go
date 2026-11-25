@@ -7,9 +7,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -68,10 +68,11 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 		ssConfig := config.DefaultStateStoreConfig()
 		ssConfig.KeepRecent = 0
 		ssConfig.DBDirectory = dbDir
-		ssStore, err = ss.NewStateStore(dbDir, ssConfig)
+		store, err := ss.NewStateStore(dbDir, ssConfig)
 		if err != nil {
 			panic(err)
 		}
+		ssStore = store
 	}
 
 	// replay the changelog

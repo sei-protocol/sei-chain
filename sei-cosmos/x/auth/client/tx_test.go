@@ -25,24 +25,6 @@ var (
 	addr = sdk.AccAddress(priv.PubKey().Address())
 )
 
-func TestParseQueryResponse(t *testing.T) {
-	simRes := &sdk.SimulationResponse{
-		GasInfo: sdk.GasInfo{GasUsed: 10, GasWanted: 20},
-		Result:  &sdk.Result{Data: []byte("tx data"), Log: "log"},
-	}
-
-	bz, err := codec.ProtoMarshalJSON(simRes, nil)
-	require.NoError(t, err)
-
-	res, err := authclient.ParseQueryResponse(bz)
-	require.NoError(t, err)
-	require.Equal(t, 10, int(res.GasInfo.GasUsed))
-	require.NotNil(t, res.Result)
-
-	res, err = authclient.ParseQueryResponse([]byte("fuzzy"))
-	require.Error(t, err)
-}
-
 // TODO: remove this and authclient.GetTxEncoder after the proto tx migration is complete
 func TestDefaultTxEncoder(t *testing.T) {
 	cdc := makeCodec()

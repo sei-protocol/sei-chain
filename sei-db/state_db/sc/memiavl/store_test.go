@@ -198,11 +198,9 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	require.NotNil(t, newCS)
 
 	// The returned store should be different from the original
-	newCommitStore, ok := newCS.(*CommitStore)
-	require.True(t, ok)
-	require.NotSame(t, cs, newCommitStore)
+	require.NotSame(t, cs, newCS)
 
-	require.NoError(t, newCommitStore.Close())
+	require.NoError(t, newCS.Close())
 }
 
 func TestCommitInfo(t *testing.T) {
@@ -546,13 +544,12 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	require.NotNil(t, readOnlyCS)
 
 	// The read-only copy should have the same version after WAL replay
-	roCommitStore := readOnlyCS.(*CommitStore)
-	require.Equal(t, int64(2), roCommitStore.Version())
+	require.Equal(t, int64(2), readOnlyCS.Version())
 
-	require.NotNil(t, roCommitStore.db.GetWAL())
+	require.NotNil(t, readOnlyCS.db.GetWAL())
 
 	// Clean up
-	require.NoError(t, roCommitStore.Close())
+	require.NoError(t, readOnlyCS.Close())
 	require.NoError(t, cs.Close())
 }
 
@@ -590,14 +587,12 @@ func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	require.NotNil(t, readOnly2)
 
 	// Each should have its own WAL instance
-	ro1 := readOnly1.(*CommitStore)
-	ro2 := readOnly2.(*CommitStore)
-	require.NotNil(t, ro1.db.GetWAL())
-	require.NotNil(t, ro2.db.GetWAL())
+	require.NotNil(t, readOnly1.db.GetWAL())
+	require.NotNil(t, readOnly2.db.GetWAL())
 
 	// Clean up
-	require.NoError(t, ro1.Close())
-	require.NoError(t, ro2.Close())
+	require.NoError(t, readOnly1.Close())
+	require.NoError(t, readOnly2.Close())
 	require.NoError(t, cs.Close())
 }
 
@@ -832,17 +827,15 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	readOnly, err := cs.LoadVersion(0, true)
 	require.NoError(t, err)
 
-	roCS := readOnly.(*CommitStore)
-
 	// Read-only copy should have read-only option set
-	require.True(t, roCS.opts.ReadOnly)
+	require.True(t, readOnly.opts.ReadOnly)
 
 	// Attempting to commit on read-only copy should fail
 	// (this would fail at the memiavl.DB level)
-	_, err = roCS.Commit(roCS.Version() + 1)
+	_, err = readOnly.Commit(readOnly.Version() + 1)
 	require.Error(t, err)
 
-	require.NoError(t, roCS.Close())
+	require.NoError(t, readOnly.Close())
 	require.NoError(t, cs.Close())
 }
 

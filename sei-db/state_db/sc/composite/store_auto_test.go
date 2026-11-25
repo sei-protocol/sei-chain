@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
@@ -94,21 +93,20 @@ func runUntilAtMigrationVersion(
 }
 
 // hasLatticeHash reports whether the last commit info contains the
-// synthetic evm_lattice store entry.
+// synthetic lattice store entry.
 func hasLatticeHash(cs *CompositeCommitStore) bool {
-	for _, si := range cs.LastCommitInfo().StoreInfos {
-		if si.Name == "evm_lattice" {
-			return true
-		}
-	}
-	return false
+	return containsLatticeStoreInfo(cs.LastCommitInfo().StoreInfos)
 }
 
 // storeInfoNames returns the names in the last commit info, in order.
 func storeInfoNames(cs *CompositeCommitStore) []string {
-	infos := cs.LastCommitInfo().StoreInfos
-	names := make([]string, 0, len(infos))
-	for _, si := range infos {
+	return commitInfoNames(cs.LastCommitInfo())
+}
+
+// commitInfoNames returns the names in ci, in order.
+func commitInfoNames(ci *proto.CommitInfo) []string {
+	names := make([]string, 0, len(ci.StoreInfos))
+	for _, si := range ci.StoreInfos {
 		names = append(names, si.Name)
 	}
 	return names
@@ -193,7 +191,7 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 	// Terminal state: the commit info must be shaped exactly like a
 	// configured flatkv_only node's (no memiavl StoreInfos, only the
 	// lattice) even though memiavl is still open under Auto.
-	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+	require.Equal(t, []string{latticeHashStoreInfoName}, storeInfoNames(cs),
 		"effective FlatKVOnly must hash the same store set as configured flatkv_only")
 
 	// End of the chain: no further transitions exist.
@@ -244,9 +242,19 @@ func TestComposite_SetWriteModeBeforeLoadVersion(t *testing.T) {
 	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
 }
 
-func TestMemiavl_SetWriteModeUnsupported(t *testing.T) {
-	cs := memiavl.NewCommitStore(t.TempDir(), config.DefaultStateCommitConfig().MemIAVLConfig)
-	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
+func TestComposite_PublishWriteModeFailurePublishesNothing(t *testing.T) {
+	cs := openAutoStore(t, t.TempDir(), 10)
+	defer func() { _ = cs.Close() }()
+	router := cs.loadRouter()
+
+	flatKV, err := cs.materializeFlatKV()
+	require.NoError(t, err)
+	defer func() { _ = flatKV.Close() }()
+
+	require.Error(t, cs.publishWriteMode(types.WriteMode("bogus"), flatKV, true))
+	require.Nil(t, cs.loadFlatKV(), "a failed transition must not publish the new flatkv")
+	require.Equal(t, types.MemiavlOnly, cs.loadWriteMode())
+	require.True(t, router == cs.loadRouter(), "a failed transition must keep the previous router")
 }
 
 // TestComposite_Auto_RestartResume verifies effective-mode derivation
@@ -443,12 +451,7 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	// oldest snapshot is the last step of publishing a new one, so without this wait the writer can
 	// delete the directory the export is part way through copying.
 	//
-	// Reached through the concrete store because quiescing the writer is not part of the gigatypes.LiveStateStore
-	// abstraction: no production caller needs it, and this test only does because it drives commits and
-	// reads from one goroutine and so has a quiet period to establish.
-	flatKVStore, ok := src.loadFlatKV().(*flatkv.CommitStore)
-	require.True(t, ok)
-	require.NoError(t, flatKVStore.FlushSnapshots())
+	require.NoError(t, src.loadFlatKV().FlushSnapshots())
 
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
@@ -495,9 +498,7 @@ func TestComposite_Auto_FlatKVOnlyExportImportRoundTrip(t *testing.T) {
 	h := src.Version()
 	wantCommitInfo := src.LastCommitInfo()
 
-	flatKVStore, ok := src.loadFlatKV().(*flatkv.CommitStore)
-	require.True(t, ok)
-	require.NoError(t, flatKVStore.FlushSnapshots())
+	require.NoError(t, src.loadFlatKV().FlushSnapshots())
 
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
@@ -611,7 +612,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	require.True(t, sawMidFlight,
 		"test must observe at least one mid-flight MigrateCosmos commit; lower the batch size")
 	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
-	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+	require.Equal(t, []string{latticeHashStoreInfoName}, storeInfoNames(cs),
 		"memiavl StoreInfos must leave the commit info at the version-2 commit, before the mode flips")
 	preRestart := cs.LastCommitInfo()
 	require.NoError(t, cs.Close())
@@ -680,10 +681,8 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runBlocks(t, cs, workload, 2)
 
-	roCommitter, err := cs.LoadVersionReadOnly(0)
+	ro, err := cs.LoadVersionReadOnly(0)
 	require.NoError(t, err)
-	ro, ok := roCommitter.(*CompositeCommitStore)
-	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
 	require.Equal(t, types.MigrateEVM, ro.loadWriteMode())
 	requireOracleMatches(t, ro, workload.snapshotOracle())
@@ -730,10 +729,8 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 	require.Error(t, err, "a pre-flatkv-era height is no longer distinguishable from a load failure")
 
 	// In-era height: unchanged.
-	roCommitter, err := cs.LoadVersionReadOnly(7)
+	ro, err := cs.LoadVersionReadOnly(7)
 	require.NoError(t, err)
-	ro, ok := roCommitter.(*CompositeCommitStore)
-	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
 	require.NotNil(t, ro.loadFlatKV(), "in-era heights must keep loading flatkv")
 }
@@ -909,8 +906,7 @@ func TestComposite_Auto_ExportBeforeKickoffFailsOnceSeedSnapshotPruned(t *testin
 
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runBlocks(t, cs, workload, 6)
-	flatKVStore, ok := cs.loadFlatKV().(*flatkv.CommitStore)
-	require.True(t, ok)
+	flatKVStore := cs.loadFlatKV()
 	require.NoError(t, flatKVStore.FlushSnapshots())
 
 	oldest, ok, err := flatKVStore.OldestSnapshotAbove(pre)

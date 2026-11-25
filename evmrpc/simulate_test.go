@@ -30,7 +30,7 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -46,7 +46,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
+func primeReceiptStore(t *testing.T, store receiptdb.ReceiptStore, latest int64) {
 	t.Helper()
 	require.NoError(t, pinReceiptVersions(store, latest))
 }
@@ -326,6 +326,36 @@ func TestCall(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+// prevRandaoInitCode is creation code that returns the 32-byte PREVRANDAO value:
+// PREVRANDAO PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN.
+const prevRandaoInitCode = "0x4460005260206000f3"
+
+// mockBlockPrevRandao is the PREVRANDAO block execution uses for the mock block time,
+// keccak256(time.Unix(1696941649, 0).UTC().MarshalBinary()). The mock block carries that time in
+// time.Local, so matching it also requires the RPC side to hash the UTC form.
+var mockBlockPrevRandao = common.HexToHash("0xa712870f408ce37a9d885e4557b1e014a94aae512d2b2e08c7f0178c665e9b25")
+
+func TestCallPrevRandao(t *testing.T) {
+	_, from := testkeeper.MockAddressPair()
+	txArgs := map[string]any{
+		"from":  from.Hex(),
+		"input": prevRandaoInitCode,
+	}
+
+	resObj := sendRequestGood(t, "call", txArgs, "latest")
+	require.Equal(t, mockBlockPrevRandao.Hex(), resObj["result"])
+
+	override := common.HexToHash("0x01")
+	resObj = sendRequestGood(t, "call", txArgs, "latest", map[string]any{}, map[string]any{"prevRandao": override.Hex()})
+	require.Equal(t, override.Hex(), resObj["result"], "a prevRandao block override replaces the block's value")
+}
+
+func TestBlockMixHashIsPrevRandao(t *testing.T) {
+	resObj := sendRequestGood(t, "getBlockByNumber", "0x8", false)
+	block := resObj["result"].(map[string]any)
+	require.Equal(t, mockBlockPrevRandao.Hex(), block["mixHash"])
+}
+
 func TestCallStateOverrideTooManySlots(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 	_, from := testkeeper.MockAddressPair()
@@ -432,6 +462,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	header, err := backend.HeaderByNumber(context.Background(), 1000)
 	require.NoError(t, err)
 	require.NotNil(t, header)
+	require.Equal(t, mockBlockPrevRandao, header.MixDigest)
 
 	// For pacific-1 chain before v6.2.0 upgrade, base fee should be nil
 	require.Nil(t, header.BaseFee, "Base fee should be nil for pacific-1 chain before v6.2.0 upgrade")
@@ -1015,7 +1046,7 @@ func TestBlockByNumberResolvesLatestToSafeLatest(t *testing.T) {
 	)
 
 	for _, bn := range []rpc.BlockNumber{rpc.LatestBlockNumber, rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.PendingBlockNumber} {
-		ethBlock, _, err := backend.BlockByNumber(t.Context(), bn)
+		ethBlock, err := backend.BlockByNumber(t.Context(), bn)
 		require.NoError(t, err, bn.String())
 		require.Equal(t, safeLatest, ethBlock.Number().Int64(), bn.String())
 	}
@@ -1079,7 +1110,7 @@ func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.
 			nil,
 			trie.NewStackTrie(nil),
 		)
-		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, nil, true, false)
 		require.NoError(t, err)
 		t.Cleanup(release)
 		return stateDB.(*state.DBImpl)
@@ -1182,7 +1213,7 @@ func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *test
 			nil,
 			trie.NewStackTrie(nil),
 		)
-		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, nil, true, false)
 		require.NoError(t, err)
 		t.Cleanup(release)
 		return stateDB.(*state.DBImpl)
@@ -1302,7 +1333,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 				evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
 			)
 
-			ethBlock, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+			ethBlock, metadata, err := backend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(blockHeight))
 			require.NoError(t, err)
 			require.Len(t, ethBlock.Transactions(), 0)
 			require.Len(t, metadata, 1)
@@ -1317,7 +1348,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 				testApp.BaseApp, testApp.TracerAnteHandler,
 				evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
 			)
-			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v65Height))
+			_, _, err = strictBackend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(v65Height))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "does not match canonical size")
 		})
@@ -1394,7 +1425,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) 
 		testApp.BaseApp, testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, compatWatermarks,
 	)
-	ethBlock, metadata, err := compatBackend.BlockByNumber(context.Background(), rpc.BlockNumber(preV67Height))
+	ethBlock, metadata, err := compatBackend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(preV67Height))
 	require.NoError(t, err)
 	require.Len(t, ethBlock.Transactions(), 0)
 	require.Len(t, metadata, 1)
@@ -1410,7 +1441,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) 
 		testApp.BaseApp, testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
 	)
-	_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v67Height))
+	_, _, err = strictBackend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(v67Height))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "does not match canonical size")
 	require.Contains(t, err.Error(), "auth info")
@@ -1429,7 +1460,7 @@ func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
 	// invoking the ante handler, so this is the correct interception point.
 	var capturedTxBytes []byte
 	minApp := bam.NewBaseApp("test", dbm.NewMemDB(), TxConfig.TxDecoder(), nil, &cosmostestutil.TestAppOpts{})
-	minApp.SetAnteHandler(func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	minApp.SetAnteHandler(func(ctx sdk.Context, _ sdk.Tx) (sdk.Context, error) {
 		capturedTxBytes = ctx.TxBytes()
 		return ctx, fmt.Errorf("stop") // short-circuit; we only need ante
 	})
@@ -1473,7 +1504,7 @@ func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
 	)
 
-	_, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+	_, metadata, err := backend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(blockHeight))
 	require.NoError(t, err)
 	require.Len(t, metadata, 1)
 	require.NotNil(t, metadata[0].TraceRunnable)

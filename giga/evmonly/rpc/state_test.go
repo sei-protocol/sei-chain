@@ -58,7 +58,7 @@ func TestGetBalanceReadsNumberedBlocksFromHistory(t *testing.T) {
 		},
 	}}
 
-	for height, want := range map[ethrpc.BlockNumber]int64{ethrpc.EarliestBlockNumber: 0, 7: 700, 9: 900} {
+	for height, want := range map[ethrpc.BlockNumber]int64{ethrpc.EarliestBlockNumber: 100, 0: 100, 7: 700, 9: 900} {
 		got, err := api.GetBalance(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(height))
 		require.NoError(t, err)
 		require.Equal(t, want, got.ToInt().Int64(), "block %d", height)
@@ -95,31 +95,36 @@ func pastBlocksBackend(head int64) *testBackend {
 			return nil, nil
 		},
 		blockNumber: func() uint64 { return uint64(head) }, //nolint:gosec // G115: test heights are positive.
-		gasLimit:    func() (uint64, error) { return traceGasLimit, nil },
-		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
+		gasLimit:    func() uint64 { return traceGasLimit },
+		baseFee:     func() *big.Int { return new(big.Int) },
 		chainID:     func() uint64 { return traceChainID },
 	}
 }
 
-// Every state query resolves its block here: a latest tag to the latest state, and a number or hash
-// to a block no higher than the head.
+// Every state query resolves its block here: a head tag to the latest state, earliest and 0x0 to the
+// earliest block the receipt store retains, and a number or hash to a block no higher than the head.
 func TestStateHeight(t *testing.T) {
 	backend := pastBlocksBackend(5)
 	backendErr := errors.New("block store unavailable")
 
 	for _, tc := range []struct {
-		name       string
-		block      ethrpc.BlockNumberOrHash
-		byHashErr  error
-		wantHeight int64
-		wantLatest bool
-		wantErr    error
+		name          string
+		block         ethrpc.BlockNumberOrHash
+		byHashErr     error
+		initialHeight int64
+		pruneTo       uint64
+		wantHeight    int64
+		wantLatest    bool
+		wantErr       error
 	}{
 		{name: "latest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber), wantLatest: true},
 		{name: "safe", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber), wantLatest: true},
 		{name: "finalized", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber), wantLatest: true},
 		{name: "pending", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber), wantLatest: true},
-		{name: "earliest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantHeight: 0},
+		{name: "earliest", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantHeight: 1},
+		{name: "0x0", block: ethrpc.BlockNumberOrHashWithNumber(0), wantHeight: 1},
+		{name: "earliest after pruning", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), pruneTo: 3, wantHeight: 3},
+		{name: "earliest on a chain starting later", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), initialHeight: 4, wantHeight: 4},
 		{name: "past number", block: ethrpc.BlockNumberOrHashWithNumber(3), wantHeight: 3},
 		{name: "head number", block: ethrpc.BlockNumberOrHashWithNumber(5), wantHeight: 5},
 		{name: "canonical hash", block: ethrpc.BlockNumberOrHashWithHash(traceBlockHash(3), true), wantHeight: 3},
@@ -134,13 +139,17 @@ func TestStateHeight(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := *backend
+			backend.initialHeight = tc.initialHeight
+			store := evmonly.NewMemoryReceiptStore()
+			require.NoError(t, store.SetLatestVersion(5))
+			require.NoError(t, store.PruneHistory(tc.pruneTo))
 			if tc.byHashErr != nil {
 				backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 					return nil, tc.byHashErr
 				}
 			}
 
-			height, latest, err := stateHeight(t.Context(), &backend, tc.block)
+			height, latest, err := stateHeight(t.Context(), &backend, store, tc.block)
 
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -406,7 +415,7 @@ func TestGetStorageAtReadsNumberedBlocksFromHistory(t *testing.T) {
 		},
 	}}
 
-	for number, want := range map[ethrpc.BlockNumber]common.Hash{ethrpc.EarliestBlockNumber: {0}, 7: {7}, 9: {9}} {
+	for number, want := range map[ethrpc.BlockNumber]common.Hash{ethrpc.EarliestBlockNumber: {1}, 0: {1}, 7: {7}, 9: {9}} {
 		got, err := api.GetStorageAt(t.Context(), address, "0x1", ethrpc.BlockNumberOrHashWithNumber(number))
 		require.NoError(t, err)
 		require.Equal(t, hexutil.Bytes(want[:]), got, "block %d", number)

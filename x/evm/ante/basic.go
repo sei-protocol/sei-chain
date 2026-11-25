@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -22,7 +23,7 @@ func NewBasicDecorator(k *keeper.Keeper) *BasicDecorator {
 }
 
 // cherrypicked from go-ethereum:txpool:ValidateTransaction
-func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	etx, _ := msg.AsTransaction()
 
@@ -41,14 +42,14 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	}
 
 	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
-		return ctx, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
+		return ctx, fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
 	}
 
 	if etx.Value().Sign() < 0 {
 		return ctx, sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), etx.To() == nil, true, true, true)
+	intrGas, err := evmtypes.IntrinsicGas(etx, evmtypes.EthereumRules(ctx.BlockTime().Unix()))
 	if err != nil {
 		return ctx, err
 	}
@@ -89,7 +90,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	//		return ctx, err
 	//	}
 	//}
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 // NOTE: if we re-enable blob support we can put this back.

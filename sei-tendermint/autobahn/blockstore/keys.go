@@ -13,12 +13,12 @@ type ledgerKey struct {
 	payload []byte
 }
 
-// blockKey identifies a SuperBlock record by its road index.
-type blockKey struct{ Index types.RoadIndex }
+// blockKey identifies a SuperBlock record by its road height.
+type blockKey struct{ Height types.RoadHeight }
 
 func (k blockKey) encode() ledgerKey {
 	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
-	return ledgerKey{kind: kindBlock, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
+	return ledgerKey{kind: kindBlock, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Height))}
 }
 
 func (k ledgerKey) decodeBlock() (blockKey, error) {
@@ -26,15 +26,15 @@ func (k ledgerKey) decodeBlock() (blockKey, error) {
 	if err != nil {
 		return blockKey{}, err
 	}
-	return blockKey{Index: types.RoadIndex(binary.BigEndian.Uint64(payload))}, nil
+	return blockKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// qcKey identifies a QC alias by its road index.
-type qcKey struct{ Index types.RoadIndex }
+// qcKey identifies a QC alias by its road height.
+type qcKey struct{ Height types.RoadHeight }
 
 func (k qcKey) encode() ledgerKey {
 	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
-	return ledgerKey{kind: kindQC, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
+	return ledgerKey{kind: kindQC, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Height))}
 }
 
 func (k ledgerKey) decodeQC() (qcKey, error) {
@@ -42,15 +42,15 @@ func (k ledgerKey) decodeQC() (qcKey, error) {
 	if err != nil {
 		return qcKey{}, err
 	}
-	return qcKey{Index: types.RoadIndex(binary.BigEndian.Uint64(payload))}, nil
+	return qcKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// appQCKey identifies an AppQC record by its road index.
-type appQCKey struct{ Index types.RoadIndex }
+// appQCKey identifies an AppQC record by its road height.
+type appQCKey struct{ Height types.RoadHeight }
 
 func (k appQCKey) encode() ledgerKey {
 	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
-	return ledgerKey{kind: kindAppQC, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
+	return ledgerKey{kind: kindAppQC, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Height))}
 }
 
 func (k ledgerKey) decodeAppQC() (appQCKey, error) {
@@ -58,15 +58,15 @@ func (k ledgerKey) decodeAppQC() (appQCKey, error) {
 	if err != nil {
 		return appQCKey{}, err
 	}
-	return appQCKey{Index: types.RoadIndex(binary.BigEndian.Uint64(payload))}, nil
+	return appQCKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// appProposalKey identifies an AppProposal record by its road index.
-type appProposalKey struct{ Index types.RoadIndex }
+// appProposalKey identifies an AppProposal record by its road height.
+type appProposalKey struct{ Height types.RoadHeight }
 
 func (k appProposalKey) encode() ledgerKey {
 	// Big-endian encoding preserves numeric road order in lexicographic comparisons.
-	return ledgerKey{kind: kindAppProp, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Index))}
+	return ledgerKey{kind: kindAppProp, payload: binary.BigEndian.AppendUint64(nil, uint64(k.Height))}
 }
 
 func (k ledgerKey) decodeAppProposal() (appProposalKey, error) {
@@ -74,17 +74,17 @@ func (k ledgerKey) decodeAppProposal() (appProposalKey, error) {
 	if err != nil {
 		return appProposalKey{}, err
 	}
-	return appProposalKey{Index: types.RoadIndex(binary.BigEndian.Uint64(payload))}, nil
+	return appProposalKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload))}, nil
 }
 
-// laneBlockKey identifies a lane block by road index and header offset.
+// laneBlockKey identifies a lane block by road height and header offset.
 type laneBlockKey struct {
-	Index  types.RoadIndex
+	Height types.RoadHeight
 	Offset uint64
 }
 
 func (k laneBlockKey) encode() ledgerKey {
-	payload := binary.BigEndian.AppendUint64(nil, uint64(k.Index))
+	payload := binary.BigEndian.AppendUint64(nil, uint64(k.Height))
 	return ledgerKey{kind: kindLaneBlock, payload: binary.BigEndian.AppendUint64(payload, k.Offset)}
 }
 
@@ -93,7 +93,7 @@ func (k ledgerKey) decodeLaneBlock() (laneBlockKey, error) {
 	if err != nil {
 		return laneBlockKey{}, err
 	}
-	return laneBlockKey{Index: types.RoadIndex(binary.BigEndian.Uint64(payload)), Offset: binary.BigEndian.Uint64(payload[8:])}, nil
+	return laneBlockKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload)), Offset: binary.BigEndian.Uint64(payload[8:])}, nil
 }
 
 // blockHashKey identifies a SuperBlock by its hash.

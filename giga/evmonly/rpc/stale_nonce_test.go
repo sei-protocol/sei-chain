@@ -14,14 +14,15 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type countingReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	reads int
 }
 
@@ -34,7 +35,7 @@ func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	const index = 99
 	store := &countingReceiptStore{ReceiptStore: evmonly.NewMemoryReceiptStore()}
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
 			BlockNumber: 9, TransactionIndex: index, CumulativeGasUsed: 42_000,
 			Status: uint32(ethtypes.ReceiptStatusFailed), VmError: "nonce too low",
@@ -51,7 +52,7 @@ func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return block, nil
 	})
-	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+	backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 	txs := &txAPI{backend: backend, store: store}
 	gotReceipt, err := txs.GetTransactionReceipt(t.Context(), tx.Hash())
 	require.NoError(t, err)
@@ -93,7 +94,7 @@ func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
 func TestFeeHistoryRecomputeSkipsReceiptsKeptFromOtherBlocks(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	memory := evmonly.NewMemoryReceiptStore()
-	require.NoError(t, memory.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+	require.NoError(t, memory.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
 			BlockNumber: 9, TransactionIndex: 0, GasUsed: 21_000, CumulativeGasUsed: 21_000, EffectiveGasPrice: 7,
 		},
@@ -104,8 +105,8 @@ func TestFeeHistoryRecomputeSkipsReceiptsKeptFromOtherBlocks(t *testing.T) {
 	require.NoError(t, memory.SetLatestVersion(10))
 	store := stubIteratingReceiptStore{
 		ReceiptStore: memory,
-		iterate: func(uint64) (receipt.ReceiptIterator, error) {
-			return nil, receipt.ErrRangeQueryNotSupported
+		iterate: func(uint64) (receiptdb.ReceiptIterator, error) {
+			return nil, receiptdb.ErrRangeQueryNotSupported
 		},
 	}
 	block := &coretypes.ResultBlock{BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xa").Bytes()}, Block: &tmtypes.Block{
@@ -115,7 +116,7 @@ func TestFeeHistoryRecomputeSkipsReceiptsKeptFromOtherBlocks(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return block, nil
 	})
-	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1), nil }
+	backend.minGasPrice = func() *big.Int { return big.NewInt(1) }
 
 	history, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, 10, []float64{50})
 	require.NoError(t, err)

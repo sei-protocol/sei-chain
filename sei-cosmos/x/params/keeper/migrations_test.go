@@ -20,3 +20,16 @@ func TestMigrate1to2(t *testing.T) {
 	require.Equal(t, defaultParams.CosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierNumerator)
 	require.Equal(t, defaultParams.CosmosGasParams.CosmosGasMultiplierDenominator, cosmosGasParams.CosmosGasMultiplierDenominator)
 }
+
+// TestMigrate2to3 migrates a params store that does not hold the disabled message type URLs.
+func TestMigrate2to3(t *testing.T) {
+	_, ctx, _, _, keeper := testComponents()
+	subspace, ok := keeper.GetSubspace(types.ModuleName)
+	require.True(t, ok)
+	require.False(t, subspace.Has(ctx, types.ParamStoreKeyDisabledMsgTypeURLs))
+
+	require.NoError(t, pk.NewMigrator(keeper).Migrate2to3(ctx))
+
+	require.True(t, subspace.Has(ctx, types.ParamStoreKeyDisabledMsgTypeURLs))
+	require.Empty(t, keeper.GetDisabledMsgTypeURLs(ctx))
+}

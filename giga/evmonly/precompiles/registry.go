@@ -10,8 +10,9 @@ import (
 
 // StaticRegistry is a Registry over a fixed set of contracts.
 type StaticRegistry struct {
-	contracts   map[common.Address]Contract
-	endBlockers []common.Address
+	contracts     map[common.Address]Contract
+	beginBlockers []common.Address
+	endBlockers   []common.Address
 }
 
 // NewStaticRegistry returns a Registry serving contracts, which it copies.
@@ -30,6 +31,17 @@ func (r StaticRegistry) Addresses() []common.Address {
 	return slices.SortedFunc(maps.Keys(r.contracts), func(a, b common.Address) int {
 		return bytes.Compare(a[:], b[:])
 	})
+}
+
+// WithBeginBlockers returns a copy of r whose BeginBlockers are beginBlockers,
+// in run order.
+func (r StaticRegistry) WithBeginBlockers(beginBlockers ...common.Address) StaticRegistry {
+	r.beginBlockers = slices.Clone(beginBlockers)
+	return r
+}
+
+func (r StaticRegistry) BeginBlockers() []common.Address {
+	return slices.Clone(r.beginBlockers)
 }
 
 func (r StaticRegistry) EndBlockers() []common.Address {

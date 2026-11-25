@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -509,7 +509,7 @@ func TestGetTransactionByBlockAndIndexReceiptsPruned(t *testing.T) {
 
 	// At the receipt floor the guard passes; the nil keeper then fails the receipt read instead.
 	_, err = api.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receiptFloorTestReceiptEarliest), 0)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 }
 
 func TestDebugTraceBlockGuardsReceiptFloor(t *testing.T) {
@@ -608,7 +608,7 @@ func TestFeeHistoryFloorIsReceiptFloor(t *testing.T) {
 	client := newHeightTestClient(100, receiptFloorTestBlockEarliest, receiptFloorTestLatest)
 	api := &InfoAPI{tmClient: client, watermarks: newReceiptFloorTestWatermarks(client)}
 
-	earliest, err := api.earliestHeight(context.Background())
+	earliest, err := api.earliestBlockWatermark(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, receiptFloorTestReceiptEarliest, earliest)
 }

@@ -15,16 +15,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	dbm "github.com/tendermint/tm-db"
 )
 
 func TestWatermarksAggregatesSources(t *testing.T) {
@@ -299,7 +298,7 @@ func TestExplicitReadBelowGenesisFloorRejected(t *testing.T) {
 	require.Contains(t, err.Error(), "has been pruned")
 }
 
-func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
+func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore StateVersionBounds, receiptLatest int64) *WatermarkManager {
 	return NewWatermarkManager(tmClient, watermarkTestCtxProvider(ctxHeight), stateStore, &fakeReceiptStore{latest: receiptLatest})
 }
 
@@ -391,26 +390,8 @@ type fakeStateStore struct {
 	earliest int64
 }
 
-func (f *fakeStateStore) Get(string, int64, []byte) ([]byte, error) { return nil, nil }
-func (f *fakeStateStore) Has(string, int64, []byte) (bool, error)   { return false, nil }
-func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
-	return nil, nil
-}
-func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
-	return nil, nil
-}
-func (f *fakeStateStore) RawIterate(string, func([]byte, []byte, int64) bool) (bool, error) {
-	return false, nil
-}
-func (f *fakeStateStore) GetLatestVersion() int64                                      { return f.latest }
-func (f *fakeStateStore) SetLatestVersion(version int64) error                         { return nil }
-func (f *fakeStateStore) GetEarliestVersion() int64                                    { return f.earliest }
-func (f *fakeStateStore) SetEarliestVersion(version int64, _ bool) error               { return nil }
-func (f *fakeStateStore) ApplyChangesetSync(_ int64, _ []*proto.NamedChangeSet) error  { return nil }
-func (f *fakeStateStore) ApplyChangesetAsync(_ int64, _ []*proto.NamedChangeSet) error { return nil }
-func (f *fakeStateStore) Import(_ int64, _ <-chan types.SnapshotNode) error            { return nil }
-func (f *fakeStateStore) Prune(_ int64) error                                          { return nil }
-func (f *fakeStateStore) Close() error                                                 { return nil }
+func (f *fakeStateStore) GetLatestVersion() int64   { return f.latest }
+func (f *fakeStateStore) GetEarliestVersion() int64 { return f.earliest }
 
 type fakeReceiptStore struct {
 	latest   int64
@@ -436,27 +417,29 @@ func (f *fakeReceiptStore) SetEarliestVersion(version int64) error {
 }
 
 func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
-	return nil, errors.New("not found")
+	return nil, receiptdb.ErrNotFound
 }
 
 func (f *fakeReceiptStore) GetReceiptFromStore(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
-	return nil, errors.New("not found")
+	return nil, receiptdb.ErrNotFound
 }
 
-func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) error {
+func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipttypes.ReceiptRecord) error {
 	return nil
 }
 
-func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *receipt.LogBudget) ([]*ethtypes.Log, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+func (f *fakeReceiptStore) Flush() error { return nil }
+
+func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *logfilter.LogBudget) ([]*ethtypes.Log, error) {
+	return nil, receiptdb.ErrRangeQueryNotSupported
 }
 
-func (f *fakeReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
-	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+func (f *fakeReceiptStore) GetBlockStats(sdk.Context, uint64) (receipttypes.BlockStats, error) {
+	return receipttypes.BlockStats{}, receiptdb.ErrBlockStatsNotSupported
 }
 
-func (f *fakeReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+func (f *fakeReceiptStore) IterateReceipts(uint64) (receiptdb.ReceiptIterator, error) {
+	return nil, receiptdb.ErrRangeQueryNotSupported
 }
 
 func (f *fakeReceiptStore) Close() error { return nil }

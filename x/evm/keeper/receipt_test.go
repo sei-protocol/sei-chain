@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -123,7 +123,7 @@ func TestFlushTransientReceiptsWithoutStore(t *testing.T) {
 
 	// And the read paths still refuse rather than reporting the receipt absent.
 	_, err := k.GetReceipt(ctx, txHash)
-	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	require.ErrorIs(t, err, receiptdb.ErrNotConfigured)
 }
 
 func TestDeleteTransientReceipt(t *testing.T) {

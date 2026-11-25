@@ -53,7 +53,7 @@ func (b *traceBackend) forCalls() *traceBackend {
 }
 
 func (b *traceBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes.Header, error) {
-	block, _, err := b.BlockByHash(ctx, hash)
+	block, err := b.BlockByHash(ctx, hash)
 	if err != nil || block == nil {
 		return nil, err
 	}
@@ -61,15 +61,33 @@ func (b *traceBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*eth
 }
 
 func (b *traceBackend) HeaderByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Header, error) {
-	block, _, err := b.BlockByNumber(ctx, number)
+	block, err := b.BlockByNumber(ctx, number)
 	if err != nil || block == nil {
 		return nil, err
 	}
 	return block.Header(), nil
 }
 
+// CurrentHeader returns the header of the latest block BlockByNumber serves, or nil when there is none.
+func (b *traceBackend) CurrentHeader() *ethtypes.Header {
+	header, _ := b.HeaderByNumber(context.Background(), ethrpc.LatestBlockNumber)
+	return header
+}
+
 // BlockByHash returns the block with hash, or nil when hash is unknown.
-func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
+	block, _, err := b.BlockWithTraceMetadataByHash(ctx, hash)
+	return block, err
+}
+
+// BlockByNumber returns the block at number, or nil when there is none.
+func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, error) {
+	block, _, err := b.BlockWithTraceMetadataByNumber(ctx, number)
+	return block, err
+}
+
+// BlockWithTraceMetadataByHash returns the block with hash, or nil when hash is unknown.
+func (b *traceBackend) BlockWithTraceMetadataByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	block, err := b.blocks.resolveBlockByHash(ctx, hash)
 	if err != nil || block == nil {
 		return nil, nil, err
@@ -78,20 +96,21 @@ func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*etht
 	return eth, nil, err
 }
 
-// BlockByNumber returns the block at number, or nil when there is none. Current-state tags name the
-// latest block whose receipts are indexed, or for calls the latest committed block.
-func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	if number == 0 {
-		return genesisBlock(), nil, nil
+// BlockWithTraceMetadataByNumber returns the block at number, or nil when there is none. Head tags
+// name the latest block whose receipts are indexed, or for calls the latest committed block;
+// earliest names the earliest block the receipt store retains, and a height below the chain's
+// first block a block holding only its number.
+func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+	if number >= 0 && number.Int64() < firstBlockHeight(b.backend) {
+		// The tracer reads the block before the first as the first block's parent; debugAPI
+		// resolves a request's 0x0 before it gets here.
+		return preChainBlock(number.Int64()), nil, nil
 	}
-	if isLatestTag(number) {
-		latest := b.backend.EvmBlockNumber()
-		if !b.headersOnly {
-			_, latest = indexedRange(b.backend, b.blocks.store)
-		}
-		number = ethrpc.BlockNumber(latest) //nolint:gosec // G115: a committed height fits in int64.
+	height, err := b.traceHeight(ctx, number)
+	if err != nil {
+		return nil, nil, err
 	}
-	block, err := b.blocks.resolveBlockByNumber(ctx, number)
+	block, err := b.blocks.blockAt(ctx, height)
 	if err != nil || block == nil {
 		return nil, nil, err
 	}
@@ -99,10 +118,30 @@ func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNum
 	return eth, nil, err
 }
 
-// genesisBlock returns block 0, which no store holds: it carries only its number and the zero hash
-// block 1 names as its parent, which is all a trace reads from a parent block.
-func genesisBlock() *ethtypes.Block {
-	block := ethtypes.NewBlockWithHeader(&ethtypes.Header{Number: new(big.Int), Difficulty: new(big.Int), BaseFee: new(big.Int)})
+// traceHeight returns the height number names for a trace.
+func (b *traceBackend) traceHeight(ctx context.Context, number ethrpc.BlockNumber) (int64, error) {
+	kind, err := classifyBlockNumber(number)
+	if err != nil {
+		return 0, err
+	}
+	switch kind {
+	case headBlock:
+		latest := committedHead(ctx, b.backend)
+		if !b.headersOnly {
+			_, latest = indexedRange(ctx, b.backend, b.blocks.store)
+		}
+		return int64(latest), nil //nolint:gosec // G115: a committed height fits in int64.
+	case earliestBlock:
+		return earliestRetainedHeight(b.backend, b.blocks.store), nil
+	}
+	return number.Int64(), nil
+}
+
+// preChainBlock returns block height below the chain's first block, which no store holds: it carries
+// only its number and the zero hash the first block names as its parent, which is all a trace reads
+// from a parent block.
+func preChainBlock(height int64) *ethtypes.Block {
+	block := ethtypes.NewBlockWithHeader(&ethtypes.Header{Number: big.NewInt(height), Difficulty: new(big.Int), BaseFee: new(big.Int)})
 	block.OverwriteHash(common.Hash{})
 	return block
 }
@@ -130,7 +169,7 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 // indexed receipts.
 func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultBlock) ([]*ethtypes.Transaction, error) {
 	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
-	if _, latest := indexedRange(b.backend, b.blocks.store); height > latest {
+	if _, latest := indexedRange(ctx, b.backend, b.blocks.store); height > latest {
 		return nil, fmt.Errorf("%w: block %d", errTraceBlockNotIndexed, height)
 	}
 	records, err := blockReceiptRecords(ctx, b.blocks.store, block)
@@ -138,7 +177,7 @@ func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultB
 		return nil, err
 	}
 	// Checked after the read, so a retention floor that rose during it is caught too.
-	if earliest, _ := indexedRange(b.backend, b.blocks.store); height < earliest {
+	if earliest, _ := indexedRange(ctx, b.backend, b.blocks.store); height < earliest {
 		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errTraceBlockPruned, height, earliest)
 	}
 	txs := make([]*ethtypes.Transaction, 0, len(records))
@@ -169,9 +208,24 @@ func (b *traceBackend) GetTransaction(ctx context.Context, hash common.Hash) (bo
 	return true, tx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, uint64(stored.TransactionIndex), nil
 }
 
+// GetCanonicalTransaction returns the finalized transaction with hash, its block hash and number,
+// and its index in the stored block.
+func (b *traceBackend) GetCanonicalTransaction(hash common.Hash) (bool, *ethtypes.Transaction, common.Hash, uint64, uint64) {
+	found, tx, blockHash, blockNumber, index, err := b.GetTransaction(context.Background(), hash)
+	if err != nil || !found {
+		return false, nil, common.Hash{}, 0, 0
+	}
+	return true, tx, blockHash, blockNumber, index
+}
+
+// TxIndexDone reports true, so an unknown transaction hash reads as not found.
+func (b *traceBackend) TxIndexDone() bool {
+	return true
+}
+
 // StateAtBlock returns the committed state after block, or the latest committed state when ctx is
 // marked by withLatestState.
-func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ uint64, _ vm.StateDB, _ bool, _ bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ vm.SeiStateDB, _ bool, _ bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	height := block.Number().Int64()
 	if readsLatestState(ctx) {
 		// The height a latest tag resolved to can be passed by the time the state is read, and a node
@@ -186,8 +240,8 @@ func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, 
 // StateAtTransaction returns the transaction at txIndex of block's stored transactions, and the
 // block context and state it executed against. Index 0 of an empty block returns no transaction
 // and the state the block started from.
-func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, _ uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
-	stored, err := b.blocks.resolveBlockByNumber(ctx, ethrpc.BlockNumber(block.Number().Int64()))
+func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int) (*ethtypes.Transaction, vm.BlockContext, vm.SeiStateDB, tracers.StateReleaseFunc, error) {
+	stored, err := b.blocks.blockAt(ctx, block.Number().Int64())
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
@@ -223,14 +277,9 @@ func (b *traceBackend) RPCGasCap() uint64 {
 	return defaultCallGasCap
 }
 
-// ChainConfig returns the chain configuration blocks execute against, or nil when the backend
-// exposes none.
+// ChainConfig returns the chain configuration blocks execute against.
 func (b *traceBackend) ChainConfig() *params.ChainConfig {
-	cfg, err := b.backend.EvmChainConfig()
-	if err != nil {
-		return nil
-	}
-	return cfg
+	return b.backend.EvmChainConfig()
 }
 
 // ChainConfigAtHeight returns ChainConfig: the configuration never changes with height.
@@ -239,7 +288,7 @@ func (b *traceBackend) ChainConfigAtHeight(int64) *params.ChainConfig {
 }
 
 // GetCustomPrecompiles returns nil: the EVM-only chain registers no custom precompiles.
-func (b *traceBackend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
+func (b *traceBackend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {
 	return nil
 }
 
@@ -260,7 +309,7 @@ func (b *traceBackend) ChainDb() ethdb.Database {
 
 // tracedStates holds every state served to one trace.
 type tracedStates struct {
-	states []vm.StateDB
+	states []vm.SeiStateDB
 }
 
 type tracedStatesKey struct{}
@@ -273,7 +322,7 @@ func withTracedStates(ctx context.Context) (context.Context, *tracedStates) {
 }
 
 // trackState adds stateDB to the tracedStates ctx holds, if any.
-func trackState(ctx context.Context, stateDB vm.StateDB) {
+func trackState(ctx context.Context, stateDB vm.SeiStateDB) {
 	if states, ok := ctx.Value(tracedStatesKey{}).(*tracedStates); ok && stateDB != nil {
 		states.states = append(states.states, stateDB)
 	}

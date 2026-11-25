@@ -72,6 +72,8 @@ same result from the same block, so each rule below is a consensus rule.
   validator set, so a block's cost cannot grow with user input.
 
 ## EndBlock
+- `BeginBlock` follows every rule below for `EndBlock`. It runs before the
+  block's transactions, which see its writes.
 - `EndBlock` returns the operations that failed, and the executor logs them.
   Work deferred to a later block is not a failure. A returned error fails the
   block, so an end blocker returns one only when the block cannot be trusted.

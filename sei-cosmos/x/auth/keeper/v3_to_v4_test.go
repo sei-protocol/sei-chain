@@ -36,6 +36,22 @@ func legacyVestingAccount(t *testing.T, typeURL string, accountNumber uint64) au
 	return account
 }
 
+// pacific1VestingAddresses are the accounts pacific-1 stores under a vesting
+// type.
+var pacific1VestingAddresses = []string{
+	"sei1ga833mj6jc6d2lye6j84stug9h2mpxcxuyw5ak",
+	"sei15wfxcaz3phxa7hyl9z9wr064nc7zt6y79ywkvw",
+	"sei1570e0uvdywv0wp79mz235v6zzuu69268xhvk6x",
+}
+
+// legacyVestingAccountAt is a legacyVestingAccount of typeURL stored at address.
+func legacyVestingAccountAt(t *testing.T, typeURL string, address sdk.AccAddress, accountNumber uint64) authtestutil.LegacyVestingAccount {
+	t.Helper()
+	account := legacyVestingAccount(t, typeURL, accountNumber)
+	account.Base = types.NewBaseAccount(address, nil, accountNumber, 3)
+	return account
+}
+
 func setLegacyVestingAccount(t *testing.T, store sdk.KVStore, account authtestutil.LegacyVestingAccount) {
 	t.Helper()
 	encoded, err := account.Encode()
@@ -153,4 +169,68 @@ func TestMigrate3to4RejectsUnconvertibleAccounts(t *testing.T) {
 			require.Equal(t, before, accountStoreEntries(store))
 		})
 	}
+}
+
+// On pacific-1 the migration reads only the accounts it lists, so it rewrites
+// each of them and leaves an unlisted account of a vesting type as it was.
+func TestMigrate3to4OnPacific1RewritesOnlyTheListedAccounts(t *testing.T) {
+	app, ctx := createTestApp(false)
+	ctx = ctx.WithChainID("pacific-1")
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+
+	listed := make([]authtestutil.LegacyVestingAccount, 0, len(pacific1VestingAddresses))
+	for i, address := range pacific1VestingAddresses {
+		account := legacyVestingAccountAt(t, authtestutil.LegacyDelayedVestingAccountTypeURL,
+			sdk.MustAccAddressFromBech32(address), uint64(100+i)) //nolint:gosec // small test index
+		setLegacyVestingAccount(t, store, account)
+		listed = append(listed, account)
+	}
+	setLegacyVestingAccount(t, store, legacyVestingAccount(t, authtestutil.LegacyDelayedVestingAccountTypeURL, 200))
+	before := accountStoreEntries(store)
+
+	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
+	require.NoError(t, m.Migrate3to4(ctx))
+
+	after := accountStoreEntries(store)
+	require.Len(t, after, len(before), "the migration added or removed an account")
+	for _, account := range listed {
+		key := string(types.AddressStoreKey(account.Base.GetAddress()))
+		want, err := app.AccountKeeper.MarshalAccount(account.Base)
+		require.NoError(t, err)
+		require.Equal(t, want, after[key], "%s was not rewritten as its base account", account.Base.Address)
+		delete(before, key)
+		delete(after, key)
+	}
+	require.Equal(t, before, after, "the migration changed an account pacific-1 does not list")
+}
+
+// On pacific-1 a listed address that holds no account, or an account of another
+// type, is skipped: the migration neither fails nor writes an account there.
+func TestMigrate3to4OnPacific1SkipsListedAddressesWithoutVestingAccounts(t *testing.T) {
+	app, ctx := createTestApp(false)
+	ctx = ctx.WithChainID("pacific-1")
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	plain := app.AccountKeeper.NewAccountWithAddress(ctx, sdk.MustAccAddressFromBech32(pacific1VestingAddresses[0]))
+	app.AccountKeeper.SetAccount(ctx, plain)
+	before := accountStoreEntries(store)
+
+	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
+	require.NoError(t, m.Migrate3to4(ctx))
+	require.Equal(t, before, accountStoreEntries(store))
+}
+
+// On pacific-1 the migration refuses a listed account it cannot convert, as it
+// does on a chain whose account store it scans.
+func TestMigrate3to4OnPacific1RejectsAnUnconvertibleListedAccount(t *testing.T) {
+	app, ctx := createTestApp(false)
+	ctx = ctx.WithChainID("pacific-1")
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	encoded, err := legacyVestingAccount(t, authtestutil.LegacyDelayedVestingAccountTypeURL, 1).Encode()
+	require.NoError(t, err)
+	store.Set(types.AddressStoreKey(sdk.MustAccAddressFromBech32(pacific1VestingAddresses[1])), encoded)
+	before := accountStoreEntries(store)
+
+	m := keeper.NewMigrator(app.AccountKeeper, app.QueryServiceRouter())
+	require.ErrorContains(t, m.Migrate3to4(ctx), "embeds the base account of")
+	require.Equal(t, before, accountStoreEntries(store))
 }

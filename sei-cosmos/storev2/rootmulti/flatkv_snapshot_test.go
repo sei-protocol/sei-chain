@@ -247,7 +247,7 @@ func TestFlatKVOnlySnapshotRestoreAppHashParity(t *testing.T) {
 	require.Equal(t, int64(8), srcStore.LastCommitID().Version,
 		"eight blocks must leave the source at height 8 for the snapshot height to mean what it says")
 
-	srcLattice := findStoreInfo(srcStore.lastCommitInfo.StoreInfos, "evm_lattice")
+	srcLattice := findStoreInfo(srcStore.lastCommitInfo.StoreInfos, "lattice_hash")
 	require.NotNil(t, srcLattice)
 	require.NotEmpty(t, srcLattice.CommitId.Hash)
 	srcAppHash := append([]byte(nil), srcStore.LastCommitID().Hash...)
@@ -264,7 +264,7 @@ func TestFlatKVOnlySnapshotRestoreAppHashParity(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int64(8), dstStore.LastCommitID().Version)
-	dstLattice := findStoreInfo(dstStore.lastCommitInfo.StoreInfos, "evm_lattice")
+	dstLattice := findStoreInfo(dstStore.lastCommitInfo.StoreInfos, "lattice_hash")
 	require.NotNil(t, dstLattice)
 	require.Equal(t, srcLattice.CommitId.Hash, dstLattice.CommitId.Hash,
 		"flatkv_only snapshot restore must reproduce the exact consensus lattice hash")
@@ -458,7 +458,7 @@ func simulateFlatKVOnlyBlock(
 // the chain via Commit. rootmulti.Store.Snapshot does NOT take rs.mtx, so the
 // two paths genuinely run concurrently. The coupling goes through
 // CompositeCommitStore.Exporter -> flatkv.CommitStore.Exporter, which creates
-// a readonly clone in a temp dir via LoadVersion(v, true) and iterates there
+// a readonly clone in a temp dir via LoadVersionReadOnly(v) and iterates there
 // while the main flatkv.CommitStore keeps receiving ApplyChangeSets + Commit.
 //
 // If any of this sharing is unsafe (readonly clone sees half-written state,
@@ -620,12 +620,12 @@ func TestFlatKVPruneBoundaryQueries(t *testing.T) {
 		"latest app hash must match the last commit record")
 
 	// Versions at the tip must remain queryable through rootmulti's
-	// LoadVersion + amendCommitInfo path even when older snapshots have been
+	// LoadVersionReadOnly + amendCommitInfo path even when older snapshots have been
 	// pruned. We assert for the latest two versions which are always inside
 	// every reasonable retention window.
 	for _, v := range []int64{numBlocks - 1, numBlocks} {
-		scStore, err := store.scStore.LoadVersion(v, true)
-		require.NoErrorf(t, err, "LoadVersion(%d) should succeed within retention window", v)
+		scStore, err := store.scStore.LoadVersionReadOnly(v)
+		require.NoErrorf(t, err, "LoadVersionReadOnly(%d) should succeed within retention window", v)
 
 		commitInfo := convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, store.storesParams)

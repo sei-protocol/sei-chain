@@ -202,12 +202,12 @@ func TestFlatKVDualWriteEquivalenceAtHistoricalVersions(t *testing.T) {
 	require.Greater(t, latest, int64(1))
 
 	// Collect a memiavl snapshot at every committed version while the
-	// rootmulti store is still open (LoadVersion requires the outer store
+	// rootmulti store is still open (LoadVersionReadOnly requires the outer store
 	// to own the directory).
 	memByVersion := make(map[int64]map[string][]byte, latest)
 	for v := int64(1); v <= latest; v++ {
-		sc, err := store.scStore.LoadVersion(v, true)
-		require.NoErrorf(t, err, "memiavl LoadVersion(%d)", v)
+		sc, err := store.scStore.LoadVersionReadOnly(v)
+		require.NoErrorf(t, err, "memiavl LoadVersionReadOnly(%d)", v)
 		child := sc.GetChildStoreByName("evm")
 		require.NotNilf(t, child, "memiavl evm child missing at v%d", v)
 		memByVersion[v] = collectCommitKVStore(t, child)

@@ -22,14 +22,14 @@ func NewEVMRouterDecorator(
 	}
 }
 
-func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx) (sdk.Context, error) {
 	if isEVM, err := IsEVMMessage(tx); err != nil {
 		return ctx, err
 	} else if isEVM {
-		return r.evmAnteHandler(ctx, tx, simulate)
+		return r.evmAnteHandler(ctx, tx)
 	}
 
-	return r.defaultAnteHandler(ctx, tx, simulate)
+	return r.defaultAnteHandler(ctx, tx)
 }
 
 func IsEVMMessage(tx sdk.Tx) (bool, error) {

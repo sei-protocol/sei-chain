@@ -14,13 +14,6 @@ option (gogoproto.goproto_registration) = true;
 
 // Service defines a gRPC service for interacting with transactions.
 service Service {
-  // Simulate simulates executing a transaction for estimating gas usage.
-  rpc Simulate(SimulateRequest) returns (SimulateResponse) {
-    option (google.api.http) = {
-      post: "/cosmos/tx/v1beta1/simulate"
-      body: "*"
-    };
-  }
   // GetTx fetches a tx by hash.
   rpc GetTx(GetTxRequest) returns (GetTxResponse) {
     option (google.api.http).get = "/cosmos/tx/v1beta1/txs/{hash}";
@@ -103,27 +96,6 @@ enum BroadcastMode {
 message BroadcastTxResponse {
   // tx_response is the queried TxResponses.
   cosmos.base.abci.v1beta1.TxResponse tx_response = 1;
-}
-
-// SimulateRequest is the request type for the Service.Simulate
-// RPC method.
-message SimulateRequest {
-  // tx is the transaction to simulate.
-  // Deprecated. Send raw tx bytes instead.
-  cosmos.tx.v1beta1.Tx tx = 1 [deprecated = true];
-  // tx_bytes is the raw transaction.
-  //
-  // Since: cosmos-sdk 0.43
-  bytes tx_bytes = 2;
-}
-
-// SimulateResponse is the response type for the
-// Service.SimulateRPC method.
-message SimulateResponse {
-  // gas_info is the information about gas used in the simulation.
-  cosmos.base.abci.v1beta1.GasInfo gas_info = 1;
-  // result is the result of the simulation.
-  cosmos.base.abci.v1beta1.Result result = 2;
 }
 
 // GetTxRequest is the request type for the Service.GetTx

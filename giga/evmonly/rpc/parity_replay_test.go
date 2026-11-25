@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -22,6 +20,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/parity"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -215,8 +215,8 @@ func (b *replayBackend) EvmBalanceAt(address common.Address, height int64) (uint
 	return *new(uint256.Int).SetBytes(balance[:]), nil
 }
 
-func (b *replayBackend) EvmBaseFee() (*big.Int, error) {
-	return new(big.Int).Set(b.tip.BaseFee), nil
+func (b *replayBackend) EvmBaseFee() *big.Int {
+	return new(big.Int).Set(b.tip.BaseFee)
 }
 
 func (*replayBackend) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
@@ -227,24 +227,28 @@ func (b *replayBackend) EvmBlockNumber() uint64 {
 	return b.tip.Number
 }
 
+func (*replayBackend) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (*replayBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 	return utils.AtomicRecv[atypes.ExecutedBlocks]{}, errNotReplayed
 }
 
-func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message, _ abevm.CallOverrides) (*core.ExecutionResult, error) {
 	return b.executor.Call(ctx, b.tip, msg)
 }
 
-func (*replayBackend) EvmCallAt(context.Context, *core.Message, *ethtypes.Header) (*core.ExecutionResult, error) {
+func (*replayBackend) EvmCallAt(context.Context, *core.Message, *ethtypes.Header, abevm.CallOverrides) (*core.ExecutionResult, error) {
 	return nil, errNotReplayed
 }
 
-func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header) (uint64, []byte, error) {
+func (*replayBackend) EvmEstimateGasAt(context.Context, *core.Message, uint64, *ethtypes.Header, abevm.CallOverrides) (uint64, []byte, error) {
 	return 0, nil, errNotReplayed
 }
 
-func (b *replayBackend) EvmChainConfig() (*params.ChainConfig, error) {
-	return b.chainConfig, nil
+func (b *replayBackend) EvmChainConfig() *params.ChainConfig {
+	return b.chainConfig
 }
 
 func (b *replayBackend) EvmChainID() uint64 {
@@ -281,39 +285,51 @@ func (b *replayBackend) EvmStorage(address common.Address, key common.Hash) (com
 	return view.GetStorage(storeAddress(address), key), nil
 }
 
-func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (b *replayBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64, _ abevm.CallOverrides) (uint64, []byte, error) {
 	return b.executor.EstimateGas(ctx, b.tip, msg, gasCap)
 }
 
-func (b *replayBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+func (b *replayBackend) EvmEstimateGasAfterCalls(ctx context.Context, calls []*core.Message, msg *core.Message, gasCap uint64, _ abevm.CallOverrides) (uint64, []byte, error) {
 	return b.executor.EstimateGasAfterCalls(ctx, b.tip, calls, msg, gasCap)
+}
+
+func (*replayBackend) EvmEstimateGasAfterCallsAt(context.Context, []*core.Message, *core.Message, uint64, *ethtypes.Header, abevm.CallOverrides) (uint64, []byte, error) {
+	return 0, nil, errNotReplayed
 }
 
 func (b *replayBackend) EvmCreateAccessList(ctx context.Context, msg *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error) {
 	return b.executor.CreateAccessList(ctx, b.tip, msg)
 }
 
-func (b *replayBackend) EvmGasLimit() (uint64, error) {
-	return b.tip.GasLimit, nil
+func (*replayBackend) EvmCreateAccessListAt(context.Context, *core.Message, *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error) {
+	return nil, nil, errNotReplayed
 }
 
-func (*replayBackend) EvmMinGasPrice() (*big.Int, error) {
-	return new(big.Int), nil
+func (b *replayBackend) EvmGasLimit() uint64 {
+	return b.tip.GasLimit
+}
+
+func (*replayBackend) EvmMinGasPrice() *big.Int {
+	return new(big.Int)
 }
 
 func (*replayBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	return utils.None[*ethrpc.Client]()
 }
 
+func (*replayBackend) RememberEvmSender(common.Hash, common.Address) {}
+
+func (*replayBackend) ForgetEvmSender(common.Hash) {}
+
 func (*replayBackend) EvmProxyEnabled() bool {
 	return false
 }
 
-func (*replayBackend) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
+func (*replayBackend) EvmStateAt(context.Context, int64) (vm.SeiStateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
 
-func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
+func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
 
@@ -323,7 +339,12 @@ func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {
 	return view.GetNonce(storeAddress(address))
 }
 
-func (b *replayBackend) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+// EvmPendingNonce reports no local mempool: the replay runs only executed blocks.
+func (*replayBackend) EvmPendingNonce(common.Address) utils.Option[uint64] {
+	return utils.None[uint64]()
+}
+
+func (b *replayBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {
 	view, err := b.stateAt(height)
 	if err != nil {
 		return 0, err

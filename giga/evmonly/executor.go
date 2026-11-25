@@ -14,11 +14,16 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -28,19 +33,29 @@ type Executor struct {
 	occPool         *occWorkerPool
 	resultPool      *blockResultPool
 	stateDBPool     sync.Pool
+	beginBlockers   []beginBlocker
 	endBlockers     []endBlocker
-	customContracts map[common.Address]vm.PrecompiledContract
+	customContracts map[common.Address]vm.CustomPrecompiledContract
 	storeMu         sync.Mutex
 	stateStore      gigatypes.StateDB
-	receiptStore    receipt.ReceiptStore
+	receiptStore    receiptdb.ReceiptStore
 	receiptHasher   *receipthash.ReceiptHasher
+	archive         archive.ArchivalStore
 	// Optional: nil commits only the block's EVM state changes.
 	blockChangeSetEncoder BlockChangeSetEncoder
 	// blockEncoderReadsStore is false only for an encoder registered as
 	// store-independent, which lets encoding overlap the previous commit.
 	blockEncoderReadsStore bool
 	missingState           StateReader
+	genesis                genesisAlloc
 	closed                 atomic.Bool
+
+	// speculationSlots bounds how many early-speculation transactions run at once, across blocks.
+	// Nil when early speculation is off.
+	speculationSlots *utils.Semaphore
+	speculation      utils.Mutex[*speculationState]
+	// lastExecuted is the number of the last block whose commit has started.
+	lastExecuted atomic.Uint64
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -48,10 +63,10 @@ type Executor struct {
 
 	// The commit running behind the current block, and what it will write. A block reads the latter
 	// through an overlay so it need not wait for the former.
-	pipelineMu      sync.Mutex
-	pipelineDone    chan struct{}
-	pipelineErr     error
-	pipelineChanges *StateChangeSet
+	pipelineMu    sync.Mutex
+	pipelineDone  chan struct{}
+	pipelineErr   error
+	pipelineIndex *pendingIndex
 	// The first commit that failed, kept so no caller can miss it.
 	pipelineFailure error
 }
@@ -70,6 +85,16 @@ func WithResultSink(sink ResultSink) Option {
 func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
 		e.missingState = state
+	}
+}
+
+// WithGenesisAlloc sets up each account in alloc at the start of block height,
+// before any begin blocker runs. NewExecutor panics if it is combined with
+// WithMissingAccountState, whose balances the alloc would be credited on top
+// of.
+func WithGenesisAlloc(height uint64, alloc map[common.Address]GenesisAccount) Option {
+	return func(e *Executor) {
+		e.genesis = newGenesisAlloc(height, alloc)
 	}
 }
 
@@ -99,6 +124,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		cfg:             cfg.WithDefaults(),
 		resultPool:      newBlockResultPool(cfg.BlockResultPoolSize),
 		blockPhases:     newBlockPhases(),
+		beginBlockers:   customBeginBlockers(cfg.CustomPrecompiles),
 		endBlockers:     customEndBlockers(cfg.CustomPrecompiles),
 		customContracts: customPrecompileMap(cfg.CustomPrecompiles),
 	}
@@ -107,6 +133,16 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	}
 	for _, opt := range opts {
 		opt(e)
+	}
+	if len(e.genesis.accounts) > 0 && e.missingState != nil {
+		panic("a genesis alloc cannot be combined with a missing account state")
+	}
+	if e.cfg.EarlySpeculationWorkers > 0 && e.stateStore != nil && e.occPool != nil {
+		e.speculationSlots = utils.NewSemaphore(e.cfg.EarlySpeculationWorkers)
+		e.speculation = utils.NewMutex(&speculationState{
+			blocks:        map[uint64]*earlySpeculation{},
+			recentChanges: map[uint64]*pendingIndex{},
+		})
 	}
 	return e
 }
@@ -118,6 +154,7 @@ func (e *Executor) Close() {
 		return
 	}
 	e.closed.Store(true)
+	e.stopEarlySpeculation()
 	// A block holding storeMu may still start a background commit, so wait it out before awaiting.
 	// A commit failure is kept for the next AwaitCommits rather than reported here.
 	e.storeMu.Lock()
@@ -155,13 +192,43 @@ func (e *Executor) MarkWaitingForBlock() {
 	e.blockPhases.SetPhase(phaseWaitingForBlock)
 }
 
+// WarmAccounts reads the account of every sender and recipient in b from the committed state, so that
+// executing b finds them cached rather than waiting on the database.
+func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
+	if e.stateStore == nil || len(b.Txs) == 0 {
+		return
+	}
+	view := e.stateStore.OpenView()
+	if view == nil {
+		return
+	}
+	defer view.Close()
+	workers := min(len(b.Txs), max(1, e.cfg.ParseWorkers))
+	chunk := (len(b.Txs) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(b.Txs); start += chunk {
+		wg.Go(func() {
+			for _, tx := range b.Txs[start:min(start+chunk, len(b.Txs))] {
+				if ctx.Err() != nil {
+					return
+				}
+				view.ReadAccount(tx.Sender)
+				if to := tx.Tx.To(); to != nil {
+					view.ReadAccount(*to)
+				}
+			}
+		})
+	}
+	wg.Wait()
+}
+
 // ExecuteBlock prepares and executes a block, and returns once its state is committed.
 //
 // It is the synchronous entry point. A caller feeding blocks continuously should prepare and
 // execute in separate stages instead, where ExecutePreparedBlock leaves the commit running behind
 // the next block rather than waiting for it here.
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
-	prepared, err := e.PrepareBlock(ctx, req)
+	prepared, err := e.PrepareBlock(req)
 	if err != nil {
 		return nil, err
 	}
@@ -176,41 +243,42 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 	return result, nil
 }
 
-func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	decoded, err := e.DecodeBlock(ctx, req)
+func (e *Executor) PrepareBlock(req BlockRequest) (PreparedBlock, error) {
+	decoded, err := e.DecodeBlock(req)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
-	return e.RecoverSenders(ctx, decoded)
+	return decoded.prepared(), nil
 }
 
-// DecodeBlock decodes and validates req's transactions, leaving their senders unresolved.
-func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBlock, error) {
+// DecodeBlock decodes and validates req's transactions and resolves their senders.
+func (e *Executor) DecodeBlock(req BlockRequest) (DecodedBlock, error) {
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return DecodedBlock{}, err
 	}
-	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
-		return DecodedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
-	}
-	txs, err := decodeBlockTxs(ctx, req.Txs, e.cfg.ParseWorkers)
+	signer := ethtypes.MakeSigner(e.chainConfig(req.Context), new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
+	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(req.Txs)
 	if err != nil {
 		return DecodedBlock{}, err
 	}
-	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
+	return DecodedBlock{context: req.Context, txs: resolved}, nil
 }
 
-// RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
-// b carries an already verified sender for it.
-func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
-	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
-	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
-	if err != nil {
+// PrepareDecodedBlock validates transactions with verified senders for block and prepares them for execution.
+func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, txs []abevm.EvmTx) (PreparedBlock, error) {
+	if err := validateBlockContext(e.chainConfig(block), block); err != nil {
 		return PreparedBlock{}, err
 	}
-	return PreparedBlock{
-		Context: b.context,
-		Txs:     parsed,
-	}, nil
+	signer := abevm.NewSigner(ethtypes.MakeSigner(e.chainConfig(block), new(big.Int).SetUint64(block.Number), block.Time), 0, e.cfg.ParseWorkers)
+	for i, tx := range txs {
+		if err := validateSupportedTx(tx.Transaction()); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+		if err := signer.Admits(tx.Transaction()); err != nil {
+			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
+		}
+	}
+	return (DecodedBlock{context: block, txs: txs}).prepared(), nil
 }
 
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
@@ -231,10 +299,15 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	result, err := e.executeBlockTxs(ctx, req, source)
+	begin, err := e.runBeginBlockers(req.Context, source, false)
 	if err != nil {
 		return nil, err
 	}
+	result, err := e.executeBlockTxs(ctx, req, newPendingOverlay(source, &begin), &begin)
+	if err != nil {
+		return nil, err
+	}
+	mergeEarlierChangeSet(&result.ChangeSet, begin)
 	if err := e.runEndBlockers(req.Context, source, result); err != nil {
 		result.Release()
 		return nil, err
@@ -242,12 +315,14 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, 
 	return result, nil
 }
 
-func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+// executeBlockTxs executes req's transactions against source, which already holds begin, the
+// writes the block's begin blockers made.
+func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
 	if e.useOCC(len(req.Txs)) {
-		return e.executeBlockOCC(ctx, req, source)
+		return e.executeBlockOCC(ctx, req, source, begin)
 	}
 	return e.executeBlockSequential(ctx, req, source)
 }
@@ -303,10 +378,10 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	blockCtx := EVMBlockContext(req.Context)
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
-	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
+	gasPool := core.NewGasPool(req.Context.GasLimit)
 	baseFee := cloneOptionalBig(req.Context.BaseFee)
 
 	result, err := e.acquireBlockResult(ctx, len(req.Txs))
@@ -338,7 +413,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 		txIndexUint++
 	}
 	stateDB.clearSnapshots()
-	stateDB.Finalise(true)
+	stateDB.Finalise(evm.GetRules())
 	stateDB.ChangeSetInto(&result.ChangeSet)
 	ok = true
 	return result, nil
@@ -368,14 +443,19 @@ func (e *Executor) executeTx(
 		}
 	}
 
-	msg := transactionToPreparedMessage(p, baseFee)
-	msg.SkipNonceChecks = e.cfg.DisableNonceCheck
+	msg, err := transactionToPreparedMessage(p, baseFee)
+	if err != nil {
+		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
+	}
+	if e.cfg.DisableNonceCheck {
+		msg.SkipNonceCheck()
+	}
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
 	snapshot := stateDB.Snapshot()
 	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
-	poolGas := gasPool.Gas()
+	poolSnapshot := gasPool.Snapshot()
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
 	// Read before any revert: RevertToSnapshot restores the recorded error too.
@@ -383,17 +463,15 @@ func (e *Executor) executeTx(
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		if !e.cfg.RejectUnappliableTxs {
-			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		if e.cfg.RejectUnappliableTxs {
+			stateDB.RevertToSnapshot(snapshot)
+			stateDB.clearSnapshots()
+			gasPool.Set(poolSnapshot)
 		}
-		stateDB.RevertToSnapshot(snapshot)
-		stateDB.clearSnapshots()
-		gasPool.SetGas(poolGas)
-		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
-		return txResult, receipt, nil
+		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
 	}
 	stateDB.clearSnapshots()
-	stateDB.Finalise(true)
+	stateDB.Finalise(evm.GetRules())
 
 	txLogs := append([]*ethtypes.Log(nil), stateDB.logs[logStart:]...)
 	for _, log := range txLogs {
@@ -443,6 +521,22 @@ func (e *Executor) executeTx(
 	return txResult, receipt, nil
 }
 
+// unappliableTx returns the outcome for a transaction that cannot be applied: err, failing
+// the block, or a failed receipt when RejectUnappliableTxs is set.
+func (e *Executor) unappliableTx(
+	p PreparedTx,
+	block BlockContext,
+	txIndexUint uint,
+	baseFee *big.Int,
+	err error,
+) (TxResult, *ethtypes.Receipt, error) {
+	if !e.cfg.RejectUnappliableTxs {
+		return TxResult{Hash: p.Tx.Hash(), Sender: p.Sender, To: p.Tx.To(), Err: err}, nil, err
+	}
+	txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+	return txResult, receipt, nil
+}
+
 // rejectedTx builds the failed, zero-gas receipt and result for a transaction the
 // executor did not run.
 func rejectedTx(
@@ -474,32 +568,47 @@ func rejectedTx(
 	}, receipt
 }
 
-func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {
+func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message, error) {
 	tx := p.Tx
+	gasPrice, overflow := uint256.FromBig(tx.GasPrice())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, gasPrice bit length: %d", core.ErrFeeCapVeryHigh, p.Sender.Hex(), tx.GasPrice().BitLen())
+	}
+	gasFeeCap, overflow := uint256.FromBig(tx.GasFeeCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", core.ErrFeeCapVeryHigh, p.Sender.Hex(), tx.GasFeeCap().BitLen())
+	}
+	gasTipCap, overflow := uint256.FromBig(tx.GasTipCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", core.ErrTipVeryHigh, p.Sender.Hex(), tx.GasTipCap().BitLen())
+	}
+	value, overflow := uint256.FromBig(tx.Value())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, value exceeds 256 bits", core.ErrInsufficientFunds, p.Sender.Hex())
+	}
+	blobGasFeeCap, overflow := uint256.FromBig(tx.BlobGasFeeCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, blobGasFeeCap exceeds 256 bits", core.ErrFeeCapVeryHigh, p.Sender.Hex())
+	}
 	msg := &core.Message{
 		From:                  p.Sender,
 		Nonce:                 tx.Nonce(),
 		GasLimit:              tx.Gas(),
-		GasPrice:              new(big.Int).Set(tx.GasPrice()),
-		GasFeeCap:             new(big.Int).Set(tx.GasFeeCap()),
-		GasTipCap:             new(big.Int).Set(tx.GasTipCap()),
+		GasPrice:              gasPrice,
+		GasFeeCap:             gasFeeCap,
+		GasTipCap:             gasTipCap,
 		To:                    tx.To(),
-		Value:                 tx.Value(),
+		Value:                 value,
 		Data:                  tx.Data(),
 		AccessList:            tx.AccessList(),
 		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
-		SkipNonceChecks:       false,
-		SkipFromEOACheck:      false,
 		BlobHashes:            tx.BlobHashes(),
-		BlobGasFeeCap:         tx.BlobGasFeeCap(),
+		BlobGasFeeCap:         blobGasFeeCap,
 	}
 	if baseFee != nil {
-		msg.GasPrice = msg.GasPrice.Add(msg.GasTipCap, baseFee)
-		if msg.GasPrice.Cmp(msg.GasFeeCap) > 0 {
-			msg.GasPrice = msg.GasFeeCap
-		}
+		msg.GasPrice = uint256.MustFromBig(EffectiveGasPrice(tx, baseFee))
 	}
-	return msg
+	return msg, nil
 }
 
 // EVMBlockContext returns the go-ethereum block context the executor runs a block with context ctx
@@ -538,7 +647,7 @@ func (unresolvedCustomPrecompile) Run(*vm.EVM, common.Address, common.Address, [
 	return nil, precompiles.ErrCustomPrecompilesOpen
 }
 
-func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.PrecompiledContract {
+func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.CustomPrecompiledContract {
 	if registry == nil {
 		return nil
 	}
@@ -546,7 +655,7 @@ func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.Pr
 	if len(addresses) == 0 {
 		return nil
 	}
-	contracts := make(map[common.Address]vm.PrecompiledContract, len(addresses))
+	contracts := make(map[common.Address]vm.CustomPrecompiledContract, len(addresses))
 	for _, addr := range addresses {
 		contract, ok := registry.Get(addr)
 		if !ok || contract == nil {
@@ -563,7 +672,7 @@ func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	if e.cfg.ChainConfig != nil {
 		cfg = *e.cfg.ChainConfig
 	} else {
-		cfg = *params.AllDevChainProtocolChanges
+		cfg = *DefaultChainConfig()
 	}
 	if ctx.ChainID != nil {
 		cfg.ChainID = new(big.Int).Set(ctx.ChainID)
@@ -572,6 +681,8 @@ func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	} else {
 		cfg.ChainID = big.NewInt(1)
 	}
+	// Sei pays the base fee to the coinbase instead of burning it.
+	cfg.SeiCoinbaseReceivesBaseFee = true
 	return &cfg
 }
 

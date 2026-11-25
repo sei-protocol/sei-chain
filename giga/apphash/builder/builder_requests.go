@@ -18,17 +18,16 @@ type setupCompleteRequest struct {
 	reply       chan callResult[struct{}]
 }
 
-// Asks the builder goroutine to store anchor as the first record of the empty vault, then complete setup at its
-// height.
-type restoredSetupRequest struct {
-	anchor *apphash.AppHashData
-	reply  chan callResult[struct{}]
-}
-
 // Asks the builder goroutine for the published app hash of blockHeight.
 type getAppHashRequest struct {
 	blockHeight uint64
 	reply       chan callResult[*apphash.AppHashData]
+}
+
+// Asks the builder goroutine to store and publish every block completed by the requests ahead of it, then write the
+// hash log to disk.
+type flushRequest struct {
+	reply chan callResult[struct{}]
 }
 
 // Asks the builder goroutine for the range of available app hashes.

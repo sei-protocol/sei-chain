@@ -44,9 +44,9 @@ const sortPoolQueueSize = 65536
 
 var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
 
-// ErrVersionUnreachable is gigatypes.ErrVersionUnreachable: FlatKV cannot reconstruct the requested
-// version from its retained snapshots and WAL.
-var ErrVersionUnreachable = gigatypes.ErrVersionUnreachable
+// ErrVersionUnreachable reports that FlatKV cannot reconstruct the requested version from its retained
+// snapshots and WAL.
+var ErrVersionUnreachable = errors.New("version unreachable")
 
 // CommitStore implements gigatypes.LiveStateStore for EVM state.
 //
@@ -475,7 +475,7 @@ func (s *CommitStore) LoadWorkingCopy() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes.LiveStateStore, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened *CommitStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
@@ -944,7 +944,9 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
 	// own reads onto either pool, for the same reason.
 	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
-		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool, s.sortPool)
+		// Each store starts at the height its own database holds, which may be past the store-wide version.
+		height := uint64(s.localMeta[cfg.Name].CommittedVersion) //nolint:gosec // versions are non-negative
+		store, storeErr := view.NewViewManager(cfg, height, db, s.readPool, s.miscPool, s.sortPool)
 		if storeErr != nil {
 			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
 		}
@@ -953,19 +955,19 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 
 	s.accountStore, err = open(&s.config.AccountStoreConfig, dbs.account)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the account store: %w", err)
 	}
 	s.codeStore, err = open(&s.config.CodeStoreConfig, dbs.code)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the code store: %w", err)
 	}
 	s.storageStore, err = open(&s.config.StorageStoreConfig, dbs.storage)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the storage store: %w", err)
 	}
 	s.miscStore, err = open(&s.config.MiscStoreConfig, dbs.misc)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the misc store: %w", err)
 	}
 
 	s.stores = []view.ViewManager{
@@ -977,11 +979,11 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// "before", so every key in the first replayed block would be mixed in as new with nothing mixed out and
 	// the view would report a hash matching no real chain history.
 	if err := s.sealBaseline(); err != nil {
-		return err
+		return fmt.Errorf("seal the baseline: %w", err)
 	}
 
 	if err := s.startHashing(); err != nil {
-		return err
+		return fmt.Errorf("start hashing: %w", err)
 	}
 
 	if !s.readOnly {
@@ -1102,33 +1104,6 @@ func (s *CommitStore) closeStores() error {
 	s.miscStore = nil
 	s.stores = nil
 	return errors.Join(errs...)
-}
-
-// computeStoreHeights reports the height each database actually reached on disk, keyed by database
-// directory name, or nil when they all sit at the store's committed version and replay has nothing to
-// skip.
-//
-// Replay starts from the committed version, which deriveGlobalState has already set to the lowest of
-// these heights; the databases that are past that block skip it individually rather than the whole
-// block being refused.
-//
-// Must run after each database's LocalMeta has been read off pebble, and before the stores exist.
-func (s *CommitStore) computeStoreHeights() map[string]int64 {
-	heights := make(map[string]int64, len(dataDBDirs))
-	for _, dir := range dataDBDirs {
-		heights[dir] = s.localMeta[dir].CommittedVersion
-	}
-
-	// A database ahead of the store-wide version flushed a block whose peers did not. Only when all four
-	// agree is there nothing to catch up.
-	for _, height := range heights {
-		if height != s.committedVersion {
-			logger.Info("FlatKV stores are at different heights; replay will catch them up",
-				"storeWide", s.committedVersion, "perDB", heights)
-			return heights
-		}
-	}
-	return nil
 }
 
 // loadGlobalMetadata rebuilds the store's in-memory global state from the data DBs' metadata.
@@ -1311,13 +1286,13 @@ func (s *CommitStore) reloadLocalMeta() error {
 	return nil
 }
 
-// requireAlignedDataDBs returns an error unless every data DB sits at the store's committed version.
+// requireAlignedDBs returns an error unless every data DB sits at the store's committed version.
 // The condition holds once replay has run; before then the DBs may legally disagree, and
 // rebuildIfAnyDataDBIsUnreachable has already removed the disagreements replay cannot close.
 //
 // This is what makes summing the per-DB roots into the store root sound: the sum only describes a real
 // state if every DB contributed at the same version.
-func (s *CommitStore) requireAlignedDataDBs() error {
+func (s *CommitStore) requireAlignedDBs() error {
 	// s.localMeta describes what load saw, not what the replay above has since recorded.
 	if err := s.reloadLocalMeta(); err != nil {
 		return fmt.Errorf("flatkv: reload local meta before checking data DB alignment: %w", err)
@@ -1364,6 +1339,15 @@ func (s *CommitStore) currentHash() *lthash.BlockHash {
 // dispatched, which is the block the listener's first delivery follows.
 func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
 	return s.hashListeners.register(listener, s.currentHash()), nil
+}
+
+// CommittedHash blocks until every block committed so far has been hashed, and returns the hash of the
+// latest.
+func (s *CommitStore) CommittedHash() (lthash.BlockHash, error) {
+	if err := s.FlushHashes(); err != nil {
+		return lthash.BlockHash{}, err
+	}
+	return s.RegisterHashListener(nil)
 }
 
 // Flush returns immediately: Commit writes and flushes the block WAL before it returns, so nothing is

@@ -43,6 +43,7 @@ var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurr
 
 type DebugAPI struct {
 	tracersAPI         *tracers.API
+	traceCallAPI       *tracers.API
 	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
 	ctxProvider        func(int64) sdk.Context
@@ -204,21 +205,7 @@ func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context
 }
 
 func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
-	switch number {
-	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
-		return api.ctxProvider(LatestCtxHeight).BlockHeight(), nil
-	case rpc.EarliestBlockNumber:
-		if api.tmClient == nil {
-			return 0, errors.New("tendermint client is not configured")
-		}
-		genesisRes, err := api.tmClient.Genesis(ctx)
-		if err != nil {
-			return 0, err
-		}
-		return genesisRes.Genesis.InitialHeight, nil
-	default:
-		return number.Int64(), nil
-	}
+	return resolveHeight(ctx, api.tmClient, api.ctxProvider(LatestCtxHeight).BlockHeight(), number)
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceHeight(ctx context.Context, endpoint string, blockHeight int64) error {
@@ -254,6 +241,7 @@ func NewDebugAPI(
 ) *DebugAPI {
 	backend := NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
+	traceCallAPI := tracers.NewAPI(traceCallBackend{backend})
 
 	var sem chan struct{}
 	if debugCfg.MaxConcurrentTraceCalls > 0 {
@@ -262,6 +250,7 @@ func NewDebugAPI(
 
 	return &DebugAPI{
 		tracersAPI:         tracersAPI,
+		traceCallAPI:       traceCallAPI,
 		tmClient:           tmClient,
 		keeper:             k,
 		ctxProvider:        ctxProvider,
@@ -406,6 +395,11 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
+	// The tracer's lookup has no ctx and reports any failure as not found.
+	if _, _, _, _, _, err := api.backend.GetTransaction(ctx, hash); err != nil {
+		return nil, err
+	}
+
 	if config == nil {
 		config = &tracers.TraceConfig{}
 	}
@@ -481,7 +475,7 @@ func (api *DebugAPI) tryBlockTraceCacheByNumber(ctx context.Context, number rpc.
 	if cache == nil || bakeableTracerName(config) == "" {
 		return nil, false
 	}
-	block, _, err := api.backend.BlockByNumber(ctx, number)
+	block, err := api.backend.BlockByNumber(ctx, number)
 	if err != nil || block == nil {
 		return nil, false
 	}
@@ -497,7 +491,7 @@ func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.H
 	if cache == nil || bakeableTracerName(config) == "" {
 		return nil, false
 	}
-	block, _, err := api.backend.BlockByHash(ctx, hash)
+	block, err := api.backend.BlockByHash(ctx, hash)
 	if err != nil || block == nil {
 		return nil, false
 	}
@@ -650,7 +644,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, returnErr
 	}
 	api.clampDefaultStructLogLimit(&config.TraceConfig)
-	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
+	result, returnErr = api.traceCallAPI.TraceCall(ctx, args, &blockNrOrHash, config)
 	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
@@ -731,7 +725,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if blockNumber == 0 {
 		return nil, errors.New("genesis is not traceable")
 	}
-	block, _, err := tracingBackend.BlockByHash(ctx, blockHash)
+	block, err := tracingBackend.BlockByHash(ctx, blockHash)
 	if err != nil {
 		return nil, err
 	}

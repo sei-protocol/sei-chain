@@ -15,6 +15,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
@@ -107,10 +108,10 @@ func newBehaviorStateDB(t *testing.T, code map[common.Address][]byte) *gethstate
 	require.NoError(t, err)
 	sdb.SetBalance(behaviorSender, uint256.NewInt(1_000_000_000_000_000_000), tracing.BalanceChangeUnspecified)
 	for addr, c := range code {
-		sdb.SetCode(addr, c)
+		sdb.SetCode(addr, c, tracing.CodeChangeUnspecified)
 		sdb.SetNonce(addr, 1, tracing.NonceChangeUnspecified)
 	}
-	root, err := sdb.Commit(0, true, false)
+	root, err := sdb.Commit(params.Rules{IsEIP158: true}, 0)
 	require.NoError(t, err)
 	sdb, err = gethstate.New(root, db)
 	require.NoError(t, err)
@@ -246,7 +247,7 @@ func TestGigaExecutorFailFastAbortPropagation_Behavior(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sdb := newBehaviorStateDB(t, tc.code)
 			exec := newBehaviorExecutor(sdb)
-			gp := new(core.GasPool).AddGas(10_000_000)
+			gp := core.NewGasPool(10_000_000)
 
 			res, err := exec.ExecuteTransactionFeeCharged(behaviorTx(tc.to, tc.data), behaviorSender, big.NewInt(0), gp)
 

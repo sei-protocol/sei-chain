@@ -9,9 +9,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -21,7 +21,6 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
-	EVMRPC   url.URL
 }
 
 func (a GigaNodeAddr) String() string {
@@ -42,23 +41,30 @@ type GigaRouterCommonConfig struct {
 	// App is the application the blocks run on. The router reads its committed
 	// height and validator set, and NewGigaValidatorRouter passes it to the
 	// producer's mempool.
-	App *proxy.Proxy
+	App *abevm.Proxy
 	// AppHashBuilder is the source of every Autobahn application hash. The
 	// storage manager owns it. The router reads each executed block's app hash
 	// from it.
 	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
-	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
+	// peers outside PersistentPeerIDs. 0 rejects every such peer; a positive
+	// value caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
+	// PersistentPeerIDs are node IDs from p2p.persistent-peers and
+	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
+	PersistentPeerIDs map[types.NodeID]struct{}
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
+	// AllowLocalAddrs permits loopback and link-local EVM RPC URLs in tests.
+	AllowLocalAddrs bool
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
 	ValidatorKey    atypes.SecretKey
+	EVMRPC          url.URL
 	ViewTimeout     func(atypes.View) time.Duration
 	ProposalTimeout time.Duration
 	Producer        *producer.Config
@@ -72,14 +78,20 @@ type GigaValidatorConfig struct {
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
-	LastCommittedBlockNumber() int64
+	LastCommittedHeight() int64
 	MaxGasEstimatedPerBlock() uint64
-	BlockByNumber(ctx context.Context, n atypes.RoadIndex) (*coretypes.ResultBlock, error)
+	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
+	// CheckTx checks a transaction for admission without inserting it into the mempool.
+	CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error)
+	// RememberEvmSender records a verified sender for local admission.
+	RememberEvmSender(hash common.Hash, sender common.Address)
+	// ForgetEvmSender removes the cached sender for hash.
+	ForgetEvmSender(hash common.Hash)
 	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.RoadIndex) ([]*types.Validator, error)
-	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
+	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
+	fillInboundHandshake(spec handshakeSpec) handshakeSpec
 }

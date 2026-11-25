@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	sstest "github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/sstest"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 func TestStorageTestSuite(t *testing.T) {

@@ -14,11 +14,11 @@ func NewEVMNoCosmosFieldsDecorator() EVMNoCosmosFieldsDecorator {
 	return EVMNoCosmosFieldsDecorator{}
 }
 
-func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, next sdk.AnteHandler) (sdk.Context, error) {
 	if err := ValidateNoCosmosTxFields(tx); err != nil {
 		return ctx, err
 	}
-	return next(ctx, tx, simulate)
+	return next(ctx, tx)
 }
 
 type protoTxProvider interface {

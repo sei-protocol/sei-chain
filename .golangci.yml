@@ -9,7 +9,6 @@ linters:
   default: none
   enable:
     - bodyclose
-    - dogsled
     - errcheck
     # goconst is deliberately not enabled: it is more noise than it is worth.
     - gosec

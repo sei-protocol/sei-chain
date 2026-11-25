@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 )
@@ -24,12 +25,10 @@ type GigaStorageConfig struct {
 	AppHashBuilderConfig *builder.AppHashBuilderConfig    // required
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 	BUDHasherConfig      *bud.BUDHasherConfig             // required
-
-	// DeferAppHashBuilderSetup leaves the app hash builder's setup to the caller, which completes it with
-	// SetupComplete() or CompleteRestoredSetup() after storage opens. Set on a home restored from a state
-	// snapshot. The caller must not write the restored block to the block store until CompleteRestoredSetup()
-	// returns.
-	DeferAppHashBuilderSetup bool
+	ArchiveConfig        *clickhouse.Config               // optional; nil disables the archive
+	EVMChainID           uint64                           // the EVM chain whose blocks the stores hold
+	// The file present while a node holds these stores open. Empty disables it.
+	RunningMarkerPath string
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -63,7 +62,6 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.Backend = PebbleDBUndoBackend
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
 	ssConfig.ExternalPruning = true
-	ssConfig.DisableInternalWAL = true
 
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend
@@ -72,6 +70,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 
 	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
 	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
+	appHashBuilderConfig.HashLogConfig.Path = utils.GetAppHashLogPath(homePath)
 	receiptHasherConfig := receipthash.DefaultReceiptHasherConfig()
 	budHasherConfig := bud.DefaultBUDHasherConfig()
 

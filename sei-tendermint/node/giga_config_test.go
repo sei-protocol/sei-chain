@@ -3,17 +3,34 @@ package node
 import (
 	"encoding/binary"
 	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+func TestGenesisEpochUsesAutobahnEpochLength(t *testing.T) {
+	params := types.DefaultAutobahnParams()
+	params.EpochLength = 3
+	genDoc := &types.GenesisDoc{InitialHeight: 7, GenesisTime: time.Unix(1, 0), Autobahn: utils.Some(params)}
+	firstRoad, err := genesisFirstRoad(genDoc)
+	require.NoError(t, err)
+	require.Equal(t, atypes.RoadHeight(7), firstRoad)
+	require.Equal(t, atypes.RoadHeight(3), genesisEpochLength(genDoc))
+}
 
 func genesisAt(initialHeight int64) *types.GenesisDoc {
 	return &types.GenesisDoc{InitialHeight: initialHeight}
@@ -85,56 +102,98 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 	require.NoError(t, got.Validate())
 }
 
-func TestPrepareApplicationFullModeOpensStateStore(t *testing.T) {
+func TestMakeEVMApplicationFullModeOpensStateStore(t *testing.T) {
 	validator := makeValidator([]byte("full-validator"), []byte("full-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	_, storage, err := prepareApplication(t.Context(), &config.Config{
+	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeFull},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, genesisAt(1))
+	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
-	require.NotNil(t, manager.SS())
+	require.NotNil(t, manager.StateDB().HistoricalStateDB())
 }
 
-func TestPrepareApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
+func TestMakeEVMApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
 	validator := makeValidator([]byte("receipts-validator"), []byte("receipts-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 	giga := gigaconfig.DefaultConfig
 	giga.Storage.Receipts = false
 
-	_, storage, err := prepareApplication(t.Context(), &config.Config{
+	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, giga, genesisAt(1))
+	}, giga, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.Nil(t, manager.ReceiptDB())
 }
 
-func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
+func TestMakeEVMApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	validator := makeValidator([]byte("exec-validator"), []byte("exec-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 	giga := gigaconfig.DefaultConfig
 	giga.Execution.MinGasPrice = 2_000_000_000
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
-		BaseConfig:         config.BaseConfig{FastCheckTx: true},
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, giga, genesisAt(1))
+	}, giga, genesisAt(1))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	provider, ok := prepared.(interface{ EvmMinGasPrice() *big.Int })
-	require.True(t, ok)
-	require.Equal(t, 0, provider.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
+	require.Equal(t, 0, app.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
+}
+
+func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
+	validator := makeValidator([]byte("chain-id-validator"), []byte("chain-id-node"), "localhost:26660")
+	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
+	fc.EVMChainID = 713701
+
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+		AutobahnConfigFile: writeAutobahnConfig(t, fc),
+	}, gigaconfig.DefaultConfig, genesisAt(1))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	require.Equal(t, uint64(713701), app.EvmChainID())
+}
+
+func TestMakeEVMApplicationRefusesAPendingRestore(t *testing.T) {
+	psd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restore-pending"), []byte("7\n"), 0o600))
+
+	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+
+	require.ErrorIs(t, err, errPendingRestore)
+	_, err = os.Stat(filepath.Join(psd, "data"))
+	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a home with a pending restore")
+}
+
+func TestMakeEVMApplicationRemovesTheStagingDirOfAStoppedImport(t *testing.T) {
+	psd := t.TempDir()
+	layout := autobahnLayout(psd)
+	require.NoError(t, os.MkdirAll(filepath.Join(layout.ImportStagingDir, "download"), 0o750))
+
+	_, manager, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	_, err = os.Stat(layout.ImportStagingDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestRemoveStoppedImportKeepsTheStagingDirOfARunningImport(t *testing.T) {
+	layout := autobahnLayout(t.TempDir())
+	require.NoError(t, os.MkdirAll(layout.ImportStagingDir, 0o750))
+	lock, err := flatkv.LockRoot(layout.FlatKVDir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Unlock()) }()
+
+	require.ErrorIs(t, removeStoppedImport(layout), commonerrors.ErrFileLockUnavailable)
+
+	_, err = os.Stat(layout.ImportStagingDir)
+	require.NoError(t, err)
 }
 
 // The builder's first block is the genesis height. A chain that starts above 1
@@ -144,37 +203,57 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	validator := makeValidator([]byte("activation-validator"), []byte("activation-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, storage, err := prepareApplication(t.Context(), &config.Config{
+	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, genesisAt(initialHeight))
+	}, gigaconfig.DefaultConfig, genesisAt(initialHeight))
 	require.NoError(t, err)
-	manager, ok := storage.Get()
-	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, err = app.InitChain(&abci.RequestInitChain{
-		InitialHeight: initialHeight,
-		ConsensusParams: &tmproto.ConsensusParams{
-			Block: &tmproto.BlockParams{MaxGas: 30_000_000},
-		},
-	})
+	err = app.InitChain(abevm.InitConfig{
+		InitialHeight: atypes.RoadHeight(initialHeight),
+		GasLimit:      30_000_000})
 	require.NoError(t, err)
 
 	var blockHash [32]byte
 	binary.BigEndian.PutUint64(blockHash[:], uint64(initialHeight))
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), uint64(initialHeight), blockHash))
-	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
-		Hash: blockHash[:],
-		Header: &tmproto.Header{
-			Height: initialHeight,
-			Time:   time.Unix(1_700_000_000+initialHeight, 0),
-		},
-	})
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
+	_, err = app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
+		Hash:   common.BytesToHash(blockHash[:]),
+		Height: atypes.RoadHeight(initialHeight),
+		Time:   time.Unix(1_700_000_000+initialHeight, 0)})
 	require.NoError(t, err)
 	got, err := manager.AppHashBuilder().GetAppHash(t.Context(), uint64(initialHeight))
 	require.NoError(t, err)
 	require.Equal(t, uint64(initialHeight), got.BlockHeight())
+}
+
+func TestStateSyncUpload(t *testing.T) {
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials"))
+	t.Setenv("AWS_PROFILE", "")
+	uploading := gigaconfig.StateSyncConfig{
+		Enabled:                true,
+		SnapshotBucket:         "sei-snapshots",
+		SnapshotRegion:         "eu-central-1",
+		SnapshotUpload:         true,
+		SnapshotUploadInterval: time.Hour,
+	}
+
+	reading := uploading
+	reading.SnapshotUpload = false
+	upload, err := stateSyncUpload(config.ModeFull, reading, "chain-a", "node-a")
+	require.NoError(t, err)
+	require.False(t, upload.IsPresent(), "a bucket without snapshot_upload uploads no snapshot")
+
+	upload, err = stateSyncUpload(config.ModeFull, uploading, "chain-a", "node-a")
+	require.NoError(t, err)
+	got, ok := upload.Get()
+	require.True(t, ok)
+	require.Equal(t, "chain-a", got.ChainID)
+	require.Equal(t, "node-a", got.NodeID)
+	require.Equal(t, time.Hour, got.Interval)
+
+	_, err = stateSyncUpload(config.ModeValidator, uploading, "chain-a", "node-a")
+	require.Error(t, err)
 }

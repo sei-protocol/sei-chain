@@ -14,7 +14,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -40,14 +41,14 @@ func TestBlockGasRPCsCountReceiptsAtMatchingHeight(t *testing.T) {
 			tx1, raw1 := testSignedTransaction(t)
 			tx2, raw2 := secondSignedTransaction(t)
 			store := evmonly.NewMemoryReceiptStore()
-			var records []receipt.ReceiptRecord
+			var records []receipttypes.ReceiptRecord
 			if tc.first {
-				records = append(records, receipt.ReceiptRecord{TxHash: tx1.Hash(), Receipt: &evmtypes.Receipt{
+				records = append(records, receipttypes.ReceiptRecord{TxHash: tx1.Hash(), Receipt: &evmtypes.Receipt{
 					TxHashHex: tx1.Hash().Hex(), BlockNumber: 9, GasUsed: 21_000, CumulativeGasUsed: 21_000,
 				}})
 			}
 			if tc.lastHeight != 0 {
-				records = append(records, receipt.ReceiptRecord{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{
+				records = append(records, receipttypes.ReceiptRecord{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{
 					TxHashHex: tx2.Hash().Hex(), BlockNumber: tc.lastHeight, TransactionIndex: 1, GasUsed: 22_500, CumulativeGasUsed: 43_500,
 				}})
 			}
@@ -70,9 +71,9 @@ func TestBlockGasRPCsCountReceiptsAtMatchingHeight(t *testing.T) {
 			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 				return block, nil
 			}
-			backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+			backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 			// Stored block stats and the by-hash recompute fallback must agree.
-			for _, gasStore := range []receipt.ReceiptStore{store, hashOnlyReceiptStore{ReceiptStore: store}} {
+			for _, gasStore := range []receiptdb.ReceiptStore{store, hashOnlyReceiptStore{ReceiptStore: store}} {
 				blocks := &blockAPI{backend: backend, store: gasStore}
 				for _, fullTx := range []bool{false, true} {
 					byNumber, err := blocks.GetBlockByNumber(t.Context(), 9, fullTx)
@@ -91,7 +92,7 @@ func TestBlockGasRPCsCountReceiptsAtMatchingHeight(t *testing.T) {
 }
 
 type failingGasReceiptStore struct {
-	receipt.ReceiptStore
+	receiptdb.ReceiptStore
 	hash common.Hash
 	err  error
 }
@@ -117,7 +118,7 @@ func TestBlockGasRPCsPropagateReceiptReadErrors(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return block, nil
 	})
-	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+	backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 	for _, fullTx := range []bool{false, true} {
 		_, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, fullTx)
 		require.ErrorIs(t, err, readErr)
@@ -149,7 +150,7 @@ func TestBlockGasRPCsSkipUnavailableReceiptHeights(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 				return block, nil
 			})
-			backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+			backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
 			got, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, false)
 			require.NoError(t, err)
 			require.Equal(t, hexutil.Uint64(0), got["gasUsed"])

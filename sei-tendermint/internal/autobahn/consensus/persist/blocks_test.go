@@ -11,10 +11,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.BlockNumber) *types.Signed[*types.LaneProposal] {
+func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.LaneHeight) *types.Signed[*types.LaneProposal] {
 	lane := types.LaneID{Validator: key.Public(), Joined: 0}
-	block := types.NewBlock(lane, n, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-	return types.Sign(key, types.NewLaneProposal(block))
+	block := types.NewLaneBlock(lane, n, types.GenLaneBlockHeaderHash(rng), types.GenPayload(rng))
+	return key.Sign(types.NewLaneProposal(block))
 }
 
 func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.LaneProposal]) {
@@ -30,16 +30,16 @@ func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.L
 // liveBlocks drops blocks the prune anchor has moved past, mirroring the filter loadPersistedState
 // applies in the avail package. Pruning reclaims whole WAL files, so a pruned block can still be on
 // disk when the persister reloads; only what the anchor considers live is asserted on here.
-func liveBlocks(loaded []LoadedBlock, first types.BlockNumber) []LoadedBlock {
+func liveBlocks(loaded []LoadedBlock, first types.LaneHeight) []LoadedBlock {
 	for i, b := range loaded {
-		if b.Number >= first {
+		if b.Height >= first {
 			return loaded[i:]
 		}
 	}
 	return nil
 }
 
-func testDeleteBefore(bp *BlockPersister, laneFirsts map[types.LaneID]types.BlockNumber) error {
+func testDeleteBefore(bp *BlockPersister, laneFirsts map[types.LaneID]types.LaneHeight) error {
 	for lanes := range bp.lanes.RLock() {
 		return scope.Parallel(func(ps scope.ParallelScope) error {
 			for lane, first := range laneFirsts {
@@ -92,8 +92,8 @@ func TestPersistBlockAndLoad(t *testing.T) {
 	require.NotNil(t, bp2)
 	require.Equal(t, 1, len(blocks), "should have 1 lane")
 	require.Equal(t, 2, len(blocks[lane]), "should have 2 blocks")
-	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Number)
-	require.Equal(t, types.BlockNumber(1), blocks[lane][1].Number)
+	require.Equal(t, types.LaneHeight(0), blocks[lane][0].Height)
+	require.Equal(t, types.LaneHeight(1), blocks[lane][1].Height)
 	require.NoError(t, utils.TestDiff(b0, blocks[lane][0].Proposal))
 	require.NoError(t, utils.TestDiff(b1, blocks[lane][1].Proposal))
 	require.NoError(t, bp2.Close())
@@ -134,19 +134,19 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
-	for i := range types.BlockNumber(5) {
+	for i := range types.LaneHeight(5) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
 
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 3}))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.LaneHeight{lane: 3}))
 	require.NoError(t, bp.Close())
 
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	live := liveBlocks(blocks[lane], 3)
 	require.Equal(t, 2, len(live), "should have blocks 3 and 4")
-	require.Equal(t, types.BlockNumber(3), live[0].Number)
-	require.Equal(t, types.BlockNumber(4), live[1].Number)
+	require.Equal(t, types.LaneHeight(3), live[0].Height)
+	require.Equal(t, types.LaneHeight(4), live[1].Height)
 }
 
 func TestDeleteBeforeAndRestart(t *testing.T) {
@@ -162,13 +162,13 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
-	for i := range types.BlockNumber(3) {
+	for i := range types.LaneHeight(3) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key1, i))
 		testPersistBlock(t, bp, testSignedProposal(rng, key2, i))
 	}
 
 	// lane1: truncate old blocks, lane2: delete nothing (first=0), lane3: empty (no WAL).
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane1: 2, lane2: 0, lane3: 0}))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.LaneHeight{lane1: 2, lane2: 0, lane3: 0}))
 	require.NoError(t, bp.Close())
 
 	// Restart — verify varied lane states load correctly.
@@ -176,7 +176,7 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	lane1Live := liveBlocks(blocks[lane1], 2)
 	require.Equal(t, 1, len(lane1Live), "lane1 should have block 2")
-	require.Equal(t, types.BlockNumber(2), lane1Live[0].Number)
+	require.Equal(t, types.LaneHeight(2), lane1Live[0].Height)
 	require.Equal(t, 3, len(blocks[lane2]), "lane2 should have all 3 blocks")
 	require.Equal(t, 0, len(blocks[lane3]), "lane3 never had blocks")
 
@@ -189,9 +189,9 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	lane1Live2 := liveBlocks(blocks2[lane1], 2)
 	require.Equal(t, 2, len(lane1Live2), "lane1 should have blocks 2,3")
-	require.Equal(t, types.BlockNumber(3), lane1Live2[1].Number)
+	require.Equal(t, types.LaneHeight(3), lane1Live2[1].Height)
 	require.Equal(t, 4, len(blocks2[lane2]), "lane2 should have blocks 0..3")
-	require.Equal(t, types.BlockNumber(3), blocks2[lane2][3].Number)
+	require.Equal(t, types.LaneHeight(3), blocks2[lane2][3].Height)
 }
 
 func TestNoOpBlockPersister(t *testing.T) {
@@ -206,7 +206,7 @@ func TestNoOpBlockPersister(t *testing.T) {
 
 	proposals := make([]*types.Signed[*types.LaneProposal], 5)
 	for i := range proposals {
-		proposals[i] = testSignedProposal(rng, key, types.BlockNumber(i))
+		proposals[i] = testSignedProposal(rng, key, types.LaneHeight(i))
 	}
 
 	require.NoError(t, bp.PruneAndPersist(lane, 0, proposals[:3]))
@@ -224,10 +224,10 @@ func TestDeleteBeforeThenPersistMore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Persist 0..4, delete before 3, then persist 5.
-	for i := range types.BlockNumber(5) {
+	for i := range types.LaneHeight(5) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 3}))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.LaneHeight{lane: 3}))
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 5))
 	require.NoError(t, bp.Close())
 
@@ -235,9 +235,9 @@ func TestDeleteBeforeThenPersistMore(t *testing.T) {
 	require.NoError(t, err)
 	live := liveBlocks(blocks[lane], 3)
 	require.Equal(t, 3, len(live), "should have blocks 3, 4, 5")
-	require.Equal(t, types.BlockNumber(3), live[0].Number)
-	require.Equal(t, types.BlockNumber(4), live[1].Number)
-	require.Equal(t, types.BlockNumber(5), live[2].Number)
+	require.Equal(t, types.LaneHeight(3), live[0].Height)
+	require.Equal(t, types.LaneHeight(4), live[1].Height)
+	require.Equal(t, types.LaneHeight(5), live[2].Height)
 }
 
 func TestDeleteBeforePastAllBlocks(t *testing.T) {
@@ -249,12 +249,12 @@ func TestDeleteBeforePastAllBlocks(t *testing.T) {
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
-	for i := range types.BlockNumber(3) {
+	for i := range types.LaneHeight(3) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
 
 	// Anchor advanced past everything (nextBlockNum is 3, first=10).
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.LaneHeight{lane: 10}))
 
 	// Lane WAL is now empty; new writes starting from 10 should work.
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 10))
@@ -265,8 +265,8 @@ func TestDeleteBeforePastAllBlocks(t *testing.T) {
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 2, len(blocks[lane]))
-	require.Equal(t, types.BlockNumber(10), blocks[lane][0].Number)
-	require.Equal(t, types.BlockNumber(11), blocks[lane][1].Number)
+	require.Equal(t, types.LaneHeight(10), blocks[lane][0].Height)
+	require.Equal(t, types.LaneHeight(11), blocks[lane][1].Height)
 }
 
 func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
@@ -278,12 +278,12 @@ func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
-	for i := range types.BlockNumber(3) {
+	for i := range types.LaneHeight(3) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
 
 	// Anchor advanced past everything; nextBlockNum re-anchored to 10.
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.LaneHeight{lane: 10}))
 
 	// Writing a stale block number (0) should be rejected.
 	stale := testSignedProposal(rng, key, 0)
@@ -305,17 +305,17 @@ func TestTruncateOnEmptyWALAdvancesCursor(t *testing.T) {
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
-	for i := range types.BlockNumber(3) {
+	for i := range types.LaneHeight(3) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
 
 	// First truncation empties the WAL (first=10 > nextBlockNum=3).
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.LaneHeight{lane: 10}))
 
 	// Second truncation on the already-empty WAL (first=15).
 	// Before the fix, nextBlockNum would stay at 10 and block 15 would
 	// be rejected as out of sequence.
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 15}))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.LaneHeight{lane: 15}))
 
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 15))
 	require.NoError(t, bp.Close())
@@ -346,7 +346,7 @@ func TestEmptyLaneWALSurvivesReopen(t *testing.T) {
 	_, blocks2, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks2[lane]))
-	require.Equal(t, types.BlockNumber(0), blocks2[lane][0].Number)
+	require.Equal(t, types.LaneHeight(0), blocks2[lane][0].Height)
 }
 
 func TestNewBlockPersisterSkipsNonHexDir(t *testing.T) {
@@ -426,7 +426,7 @@ func TestLoadAllDropsBlocksBehindGap(t *testing.T) {
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks[lane]), "block 0 sits behind the gap and is dropped")
-	require.Equal(t, types.BlockNumber(2), blocks[lane][0].Number)
+	require.Equal(t, types.LaneHeight(2), blocks[lane][0].Height)
 }
 
 func TestPersistBlockAutoCreatesLane(t *testing.T) {
@@ -451,7 +451,7 @@ func TestPersistBlockAutoCreatesLane(t *testing.T) {
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks[lane]))
-	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Number)
+	require.Equal(t, types.LaneHeight(0), blocks[lane][0].Height)
 }
 
 // TestPruneReclaimsSealedFiles verifies that the block number truncateForAnchor prunes at actually
@@ -465,14 +465,14 @@ func TestPruneReclaimsSealedFiles(t *testing.T) {
 	dir := t.TempDir()
 
 	const total = 40
-	const anchor = types.BlockNumber(30)
+	const anchor = types.LaneHeight(30)
 	// Small enough that a file seals every block or two, giving pruning whole files to reclaim.
 	const fileSize = 512
 
 	w, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, fileSize, blocksWALMetrics)
 	require.NoError(t, err)
 	s := &laneWALState{wal: w}
-	for i := range types.BlockNumber(total) {
+	for i := range types.LaneHeight(total) {
 		require.NoError(t, s.persistBlock(testSignedProposal(rng, key, i)))
 	}
 	require.NoError(t, s.flush(lane))
@@ -487,10 +487,10 @@ func TestPruneReclaimsSealedFiles(t *testing.T) {
 	require.NoError(t, s2.wal.Close())
 
 	require.True(t, len(loaded) > 0, "live blocks must survive pruning")
-	require.True(t, loaded[0].Number > 0, "pruning should have reclaimed the oldest blocks")
-	require.True(t, loaded[0].Number <= anchor, "pruning must not reclaim blocks at or above the anchor")
-	require.Equal(t, types.BlockNumber(total-1), loaded[len(loaded)-1].Number)
-	require.Equal(t, types.BlockNumber(total), s2.nextBlockNum)
+	require.True(t, loaded[0].Height > 0, "pruning should have reclaimed the oldest blocks")
+	require.True(t, loaded[0].Height <= anchor, "pruning must not reclaim blocks at or above the anchor")
+	require.Equal(t, types.LaneHeight(total-1), loaded[len(loaded)-1].Height)
+	require.Equal(t, types.LaneHeight(total), s2.nextHeight)
 }
 
 func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
@@ -512,7 +512,7 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 	for i := range numLanes {
 		proposals[i] = make([]*types.Signed[*types.LaneProposal], blocksPerLane)
 		for j := range blocksPerLane {
-			proposals[i][j] = testSignedProposal(rng, keys[i], types.BlockNumber(j))
+			proposals[i][j] = testSignedProposal(rng, keys[i], types.LaneHeight(j))
 		}
 	}
 
@@ -535,7 +535,7 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 		lane := types.LaneID{Validator: keys[i].Public(), Joined: 0}
 		require.Equal(t, blocksPerLane, len(blocks[lane]))
 		for j := range blocksPerLane {
-			require.Equal(t, types.BlockNumber(j), blocks[lane][j].Number)
+			require.Equal(t, types.LaneHeight(j), blocks[lane][j].Height)
 		}
 	}
 }
@@ -550,8 +550,8 @@ func TestSyncLanesDeletesOpenLane(t *testing.T) {
 
 	leaver := types.GenSecretKey(rng)
 	lane := types.LaneID{Validator: leaver.Public(), Joined: 0}
-	proposal := types.Sign(leaver, types.NewLaneProposal(
-		types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)),
+	proposal := leaver.Sign(types.NewLaneProposal(
+		types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng)),
 	))
 
 	require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{proposal}))
@@ -559,10 +559,10 @@ func TestSyncLanesDeletesOpenLane(t *testing.T) {
 	_, err = os.Stat(lanePath)
 	require.NoError(t, err)
 
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	require.NoError(t, bp.SyncLanes(map[types.LaneID]struct{}{}))
 	_, err = os.Stat(lanePath)
 	require.True(t, os.IsNotExist(err))
 
 	// Idempotent.
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	require.NoError(t, bp.SyncLanes(map[types.LaneID]struct{}{}))
 }

@@ -70,15 +70,16 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 	}
 }
 
-func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
 	runner := newOCCSpeculativeRunner(e, req)
 	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 
 	results := make([]occTxExecution, len(req.Txs))
-	chunkSize := occChunkSize(len(req.Txs), workers)
+	e.blockPhases.SetPhase(phaseEarlySpeculation)
+	early := e.reuseEarlySpeculation(ctx, req, begin, results)
 	e.blockPhases.SetPhase(phaseOCCSpeculate)
-	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
+	if err := runner.speculate(ctx, executionPool, workers, source, results, early); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
 			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
 		}
@@ -140,7 +141,7 @@ func (r occSpeculativeRunner) runRanges(
 	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, _ int, _ int) error {
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
-		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
+		evm := vm.NewEVMWithCustomPrecompiles(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
 		stateDB.SetEVM(evm)
 		for {
 			rangeIndex := int(claimed.Add(1) - 1)
@@ -168,6 +169,32 @@ func (r occSpeculativeRunner) runRanges(
 	})
 }
 
+// speculate runs every transaction early speculation did not fill, all of them when filled is nil.
+func (r occSpeculativeRunner) speculate(
+	ctx context.Context,
+	pool *occWorkerPool,
+	workers int,
+	source StateReader,
+	results []occTxExecution,
+	filled []bool,
+) error {
+	if filled == nil {
+		return r.runRanges(ctx, pool, occRanges(len(results), occChunkSize(len(results), workers)), source, r.blockGasLimit, results)
+	}
+	tasks := make([]occExecutionTask, 0, len(results))
+	for i, done := range filled {
+		if !done {
+			tasks = append(tasks, occExecutionTask{
+				txIndex:     i,
+				txIndexUint: uint(i), //nolint:gosec // i is a non-negative transaction index.
+				source:      source,
+				gasLimit:    r.blockGasLimit,
+			})
+		}
+	}
+	return r.runTasks(ctx, pool, tasks, results)
+}
+
 func (r occSpeculativeRunner) runTasks(
 	ctx context.Context,
 	pool *occWorkerPool,
@@ -180,7 +207,7 @@ func (r occSpeculativeRunner) runTasks(
 	return pool.Run(ctx, len(tasks), func(workerCtx context.Context, workerID int, workers int) error {
 		stateDB := r.executor.acquireStateDB(nil)
 		defer r.executor.releaseStateDB(stateDB)
-		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
+		evm := vm.NewEVMWithCustomPrecompiles(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, r.executor.customContracts)
 		stateDB.SetEVM(evm)
 		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += workers {
 			if err := workerCtx.Err(); err != nil {
@@ -260,9 +287,8 @@ func (e *Executor) executeTxSpeculative(
 	stateDB.reset(source)
 	stateDB.enableAccessTracking()
 	evm.StateDB = stateDB
-	evm.Depth = 0
 	stateDB.SetEVM(evm)
-	gasPool := new(core.GasPool).AddGas(blockGasLimit)
+	gasPool := core.NewGasPool(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
 		evm,
 		stateDB,

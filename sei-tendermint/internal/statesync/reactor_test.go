@@ -3,6 +3,7 @@ package statesync
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -128,10 +129,10 @@ func (rts *reactorTestSuite) AddPeerWithoutWaiting(ctx context.Context, t *testi
 	})
 	n := &Node{
 		TestNode:   testNode,
-		snapshotCh: orPanic(p2p.OpenChannel(testNode.Router, GetSnapshotChannelDescriptor())),
-		chunkCh:    orPanic(p2p.OpenChannel(testNode.Router, GetChunkChannelDescriptor())),
-		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
-		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
+		snapshotCh: orPanic(testNode.Router.OpenChannel(GetSnapshotChannelDescriptor())),
+		chunkCh:    orPanic(testNode.Router.OpenChannel(GetChunkChannelDescriptor())),
+		blockCh:    orPanic(testNode.Router.OpenChannel(GetLightBlockChannelDescriptor())),
+		paramsCh:   orPanic(testNode.Router.OpenChannel(GetParamsChannelDescriptor())),
 	}
 	if err := testNode.Connect(ctx, rts.node); err != nil {
 		return nil, err
@@ -212,6 +213,43 @@ func TestReactor_Sync(t *testing.T) {
 		return err
 	})
 	require.NoError(t, err)
+}
+
+func TestReactor_SyncLocalSnapshotListingError(t *testing.T) {
+	testcases := map[string]time.Duration{
+		"discovery disabled": 0,
+		"discovery enabled":  config.DefaultStateSyncConfig().DiscoveryTime,
+	}
+	for name, discoveryTime := range testcases {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			errListing := errors.New("snapshot metadata cannot be read")
+			conn := newTestStatesyncApp()
+			conn.listSnapshots.Push(func(context.Context, *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error) {
+				return nil, errListing
+			})
+			rts := setup(t, conn, nil, false)
+			chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
+			peers := utils.Slice(utils.OrPanic1(rts.AddPeer(ctx, t)), utils.OrPanic1(rts.AddPeer(ctx, t)))
+
+			// Sync initializes the state provider before it lists local snapshots.
+			rts.reactor.cfg.UseP2P = true
+			rts.reactor.cfg.TrustHeight = 1
+			rts.reactor.cfg.TrustHash = fmt.Sprintf("%X", chain[1].Hash())
+			rts.reactor.cfg.UseLocalSnapshot = true
+			rts.reactor.cfg.DiscoveryTime = discoveryTime
+
+			err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				for _, peer := range peers {
+					s.SpawnBg(func() error { return utils.IgnoreCancel(peer.handleLightBlockRequests(ctx, chain, false)) })
+				}
+				_, err := rts.reactor.Sync(ctx)
+				return err
+			})
+			require.ErrorIs(t, err, errListing)
+			conn.AssertExpectations(t)
+		})
+	}
 }
 
 func TestReactor_ChunkRequest(t *testing.T) {

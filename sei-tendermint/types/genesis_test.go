@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func TestGenesisBad(t *testing.T) {
@@ -92,7 +92,7 @@ func TestBasicGenesisDoc(t *testing.T) {
 	)
 	genDoc, err := GenesisDocFromJSON(genDocBytes)
 	assert.NoError(t, err, "expected no error for good genDoc json")
-	assert.Equal(t, 1500*time.Millisecond, genDoc.Autobahn.ViewTimeout)
+	assert.False(t, genDoc.Autobahn.IsPresent())
 
 	pubkey := ed25519.GenerateSecretKey().Public()
 	// create a base gendoc from struct
@@ -177,7 +177,7 @@ func randomGenesisDoc() *GenesisDoc {
 		InitialHeight:   1000,
 		Validators:      []GenesisValidator{{pubkey.Address(), pubkey, 10, "myval"}},
 		ConsensusParams: DefaultConsensusParams(),
-		Autobahn:        DefaultAutobahnParams(),
+		Autobahn:        utils.Some(DefaultAutobahnParams()),
 		AppHash:         []byte{1, 2, 3},
 	}
 }

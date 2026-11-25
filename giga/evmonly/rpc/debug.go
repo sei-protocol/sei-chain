@@ -9,14 +9,16 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	tracerlogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // registers the native tracers
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
-	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 )
 
 const (
@@ -39,7 +41,6 @@ var (
 	errTraceBusy           = errors.New("trace request rejected due to concurrency limit: server busy")
 	errTraceTxNotFound     = errors.New("transaction not found")
 	errTraceTxNotExecuted  = errors.New("transaction was rejected by its block and never executed")
-	errTraceOverrides      = errors.New("state and block overrides are not supported by EVM-only RPC")
 	errTracerNameEmpty     = errors.New("debug tracer name must not be empty")
 	errTracerNotAllowed    = errors.New("debug tracer is not allowed; only go-ethereum's native tracers may be used")
 	errMuxTracerTooDeep    = fmt.Errorf("muxTracer nesting depth exceeds maximum of %d", maxMuxTracerNestingDepth)
@@ -50,23 +51,28 @@ var (
 // at once, how long each may take, and what each may retain.
 type debugAPI struct {
 	tracers *tracers.API
+	// txs resolves transactions with the request ctx before tracing.
+	txs *traceBackend
 	// calls traces calls, which read a block's header and state but not its transactions.
 	calls *tracers.API
-	store receiptpkg.ReceiptStore
+	store receiptdb.ReceiptStore
 	// slots holds one entry per running trace; nil when the number is unbounded.
 	slots             chan struct{}
 	timeout           time.Duration
 	maxStructLogBytes int
+	overrides         overrideLimits
 }
 
-func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconfig.RPCConfig) *debugAPI {
+func newDebugAPI(backend Backend, store receiptdb.ReceiptStore, limits gigaconfig.RPCConfig) *debugAPI {
 	traces := newTraceBackend(backend, &blockAPI{backend: backend, store: store}, &txAPI{backend: backend, store: store})
 	api := &debugAPI{
 		tracers:           tracers.NewAPI(traces),
+		txs:               traces,
 		calls:             tracers.NewAPI(traces.forCalls()),
 		store:             store,
 		timeout:           limits.TraceTimeout,
 		maxStructLogBytes: limits.MaxTraceStructLogBytes,
+		overrides:         newOverrideLimits(limits),
 	}
 	if limits.MaxConcurrentTraceCalls > 0 {
 		api.slots = make(chan struct{}, limits.MaxConcurrentTraceCalls)
@@ -87,30 +93,45 @@ func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	if !executed(stored) {
 		return nil, &invalidParamsError{error: errTraceTxNotExecuted}
 	}
+	// The tracer's lookup has no ctx and reports any failure as not found.
+	if _, _, _, _, _, err := api.txs.GetTransaction(ctx, hash); err != nil {
+		return nil, err
+	}
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceTransaction(ctx, hash, config)
 	})
 }
 
 // TraceCall traces args as a call against the committed state after the block blockNrOrHash names,
-// or for a latest tag, the latest committed state.
+// or for a latest tag, the latest committed state, with config's state and block overrides applied.
 func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash ethrpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (any, error) {
 	if config == nil {
 		config = &tracers.TraceCallConfig{}
 	}
-	if config.StateOverrides != nil || config.BlockOverrides != nil {
-		return nil, &invalidParamsError{error: errTraceOverrides}
+	if err := api.overrides.check(config.StateOverrides); err != nil {
+		return nil, err
 	}
-	if number, ok := blockNrOrHash.Number(); ok && isLatestTag(number) {
-		ctx = withLatestState(ctx)
+	if number, ok := blockNrOrHash.Number(); ok {
+		resolved, latest, err := api.traceBlockNumber(number)
+		if err != nil {
+			return nil, err
+		}
+		if latest {
+			ctx = withLatestState(ctx)
+		}
+		blockNrOrHash = ethrpc.BlockNumberOrHashWithNumber(resolved)
 	}
 	return api.trace(ctx, &config.TraceConfig, func(ctx context.Context, _ *tracers.TraceConfig) (any, error) {
-		return api.calls.TraceCall(ctx, args, blockNrOrHash, config)
+		return api.calls.TraceCall(ctx, args, &blockNrOrHash, config)
 	})
 }
 
 // TraceBlockByNumber traces every transaction of the block at number that executed.
 func (api *debugAPI) TraceBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, config *tracers.TraceConfig) (any, error) {
+	number, _, err := api.traceBlockNumber(number)
+	if err != nil {
+		return nil, err
+	}
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceBlockByNumber(ctx, number, config)
 	})
@@ -121,6 +142,46 @@ func (api *debugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceBlockByHash(ctx, hash, config)
 	})
+}
+
+// traceBlockNumber returns number as the trace backend reads it, with earliest and 0x0 resolved to
+// the earliest block the receipt store retains, and whether it is a head tag. It rejects a height
+// below the chain's first block.
+func (api *debugAPI) traceBlockNumber(number ethrpc.BlockNumber) (ethrpc.BlockNumber, bool, error) {
+	kind, err := classifyBlockNumber(number)
+	if err != nil {
+		return 0, false, err
+	}
+	switch kind {
+	case headBlock:
+		return number, true, nil
+	case earliestBlock:
+		return ethrpc.BlockNumber(earliestRetainedHeight(api.txs.backend, api.store)), false, nil
+	}
+	if number.Int64() < firstBlockHeight(api.txs.backend) {
+		return 0, false, fmt.Errorf("%w: %d", errBlockNotFound, number)
+	}
+	return number, false, nil
+}
+
+// GetRawHeader implements debug_getRawHeader, matching v2: Sei serves no raw header.
+func (*debugAPI) GetRawHeader(context.Context, ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawHeader is not supported on Sei EVM RPC"}
+}
+
+// GetRawBlock implements debug_getRawBlock, matching v2: Sei serves no raw block.
+func (*debugAPI) GetRawBlock(context.Context, ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawBlock is not supported on Sei EVM RPC"}
+}
+
+// GetRawReceipts implements debug_getRawReceipts, matching v2: Sei serves no raw receipts.
+func (*debugAPI) GetRawReceipts(context.Context, ethrpc.BlockNumberOrHash) ([]hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawReceipts is not supported on Sei EVM RPC"}
+}
+
+// GetRawTransaction implements debug_getRawTransaction, matching v2: Sei serves no raw transaction.
+func (*debugAPI) GetRawTransaction(context.Context, common.Hash) (hexutil.Bytes, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "debug_getRawTransaction is not supported on Sei EVM RPC"}
 }
 
 // trace runs one trace under config, once the config is accepted and a trace slot is free, bounded

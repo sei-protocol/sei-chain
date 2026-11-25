@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -184,7 +184,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	if err != nil {
 		return nil, err
 	}
-	earliestHeight, err := i.earliestHeight(ctx)
+	earliestHeight, err := i.earliestBlockWatermark(ctx)
 	if err != nil {
 		// fall back to genesis height if earliest watermark unavailable
 		earliestHeight = genesisHeight
@@ -192,7 +192,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	if earliestHeight < genesisHeight {
 		earliestHeight = genesisHeight
 	}
-	switch lastBlock {
+	switch normalizeEarliest(lastBlock) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		lastBlockNumber = latestHeight
 	case rpc.EarliestBlockNumber:
@@ -226,8 +226,8 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 
 		var gasUsedRatio float64
 
-		sdkCtx := i.ctxProvider(blockNum)
-		versionExists := CheckVersion(sdkCtx, i.keeper) == nil
+		sdkCtx, err := ctxAtHeight(i.ctxProvider, blockNum)
+		versionExists := err == nil && CheckVersion(sdkCtx, i.keeper) == nil
 		if !versionExists {
 			// either height is pruned or before EVM is introduced
 			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
@@ -239,7 +239,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 				if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
 					return nil, ctxErr
 				}
-				if errors.Is(err, receipt.ErrNotConfigured) {
+				if errors.Is(err, receiptdb.ErrNotConfigured) {
 					return nil, err
 				}
 				// If we can't calculate the ratio, use 0.0 as fallback
@@ -395,7 +395,7 @@ func (i *InfoAPI) getRewards(ctx context.Context, block *coretypes.ResultBlock, 
 			// okay to get from latest since receipt is immutable
 			rcpt, err := i.keeper.GetReceipt(ctxProvider(LatestCtxHeight), ethtx.Hash())
 			if err != nil {
-				if errors.Is(err, receipt.ErrNotConfigured) {
+				if errors.Is(err, receiptdb.ErrNotConfigured) {
 					return nil, err
 				}
 				if ctxErr := ctx.Err(); ctxErr != nil {
@@ -463,7 +463,10 @@ func (i *InfoAPI) calculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 	}
 
 	// Get the gas limit from consensus params using the SDK context
-	sdkCtx := i.ctxProvider(blockHeight)
+	sdkCtx, err := ctxAtHeight(i.ctxProvider, blockHeight)
+	if err != nil {
+		return 0, err
+	}
 	var gasLimit uint64
 	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
 		gasLimit = uint64(sdkCtx.ConsensusParams().Block.MaxGas) //nolint:gosec
@@ -514,7 +517,7 @@ func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
 	return i.watermarks.LatestHeight(ctx)
 }
 
-func (i *InfoAPI) earliestHeight(ctx context.Context) (int64, error) {
+func (i *InfoAPI) earliestBlockWatermark(ctx context.Context) (int64, error) {
 	return i.watermarks.EarliestReceiptHeight(ctx)
 }
 

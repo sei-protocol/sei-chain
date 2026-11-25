@@ -6,42 +6,58 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/holiman/uint256"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"golang.org/x/time/rate"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 type txSpec struct {
+	SigningKey      [32]byte
 	Address         common.Address
 	Nonce           uint64
 	GasWanted       uint64
 	GasEstimated    uint64
 	RequiredBalance uint64
 	ShouldFail      bool
-	EVMHash         common.Hash
+	ID              common.Hash
 	Payload         [32]byte
 }
 
-func (tx *txSpec) encode() []byte {
-	return utils.OrPanic1(binary.Append(nil, binary.BigEndian, tx))
+func (tx *txSpec) transaction() *ethtypes.Transaction {
+	encoded := utils.OrPanic1(binary.Append(nil, binary.BigEndian, tx))
+	unsigned := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: tx.Nonce, Gas: tx.GasWanted, Data: encoded})
+	key := utils.OrPanic1(crypto.ToECDSA(tx.SigningKey[:]))
+	return utils.OrPanic1(ethtypes.SignTx(unsigned, ethtypes.LatestSignerForChainID(big.NewInt(1)), key))
 }
 
-func decodeTxSpec(data []byte) (*txSpec, error) {
+func (tx *txSpec) encode() []byte { return utils.OrPanic1(tx.transaction().MarshalBinary()) }
+
+func decodeTxSpec(raw []byte) (*txSpec, error) {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		return nil, err
+	}
+	return decodeTxSpecData(tx.Data())
+}
+
+func decodeTxSpecData(data []byte) (*txSpec, error) {
 	var tx txSpec
 	n, err := binary.Decode(data, binary.BigEndian, &tx)
 	if err != nil {
@@ -53,44 +69,34 @@ func decodeTxSpec(data []byte) (*txSpec, error) {
 	return &tx, nil
 }
 
-func (tx *txSpec) asResponse() *abci.ResponseCheckTxV2 {
-	return &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:         abci.CodeTypeOK,
-			GasWanted:    int64(tx.GasWanted),
-			GasEstimated: int64(tx.GasEstimated),
-		},
-		IsEVM:              true,
-		EVMNonce:           tx.Nonce,
-		EVMHash:            tx.EVMHash,
-		EVMSenderAddress:   tx.Address,
-		SeiSenderAddress:   tx.Address[:],
-		EVMRequiredBalance: *uint256.NewInt(tx.RequiredBalance),
-	}
+func (tx *txSpec) asResponse() abevm.AdmittedTx {
+	return abevm.AdmittedTx{GasEstimated: tx.GasEstimated}
 }
 
 func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txSpec {
 	gasBase := int(env.state.cfg.MaxGasWantedPerBlock / env.state.cfg.maxTxsPerBlock())
 	gasJitter := min(gasBase, 10)
 	return &txSpec{
-		Address: addr,
-		Nonce:   nonce,
+		Address:    addr,
+		SigningKey: env.accounts.SigningKey(addr),
+		Nonce:      nonce,
 		// We randomize the gas in a way that both gas wanted and tx count limit have a chance of being exercised.
 		GasWanted:    min(env.state.cfg.MaxGasWantedPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter))),
 		GasEstimated: uint64(rng.Int63n(int64(env.state.cfg.MaxGasEstimatedPerBlock))),
-		EVMHash:      common.Hash(utils.GenBytes(rng, len(common.Hash{}))),
+		ID:           common.Hash(utils.GenBytes(rng, len(common.Hash{}))),
 		Payload:      [32]byte(utils.GenBytes(rng, 32)),
 	}
 }
 
 type testAppInner struct {
+	keys    map[common.Address][32]byte
 	nonces  map[common.Address]uint64
 	appHash types.AppHash
 }
 
 // Application tracking evm nonces.
 type testApp struct {
-	abci.BaseApplication
+	abevm.Application
 	inner   utils.Mutex[*testAppInner]
 	checked utils.AtomicSend[uint64]
 }
@@ -99,32 +105,45 @@ func newTestApp() *testApp {
 	return &testApp{
 		checked: utils.NewAtomicSend[uint64](0),
 		inner: utils.NewMutex(&testAppInner{
+			keys:   map[common.Address][32]byte{},
 			nonces: map[common.Address]uint64{},
 		}),
 	}
 }
 
 func (a *testApp) NewAccount(rng utils.Rng) (common.Address, uint64) {
-	addr := common.Address(utils.GenBytes(rng, len(common.Address{})))
+	key := utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))
+	addr := crypto.PubkeyToAddress(key.PublicKey)
 	nonce := uint64(rng.Intn(10000))
 	for inner := range a.inner.Lock() {
 		inner.nonces[addr] = nonce
+		inner.keys[addr] = [32]byte(crypto.FromECDSA(key))
 	}
 	return addr, nonce
+}
+
+func (a *testApp) SigningKey(addr common.Address) [32]byte {
+	for inner := range a.inner.Lock() {
+		return inner.keys[addr]
+	}
+	panic("unreachable")
+}
+
+type accountApp interface {
+	abevm.Application
+	SigningKey(common.Address) [32]byte
 }
 
 func (a *testApp) Cfg() *Config {
 	return &Config{
 		MaxGasWantedPerBlock:    1000000,
 		MaxGasEstimatedPerBlock: 1000000,
-		MaxTxsPerBlock:          types.MaxTxsPerBlock,
+		MaxTxsPerBlock:          types.MaxTxsPerLaneBlock,
 		BlockInterval:           time.Hour,
 	}
 }
 
-func (a *testApp) Proxy() *proxy.Proxy {
-	return proxy.New(a)
-}
+func (a *testApp) EvmChainID() uint64 { return 1 }
 
 func (a *testApp) EvmNonce(addr common.Address) uint64 {
 	for inner := range a.inner.Lock() {
@@ -133,39 +152,38 @@ func (a *testApp) EvmNonce(addr common.Address) uint64 {
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+// EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
+func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 {
+	return a.EvmNonce(addr)
+}
+
+func (a *testApp) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	defer func() {
 		for range a.inner.Lock() {
 			a.checked.Store(a.checked.Load() + 1)
 		}
 	}()
-	tx, err := decodeTxSpec(req.Tx)
+	spec, err := decodeTxSpecData(tx.Data())
 	if err != nil {
-		return &abci.ResponseCheckTxV2{
-			ResponseCheckTx: &abci.ResponseCheckTx{
-				Code:      1,
-				Codespace: "some codespace",
-				Log:       err.Error(),
-			},
-		}
+		return abevm.AdmittedTx{}, err
 	}
-	return tx.asResponse()
+	return spec.asResponse(), nil
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *testApp) FinalizeBlock(_ context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
 	for inner := range a.inner.Lock() {
 		for _, txRaw := range req.Txs {
-			tx, err := decodeTxSpec(txRaw)
+			tx, err := decodeTxSpecData(txRaw.Data())
 			if err != nil {
-				return nil, fmt.Errorf("decodeTxSpec(): %w", err)
+				return abevm.FinalizeBlockResp{}, fmt.Errorf("decodeTxSpec(): %w", err)
 			}
 			if inner.nonces[tx.Address] == tx.Nonce && !tx.ShouldFail {
 				inner.nonces[tx.Address] += 1
 			}
 		}
-		h := sha256.Sum256(slices.Concat(req.Hash, inner.appHash[:]))
+		h := sha256.Sum256(slices.Concat(req.Hash[:], inner.appHash[:]))
 		inner.appHash = h[:]
-		return &abci.ResponseFinalizeBlock{AppHash: inner.appHash}, nil
+		return abevm.FinalizeBlockResp{}, nil
 	}
 	panic("unreachable")
 }
@@ -179,7 +197,9 @@ type testEnv struct {
 	state     *State
 	consensus *consensus.State
 	data      *data.State
-	app       *proxy.Proxy
+	app       *abevm.Proxy
+	signer    *abevm.Signer
+	accounts  accountApp
 
 	inner           utils.Mutex[*testEnvInner]
 	executionPaused utils.Watch[*bool]
@@ -194,7 +214,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 		// Process blocks.
 		stats := blockStats{}
 		laneBlocks := 0
-		firstBlock := env.data.Registry().MustEpoch(0).RoadRange().First
+		firstBlock := env.data.Anchor().Load().Epochs[0].RoadRange().First
 		for i := firstBlock; ; i += 1 {
 			// Wait for the next block to be finalized.
 			b, err := env.data.SuperBlock(ctx, i)
@@ -214,13 +234,13 @@ func (env *testEnv) Run(ctx context.Context) error {
 				}
 			}
 			for offset := range qc.Headers() {
-				laneBlock, err := env.data.Block(ctx, types.LaneBlockPos{Index: i, Offset: uint64(offset)})
+				block, err := env.data.Block(ctx, types.LaneBlockPos{Height: i, Offset: uint64(offset)})
 				if err != nil {
 					return err
 				}
 				// Check that adding first transaction to the previous block would exceed the limit.
 				if laneBlocks > 0 {
-					tx, err := decodeTxSpec(laneBlock.Payload().Txs()[0])
+					tx, err := decodeTxSpec(block.Payload().Txs()[0])
 					if err != nil {
 						return fmt.Errorf("decodeTxSpec(): %w", err)
 					}
@@ -231,7 +251,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 
 				// Check that block does not exceed limits.
 				stats = blockStats{}
-				for _, txRaw := range laneBlock.Payload().Txs() {
+				for _, txRaw := range block.Payload().Txs() {
 					tx, err := decodeTxSpec(txRaw)
 					if err != nil {
 						return fmt.Errorf("decodeTxSpec(): %w", err)
@@ -248,38 +268,46 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Mark block as executed.
-			resp, err := env.app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Txs: b.Txs, Hash: b.Hash[:]})
+			txs := utils.OrPanic1(env.signer.ParseTxs(b.Txs))
+			env.signer.ForgetTxs(txs)
+			_, err = env.app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{Txs: txs, Hash: common.BytesToHash(b.Hash[:])})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}
-			if err := env.data.PushAppHash(ctx, i, resp.AppHash, nil); err != nil {
+			appHash := env.app.Info().LastBlockAppHash
+			if err := env.data.PushAppHash(ctx, i, appHash); err != nil {
 				return err
 			}
 		}
 	}))
 }
 
-func newTestEnv(t testing.TB, rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
+func newTestEnv(t testing.TB, rng utils.Rng, cfg *Config, app accountApp) *testEnv {
 	env, _, _ := newTestEnvN(t, rng, 1, cfg, app)
 	return env
 }
 
-func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv, *epoch.Registry, []types.SecretKey) {
+func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app accountApp) (*testEnv, *epoch.TestRegistry, []types.SecretKey) {
 	registry, keys := epoch.GenRegistry(rng, n)
 	store := blockstore.NewTestStore(t)
-	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
+	dataState := utils.OrPanic1(data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
+		MaxRate:            rate.Inf,
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
+	evm := abevm.NewProxy(app)
+	signer := newTestSigner(app.EvmChainID(), 0)
 	return &testEnv{
 		executionPaused: utils.NewWatch(new(bool)),
 		data:            dataState,
 		consensus:       consensusState,
-		state:           NewState(cfg, consensusState, app),
-		app:             app,
+		state:           NewState(cfg, consensusState, evm, signer),
+		app:             evm,
+		signer:          signer,
+		accounts:        app,
 		inner: utils.NewMutex(&testEnvInner{
 			sequenced: map[common.Address][]*txSpec{},
 		}),
@@ -299,7 +327,7 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -307,7 +335,7 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 		}
 
 		// Tx with size exceeding block limit.
-		tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerBlock+1))
+		tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerLaneBlock+1))
 		// Should be rejected by mempool.
 		_, err := env.state.InsertTx(ctx, tx)
 		if !errors.Is(err, errTooLarge) {
@@ -325,7 +353,7 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	cfg := app.Cfg()
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -355,7 +383,7 @@ func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.MaxGasEstimatedPerBlock = 10000
 	cfg.MaxGasWantedPerBlock = cfg.MaxGasEstimatedPerBlock * 2
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -383,26 +411,28 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
 
-		// Construct tx with invalid encoding.
-		tx := utils.GenBytes(rng, 1)
+		// The Ethereum envelope is valid, but the test app rejects its payload.
+		key := utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))
+		signed := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{Data: utils.GenBytes(rng, 1)}), ethtypes.LatestSignerForChainID(big.NewInt(1)), key))
+		tx := utils.OrPanic1(signed.MarshalBinary())
 		_, err := decodeTxSpec(tx)
 		if err == nil {
 			return fmt.Errorf("expected an error")
 		}
 		// Should be rejected by app.
-		resp, err := env.state.InsertTx(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if resp.Code == abci.CodeTypeOK {
+		_, err = env.state.InsertTx(ctx, tx)
+		if !errors.Is(err, abevm.ErrTxRejected) {
 			return fmt.Errorf("unexpected successful CheckTx response")
+		}
+		if app.checked.Load() != 1 {
+			return fmt.Errorf("expected application rejection")
 		}
 		if len(env.state.UnconfirmedTxs()) != 0 {
 			return fmt.Errorf("expected no unconfirmed transactions")
@@ -415,7 +445,7 @@ func TestInsertTx_ConcurrentSequentialNonces(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -466,7 +496,7 @@ func TestInsertTx_BadNonceRejected(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -510,7 +540,7 @@ func (s *blockStats) Push(tx *txSpec, cfg *Config) bool {
 	s.sizeBytes += uint64(len(tx.encode()))
 	s.gasWanted += tx.GasWanted
 	return s.count <= cfg.MaxTxsPerBlock &&
-		s.sizeBytes <= types.MaxTxsBytesPerBlock &&
+		s.sizeBytes <= types.MaxTxsBytesPerLaneBlock &&
 		s.gasWanted <= cfg.MaxGasWantedPerBlock &&
 		s.gasEstimated <= cfg.MaxGasEstimatedPerBlock
 }
@@ -523,7 +553,7 @@ func TestMempool_HappyPath(t *testing.T) {
 	cfg.MaxTxsPerBlock = 20
 	cfg.MaxGasWantedPerBlock = 100
 	cfg.MaxGasEstimatedPerBlock = 100
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app)
 	want := utils.NewMutex(map[common.Address][]*txSpec{})
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
@@ -534,11 +564,7 @@ func TestMempool_HappyPath(t *testing.T) {
 			// Independent tasks submitting txs for some account.
 			s.Spawn(func() error {
 				// Initialize nonce for random address.
-				addr := common.Address(utils.GenBytes(rng, len(common.Address{})))
-				nonce := uint64(rng.Intn(10000))
-				for inner := range app.inner.Lock() {
-					inner.nonces[addr] = nonce
-				}
+				addr, nonce := app.NewAccount(rng)
 				for range 5 {
 					// Submit a sequence of txs with 1 which will fail to increment nonce.
 					failAt := nonce + uint64(rng.Intn(20))
@@ -557,7 +583,7 @@ func TestMempool_HappyPath(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("env.state.InsertTx(): %w", err)
 							}
-							if err := utils.TestDiff(tx.asResponse().ResponseCheckTx, resp); err != nil {
+							if err := utils.TestDiff(tx.asResponse(), resp); err != nil {
 								return err
 							}
 						} else {
@@ -575,7 +601,7 @@ func TestMempool_HappyPath(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("env.state.InsertTx(): %w", err)
 							}
-							if err := utils.TestDiff(tx.asResponse().ResponseCheckTx, resp); err != nil {
+							if err := utils.TestDiff(tx.asResponse(), resp); err != nil {
 								return err
 							}
 						}
@@ -611,7 +637,7 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 	// single-tx blocks expected so env.Run's "sealed too early" check stays quiet.
 	cfg.BlockInterval = time.Millisecond
 	cfg.MaxTxsPerBlock = 1
-	env := newTestEnv(t, rng, cfg, app.Proxy())
+	env := newTestEnv(t, rng, cfg, app)
 	addr, nonce := app.NewAccount(rng)
 
 	txs := utils.Slice(
@@ -628,9 +654,9 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 			if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
 				return err
 			}
-			got, ok := env.state.EvmTxByHash(tx.EVMHash)
+			got, ok := env.state.EvmTxByHash(tx.transaction().Hash())
 			if !ok {
-				return fmt.Errorf("EvmTxByHash(%v) missing", tx.EVMHash)
+				return fmt.Errorf("EvmTxByHash(%v) missing", tx.transaction().Hash())
 			}
 			if err := utils.TestDiff(tx.encode(), got); err != nil {
 				return err
@@ -648,7 +674,7 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 						return true
 					}
 					for _, tx := range txs {
-						if _, ok := m.evmTxs[tx.EVMHash]; ok {
+						if _, ok := m.evmTxs[tx.transaction().Hash()]; ok {
 							return false
 						}
 					}
@@ -666,7 +692,7 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 	}))
 
 	for _, tx := range txs {
-		_, ok := env.state.EvmTxByHash(tx.EVMHash)
+		_, ok := env.state.EvmTxByHash(tx.transaction().Hash())
 		require.False(t, ok)
 	}
 	require.Equal(t, nonce+uint64(len(txs)), app.EvmNonce(addr))
@@ -679,7 +705,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 	cfg := app.Cfg()
 	cfg.AllowEmptyBlocks = true
 	cfg.BlockInterval = 10 * time.Millisecond
-	env, registry, keys := newTestEnvN(t, rng, 2, cfg, app.Proxy())
+	env, registry, keys := newTestEnvN(t, rng, 2, cfg, app)
 	a, b := keys[0], keys[1]
 	availState := env.consensus.Avail()
 
@@ -698,17 +724,17 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return err
 		}
 
-		addr := common.Address{1}
+		addr, _ := app.NewAccount(rng)
 		stuck := env.genTx(rng, addr, app.EvmNonce(addr))
 		if _, err := env.state.InsertTx(ctx, stuck.encode()); err != nil {
 			return err
 		}
 
-		if err := registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
+		if err := registry.TestPushEpoch(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
 			return err
 		}
 		epLeave := registry.MustEpoch(2)
-		if err := avail.TestDriveAdvance(ctx, availState, keys, epLeave.EpochIndex()); err != nil {
+		if err := avail.TestAdvanceToEpoch(ctx, availState, keys, registry, epLeave.EpochIndex()); err != nil {
 			return err
 		}
 		if err := availState.WaitUntilClosed(ctx, lane0); err != nil {
@@ -729,11 +755,11 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
 		}
 
-		if err := registry.StageAndActivate(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
+		if err := registry.TestPushEpoch(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
 			return err
 		}
 		epJoin := registry.MustEpoch(3)
-		if err := avail.TestDriveAdvance(ctx, availState, keys, epJoin.EpochIndex()); err != nil {
+		if err := avail.TestAdvanceToEpoch(ctx, availState, keys, registry, epJoin.EpochIndex()); err != nil {
 			return err
 		}
 		got, err := availState.WaitForNextLane(ctx, a.Public(), utils.Some(lane0))
@@ -754,7 +780,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 func TestInsertTx_WithoutSession(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	tx := env.fullTx(rng, app).encode()
 	_, err := env.state.InsertTx(t.Context(), tx)
 	require.ErrorIs(t, err, ErrNotProducing)
@@ -822,7 +848,7 @@ func (env *testEnv) enqueueInserters(ctx context.Context, s scope.Scope, rng uti
 func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -855,7 +881,7 @@ func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				got, ok := env.state.EvmTxByHash(tx.EVMHash)
+				got, ok := env.state.EvmTxByHash(tx.transaction().Hash())
 				if !ok {
 					if app.EvmNonce(tx.Address) != tx.Nonce+1 {
 						return fmt.Errorf("admitted transaction neither pending nor executed")
@@ -878,7 +904,7 @@ func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 func TestInsertTx_QueuesWithoutRPCAdmission(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app.Proxy())
+	env := newTestEnv(t, rng, app.Cfg(), app)
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		if _, err := env.waitForMempool(ctx); err != nil {
@@ -900,4 +926,15 @@ func TestInsertTx_QueuesWithoutRPCAdmission(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+func (a *testApp) Info() *abevm.ResponseInfo {
+	for inner := range a.inner.Lock() {
+		return &abevm.ResponseInfo{LastBlockAppHash: slices.Clone(inner.appHash)}
+	}
+	panic("unreachable")
+}
+
+func newTestSigner(chainID uint64, workers int) *abevm.Signer {
+	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
 }

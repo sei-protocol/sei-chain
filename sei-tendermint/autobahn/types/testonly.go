@@ -3,8 +3,14 @@ package types
 import (
 	"cmp"
 	"fmt"
+	"math/big"
 	"slices"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -21,7 +27,7 @@ func BuildPrepareQC(keys []SecretKey, proposal *Proposal) *PrepareQC {
 	vote := NewPrepareVote(proposal)
 	votes := make([]*Signed[*PrepareVote], len(keys))
 	for i, key := range keys {
-		votes[i] = Sign(key, vote)
+		votes[i] = key.Sign(vote)
 	}
 	return NewPrepareQC(votes)
 }
@@ -51,7 +57,7 @@ func BuildCommitQC(
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
 	prepareQC := BuildPrepareQC(keys, proposal.Proposal().Msg())
 	for _, k := range keys {
-		votes = append(votes, Sign(k, NewCommitVote(prepareQC)))
+		votes = append(votes, k.Sign(NewCommitVote(prepareQC)))
 	}
 	return NewCommitQC(votes)
 }
@@ -61,13 +67,21 @@ func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
 	c := vs.Epoch.Committee()
 	lane := c.Lanes().At(0)
 	n := LaneRangeOpt(vs.CommitQC, lane).Next()
-	header := NewBlock(lane, n, BlockHeaderHash{}, &Payload{}).Header()
-	vote := NewLaneVote(header)
+	header := NewLaneBlock(lane, n, LaneBlockHeaderHash{}, &Payload{}).Header()
+	vote := NewLaneVote(vs.Epoch.EpochIndex(), header)
 	votes := make([]*Signed[*LaneVote], 0, len(keys))
 	for _, k := range TestKeysWithWeight(c, keys, c.LaneQuorum()) {
-		votes = append(votes, Sign(k, vote))
+		votes = append(votes, k.Sign(vote))
 	}
 	return map[LaneID]*LaneQC{lane: NewLaneQC(votes)}
+}
+
+// GetChallenge generates a random Challenge.
+func GetChallenge(rng utils.Rng) Challenge {
+	return Challenge{
+		SessionKey: SessionKey(utils.GenBytes(rng, len(SessionKey{}))),
+		IsServer:   utils.GenBool(rng),
+	}
 }
 
 // GenNodeID generates a random NodeID.
@@ -88,7 +102,7 @@ func GenSecretKey(rng utils.Rng) SecretKey {
 // GenCommittee generates a random Committee of the given size.
 // Returns the generated secret keys as well.
 func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
-	sks := utils.GenSliceN(rng, size, GenSecretKey)
+	sks := rng.GenSliceN(size, GenSecretKey)
 	pks := map[PublicKey]uint64{}
 	for _, sk := range sks {
 		pks[sk.Public()] = 1000 + uint64(rng.Intn(1000)) // nolint: gosec
@@ -158,20 +172,20 @@ func SignedForTesting[T Msg](msg T, sig *Signature) *Signed[T] {
 	return newSigned(msg, sig)
 }
 
-// NewBlockForTesting builds a Block with an injected payload hash instead of computing
+// NewLaneBlockForTesting builds a LaneBlock with an injected payload hash instead of computing
 // payload.Hash(). FOR TESTS/BENCHMARKS ONLY: the header's payloadHash need not match the
 // payload, so LaneProposal.Verify will fail. This skips a full marshal + SHA-256 of the payload.
-func NewBlockForTesting(
+func NewLaneBlockForTesting(
 	lane LaneID,
-	blockNumber BlockNumber,
-	parentHash BlockHeaderHash,
+	height LaneHeight,
+	parentHash LaneBlockHeaderHash,
 	payload *Payload,
 	payloadHash PayloadHash,
-) *Block {
-	return &Block{
-		header: &BlockHeader{
+) *LaneBlock {
+	return &LaneBlock{
+		header: &LaneBlockHeader{
 			lane:        lane,
-			blockNumber: blockNumber,
+			height:      height,
 			parentHash:  parentHash,
 			payloadHash: payloadHash,
 		},
@@ -179,24 +193,24 @@ func NewBlockForTesting(
 	}
 }
 
-// GenBlockNumber generates a random BlockNumber.
-func GenBlockNumber(rng utils.Rng) BlockNumber {
-	return BlockNumber(rng.Uint64())
+// GenLaneHeight generates a random LaneHeight.
+func GenLaneHeight(rng utils.Rng) LaneHeight {
+	return LaneHeight(rng.Uint64())
 }
 
 // GenLaneRangeFor generates a random LaneRange whose lane ID is drawn from c.
 func GenLaneRangeFor(rng utils.Rng, c *Committee) *LaneRange {
 	lanes := c.Lanes()
 	lane := lanes.At(rng.Intn(lanes.Len()))
-	first := GenBlockNumber(rng)
+	first := GenLaneHeight(rng)
 	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
 	if length == 0 {
-		return NewLaneRange(lane, first, utils.None[*BlockHeader]())
+		return NewLaneRange(lane, first, utils.None[*LaneBlockHeader]())
 	}
-	header := NewBlock(
+	header := NewLaneBlock(
 		lane,
-		first+BlockNumber(length-1),
-		GenBlockHeaderHash(rng),
+		first+LaneHeight(length-1),
+		GenLaneBlockHeaderHash(rng),
 		GenPayload(rng),
 	).Header()
 	return NewLaneRange(lane, first, utils.Some(header))
@@ -205,23 +219,23 @@ func GenLaneRangeFor(rng utils.Rng, c *Committee) *LaneRange {
 // GenLaneRange generates a random LaneRange.
 func GenLaneRange(rng utils.Rng) *LaneRange {
 	lane := GenLaneID(rng)
-	first := GenBlockNumber(rng)
+	first := GenLaneHeight(rng)
 	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
 	if length == 0 {
-		return NewLaneRange(lane, first, utils.None[*BlockHeader]())
+		return NewLaneRange(lane, first, utils.None[*LaneBlockHeader]())
 	}
-	header := NewBlock(
+	header := NewLaneBlock(
 		lane,
-		first+BlockNumber(length-1),
-		GenBlockHeaderHash(rng),
+		first+LaneHeight(length-1),
+		GenLaneBlockHeaderHash(rng),
 		GenPayload(rng),
 	).Header()
 	return NewLaneRange(lane, first, utils.Some(header))
 }
 
-// GenBlockHeaderHash generates a random BlockHeaderHash.
-func GenBlockHeaderHash(rng utils.Rng) BlockHeaderHash {
-	return BlockHeaderHash(hashable.GenHash[*pb.BlockHeader](rng))
+// GenLaneBlockHeaderHash generates a random LaneBlockHeaderHash.
+func GenLaneBlockHeaderHash(rng utils.Rng) LaneBlockHeaderHash {
+	return LaneBlockHeaderHash(hashable.GenHash[*pb.LaneBlockHeader](rng))
 }
 
 // GenPayloadHash generates a random PayloadHash.
@@ -229,11 +243,11 @@ func GenPayloadHash(rng utils.Rng) PayloadHash {
 	return PayloadHash(hashable.GenHash[*pb.Payload](rng))
 }
 
-// GenBlockHeader generates a random BlockHeader.
-func GenBlockHeader(rng utils.Rng) *BlockHeader {
-	return &BlockHeader{
+// GenLaneBlockHeader generates a random LaneBlockHeader.
+func GenLaneBlockHeader(rng utils.Rng) *LaneBlockHeader {
+	return &LaneBlockHeader{
 		lane:        GenLaneID(rng),
-		blockNumber: GenBlockNumber(rng),
+		height:      GenLaneHeight(rng),
 		payloadHash: GenPayloadHash(rng),
 	}
 }
@@ -244,47 +258,66 @@ func GenPayload(rng utils.Rng) *Payload {
 		CreatedAt:         utils.GenTimestamp(rng),
 		TotalGasWanted:    rng.Uint64(),
 		TotalGasEstimated: rng.Uint64(),
-		Txs:               utils.GenSlice(rng, func(rng utils.Rng) []byte { return utils.GenBytes(rng, 10) }),
+		Txs:               rng.GenSlice(func(rng utils.Rng) []byte { return utils.GenBytes(rng, 10) }),
 	}.Build())
 }
 
-// GenBlock generates a random Block.
-func GenBlock(rng utils.Rng) *Block {
-	return NewBlock(
+// GenEthPayload generates a payload of signed Ethereum transfers on chain ID 1.
+func GenEthPayload(rng utils.Rng) *Payload {
+	payload := GenPayload(rng).ToBuilder()
+	payload.TotalGasWanted = 0
+	payload.TotalGasEstimated = 0
+	signer := ethtypes.LatestSignerForChainID(big.NewInt(1))
+	for i := range payload.Txs {
+		key := utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))
+		recipient := common.Address(utils.GenBytes(rng, len(common.Address{})))
+		tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+			To:       &recipient,
+			Gas:      params.TxGas,
+			GasPrice: big.NewInt(params.GWei),
+		})
+		signed := utils.OrPanic1(ethtypes.SignTx(tx, signer, key))
+		payload.Txs[i] = utils.OrPanic1(signed.MarshalBinary())
+		payload.TotalGasWanted += signed.Gas()
+		payload.TotalGasEstimated += signed.Gas()
+	}
+	return utils.OrPanic1(payload.Build())
+}
+
+// GenLaneBlock generates a random LaneBlock.
+func GenLaneBlock(rng utils.Rng) *LaneBlock {
+	return NewLaneBlock(
 		GenLaneID(rng),
-		GenBlockNumber(rng),
-		GenBlockHeaderHash(rng),
+		GenLaneHeight(rng),
+		GenLaneBlockHeaderHash(rng),
 		GenPayload(rng),
 	)
 }
 
 // GenSigned generates a random Signed.
 func GenSigned[T Msg](rng utils.Rng, msg T) *Signed[T] {
-	return Sign(GenSecretKey(rng), msg)
+	return GenSecretKey(rng).Sign(msg)
 }
 
 // GenLaneProposal generates a random LaneProposal.
 func GenLaneProposal(rng utils.Rng) *LaneProposal {
-	return NewLaneProposal(GenBlock(rng))
+	return NewLaneProposal(GenLaneBlock(rng))
 }
 
 // GenLaneVote generates a random LaneVote.
 func GenLaneVote(rng utils.Rng) *LaneVote {
-	return NewLaneVote(GenBlockHeader(rng))
+	return NewLaneVote(GenEpochIndex(rng), GenLaneBlockHeader(rng))
 }
 
 // GenLaneQC generates a random LaneQC.
 func GenLaneQC(rng utils.Rng) *LaneQC {
 	vote := GenLaneVote(rng)
-	return NewLaneQC(utils.GenSlice(
-		rng,
-		func(rng utils.Rng) *Signed[*LaneVote] { return GenSigned(rng, vote) },
-	))
+	return NewLaneQC(rng.GenSlice(func(rng utils.Rng) *Signed[*LaneVote] { return GenSigned(rng, vote) }))
 }
 
-// GenRoadIndex generates a random RoadIndex.
-func GenRoadIndex(rng utils.Rng) RoadIndex {
-	return RoadIndex(rng.Uint64())
+// GenRoadHeight generates a random RoadHeight.
+func GenRoadHeight(rng utils.Rng) RoadHeight {
+	return RoadHeight(rng.Uint64())
 }
 
 // GenViewNumber generates a random ViewNumber.
@@ -295,7 +328,7 @@ func GenViewNumber(rng utils.Rng) ViewNumber {
 // GenView generates a random View.
 func GenView(rng utils.Rng) View {
 	return View{
-		Index:      GenRoadIndex(rng),
+		Height:     GenRoadHeight(rng),
 		Number:     GenViewNumber(rng),
 		EpochIndex: GenEpochIndex(rng),
 	}
@@ -310,20 +343,20 @@ func GenEpochIndex(rng utils.Rng) EpochIndex {
 // epochIndex and Roads.First are randomized so that tests
 // exercise epoch-binding checks rather than silently passing on zero values.
 func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
-	first := RoadIndex(rng.Uint64() % 1000)
+	first := RoadHeight(rng.Uint64() % 1000)
 	return NewEpoch(
 		GenEpochIndex(rng),
-		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 10},
+		RoadRange{First: first, Next: first + RoadHeight(rng.Uint64()%10000) + 10},
 		committee)
 }
 
 // CommitQCAt creates a CommitQC at ep.RoadRange().First, signed by all keys.
 func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
-	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First})
+	voteProposal := ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Height: ep.RoadRange().First})
 	vote := NewCommitVote(BuildPrepareQC(keys, voteProposal))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, k := range keys {
-		votes[i] = Sign(k, vote)
+		votes[i] = k.Sign(vote)
 	}
 	return NewCommitQC(votes)
 }
@@ -335,7 +368,7 @@ func GenProposal(rng utils.Rng) *Proposal {
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))}
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), rng.GenSlice(GenLaneRange))}
 }
 
 // ProposalAt returns a Proposal at view, consistent with ep, with a single 1-block lane range.
@@ -345,20 +378,20 @@ func ProposalAt(ep *Epoch, view View) *Proposal {
 }
 
 // ProposalAtBlocks is ProposalAt with a lane range of n blocks, n >= 1.
-func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*Block) {
+func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*LaneBlock) {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
-	blocks := make([]*Block, n)
-	var parent BlockHeaderHash
-	num := BlockNumber(0)
+	blocks := make([]*LaneBlock, n)
+	var parent LaneBlockHeaderHash
+	num := LaneHeight(0)
 	for i := 0; i < n; i++ {
-		b := NewBlock(lane, num, parent, &Payload{})
+		b := NewLaneBlock(lane, num, parent, &Payload{})
 		blocks[i] = b
 		parent = b.Header().Hash()
 		num = b.Header().Next()
 	}
 	header := blocks[n-1].Header()
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
@@ -367,8 +400,8 @@ func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*Block) {
 func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
-	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), laneRanges)}
+	laneRanges := rng.GenSlice(func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), laneRanges)}
 }
 
 // GenAppHash generates a random AppHash.
@@ -389,26 +422,19 @@ func GenAppVote(rng utils.Rng) *AppVote {
 // GenAppQC generates a random AppQC.
 func GenAppQC(rng utils.Rng) *AppQC {
 	vote := GenAppVote(rng)
-	return NewAppQC(utils.GenSlice(
-		rng,
-		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
-	))
+	return NewAppQC(rng.GenSlice(func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) }))
 }
 
 // GenAppQCFor generates an AppQC over appProposal.
 func GenAppQCFor(rng utils.Rng, appProposal *AppProposal) *AppQC {
 	vote := NewAppVote(appProposal)
-	return NewAppQC(utils.GenSliceN(
-		rng,
-		1,
-		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
-	))
+	return NewAppQC(rng.GenSliceN(1, func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) }))
 }
 
 // GenFullProposal generates a random FullProposal.
 func GenFullProposal(rng utils.Rng) *FullProposal {
 	laneQCs := map[LaneID]*LaneQC{}
-	for _, qc := range utils.GenSlice(rng, GenLaneQC) {
+	for _, qc := range rng.GenSlice(GenLaneQC) {
 		laneQCs[qc.Header().Lane()] = qc
 	}
 	return &FullProposal{
@@ -420,10 +446,10 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 
 // GenSuperBlock generates a random SuperBlock.
 func GenSuperBlock(rng utils.Rng) *SuperBlock {
-	block := GenBlock(rng)
-	qc := GenFullCommitQCAt(rng, GenRoadIndex(rng), 1)
-	qc = NewFullCommitQC(qc.QC(), []*BlockHeader{block.Header()})
-	return NewRoadBlock(qc, []*Block{block}).SuperBlock()
+	block := GenLaneBlock(rng)
+	qc := GenFullCommitQCAt(rng, GenRoadHeight(rng), 1)
+	qc = NewFullCommitQC(qc.QC(), []*LaneBlockHeader{block.Header()})
+	return NewRoadBlock(qc, []*LaneBlock{block}).SuperBlock()
 }
 
 // GenPrepareVote generates a random PrepareVote.
@@ -435,10 +461,7 @@ func GenPrepareVote(rng utils.Rng) *PrepareVote {
 // GenPrepareQC generates a random PrepareQC.
 func GenPrepareQC(rng utils.Rng) *PrepareQC {
 	vote := GenPrepareVote(rng)
-	return NewPrepareQC(utils.GenSlice(
-		rng,
-		func(rng utils.Rng) *Signed[*PrepareVote] { return GenSigned(rng, vote) },
-	))
+	return NewPrepareQC(rng.GenSlice(func(rng utils.Rng) *Signed[*PrepareVote] { return GenSigned(rng, vote) }))
 }
 
 // GenCommitVote generates a random CommitVote.
@@ -456,27 +479,27 @@ func GenCommitQC(rng utils.Rng) *CommitQC {
 func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	return &FullCommitQC{
 		qc:      GenCommitQC(rng),
-		headers: utils.GenSlice(rng, GenBlockHeader),
+		headers: rng.GenSlice(GenLaneBlockHeader),
 	}
 }
 
 // GenFullCommitQCAt generates a QC at index with n chained headers matching its lane range.
-func GenFullCommitQCAt(rng utils.Rng, index RoadIndex, n int) *FullCommitQC {
-	headers := make([]*BlockHeader, n)
+func GenFullCommitQCAt(rng utils.Rng, height RoadHeight, n int) *FullCommitQC {
+	headers := make([]*LaneBlockHeader, n)
 	var ranges []*LaneRange
 	if n > 0 {
 		lane := GenLaneID(rng)
-		var parent BlockHeaderHash
+		var parent LaneBlockHeaderHash
 		for i := range headers {
-			headers[i] = NewBlock(lane, BlockNumber(i), parent, GenPayload(rng)).Header() //nolint:gosec // slice indices are nonnegative
+			headers[i] = NewLaneBlock(lane, LaneHeight(i), parent, GenPayload(rng)).Header() //nolint:gosec // slice indices are nonnegative
 			parent = headers[i].Hash()
 		}
 		last := headers[n-1]
 		ranges = append(ranges, NewLaneRange(last.Lane(), 0, utils.Some(last)))
 	}
 	view := GenView(rng)
-	view.Index = index
-	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Index, utils.GenTimestamp(rng), ranges)}
+	view.Height = height
+	proposal := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.GenTimestamp(rng), ranges)}
 	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(BuildPrepareQC([]SecretKey{GenSecretKey(rng)}, proposal)))})
 	return NewFullCommitQC(qc, headers)
 }
@@ -493,12 +516,12 @@ func GenFullTimeoutVote(rng utils.Rng) *FullTimeoutVote {
 
 // GenTimeoutQC generates a random TimeoutQC.
 func GenTimeoutQC(rng utils.Rng) *TimeoutQC {
-	return NewTimeoutQC(utils.GenSlice(rng, GenFullTimeoutVote))
+	return NewTimeoutQC(rng.GenSlice(GenFullTimeoutVote))
 }
 
-// GenAppProposalAt generates an AppProposal for road index.
-func GenAppProposalAt(rng utils.Rng, index RoadIndex) *AppProposal {
+// GenAppProposalAt generates an AppProposal for road height.
+func GenAppProposalAt(rng utils.Rng, height RoadHeight) *AppProposal {
 	view := GenView(rng)
-	view.Index = index
+	view.Height = height
 	return NewAppProposal(GenProposalAt(rng, view).View(), GenAppHash(rng))
 }
