@@ -365,7 +365,7 @@ func (h *harness) inEffect(err error) error {
 	}
 	var failures []error
 	s := h.store()
-	h.staking.applyStaged(h.block(), s, s.params(), math.MaxUint64, &failures)
+	h.staking.withHookFailures(&failures).applyStaged(h.block(), s, s.params(), math.MaxUint64, &failures)
 	return errors.Join(failures...)
 }
 

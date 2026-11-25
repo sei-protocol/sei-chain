@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -398,21 +399,21 @@ func TestAValidatorKeptForAStagedDelegationIsRemovedWhenItIsDropped(t *testing.T
 
 // TestADroppedDelegationIsRefundedWhenItsValidatorCannotBeRemoved drops a
 // staged delegation as TestAValidatorKeptForAStagedDelegationIsRemovedWhenItIsDropped
-// does, with a hook that fails val3's removal.
+// does, with val3's stored moniker corrupt, which fails val3's removal.
 func TestADroppedDelegationIsRefundedWhenItsValidatorCannotBeRemoved(t *testing.T) {
 	params := testParams
 	params.MaxVotingPowerRatio = dec.Quo(dec.FromInt(big.NewInt(56)), dec.FromInt(big.NewInt(100)))
 	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1)
 	h := newHarness(t, params)
-	errRemoval := errors.New("removal refused")
-	h.staking.Hooks = refusingRemoval{err: errRemoval}
 	require.NoError(t, h.stageUndelegate(val1, val1, sei(20)))
 	require.NoError(t, h.stageUndelegate(val3, val3, sei(10)))
 	require.NoError(t, h.stageDelegate(bob, val3, sei(40)))
+	// An inline string head claiming 64 bytes.
+	h.state.SetState(Address, at(validatorBase(val3), validatorMoniker), common.Hash{31: 0x80})
 
 	err := h.inEffect(nil)
 	require.ErrorIs(t, err, errExceedMaxVotingPower, "the delegation is dropped")
-	require.ErrorIs(t, err, errRemoval, "and val3's removal is reported")
+	require.ErrorIs(t, err, solstorage.ErrInvalidString, "and val3's failed removal is reported")
 	_, ok := h.store().validator(val3)
 	require.True(t, ok, "val3 is kept")
 	require.Zero(t, h.store().stagedInbound(val3), "nothing is staged to val3")
@@ -420,14 +421,40 @@ func TestADroppedDelegationIsRefundedWhenItsValidatorCannotBeRemoved(t *testing.
 	h.requireInvariants(bob)
 }
 
-// refusingRemoval is Hooks that fail every validator's removal with err.
-type refusingRemoval struct {
+// TestAFailingHookDoesNotDropTheOperationThatCalledIt fails the hook a staged
+// delegation calls as it takes effect, after the hook has written to state.
+func TestAFailingHookDoesNotDropTheOperationThatCalledIt(t *testing.T) {
+	h := newHarness(t, testParams)
+	errHook := errors.New("hook failed")
+	h.staking.Hooks = failingDelegationHook{err: errHook}
+	require.NoError(t, h.stageDelegate(alice, val1, sei(5)))
+	h.endEpoch(0)
+	require.Empty(t, h.failures)
+	projected := must(EpochValidators(h.state))
+
+	h.endEpoch(1)
+	err := errors.Join(h.failures...)
+	require.ErrorIs(t, err, errHook)
+	require.ErrorIs(t, err, precompiles.ErrDegraded)
+	require.Equal(t, dec.FromInt(sei(5)), h.shares(alice, val1), "the delegation takes effect")
+	require.Equal(t, common.Hash{}, h.state.GetState(hookScratch, common.Hash{}), "the hook's write is reverted")
+	require.Equal(t, projected, must(bondedValidators(h.store())), "the bonded set is the one the snapshot projected")
+	h.requireInvariants(alice)
+}
+
+// hookScratch is where failingDelegationHook writes.
+var hookScratch = common.HexToAddress("0xb00c")
+
+// failingDelegationHook is Hooks whose AfterDelegationModified writes to
+// hookScratch and then fails with err.
+type failingDelegationHook struct {
 	NoHooks
 	err error
 }
 
-func (r refusingRemoval) AfterValidatorRemoved(precompiles.BlockContext, precompiles.State, common.Address) error {
-	return r.err
+func (f failingDelegationHook) AfterDelegationModified(_ precompiles.BlockContext, state precompiles.State, _, _ common.Address) error {
+	state.SetState(hookScratch, common.Hash{}, common.Hash{1})
+	return f.err
 }
 
 // TestEveryOperationStagedInAnEpochTakesEffectAtTheNextEpochsEnd stages more
