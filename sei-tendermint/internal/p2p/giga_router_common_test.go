@@ -1377,3 +1377,96 @@ func TestGigaRouterCommon_RetainReadsAnchorAtRetain(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// A member admitted by an Anchor change, with no address held, requests one resync for that change.
+// Once its address arrives it is dialed without another resync.
+// A member the Anchor admits whose address the table already holds needs no resync. The table is
+// filled before the loop starts, so the first pass sees the member as admitted with its address present.
+func TestGigaRouterCommon_RunPerCommitteeMemberSkipsResyncWhenAddressKnown(t *testing.T) {
+	rng := utils.TestRng()
+	a, x := atypes.GenSecretKey(rng), atypes.GenSecretKey(rng)
+	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{a.Public(): 1}))
+	epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{a.Public(): 1, x.Public(): 1}))
+	validatorAddrs := testValidatorAddrs(epochs.state)
+	require.NoError(t, validatorAddrs.Receive(testAddrAnnouncement(rng, a, 1, "a.example:26656")))
+	require.NoError(t, validatorAddrs.Receive(testAddrAnnouncement(rng, x, 1, "x.example:26656")))
+	router := &GigaRouterCommon{cfg: &GigaRouterCommonConfig{}, data: epochs.state, validatorAddrs: validatorAddrs}
+	started := make(chan atypes.PublicKey, 8)
+	task := func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+		started <- validator
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	resyncs := validatorAddrs.Resyncs()
+	initial := resyncs.Load()
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, task)) })
+		for range 2 {
+			select {
+			case <-started:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		// Changing a's address restarts its session, so a second dial of a means the loop has begun a
+		// later pass. The first pass has finished by then, including any resync it requested.
+		if err := validatorAddrs.Receive(testAddrAnnouncement(rng, a, 2, "a2.example:26656")); err != nil {
+			return err
+		}
+		for got := range started {
+			if got == a.Public() {
+				break
+			}
+		}
+		if got := resyncs.Load(); got != initial {
+			return fmt.Errorf("resyncs = %d, want %d", got, initial)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestGigaRouterCommon_RunPerCommitteeMemberRequestsResyncOnAdmission(t *testing.T) {
+	rng := utils.TestRng()
+	a, x := atypes.GenSecretKey(rng), atypes.GenSecretKey(rng)
+	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{a.Public(): 1}))
+	validatorAddrs := testValidatorAddrs(epochs.state)
+	require.NoError(t, validatorAddrs.Receive(testAddrAnnouncement(rng, a, 1, "a.example:26656")))
+	router := &GigaRouterCommon{cfg: &GigaRouterCommonConfig{}, data: epochs.state, validatorAddrs: validatorAddrs}
+	started := make(chan atypes.PublicKey, 8)
+	task := func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+		started <- validator
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	resyncs := validatorAddrs.Resyncs()
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false, task)) })
+		if got := <-started; got != a.Public() {
+			return fmt.Errorf("first dial = %v, want a", got)
+		}
+		initial := resyncs.Load()
+		epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{a.Public(): 1, x.Public(): 1}))
+		if _, err := resyncs.Wait(ctx, func(n uint64) bool { return n > initial }); err != nil {
+			return err
+		}
+		// a's address changes while x is still missing: a pass without an Anchor change must not request again.
+		if err := validatorAddrs.Receive(testAddrAnnouncement(rng, a, 2, "a2.example:26656")); err != nil {
+			return err
+		}
+		if err := validatorAddrs.Receive(testAddrAnnouncement(rng, x, 1, "x.example:26656")); err != nil {
+			return err
+		}
+		// a's changed address restarts its session, which dials a again before x.
+		for got := range started {
+			if got == x.Public() {
+				break
+			}
+		}
+		if got := resyncs.Load(); got != initial+1 {
+			return fmt.Errorf("resyncs = %d, want %d", got, initial+1)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}

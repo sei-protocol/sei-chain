@@ -315,12 +315,19 @@ func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 		// Anchor is republished on every persist batch, so the wait compares
 		// the epoch indices it depends on rather than the Anchor value.
 		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
+		// The epochs the Anchor held at the previous pass. A change admits a member this node has not
+		// dialed before.
+		var lastEpochs [2]atypes.EpochIndex
 
 		for ctx.Err() == nil {
 			addrWatch := r.validatorAddrs.Watch()
 			addrs := addrWatch.Load()
 			anchor := r.data.Anchor().Load()
 			commitEpoch := anchor.NextHeightEpoch()
+			anchorEpochs := [2]atypes.EpochIndex{anchor.Epochs[0].EpochIndex(), anchor.Epochs[1].EpochIndex()}
+			admitted := anchorEpochs != lastEpochs
+			lastEpochs = anchorEpochs
+			missing := false
 			// A member of Epochs[0] may hold the only copy of a lane block, or of
 			// the headers a CommitQC needs. Epochs[1] is the next committee while
 			// the commit epoch is Epochs[0].
@@ -347,6 +354,7 @@ func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 					addr, ok := r.validatorAddr(validator)
 					if !ok {
 						logger.Error("committee member has no configured address; not dialing", "validator", validator)
+						missing = true
 						continue
 					}
 					taskCtx, cancel := context.WithCancel(ctx)
@@ -362,6 +370,13 @@ func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 						}))
 					})
 				}
+			}
+			// A member admitted while this node's Anchor lagged was refused by this node, and its senders
+			// do not resend it. Peers resend their full tables on a new stream, so ask for one.
+			// It is requested on the Anchor change alone, so a member that never publishes costs one
+			// resync per epoch change.
+			if admitted && missing {
+				r.validatorAddrs.RequestResync()
 			}
 			if err := utils.WaitAny(ctx, func() bool {
 				return r.data.Anchor().Load().NextHeightEpoch().EpochIndex() != commitEpoch.EpochIndex() ||

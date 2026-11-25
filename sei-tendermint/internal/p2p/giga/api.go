@@ -1,6 +1,10 @@
 package giga
 
 import (
+	"time"
+
+	"golang.org/x/time/rate"
+
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -53,8 +57,11 @@ var StreamAppQCs = rpc.Register[API](5, "stream_app_qcs",
 	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*apb.AppQC]{MsgSize: 30 * kB, Window: 20},
 )
+
+// The accept rate is per connection. Each stream gets a fresh receive burst, so this interval bounds how
+// often a peer can refill it.
 var StreamValidatorAddrs = rpc.Register[API](9, "stream_validator_addrs",
-	rpc.Limit{Rate: 1, Concurrent: 1},
+	rpc.Limit{Rate: rate.Every(10 * time.Second), Concurrent: 1},
 	// Both directions carry announcements: each end sends its own table.
 	rpc.Msg[*apb.SignedValidatorAddrAnnouncement]{MsgSize: 4 * kB, Window: 64},
 	rpc.Msg[*apb.SignedValidatorAddrAnnouncement]{MsgSize: 4 * kB, Window: 64},

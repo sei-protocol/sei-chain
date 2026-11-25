@@ -3,11 +3,15 @@ package giga
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -297,12 +301,20 @@ func TestValidatorAddrExchangeEndsWithoutFailingWhenRateExceeded(t *testing.T) {
 	for i := range 2 * validatorAddrBurst {
 		anns = append(anns, signedAddr(types.GenSecretKey(rng), uint64(i+1)))
 	}
-	source := newAddrs(anns...)
 	sink := newAddrs()
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		server, client := pipe(ctx, s)
+		// The peer sends without pacing, which an honest sender never does.
 		s.SpawnBg(func() error {
-			return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: source}).serverStreamValidatorAddrs(ctx, server))
+			return utils.IgnoreAfterCancel(ctx, StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
+				for _, ann := range anns {
+					if err := stream.Send(ctx, types.SignedValidatorAddrAnnouncementConv.Encode(ann)); err != nil {
+						return nil
+					}
+				}
+				<-ctx.Done()
+				return nil
+			}))
 		})
 		return (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client)
 	})
@@ -414,7 +426,7 @@ func TestValidatorAddrRefusedAnnouncementsAreNotRemembered(t *testing.T) {
 		server, client := pipe(ctx, s)
 		s.SpawnBg(func() error {
 			return utils.IgnoreAfterCancel(ctx, StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
-				return (&Service{validatorAddrs: sink}).receiveValidatorAddrs(ctx, stream, peer)
+				return (&Service{validatorAddrs: sink}).receiveValidatorAddrs(ctx, stream, peer, rate.NewLimiter(validatorAddrRate, validatorAddrBurst))
 			}))
 		})
 		stream, err := StreamValidatorAddrs.Call(ctx, client)
@@ -454,4 +466,137 @@ func TestValidatorAddrsVerifiesUnderWriteLock(t *testing.T) {
 	})
 	require.NoError(t, addrs.Receive(signedAddr(types.GenSecretKey(utils.TestRng()), 1)))
 	require.False(t, unlocked, "verify ran without writes held")
+}
+
+// A resync request reopens the client's stream, so the peer sends its full table again, including
+// announcements the client already holds.
+func TestValidatorAddrResyncSendsFullTableAgain(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		member := types.GenSecretKey(rng)
+		receipts := utils.NewAtomicSend(0)
+		sink := newVerified(func(*types.Signed[types.ValidatorAddrAnnouncement]) error {
+			receipts.Store(receipts.Load() + 1)
+			return nil
+		})
+		source := newAddrs(signedAddr(member, 1))
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			startStream(ctx, s, source, sink)
+			if err := waitAddrs(ctx, sink, 1); err != nil {
+				return err
+			}
+			sink.RequestResync()
+			// The second stream waits for the accept pace before the peer sends its table again.
+			waitCtx, cancel := context.WithTimeout(ctx, time.Minute)
+			defer cancel()
+			_, err := receipts.Subscribe().Wait(waitCtx, func(n int) bool { return n >= 2 })
+			return err
+		})
+		require.NoError(t, err)
+		require.Equal(t, 2, receipts.Load())
+	})
+}
+
+// Two peers holding disjoint tables exchange them in both directions. The sink then drops one of the
+// source's entries. The live stream never resends it, so only the resync can restore it, and only after
+// the accept pace.
+func TestValidatorAddrTwoWayResyncRestoresDroppedEntry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		const n = 100
+		var aAnns, bAnns []*types.Signed[types.ValidatorAddrAnnouncement]
+		for range n {
+			aAnns = append(aAnns, signedAddr(types.GenSecretKey(rng), 1))
+			bAnns = append(bAnns, signedAddr(types.GenSecretKey(rng), 1))
+		}
+		srcReceipts := utils.NewAtomicSend(0)
+		source := newVerified(func(*types.Signed[types.ValidatorAddrAnnouncement]) error {
+			srcReceipts.Store(srcReceipts.Load() + 1)
+			return nil
+		})
+		sinkReceipts := utils.NewAtomicSend(0)
+		sink := newVerified(func(*types.Signed[types.ValidatorAddrAnnouncement]) error {
+			sinkReceipts.Store(sinkReceipts.Load() + 1)
+			return nil
+		})
+		for _, ann := range aAnns {
+			require.NoError(t, source.Receive(ann))
+		}
+		for _, ann := range bAnns {
+			require.NoError(t, sink.Receive(ann))
+		}
+		// Filling the tables counted receipts; count only the exchange.
+		srcReceipts.Store(0)
+		sinkReceipts.Store(0)
+		dropped := aAnns[0].Key()
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			startStream(ctx, s, source, sink)
+			if _, err := sinkReceipts.Subscribe().Wait(ctx, func(k int) bool { return k >= n }); err != nil {
+				return err
+			}
+			if _, err := srcReceipts.Subscribe().Wait(ctx, func(k int) bool { return k >= n }); err != nil {
+				return err
+			}
+			// The tables are disjoint, so each announcement crosses the stream exactly once.
+			if sinkReceipts.Load() != n || srcReceipts.Load() != n {
+				return fmt.Errorf("round 1 receipts = %d and %d, want %d each", sinkReceipts.Load(), srcReceipts.Load(), n)
+			}
+			sink.Retain(func(validator types.PublicKey) bool { return validator != dropped })
+			if hasAddr(sink, dropped) {
+				return fmt.Errorf("sink still holds the dropped entry")
+			}
+			start := time.Now()
+			sink.RequestResync()
+			if _, err := sink.Watch().Wait(ctx, func(snapshot testSnapshot) bool {
+				_, ok := snapshot[dropped]
+				return ok
+			}); err != nil {
+				return err
+			}
+			if elapsed := time.Since(start); elapsed < 10*time.Second {
+				return fmt.Errorf("resync restored the entry after %v, want at least the accept pace", elapsed)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
+// Two resyncs on one connection each deliver the full table. A full table fits in one stream's burst, and
+// the second stream is accepted only after the accept pace.
+func TestValidatorAddrResyncPacesFullTable(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		var anns []*types.Signed[types.ValidatorAddrAnnouncement]
+		for range validatorAddrBurst / 2 {
+			anns = append(anns, signedAddr(types.GenSecretKey(rng), 1))
+		}
+		source := newAddrs(anns...)
+		receipts := utils.NewAtomicSend(0)
+		// The sink keeps nothing, so every announcement it receives is counted. A sink that kept its
+		// table would skip echoing it back, and the count would fall short of the table size.
+		sink := newVerified(func(*types.Signed[types.ValidatorAddrAnnouncement]) error {
+			receipts.Store(receipts.Load() + 1)
+			return errors.New("sink keeps nothing")
+		})
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		start := time.Now()
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			startStream(ctx, s, source, sink)
+			for round := 1; round <= 2; round++ {
+				if round > 1 {
+					sink.RequestResync()
+				}
+				if _, err := receipts.Subscribe().Wait(ctx, func(n int) bool { return n >= round*len(anns) }); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, time.Since(start), 10*time.Second)
+	})
 }

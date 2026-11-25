@@ -40,6 +40,8 @@ type ValidatorAddrs[A any] struct {
 	// writes serializes Receive and Retain, which publish modified copies of held. verify runs under it.
 	writes sync.Mutex
 	held   utils.AtomicSend[ValidatorAddrSnapshot[A]]
+	// resyncs counts resync requests. Each client stream opened before a request reopens after it.
+	resyncs utils.AtomicSend[uint64]
 }
 
 // ValidatorAddrGossip is what a Service needs of a ValidatorAddrs to run the address stream.
@@ -49,20 +51,36 @@ type ValidatorAddrGossip interface {
 	// AwaitMissing waits until some held announcement is one peerHolds rejects, and returns
 	// every such announcement.
 	AwaitMissing(ctx context.Context, peerHolds func(validator atypes.PublicKey, version uint64) bool) ([]*atypes.Signed[atypes.ValidatorAddrAnnouncement], error)
+	// Resyncs changes on every resync request.
+	Resyncs() utils.AtomicRecv[uint64]
 }
 
 // NewValidatorAddrs returns an empty ValidatorAddrs that keeps the announcements verify accepts,
 // along with the address it returns for each.
 func NewValidatorAddrs[A any](verify func(*atypes.Signed[atypes.ValidatorAddrAnnouncement]) (A, error)) *ValidatorAddrs[A] {
 	return &ValidatorAddrs[A]{
-		verify: verify,
-		held:   utils.NewAtomicSend(ValidatorAddrSnapshot[A]{}),
+		verify:  verify,
+		held:    utils.NewAtomicSend(ValidatorAddrSnapshot[A]{}),
+		resyncs: utils.NewAtomicSend(uint64(0)),
 	}
 }
 
 // Watch is a watch on the held entries. Every change publishes a new snapshot.
 func (a *ValidatorAddrs[A]) Watch() utils.AtomicRecv[ValidatorAddrSnapshot[A]] {
 	return a.held.Subscribe()
+}
+
+// RequestResync makes every client stream open again, so each peer sends its full table.
+func (a *ValidatorAddrs[A]) RequestResync() {
+	// writes makes the load and store one step, so concurrent requests cannot lose an increment.
+	a.writes.Lock()
+	defer a.writes.Unlock()
+	a.resyncs.Store(a.resyncs.Load() + 1)
+}
+
+// Resyncs is a watch on the resync count, which RequestResync increments.
+func (a *ValidatorAddrs[A]) Resyncs() utils.AtomicRecv[uint64] {
+	return a.resyncs.Subscribe()
 }
 
 // Get returns the address held for validator.
@@ -140,6 +158,9 @@ const validatorAddrBurst = 2 * len(data.Anchor{}.Epochs) * atypes.MaxValidators
 
 var errValidatorAddrRateLimited = errors.New("validator address announcement rate exceeded")
 
+// errValidatorAddrResync ends a client stream so that the next one asks the peer for its full table.
+var errValidatorAddrResync = errors.New("validator address stream reopened for resync")
+
 // validatorAddrStream is a validator address stream as seen from either end of a connection.
 type validatorAddrStream = rpc.Stream[*apb.SignedValidatorAddrAnnouncement, *apb.SignedValidatorAddrAnnouncement]
 
@@ -181,20 +202,40 @@ func (p *peerVersions) forget(validator atypes.PublicKey, version uint64) {
 // exchange; see endValidatorAddrExchange.
 func (x *Service) serverStreamValidatorAddrs(ctx context.Context, server rpc.Server[API]) error {
 	err := StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
-		return x.exchangeValidatorAddrs(ctx, stream)
+		// A stream that ends must not end the serve loop: the peer may open the next one, for a resync.
+		return endValidatorAddrExchange(ctx, x.exchangeValidatorAddrs(ctx, stream, nil))
 	})
 	return endValidatorAddrExchange(ctx, err)
 }
 
-// clientStreamValidatorAddrs exchanges announcements with the peer that was dialed. Its failure ends
-// only this exchange; see endValidatorAddrExchange.
+// clientStreamValidatorAddrs exchanges announcements with the peer that was dialed. Each resync request
+// opens a new stream, so the peer sends its full table again. Its failure ends only this exchange;
+// see endValidatorAddrExchange.
 func (x *Service) clientStreamValidatorAddrs(ctx context.Context, client rpc.Client[API]) error {
+	resyncs := x.validatorAddrs.Resyncs()
+	for {
+		err := x.callValidatorAddrs(ctx, client, resyncs)
+		if !errors.Is(err, errValidatorAddrResync) || ctx.Err() != nil {
+			return endValidatorAddrExchange(ctx, err)
+		}
+	}
+}
+
+// callValidatorAddrs runs one client stream until it fails, or until a resync request is made after
+// it opened, which returns errValidatorAddrResync.
+func (x *Service) callValidatorAddrs(ctx context.Context, client rpc.Client[API], resyncs utils.AtomicRecv[uint64]) error {
+	opened := resyncs.Load()
 	stream, err := StreamValidatorAddrs.Call(ctx, client)
 	if err != nil {
-		return endValidatorAddrExchange(ctx, fmt.Errorf("client.StreamValidatorAddrs(): %w", err))
+		return fmt.Errorf("client.StreamValidatorAddrs(): %w", err)
 	}
 	defer stream.Close()
-	return endValidatorAddrExchange(ctx, x.exchangeValidatorAddrs(ctx, stream))
+	return x.exchangeValidatorAddrs(ctx, stream, func(ctx context.Context) error {
+		if _, err := resyncs.Wait(ctx, func(n uint64) bool { return n != opened }); err != nil {
+			return err
+		}
+		return errValidatorAddrResync
+	})
 }
 
 // endValidatorAddrExchange logs why the gossip exchange ended and returns nil, so the scope that runs
@@ -209,12 +250,16 @@ func endValidatorAddrExchange(ctx context.Context, err error) error {
 
 // exchangeValidatorAddrs sends the held announcements to the peer and hands the peer's announcements
 // to the table. Announcements that fail verification are dropped; the exchange ends when the stream
-// fails or the peer exceeds its rate limit.
-func (x *Service) exchangeValidatorAddrs(ctx context.Context, stream validatorAddrStream) error {
+// fails, the peer exceeds its rate limit, or until returns, which it does with an error.
+func (x *Service) exchangeValidatorAddrs(ctx context.Context, stream validatorAddrStream, until func(context.Context) error) error {
 	peer := newPeerVersions()
+	recv := rate.NewLimiter(validatorAddrRate, validatorAddrBurst)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.sendValidatorAddrs(ctx, stream, peer) })
-		s.Spawn(func() error { return x.receiveValidatorAddrs(ctx, stream, peer) })
+		s.Spawn(func() error { return x.receiveValidatorAddrs(ctx, stream, peer, recv) })
+		if until != nil {
+			s.Spawn(func() error { return until(ctx) })
+		}
 		return nil
 	})
 }
@@ -244,8 +289,7 @@ func (x *Service) sendValidatorAddrs(ctx context.Context, stream validatorAddrSt
 }
 
 // receiveValidatorAddrs hands each announcement from the peer to the table.
-func (x *Service) receiveValidatorAddrs(ctx context.Context, stream validatorAddrStream, peer *peerVersions) error {
-	limiter := rate.NewLimiter(validatorAddrRate, validatorAddrBurst)
+func (x *Service) receiveValidatorAddrs(ctx context.Context, stream validatorAddrStream, peer *peerVersions, limiter *rate.Limiter) error {
 	for {
 		raw, err := stream.Recv(ctx)
 		if err != nil {
