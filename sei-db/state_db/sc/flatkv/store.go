@@ -204,11 +204,11 @@ type CommitStore struct {
 // It answers with a directory name rather than a database handle so that deciding where a key goes stays
 // separate from holding the thing it goes into.
 func routePhysicalKey(physicalKey []byte) (string, error) {
-	moduleName, innerKey, err := ktype.StripModulePrefix(physicalKey)
+	moduleName, innerKey, err := ktype.SplitModulePrefix(physicalKey)
 	if err != nil {
 		return "", err
 	}
-	if moduleName == "" {
+	if len(moduleName) == 0 {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
 		// and later persist as the per-module meta key "_meta/x:/hash", which
 		// ParseModuleLtHashKey rejects on the very next reopen — permanently
@@ -216,7 +216,7 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 		// and imported key is routed here, so this is where it is rejected.
 		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
-	if moduleName != keys.EVMStoreKey {
+	if string(moduleName) != keys.EVMStoreKey {
 		return miscDBDir, nil
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)

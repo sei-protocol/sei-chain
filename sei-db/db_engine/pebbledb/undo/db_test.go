@@ -15,7 +15,6 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -48,10 +47,6 @@ func codeKey(addr common.Address) string {
 	return string(keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
 }
 
-func codeHashKey(addr common.Address) string {
-	return string(keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
-}
-
 // storageKey returns the key of storage slot slot of addr.
 func storageKey(addr common.Address, slot uint64) string {
 	return string(keys.BuildEVMKey(keys.EVMKeyStorage, append(addr.Bytes(), word(slot)...)))
@@ -59,8 +54,8 @@ func storageKey(addr common.Address, slot uint64) string {
 
 // word returns n as a 32-byte big-endian EVM word, the encoding of balances, slots and storage values.
 func word(n uint64) []byte {
-	w := make([]byte, wordLen)
-	binary.BigEndian.PutUint64(w[wordLen-8:], n)
+	w := make([]byte, 32)
+	binary.BigEndian.PutUint64(w[24:], n)
 	return w
 }
 
@@ -72,7 +67,7 @@ func nonce(n uint64) []byte {
 // liveState is the state commit store's view of the latest block: each key's current value.
 type liveState map[string][]byte
 
-func (s liveState) Get(_ string, key []byte) ([]byte, bool) {
+func (s liveState) GetRaw(key []byte) ([]byte, bool) {
 	value, found := s[string(key)]
 	return value, found
 }
@@ -90,16 +85,6 @@ func (p priorMap) mutations() []mutation.Mutation {
 		out = append(out, mutation.Mutation{Key: []byte(key), PreviousValue: prior})
 	}
 	return out
-}
-
-// nonZero returns value, or nil when it is empty or all zeros.
-func nonZero(value []byte) []byte {
-	for _, b := range value {
-		if b != 0 {
-			return value
-		}
-	}
-	return nil
 }
 
 // TestUndoLogByHand spells the store out: the live state after the last block, the value each block
@@ -162,7 +147,7 @@ type mapView struct {
 	closes *atomic.Int64
 }
 
-func (v *mapView) Get(_ string, key []byte) ([]byte, bool) {
+func (v *mapView) GetRaw(key []byte) ([]byte, bool) {
 	value, found := v.values[string(key)]
 	return value, found
 }
@@ -231,28 +216,19 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 }
 
 // apply commits one block setting (or, for a nil value, deleting) each key, and feeds its prior
-// values to the store. As in the state commit store, a zero value is no value, except for code, which
-// is absent only when empty and changes its code hash with it.
+// values to the store.
 func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Lock()
 	prev := c.states[len(c.states)-1]
 	version := c.base + int64(len(c.states))
 	next := maps.Clone(prev)
 	prior := map[string][]byte{}
-	set := func(key string, value []byte) {
-		if len(value) == 0 || key[0] != CodeKeyPrefix[0] && nonZero(value) == nil {
+	for key, value := range changes {
+		prior[key] = prev[key]
+		if value == nil {
 			delete(next, key)
 		} else {
 			next[key] = value
-		}
-	}
-	for key, value := range changes {
-		prior[key] = prev[key]
-		set(key, value)
-		if key[0] == CodeKeyPrefix[0] {
-			codeHash := string(CodeHashKeyPrefix) + key[1:]
-			prior[codeHash] = prev[codeHash]
-			set(codeHash, crypto.Keccak256(value))
 		}
 	}
 	c.states = append(c.states, next)
@@ -311,7 +287,7 @@ func records(t testing.TB, db *Database) []record {
 		body := itr.Key()[:splitKey(itr.Key())]
 		out = append(out, record{
 			bucket: binary.BigEndian.Uint64(body),
-			key:    string(body[bucketLen:]),
+			key:    string(body[bucketLen+keyLenLen:]),
 			height: int64(height), //nolint:gosec // test heights are small
 			value:  value,
 		})
@@ -965,12 +941,12 @@ type blockingGetView struct {
 	once    sync.Once
 }
 
-func (v *blockingGetView) Get(module string, key []byte) ([]byte, bool) {
+func (v *blockingGetView) GetRaw(key []byte) ([]byte, bool) {
 	v.once.Do(func() {
 		close(v.started)
 		<-v.release
 	})
-	return v.LiveStateView.Get(module, key)
+	return v.LiveStateView.GetRaw(key)
 }
 
 // A read in flight keeps its current-state view open after a newer one replaces it, and Close waits
@@ -1161,15 +1137,15 @@ func TestLargeBlocksLandWhole(t *testing.T) {
 	require.Equal(t, slots, atTwo)
 }
 
-func TestEveryFamilyIsRecorded(t *testing.T) {
+func TestEveryKeyIsRecorded(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10)
 	defer func() { require.NoError(t, db.Close()) }()
 	priors := priorMap{
 		balanceKey(alice):       word(1),
 		nonceKey(alice):         nonce(2),
 		codeKey(contract):       {0x60, 0x00},
-		codeHashKey(contract):   crypto.Keccak256([]byte{0x60, 0x00}),
 		storageKey(contract, 1): word(3),
+		"bank/supply":           word(4),
 	}
 	height, err := db.writeBlock(1, priors.mutations())
 	require.NoError(t, err)
@@ -1193,30 +1169,16 @@ func TestZeroByteCodeIsPresent(t *testing.T) {
 	c.apply(map[string][]byte{codeKey(contract): {0x00}}, false)
 	c.apply(map[string][]byte{codeKey(contract): {0x60, 0x00}}, false)
 	c.requireRead(1, codeKey(contract))
-	c.requireRead(1, string(CodeHashKeyPrefix)+codeKey(contract)[1:])
 }
 
-func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
+func TestKeysReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	dir := t.TempDir()
 	c := newChain(t, dir, 2, 0)
 	initial, updated, deleted := map[string][]byte{}, map[string][]byte{}, map[string][]byte{}
-	for _, kind := range evmTypes {
-		if kind == CodeHashKeyPrefix[0] {
-			continue // written with its code
-		}
-		_, size := keyLayout([]byte{kind})
-		for _, fill := range []byte{0, 0xff} {
-			key := string(evmKey(kind, fill))
-			initial[key] = make([]byte, max(size, 1))
-			initial[key][len(initial[key])-1] = 1
-			updatedSize := size
-			if updatedSize < 0 {
-				updatedSize = 4096
-			}
-			updated[key] = make([]byte, updatedSize)
-			updated[key][len(updated[key])-1] = 2
-			deleted[key] = nil
-		}
+	for _, key := range testKeys() {
+		initial[string(key)] = []byte{1}
+		updated[string(key)] = bytes.Repeat([]byte{2}, 4096)
+		deleted[string(key)] = nil
 	}
 	c.apply(initial, true)
 	c.apply(updated, true)
@@ -1238,38 +1200,40 @@ func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	require.NoError(t, c.db.Resume(3, c.view(c.states[3])))
 	verify()
 
-	// Query absent addresses and slots in populated SSTables, exercising prefix Bloom filters.
+	// Query absent keys in populated SSTables, exercising prefix Bloom filters. No test key ends in 0x02.
 	v, ok := c.db.OpenView(0)
 	require.True(t, ok)
 	defer v.Close()
-	for _, kind := range evmTypes {
-		value, err := v.Get(evmKey(kind, 2))
+	for _, key := range testKeys() {
+		absent := bytes.Clone(key)
+		absent[len(absent)-1] = 0x02
+		value, err := v.Get(absent)
 		require.NoError(t, err)
 		require.Nil(t, value)
 	}
 }
 
-func TestReadsRejectUnsupportedAndMalformedKeys(t *testing.T) {
+func TestReadsRejectKeysNoRecordCanHold(t *testing.T) {
 	c := newChain(t, t.TempDir(), 2, 0)
 	defer func() { require.NoError(t, c.db.Close()) }()
 	c.apply(nil, false)
 	for _, height := range []int64{0, 1} {
 		v, ok := c.db.OpenView(height)
 		require.True(t, ok)
-		for _, key := range [][]byte{nil, {0xff}, {StateKeyPrefix[0]}, append([]byte{0x09}, make([]byte, addressLen)...)} {
+		for _, key := range [][]byte{nil, make([]byte, maxKeyLen+1)} {
 			_, err := v.Get(key)
-			require.ErrorContains(t, err, "unsupported or malformed")
+			require.ErrorContains(t, err, "outside 1..")
 		}
 		v.Close()
 	}
 }
 
-func TestWritesRejectUnsupportedAndMalformedKeys(t *testing.T) {
+func TestWritesRejectKeysNoRecordCanHold(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10)
 	defer func() { require.NoError(t, db.Close()) }()
-	for _, key := range []string{"", "\xff", string(StateKeyPrefix), "\x09" + string(make([]byte, addressLen))} {
+	for _, key := range []string{"", string(make([]byte, maxKeyLen+1))} {
 		_, err := db.writeBlock(1, priorMap{key: word(1)}.mutations())
-		require.ErrorContains(t, err, "unsupported or malformed")
+		require.ErrorContains(t, err, "outside 1..")
 	}
 	require.Empty(t, records(t, db))
 }

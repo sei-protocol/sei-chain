@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/stateview"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -295,6 +296,8 @@ type flatKVStateDB struct {
 	cfg *flatkvconfig.Config
 }
 
+func (s flatKVStateDB) OpenView() gigatypes.StateView { return stateview.New(s.CommitStore.OpenView()) }
+
 func (flatKVStateDB) OpenViewAt(int64) (gigatypes.StateView, bool) { return nil, false }
 
 func (s flatKVStateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
@@ -325,7 +328,7 @@ func TestEndBlockerStorageReadsBackFromFlatKV(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	view := store.OpenView()
+	view := stateview.New(store.OpenView())
 	defer view.Close()
 	require.Equal(t, common.BigToHash(big.NewInt(2)), view.GetStorage(firstEndBlocker, blocksSlot))
 	require.True(t, view.AccountExists(firstEndBlocker))
