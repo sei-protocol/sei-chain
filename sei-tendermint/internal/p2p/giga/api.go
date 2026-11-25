@@ -53,6 +53,12 @@ var StreamAppQCs = rpc.Register[API](5, "stream_app_qcs",
 	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*apb.AppQC]{MsgSize: 30 * kB, Window: 20},
 )
+var StreamValidatorAddrs = rpc.Register[API](9, "stream_validator_addrs",
+	rpc.Limit{Rate: 1, Concurrent: 1},
+	// Both directions carry announcements: each end sends its own table.
+	rpc.Msg[*apb.SignedValidatorAddrAnnouncement]{MsgSize: 4 * kB, Window: 64},
+	rpc.Msg[*apb.SignedValidatorAddrAnnouncement]{MsgSize: 4 * kB, Window: 64},
+)
 var GetBlock = rpc.Register[API](8, "get_block",
 	// TODO: bumped from 10 to unblock the giga testnet for now. Proper capacity planning later.
 	rpc.Limit{Rate: 200, Concurrent: 10},

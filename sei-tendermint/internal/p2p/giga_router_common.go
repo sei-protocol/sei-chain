@@ -48,6 +48,7 @@ type GigaRouterCommon struct {
 	signer          *abevm.Signer
 	gigaSpec        gigaHandshakeSpec
 	selfAddr        utils.Option[NodeAddress]
+	validatorAddrs  *giga.ValidatorAddrs[GigaNodeAddr]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Persistent and block-sync peers do not consume it.
@@ -246,10 +247,13 @@ type memberSession struct {
 	addr   GigaNodeAddr
 }
 
-// validatorAddr returns the configured address for a validator.
+// validatorAddr returns the dial address of a validator: the configured one, else the gossiped one.
 func (r *GigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAddr, bool) {
-	addr, ok := r.cfg.ValidatorAddrs[validator]
-	return addr, ok
+	// TODO: discuss whether gossiped announcements should take precedence over the configured book.
+	if addr, ok := r.cfg.ValidatorAddrs[validator]; ok {
+		return addr, true
+	}
+	return r.validatorAddrs.Get(validator)
 }
 
 // inAnchorEpochs reports whether validator is a member of an epoch Anchor holds.
@@ -313,6 +317,8 @@ func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 		epochOf := func(a data.Anchor) atypes.EpochIndex { return a.Epochs[0].EpochIndex() }
 
 		for ctx.Err() == nil {
+			addrWatch := r.validatorAddrs.Watch()
+			addrs := addrWatch.Load()
 			anchor := r.data.Anchor().Load()
 			commitEpoch := anchor.NextHeightEpoch()
 			// A member of Epochs[0] may hold the only copy of a lane block, or of
@@ -325,6 +331,13 @@ func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 			if err := r.stopStaleSessions(ctx, live, epochs); err != nil {
 				return err
 			}
+			// Gossiped addresses are kept only for Anchor members, so entries for
+			// departed members are dropped even when no session was ever started.
+			// The Anchor is read when Retain runs, not the one this pass started with: stopStaleSessions
+			// may have waited while the Anchor moved, and Receive admits against the Anchor at its own time.
+			r.validatorAddrs.Retain(func(validator atypes.PublicKey) bool {
+				return inAnchorEpochs(r.data.Anchor().Load(), validator)
+			})
 			for _, ep := range epochs {
 				for lane := range ep.Committee().Lanes().All() {
 					validator := lane.Validator
@@ -352,8 +365,9 @@ func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 			}
 			if err := utils.WaitAny(ctx, func() bool {
 				return r.data.Anchor().Load().NextHeightEpoch().EpochIndex() != commitEpoch.EpochIndex() ||
-					epochOf(r.data.Anchor().Load()) != epochOf(anchor)
-			}, r.data.Anchor()); err != nil {
+					epochOf(r.data.Anchor().Load()) != epochOf(anchor) ||
+					!addrWatch.Load().Same(addrs)
+			}, r.data.Anchor(), addrWatch); err != nil {
 				return err
 			}
 		}

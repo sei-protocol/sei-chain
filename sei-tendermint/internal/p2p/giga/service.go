@@ -16,9 +16,10 @@ import (
 
 // Service serves the giga RPC API.
 type Service struct {
-	getBlockReqs chan req
-	data         *data.State
-	state        utils.Option[*consensus.State]
+	getBlockReqs   chan req
+	data           *data.State
+	state          utils.Option[*consensus.State]
+	validatorAddrs ValidatorAddrGossip
 }
 
 type validatorService struct {
@@ -26,20 +27,22 @@ type validatorService struct {
 }
 
 // NewService constructs service with all streams.
-func NewService(state *consensus.State) *Service {
+func NewService(state *consensus.State, validatorAddrs ValidatorAddrGossip) *Service {
 	return &Service{
-		getBlockReqs: make(chan req),
-		data:         state.Data(),
-		state:        utils.Some(state),
+		getBlockReqs:   make(chan req),
+		data:           state.Data(),
+		state:          utils.Some(state),
+		validatorAddrs: validatorAddrs,
 	}
 }
 
 // NewFullNodeService constructs a Service that only serves and consumes
 // fullnode streams (no consensus / avail).
-func NewFullNodeService(d *data.State) *Service {
+func NewFullNodeService(d *data.State, validatorAddrs ValidatorAddrGossip) *Service {
 	return &Service{
-		getBlockReqs: make(chan req),
-		data:         d,
+		getBlockReqs:   make(chan req),
+		data:           d,
+		validatorAddrs: validatorAddrs,
 	}
 }
 
@@ -75,6 +78,8 @@ func (x *Service) RunServer(ctx context.Context, server rpc.Server[API], isCommi
 		s.Spawn(func() error { return x.serverStreamFullCommitQCs(ctx, server) })
 		s.Spawn(func() error { return x.serverGetBlock(ctx, server) })
 		s.Spawn(func() error { return x.serverStreamAppQCs(ctx, server) })
+		// Served to every role: fullnodes learn validator addresses from gossip too.
+		s.Spawn(func() error { return x.serverStreamValidatorAddrs(ctx, server) })
 		if c, ok := x.state.Get(); ok && isCommittee {
 			return (&validatorService{c}).RunServer(ctx, server)
 		}
@@ -87,6 +92,7 @@ func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], peer ty
 		s.Spawn(func() error { return x.clientPing(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client, peer) })
 		s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamValidatorAddrs(ctx, client) })
 		// TODO: implement a uniform robust GetBlock peer-selection / retry strategy
 		// so connections that lack a height (including self) do not need a separate
 		// getBlock=false path to avoid starving the shared fetch queue.

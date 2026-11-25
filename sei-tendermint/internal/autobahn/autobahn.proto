@@ -301,6 +301,9 @@ message Msg {
 
     // P2P authentication
     Challenge challenge = 13;
+
+    // Validator address discovery
+    ValidatorAddrAnnouncement validator_addr_announcement = 14;
   }
 }
 
@@ -425,5 +428,22 @@ message Challenge {
 message SignedChallenge {
   option (wireguard.sized) = true;
   optional Challenge msg = 1; // required
+  optional Signature sig = 2; // required
+}
+
+// ValidatorAddrAnnouncement advertises where a committee member can be dialed.
+// Versions are monotonic per validator; a newer version replaces an older one.
+message ValidatorAddrAnnouncement {
+  option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
+  optional uint64 version = 1; // required
+  optional string node_key = 2 [(wireguard.max_size) = 128]; // required
+  // 260 fits the longest host:port: a 253-char DNS name + ":" + a 5-digit port.
+  optional string host_port = 3 [(wireguard.max_size) = 260]; // required
+}
+
+message SignedValidatorAddrAnnouncement {
+  option (wireguard.sized) = true;
+  optional ValidatorAddrAnnouncement msg = 1; // required
   optional Signature sig = 2; // required
 }

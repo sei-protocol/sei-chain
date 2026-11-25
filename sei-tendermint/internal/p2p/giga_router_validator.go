@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -60,13 +62,14 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
+	validatorAddrs := newValidatorAddrs(dataState)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
 		GigaRouterCommon: &GigaRouterCommon{
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
-			service:         giga.NewService(consensusState),
+			service:         giga.NewService(consensusState, validatorAddrs),
 			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
@@ -78,7 +81,8 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 				ValidatorKey: utils.Some(cfg.ValidatorKey),
 				EVMRPC:       cfg.EVMRPC,
 			},
-			selfAddr: utils.Some(selfAddr),
+			selfAddr:       utils.Some(selfAddr),
+			validatorAddrs: validatorAddrs,
 
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
@@ -92,12 +96,57 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer)
 		})
+		s.SpawnNamed("publishValidatorAddr", func() error { return r.runPublishValidatorAddr(ctx) })
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.mempool.OrPanic("validator mempool").Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
+	})
+}
+
+// runPublishValidatorAddr publishes this validator's signed address announcement each time it
+// enters an Anchor epoch. Its entry is dropped from the table once it leaves, by runPerCommitteeMember.
+func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error {
+	validatorKey := r.validatorKey.OrPanic("validator key")
+	var version uint64
+	for {
+		if _, err := r.data.Anchor().Wait(ctx, func(a data.Anchor) bool {
+			return inAnchorEpochs(a, validatorKey)
+		}); err != nil {
+			return err
+		}
+		// The version is the wall clock and is not persisted, so a restart publishes a higher
+		// version only if the clock has not gone backwards since the last run. A lower one is
+		// ignored by peers that hold a higher one until the clock passes it.
+		version = max(uint64(time.Now().UnixNano()), version+1)
+		// The error is logged, not returned: the Anchor may have moved since the wait,
+		// and peers drop an announcement the table rejects.
+		if err := r.publishValidatorAddr(version); err != nil {
+			logger.Warn("own validator address announcement rejected", "version", version, "err", err)
+		}
+		if _, err := r.data.Anchor().Wait(ctx, func(a data.Anchor) bool {
+			return !inAnchorEpochs(a, validatorKey)
+		}); err != nil {
+			return err
+		}
+	}
+}
+
+// publishValidatorAddr signs this validator's address announcement at version and offers it
+// to the table, which verifies it like any announcement from a peer.
+func (r *gigaValidatorRouter) publishValidatorAddr(version uint64) error {
+	return r.validatorAddrs.Receive(r.signValidatorAddr(version))
+}
+
+// signValidatorAddr signs the announcement of this validator's dial address.
+func (r *gigaValidatorRouter) signValidatorAddr(version uint64) *atypes.Signed[atypes.ValidatorAddrAnnouncement] {
+	self := r.selfAddr.OrPanic("validator router has no self address")
+	return r.gigaSpec.ValidatorKey.OrPanic("validator router has no validator key").Sign(atypes.ValidatorAddrAnnouncement{
+		Version:  version,
+		NodeKey:  r.key.Public().String(),
+		HostPort: tcp.HostPort{Hostname: self.Hostname, Port: self.Port}.String(),
 	})
 }
 

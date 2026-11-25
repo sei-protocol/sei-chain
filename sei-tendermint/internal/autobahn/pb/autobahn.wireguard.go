@@ -171,6 +171,14 @@ func (*SignedChallenge) MaxSize() int {
 	return 142
 }
 
+func (*ValidatorAddrAnnouncement) MaxSize() int {
+	return 405
+}
+
+func (*SignedValidatorAddrAnnouncement) MaxSize() int {
+	return 512
+}
+
 func init() {
 	// Register the wireguard.Schema generated for autobahn.Timestamp.
 	runtime.MustRegister[*Timestamp](runtime.Schema{
@@ -382,6 +390,7 @@ func init() {
 		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
 		7:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
 		13: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
+		14: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ValidatorAddrAnnouncement]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedProposal.
@@ -487,6 +496,19 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.SignedChallenge.
 	runtime.MustRegister[*SignedChallenge](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.ValidatorAddrAnnouncement.
+	runtime.MustRegister[*ValidatorAddrAnnouncement](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1, MaxSize: 128},
+		3: {MaxCount: 1, MaxSize: 260},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.SignedValidatorAddrAnnouncement.
+	runtime.MustRegister[*SignedValidatorAddrAnnouncement](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ValidatorAddrAnnouncement]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
