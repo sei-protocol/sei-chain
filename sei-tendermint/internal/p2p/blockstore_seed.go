@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -30,30 +28,29 @@ type StateSyncStart struct {
 func seedBlockStore(
 	ctx context.Context,
 	cfg *GigaRouterCommonConfig,
-	app *abevm.Proxy,
 	blockStore *ablockstore.Store,
 	start StateSyncStart,
 ) error {
 	road, ok := start.PendingRestore.Get()
 	if !ok {
 		if start.Enabled {
-			warnUnseededStart(cfg, app, blockStore)
+			warnUnseededStart(cfg, blockStore)
 		}
 		return nil
 	}
-	if err := writeSeedRecords(ctx, cfg, app, blockStore, road); err != nil {
+	if err := writeSeedRecords(ctx, cfg, blockStore, road); err != nil {
 		return fmt.Errorf("seed road block %d from the state sync proof file: %w", road, err)
 	}
 	logger.Info("Seeded the BlockDB from the state sync proof file", "road", road)
 	return nil
 }
 
-// warnUnseededStart logs a warning when blockStore is empty while app is past genesis.
-func warnUnseededStart(cfg *GigaRouterCommonConfig, app *abevm.Proxy, blockStore *ablockstore.Store) {
+// warnUnseededStart logs a warning when blockStore is empty while cfg.App is past genesis.
+func warnUnseededStart(cfg *GigaRouterCommonConfig, blockStore *ablockstore.Store) {
 	if blockStore.Status().IsPresent() {
 		return
 	}
-	appHeight := app.LastBlockHeight()
+	appHeight := cfg.App.LastBlockHeight()
 	if appHeight < cfg.GenDoc.InitialHeight {
 		return
 	}
@@ -63,25 +60,17 @@ func warnUnseededStart(cfg *GigaRouterCommonConfig, app *abevm.Proxy, blockStore
 		"app_height", appHeight, "marker", RestoreMarkerFile(cfg.PersistentStateDir))
 }
 
-// seedRecords names the records at the restored road that the seed writes.
-type seedRecords struct {
-	block       bool
-	appProposal bool
-	appQC       bool
-}
-
 // writeSeedRecords writes to blockStore each of road block road, AppProposal(road) and
 // AppQC(road) that it does not hold, from the state sync proof file of the home. It writes nothing
-// unless the epoch registry of app holds the epoch of road and the epoch after it, and the proof
-// verifies against the epoch of road.
+// unless the epoch registry of cfg.App holds the epoch of road and the epoch after it, and the
+// proof verifies against the epoch of road.
 func writeSeedRecords(
 	ctx context.Context,
 	cfg *GigaRouterCommonConfig,
-	app *abevm.Proxy,
 	blockStore *ablockstore.Store,
 	road atypes.RoadHeight,
 ) error {
-	registry, err := app.EpochRegistry()
+	registry, err := cfg.App.EpochRegistry()
 	if err != nil {
 		return fmt.Errorf("read the epoch registry of the app: %w", err)
 	}
@@ -89,11 +78,12 @@ func writeSeedRecords(
 	if _, ok := registry.ForAnchor(road); !ok {
 		return fmt.Errorf("the epoch registry of the app holds no epoch after the epoch of road %d, so a BlockDB cannot start at it; import a checkpoint of another height", road)
 	}
-	missing, err := missingSeedRecords(blockStore, road)
-	if err != nil {
-		return err
+	status := blockStore.Status().Or(ablockstore.SuffixRange{First: road, NextBlock: road, NextAppProposal: road, NextAppQC: road})
+	// NextBlock bounds NextAppProposal and NextAppQC.
+	if status.First != road || status.NextBlock > road+1 {
+		return fmt.Errorf("the BlockDB holds %+v, want at most the records of the restored road %d; this home was not restored by giga state sync alone", status, road)
 	}
-	if missing == (seedRecords{}) {
+	if status.NextAppQC > road {
 		return nil
 	}
 	path := RestoreProofFile(cfg.PersistentStateDir)
@@ -105,28 +95,30 @@ func writeSeedRecords(
 	if err != nil {
 		return err
 	}
-	if err := requireVaultHoldsAppHash(ctx, cfg.AppHashBuilder, road, appHash); err != nil {
-		return err
+	entry, err := cfg.AppHashBuilder.GetAppHash(ctx, uint64(road))
+	if err != nil {
+		return fmt.Errorf("read the restore anchor of road %d: %w", road, err)
+	}
+	if got := entry.AppHash(); got != appHash {
+		return fmt.Errorf("the app-hash vault holds %x for road %d, but the AppQC of the state sync proof file signs %x; run seid statesync import again", got, road, appHash)
 	}
 	// A flush after each record keeps the durable records a prefix of the three, which the next
 	// start completes. An AppQC without its AppProposal would fail the BlockDB on reopen.
-	if missing.block {
+	if status.NextBlock == road {
 		write := func() error { return blockStore.WriteBlock(proof.RoadBlock()) }
 		if err := writeAndFlush(blockStore, fmt.Sprintf("road block %d", road), write); err != nil {
 			return err
 		}
 	}
-	if missing.appProposal {
+	if status.NextAppProposal == road {
 		write := func() error { return blockStore.WriteAppProposal(proof.AppQC().Proposal()) }
 		if err := writeAndFlush(blockStore, fmt.Sprintf("AppProposal %d", road), write); err != nil {
 			return err
 		}
 	}
-	if missing.appQC {
-		write := func() error { return blockStore.WriteAppQC(proof.AppQC()) }
-		if err := writeAndFlush(blockStore, fmt.Sprintf("AppQC %d", road), write); err != nil {
-			return err
-		}
+	write := func() error { return blockStore.WriteAppQC(proof.AppQC()) }
+	if err := writeAndFlush(blockStore, fmt.Sprintf("AppQC %d", road), write); err != nil {
+		return err
 	}
 	return nil
 }
@@ -138,36 +130,6 @@ func writeAndFlush(blockStore *ablockstore.Store, record string, write func() er
 	}
 	if err := blockStore.Flush(); err != nil {
 		return fmt.Errorf("flush %s: %w", record, err)
-	}
-	return nil
-}
-
-// missingSeedRecords returns the records at road that blockStore does not hold. It returns an
-// error when blockStore holds a record at another road.
-func missingSeedRecords(blockStore *ablockstore.Store, road atypes.RoadHeight) (seedRecords, error) {
-	status, ok := blockStore.Status().Get()
-	if !ok {
-		return seedRecords{block: true, appProposal: true, appQC: true}, nil
-	}
-	if status.First != road || status.NextBlock > road+1 || status.NextAppProposal > road+1 || status.NextAppQC > road+1 {
-		return seedRecords{}, fmt.Errorf("the BlockDB holds %+v, want at most the records of the restored road %d; this home was not restored by giga state sync alone", status, road)
-	}
-	return seedRecords{
-		block:       status.NextBlock == road,
-		appProposal: status.NextAppProposal == road,
-		appQC:       status.NextAppQC == road,
-	}, nil
-}
-
-// requireVaultHoldsAppHash returns an error unless appHashBuilder holds appHash as the app hash of
-// road.
-func requireVaultHoldsAppHash(ctx context.Context, appHashBuilder builder.AppHashBuilder, road atypes.RoadHeight, appHash [32]byte) error {
-	entry, err := appHashBuilder.GetAppHash(ctx, uint64(road))
-	if err != nil {
-		return fmt.Errorf("read the restore anchor of road %d: %w", road, err)
-	}
-	if got := entry.AppHash(); got != appHash {
-		return fmt.Errorf("the app-hash vault holds %x for road %d, but the AppQC of the state sync proof file signs %x; run seid statesync import again", got, road, appHash)
 	}
 	return nil
 }

@@ -58,11 +58,11 @@ seid statesync import --from s3://my-sei-snapshots/giga-state-sync/my-chain-1/00
 
 After `seid start`, the node gets the blocks above the snapshot height from its peers. When the
 snapshot is too old, the peers no longer keep those blocks. The node then stays at the snapshot
-height. It does not stop, and it logs this warning one time for each connection to a peer that
-no longer keeps the blocks:
+height. It does not stop, and it logs this warning each time a peer that no longer keeps the
+blocks skips them:
 
 ```text
-A peer skipped road blocks that this node needs
+A peer skipped FullCommitQCs that this node needs
 ```
 
 The warning names the peer. One warning is not a failure, because another peer can still send the

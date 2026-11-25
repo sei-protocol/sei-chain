@@ -28,7 +28,6 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 		recordFetch(ctx, resFullCommitQC, "send")
 		return fmt.Errorf("stream.Send(): %w", err)
 	}
-	warnedOfSkip := false
 	for ctx.Err() == nil {
 		rawQC, err := stream.Recv(ctx)
 		if err != nil {
@@ -45,7 +44,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			return fmt.Errorf("qc.Height() = %v, want >= %v: %w", qc.Height(), next, types.ErrUnexpectedHeight)
 		}
 		if qc.Height() > next {
-			warnedOfSkip = s.reportSkippedRoads(ctx, peer, qc.Height(), warnedOfSkip)
+			s.reportSkippedFullCommitQCs(ctx, peer, qc.Height())
 		}
 		next = qc.Height() + 1
 		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
@@ -57,25 +56,19 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 	return ctx.Err()
 }
 
-// reportSkippedRoads counts a FullCommitQC stream of peer that skips to road sent, and logs the
-// first such skip of the stream. warned tells whether the stream logged a skip before, and the
-// result tells whether it has logged one now. A skip of roads that this node already holds is not
-// reported.
-func (s *Service) reportSkippedRoads(ctx context.Context, peer types.PublicKey, sent types.RoadHeight, warned bool) bool {
+// reportSkippedFullCommitQCs counts and logs a FullCommitQC stream of peer that skips to the
+// FullCommitQC of road sent. A skip of FullCommitQCs that this node already holds is not reported.
+func (s *Service) reportSkippedFullCommitQCs(ctx context.Context, peer types.PublicKey, sent types.RoadHeight) {
 	need := s.data.NextQC()
 	if need >= sent {
-		return warned
+		return
 	}
-	// A peer skips the roads that it pruned. PushPartialBlock then waits for another peer to send
-	// them, with no error, so this report is the only sign of a node that no peer can serve.
+	// A peer skips the FullCommitQCs that it pruned. PushPartialBlock then waits for another peer
+	// to send them, with no error, so this report is the only sign of a node that no peer can serve.
 	recordFetch(ctx, resFullCommitQC, "skipped")
-	if warned {
-		return true
-	}
 	// The QC is not verified yet, so the line states what the peer sent and gives no instruction.
-	logger.Warn("A peer skipped road blocks that this node needs, as a peer that no longer keeps them does; the node waits for another peer to send them",
+	logger.Warn("A peer skipped FullCommitQCs that this node needs, as a peer that no longer keeps them does; the node waits for another peer to send them",
 		"peer", peer, "need", need, "peer_sent", sent)
-	return true
 }
 
 func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {

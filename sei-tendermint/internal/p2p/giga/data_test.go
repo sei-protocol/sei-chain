@@ -247,7 +247,7 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 	}
 }
 
-func TestFullCommitQCStreamReportsSkippedRoadsThatTheNodeNeeds(t *testing.T) {
+func TestFullCommitQCStreamReportsSkippedFullCommitQCsThatTheNodeNeeds(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
@@ -283,7 +283,7 @@ func TestFullCommitQCStreamReportsSkippedRoadsThatTheNodeNeeds(t *testing.T) {
 	})
 }
 
-func TestFullCommitQCStreamDoesNotReportSkippedRoadsThatTheNodeHolds(t *testing.T) {
+func TestFullCommitQCStreamDoesNotReportSkippedFullCommitQCsThatTheNodeHolds(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)

@@ -370,7 +370,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildFullnodeDataState(ctx, fnCfg, blockStore, app, genDoc.GenesisTime, stateSync)
+	dataState, err := p2p.BuildFullnodeDataState(ctx, fnCfg, blockStore, genDoc.GenesisTime, stateSync)
 	if err != nil {
 		return nil, err
 	}

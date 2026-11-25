@@ -53,7 +53,6 @@ type seedTest struct {
 	key      atypes.SecretKey
 	registry *atypes.EpochRegistry
 	cfg      *GigaRouterCommonConfig
-	app      *abevm.Proxy
 	hashes   *manualAppHashBuilder
 	store    *blockstore.Store
 }
@@ -72,7 +71,6 @@ func newSeedTest(t *testing.T, rng utils.Rng) *seedTest {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 	hashes := newManualAppHashBuilder()
-	app := abevm.NewProxy(seedApp{testApp: newTestApp(genDoc.AppState), registry: registry})
 	return &seedTest{
 		rng:      rng,
 		key:      key,
@@ -82,10 +80,9 @@ func newSeedTest(t *testing.T, rng utils.Rng) *seedTest {
 			ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
 			PersistentStateDir: t.TempDir(),
 			GenDoc:             genDoc,
-			App:                app,
+			App:                abevm.NewProxy(seedApp{testApp: newTestApp(genDoc.AppState), registry: registry}),
 			AppHashBuilder:     hashes,
 		},
-		app:    app,
 		hashes: hashes,
 		store:  blockstore.NewTestStore(t),
 	}
@@ -94,8 +91,7 @@ func newSeedTest(t *testing.T, rng utils.Rng) *seedTest {
 // setRegistries gives the home an app whose epoch registry is first at its first read and later at
 // each read after that.
 func (s *seedTest) setRegistries(first, later *atypes.EpochRegistry) {
-	s.app = abevm.NewProxy(changingRegistryApp{testApp: newTestApp(s.cfg.GenDoc.AppState), first: first, later: later, reads: new(int)})
-	s.cfg.App = s.app
+	s.cfg.App = abevm.NewProxy(changingRegistryApp{testApp: newTestApp(s.cfg.GenDoc.AppState), first: first, later: later, reads: new(int)})
 }
 
 // registryWithoutNextEpoch returns the epoch registry of the chain without the epoch after the
@@ -142,7 +138,7 @@ func (s *seedTest) restore(t *testing.T, proof []byte, anchor [32]byte) {
 // start builds the data state of the home with a pending restore of seedRoad.
 func (s *seedTest) start(t *testing.T) (*data.State, error) {
 	t.Helper()
-	return BuildFullnodeDataState(t.Context(), s.cfg, s.store, s.app, s.cfg.GenDoc.GenesisTime,
+	return BuildFullnodeDataState(t.Context(), s.cfg, s.store, s.cfg.GenDoc.GenesisTime,
 		StateSyncStart{Enabled: true, PendingRestore: utils.Some(seedRoad)})
 }
 
@@ -297,7 +293,7 @@ func TestBuildFullnodeDataStateWithoutARestoreWritesNothing(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run("enabled="+strconv.FormatBool(enabled), func(t *testing.T) {
 			s := newSeedTest(t, utils.TestRng())
-			_, err := BuildFullnodeDataState(t.Context(), s.cfg, s.store, s.app, s.cfg.GenDoc.GenesisTime, StateSyncStart{Enabled: enabled})
+			_, err := BuildFullnodeDataState(t.Context(), s.cfg, s.store, s.cfg.GenDoc.GenesisTime, StateSyncStart{Enabled: enabled})
 			require.NoError(t, err)
 			require.False(t, s.store.Status().IsPresent())
 		})

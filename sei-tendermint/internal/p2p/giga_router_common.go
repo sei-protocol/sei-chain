@@ -110,32 +110,35 @@ func BuildDataState(
 	app *abevm.Proxy,
 	genesisTimestamp time.Time,
 ) (*data.State, error) {
-	if err := validateCommonConfig(cfg); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return newDataState(blockStore, app, genesisTimestamp)
+	ds, err := data.NewState(&data.Config{App: app, GenesisTimestamp: genesisTimestamp}, blockStore)
+	if err != nil {
+		return nil, fmt.Errorf("data.NewState: %w", err)
+	}
+	return ds, nil
 }
 
-// BuildFullnodeDataState is BuildDataState for a fullnode. When start names a pending restore, it
-// seeds blockStore with the restored road from the state sync proof file, and removes the state
-// sync proof file and the restore marker once the data state is built.
+// BuildFullnodeDataState is BuildDataState on cfg.App for a fullnode. When start names a pending
+// restore, it seeds blockStore with the restored road from the state sync proof file, and removes
+// the state sync proof file and the restore marker once the data state is built.
 func BuildFullnodeDataState(
 	ctx context.Context,
 	cfg *GigaRouterCommonConfig,
 	blockStore *ablockstore.Store,
-	app *abevm.Proxy,
 	genesisTimestamp time.Time,
 	start StateSyncStart,
 ) (*data.State, error) {
-	if err := validateCommonConfig(cfg); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	if err := seedBlockStore(ctx, cfg, app, blockStore, start); err != nil {
+	if err := seedBlockStore(ctx, cfg, blockStore, start); err != nil {
 		return nil, err
 	}
-	ds, err := newDataState(blockStore, app, genesisTimestamp)
+	ds, err := data.NewState(&data.Config{App: cfg.App, GenesisTimestamp: genesisTimestamp}, blockStore)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
 	// The marker stays until data.NewState accepts the seeded BlockDB, so that a failed start can
 	// run again or be imported over.
@@ -147,8 +150,8 @@ func BuildFullnodeDataState(
 	return ds, nil
 }
 
-// validateCommonConfig returns an error when cfg cannot back a data.State.
-func validateCommonConfig(cfg *GigaRouterCommonConfig) error {
+// Validate returns an error when cfg cannot back a data.State.
+func (cfg *GigaRouterCommonConfig) Validate() error {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -165,15 +168,6 @@ func validateCommonConfig(cfg *GigaRouterCommonConfig) error {
 		return errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
 	return nil
-}
-
-// newDataState returns a data.State on app, backed by blockStore.
-func newDataState(blockStore *ablockstore.Store, app *abevm.Proxy, genesisTimestamp time.Time) (*data.State, error) {
-	ds, err := data.NewState(&data.Config{App: app, GenesisTimestamp: genesisTimestamp}, blockStore)
-	if err != nil {
-		return nil, fmt.Errorf("data.NewState: %w", err)
-	}
-	return ds, nil
 }
 
 func (r *gigaRouterCommon) LastCommittedHeight() int64 {
