@@ -435,7 +435,7 @@ func TestExecutionReusesAndEvictsInjectedSignerCache(t *testing.T) {
 	verified, err := executor.cfg.Signer.ParseTx(raw)
 	require.NoError(t, err)
 	claimed := common.Address{1}
-	executor.cfg.Signer.Remember(utils.OrPanic1(abevm.TestEvmTx(raw, claimed)))
+	executor.cfg.Signer.Remember(utils.OrPanic1(abevm.TestEvmTxFromRaw(raw, claimed)))
 	_, err = executor.executeBlock(t.Context(), block)
 	require.NoError(t, err)
 	require.Equal(t, claimed, app.finalized()[0].Txs[0].Sender())

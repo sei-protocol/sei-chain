@@ -676,7 +676,7 @@ func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
 	app := abevm.NewProxy(newInitializedEVMOnlyTestApp(t))
 	signer := newTestSigner(app.EvmChainID(), 0)
 	remembered := common.HexToAddress("0x2000000000000000000000000000000000000002")
-	signer.Remember(utils.OrPanic1(abevm.TestEvmTx(raw, remembered)))
+	signer.Remember(utils.OrPanic1(abevm.TestEvmTxFromRaw(raw, remembered)))
 
 	decoded := utils.OrPanic1(signer.ParseTx(raw))
 	require.Equal(t, remembered, decoded.Sender())
@@ -688,7 +688,7 @@ func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	app := abevm.NewProxy(newInitializedEVMOnlyTestApp(t))
 	signer := newTestSigner(app.EvmChainID(), 0)
-	remembered := utils.OrPanic1(abevm.TestEvmTx(raw, common.HexToAddress("0x2000000000000000000000000000000000000002")))
+	remembered := utils.OrPanic1(abevm.TestEvmTxFromRaw(raw, common.HexToAddress("0x2000000000000000000000000000000000000002")))
 	signer.Remember(remembered)
 	signer.ForgetTxs([]abevm.EvmTx{remembered})
 

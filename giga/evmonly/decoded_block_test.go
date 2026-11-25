@@ -21,24 +21,24 @@ func TestPrepareDecodedBlock(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	executor := NewExecutor(Config{ParseWorkers: 2})
 	defer executor.Close()
-	decoded, err := executor.DecodeBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
 	require.NoError(t, err)
-	require.Equal(t, sender, decoded.txs[0].Sender())
-	prepared, err := executor.PrepareDecodedBlock(t.Context(), blockContext(chainID), decoded.txs)
+	require.Equal(t, sender, block.Txs[0].Sender())
+	prepared, err := executor.PrepareDecodedBlock(t.Context(), blockContext(chainID), block.Txs)
 	require.NoError(t, err)
 	require.Len(t, prepared.Txs, 1)
-	require.Same(t, decoded.txs[0].Transaction(), prepared.Txs[0].Tx)
-	require.Equal(t, sender, prepared.Txs[0].Sender)
-	decoded, err = executor.DecodeBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	require.Same(t, block.Txs[0].Transaction(), prepared.Txs[0].Transaction())
+	require.Equal(t, sender, prepared.Txs[0].Sender())
+	block, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
 	require.NoError(t, err)
-	_, err = executor.PrepareDecodedBlock(t.Context(), blockContext(big.NewInt(testChainID+1)), decoded.txs)
+	_, err = executor.PrepareDecodedBlock(t.Context(), blockContext(big.NewInt(testChainID+1)), block.Txs)
 	require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 	blob := utils.OrPanic1(ethtypes.NewTx(&ethtypes.BlobTx{}).MarshalBinary())
-	_, err = executor.DecodeBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{blob}})
+	_, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{blob}})
 	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 }
 
-func TestDecodeBlockRejectsUnprotectedTransactions(t *testing.T) {
+func TestPrepareBlockRejectsUnprotectedTransactions(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -47,9 +47,9 @@ func TestDecodeBlockRejectsUnprotectedTransactions(t *testing.T) {
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	executor := NewExecutor(Config{})
 	defer executor.Close()
-	decoded, err := executor.DecodeBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
 	require.Error(t, err)
-	require.Empty(t, decoded.txs)
+	require.Empty(t, block.Txs)
 }
 
 func TestPrepareDecodedBlockChecksFork(t *testing.T) {
@@ -61,12 +61,12 @@ func TestPrepareDecodedBlockChecksFork(t *testing.T) {
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	executor := NewExecutor(Config{})
 	defer executor.Close()
-	decoded, err := executor.DecodeBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
 	require.NoError(t, err)
 	cfg := DefaultChainConfig()
 	cfg.PragueTime = nil
 	beforePrague := NewExecutor(Config{ChainConfig: cfg})
 	defer beforePrague.Close()
-	_, err = beforePrague.PrepareDecodedBlock(t.Context(), blockContext(chainID), decoded.txs)
+	_, err = beforePrague.PrepareDecodedBlock(t.Context(), blockContext(chainID), block.Txs)
 	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 }

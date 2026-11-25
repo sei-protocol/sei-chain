@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
@@ -145,7 +146,7 @@ func (s *Signer) ParseTxs(raw [][]byte) ([]EvmTx, error) {
 	return resolved, nil
 }
 
-// Admits checks replay protection, chain ID, and transaction-type support.
+// Admits checks replay protection, chain ID, transaction-type support, and fee widths.
 func (s *Signer) Admits(tx *ethtypes.Transaction) error {
 	if !tx.Protected() {
 		return errors.New("unprotected Ethereum transaction")
@@ -156,6 +157,13 @@ func (s *Signer) Admits(tx *ethtypes.Transaction) error {
 	chainID := s.signer.ChainID()
 	if chainID == nil || tx.ChainId().Cmp(chainID) != 0 {
 		return fmt.Errorf("%w: expected %v, got %s", ethtypes.ErrInvalidChainId, chainID, tx.ChainId())
+	}
+	// GasFeeCap is the gas price for legacy and access-list transactions.
+	if feeCap := tx.GasFeeCap(); feeCap.BitLen() > 256 {
+		return fmt.Errorf("%w: bit length: %d", core.ErrFeeCapVeryHigh, feeCap.BitLen())
+	}
+	if tipCap := tx.GasTipCap(); tipCap.BitLen() > 256 {
+		return fmt.Errorf("%w: bit length: %d", core.ErrTipVeryHigh, tipCap.BitLen())
 	}
 	// SignatureValues checks transaction-type support before inspecting the signature.
 	// A zero signature probes support without recovering the sender.

@@ -212,8 +212,8 @@ func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
 				if ctx.Err() != nil {
 					return
 				}
-				view.ReadAccount(tx.Sender)
-				if to := tx.Tx.To(); to != nil {
+				view.ReadAccount(tx.Sender())
+				if to := tx.Transaction().To(); to != nil {
 					view.ReadAccount(*to)
 				}
 			}
@@ -243,25 +243,17 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 	return result, nil
 }
 
+// PrepareBlock decodes and validates req's transactions and resolves their senders.
 func (e *Executor) PrepareBlock(req BlockRequest) (PreparedBlock, error) {
-	decoded, err := e.DecodeBlock(req)
-	if err != nil {
-		return PreparedBlock{}, err
-	}
-	return decoded.prepared(), nil
-}
-
-// DecodeBlock decodes and validates req's transactions and resolves their senders.
-func (e *Executor) DecodeBlock(req BlockRequest) (DecodedBlock, error) {
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
-		return DecodedBlock{}, err
+		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(e.chainConfig(req.Context), new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
 	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(req.Txs)
 	if err != nil {
-		return DecodedBlock{}, err
+		return PreparedBlock{}, err
 	}
-	return DecodedBlock{context: req.Context, txs: resolved}, nil
+	return PreparedBlock{Context: req.Context, Txs: resolved}, nil
 }
 
 // PrepareDecodedBlock validates transactions with verified senders for block and prepares them for execution.
@@ -278,7 +270,7 @@ func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, 
 			return PreparedBlock{}, fmt.Errorf("parse tx %d: %w", i, err)
 		}
 	}
-	return (DecodedBlock{context: block, txs: txs}).prepared(), nil
+	return PreparedBlock{Context: block, Txs: txs}, nil
 }
 
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
@@ -403,7 +395,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 		}
 		txResult, receipt, err := e.executeTx(evm, stateDB, gasPool, req.Context, p, txIndex, txIndexUint, baseFee)
 		if err != nil {
-			return nil, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
+			return nil, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Transaction().Hash(), err)
 		}
 		txResult.CumulativeGasUsed = result.GasUsed + txResult.GasUsed
 		receipt.CumulativeGasUsed = txResult.CumulativeGasUsed
@@ -424,20 +416,20 @@ func (e *Executor) executeTx(
 	stateDB *nativeStateDB,
 	gasPool *core.GasPool,
 	block BlockContext,
-	p PreparedTx,
+	p abevm.EvmTx,
 	txIndex int,
 	txIndexUint uint,
 	baseFee *big.Int,
 ) (TxResult, *ethtypes.Receipt, error) {
-	tx := p.Tx
+	tx := p.Transaction()
 	if err := validateSupportedTx(tx); err != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		return TxResult{Hash: tx.Hash(), Sender: p.Sender(), To: tx.To(), Err: err}, nil, err
 	}
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
 		// MinGasPrice is block-validity policy; unlike EVM call failures, it
 		// does not produce a receipt for an otherwise invalid block.
 		if EffectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
-			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: errInsufficientGasPrice},
+			return TxResult{Hash: tx.Hash(), Sender: p.Sender(), To: tx.To(), Err: errInsufficientGasPrice},
 				nil,
 				errInsufficientGasPrice
 		}
@@ -460,7 +452,7 @@ func (e *Executor) executeTx(
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
 	// Read before any revert: RevertToSnapshot restores the recorded error too.
 	if stateErr := stateDB.Error(); stateErr != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
+		return TxResult{Hash: tx.Hash(), Sender: p.Sender(), To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
 		if e.cfg.RejectUnappliableTxs {
@@ -497,7 +489,7 @@ func (e *Executor) executeTx(
 		TransactionIndex:  txIndexUint,
 	}
 	if tx.To() == nil {
-		receipt.ContractAddress = crypto.CreateAddress(p.Sender, tx.Nonce())
+		receipt.ContractAddress = crypto.CreateAddress(p.Sender(), tx.Nonce())
 	}
 	if tx.Type() == ethtypes.BlobTxType {
 		// Currently unreachable because blob txs are rejected until block-level
@@ -509,7 +501,7 @@ func (e *Executor) executeTx(
 
 	txResult := TxResult{
 		Hash:              tx.Hash(),
-		Sender:            p.Sender,
+		Sender:            p.Sender(),
 		To:                tx.To(),
 		ContractAddress:   receipt.ContractAddress,
 		Status:            status,
@@ -524,14 +516,14 @@ func (e *Executor) executeTx(
 // unappliableTx returns the outcome for a transaction that cannot be applied: err, failing
 // the block, or a failed receipt when RejectUnappliableTxs is set.
 func (e *Executor) unappliableTx(
-	p PreparedTx,
+	p abevm.EvmTx,
 	block BlockContext,
 	txIndexUint uint,
 	baseFee *big.Int,
 	err error,
 ) (TxResult, *ethtypes.Receipt, error) {
 	if !e.cfg.RejectUnappliableTxs {
-		return TxResult{Hash: p.Tx.Hash(), Sender: p.Sender, To: p.Tx.To(), Err: err}, nil, err
+		return TxResult{Hash: p.Transaction().Hash(), Sender: p.Sender(), To: p.Transaction().To(), Err: err}, nil, err
 	}
 	txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
 	return txResult, receipt, nil
@@ -540,13 +532,13 @@ func (e *Executor) unappliableTx(
 // rejectedTx builds the failed, zero-gas receipt and result for a transaction the
 // executor did not run.
 func rejectedTx(
-	p PreparedTx,
+	p abevm.EvmTx,
 	block BlockContext,
 	txIndexUint uint,
 	baseFee *big.Int,
 	cause error,
 ) (TxResult, *ethtypes.Receipt) {
-	tx := p.Tx
+	tx := p.Transaction()
 	receipt := &ethtypes.Receipt{
 		Type:              tx.Type(),
 		Status:            ethtypes.ReceiptStatusFailed,
@@ -559,7 +551,7 @@ func rejectedTx(
 	receipt.Bloom = ethtypes.CreateBloom(receipt)
 	return TxResult{
 		Hash:              tx.Hash(),
-		Sender:            p.Sender,
+		Sender:            p.Sender(),
 		To:                tx.To(),
 		Status:            ethtypes.ReceiptStatusFailed,
 		EffectiveGasPrice: new(big.Int).Set(receipt.EffectiveGasPrice),
@@ -568,30 +560,30 @@ func rejectedTx(
 	}, receipt
 }
 
-func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message, error) {
-	tx := p.Tx
+func transactionToPreparedMessage(p abevm.EvmTx, baseFee *big.Int) (*core.Message, error) {
+	tx := p.Transaction()
 	gasPrice, overflow := uint256.FromBig(tx.GasPrice())
 	if overflow {
-		return nil, fmt.Errorf("%w: address %v, gasPrice bit length: %d", core.ErrFeeCapVeryHigh, p.Sender.Hex(), tx.GasPrice().BitLen())
+		return nil, fmt.Errorf("%w: address %v, gasPrice bit length: %d", core.ErrFeeCapVeryHigh, p.Sender().Hex(), tx.GasPrice().BitLen())
 	}
 	gasFeeCap, overflow := uint256.FromBig(tx.GasFeeCap())
 	if overflow {
-		return nil, fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", core.ErrFeeCapVeryHigh, p.Sender.Hex(), tx.GasFeeCap().BitLen())
+		return nil, fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", core.ErrFeeCapVeryHigh, p.Sender().Hex(), tx.GasFeeCap().BitLen())
 	}
 	gasTipCap, overflow := uint256.FromBig(tx.GasTipCap())
 	if overflow {
-		return nil, fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", core.ErrTipVeryHigh, p.Sender.Hex(), tx.GasTipCap().BitLen())
+		return nil, fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", core.ErrTipVeryHigh, p.Sender().Hex(), tx.GasTipCap().BitLen())
 	}
 	value, overflow := uint256.FromBig(tx.Value())
 	if overflow {
-		return nil, fmt.Errorf("%w: address %v, value exceeds 256 bits", core.ErrInsufficientFunds, p.Sender.Hex())
+		return nil, fmt.Errorf("%w: address %v, value exceeds 256 bits", core.ErrInsufficientFunds, p.Sender().Hex())
 	}
 	blobGasFeeCap, overflow := uint256.FromBig(tx.BlobGasFeeCap())
 	if overflow {
-		return nil, fmt.Errorf("%w: address %v, blobGasFeeCap exceeds 256 bits", core.ErrFeeCapVeryHigh, p.Sender.Hex())
+		return nil, fmt.Errorf("%w: address %v, blobGasFeeCap exceeds 256 bits", core.ErrFeeCapVeryHigh, p.Sender().Hex())
 	}
 	msg := &core.Message{
-		From:                  p.Sender,
+		From:                  p.Sender(),
 		Nonce:                 tx.Nonce(),
 		GasLimit:              tx.Gas(),
 		GasPrice:              gasPrice,

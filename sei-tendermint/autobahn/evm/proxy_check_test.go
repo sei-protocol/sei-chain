@@ -75,7 +75,7 @@ func TestParseTxRejectsBlobTransactions(t *testing.T) {
 	app := newTestSigner(1, 0)
 	for _, cached := range []bool{false, true} {
 		if cached {
-			app.Remember(utils.OrPanic1(TestEvmTx(raw, common.Address{1})))
+			app.Remember(utils.OrPanic1(TestEvmTxFromRaw(raw, common.Address{1})))
 		}
 		_, err := app.ParseTx(raw)
 		require.Error(t, err)
@@ -83,7 +83,7 @@ func TestParseTxRejectsBlobTransactions(t *testing.T) {
 		for _, workers := range []int{1, 4} {
 			batch := newTestSigner(1, workers)
 			if cached {
-				batch.Remember(utils.OrPanic1(TestEvmTx(raw, common.Address{1})))
+				batch.Remember(utils.OrPanic1(TestEvmTxFromRaw(raw, common.Address{1})))
 			}
 			_, err := batch.ParseTxs([][]byte{raw})
 			require.Error(t, err)
@@ -111,19 +111,19 @@ func TestParseTxChecksChainBeforeSender(t *testing.T) {
 	tx := signedProxyTestTx(0)
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	sender := proxyTestSender(tx)
-	app.Remember(utils.OrPanic1(TestEvmTx(raw, sender)))
+	app.Remember(utils.OrPanic1(TestEvmTxFromRaw(raw, sender)))
 	oversized := new(big.Int).Lsh(big.NewInt(1), 64)
 	oversized.Add(oversized, big.NewInt(1))
 	for _, wrongChain := range []*big.Int{big.NewInt(2), oversized} {
 		invalid := ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: wrongChain})
 		invalidRaw := utils.OrPanic1(invalid.MarshalBinary())
-		app.Remember(utils.OrPanic1(TestEvmTx(invalidRaw, sender)))
+		app.Remember(utils.OrPanic1(TestEvmTxFromRaw(invalidRaw, sender)))
 		_, err := app.ParseTx(invalidRaw)
 		require.Error(t, err)
 		require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 		for _, workers := range []int{1, 4} {
 			batch := newTestSigner(1, workers)
-			batch.Remember(utils.OrPanic1(TestEvmTx(invalidRaw, sender)))
+			batch.Remember(utils.OrPanic1(TestEvmTxFromRaw(invalidRaw, sender)))
 			_, err := batch.ParseTxs([][]byte{raw, invalidRaw})
 			require.Error(t, err)
 			require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
@@ -143,12 +143,12 @@ func TestParseTxRejectsUnprotectedTransaction(t *testing.T) {
 	raw := utils.OrPanic1(signed.MarshalBinary())
 	_, err = app.ParseTx(raw)
 	require.Error(t, err)
-	app.Remember(utils.OrPanic1(TestEvmTx(raw, crypto.PubkeyToAddress(key.PublicKey))))
+	app.Remember(utils.OrPanic1(TestEvmTxFromRaw(raw, crypto.PubkeyToAddress(key.PublicKey))))
 	_, err = app.ParseTx(raw)
 	require.Error(t, err)
 	for _, workers := range []int{1, 4} {
 		batch := newTestSigner(1, workers)
-		batch.Remember(utils.OrPanic1(TestEvmTx(raw, crypto.PubkeyToAddress(key.PublicKey))))
+		batch.Remember(utils.OrPanic1(TestEvmTxFromRaw(raw, crypto.PubkeyToAddress(key.PublicKey))))
 		_, err = batch.ParseTxs([][]byte{utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()), raw})
 		require.Error(t, err)
 	}
@@ -164,7 +164,7 @@ func TestParseTxsPreservesOrder(t *testing.T) {
 		app := newTestSigner(1, workers)
 		for i := range raw {
 			if i%2 == 0 {
-				app.Remember(utils.OrPanic1(TestEvmTx(raw[i], sender)))
+				app.Remember(utils.OrPanic1(TestEvmTxFromRaw(raw[i], sender)))
 			}
 		}
 		for _, count := range []int{0, 1, minTxsPerHashWorker - 1, minTxsPerHashWorker, minTxsPerHashWorker + 1, len(raw)} {
@@ -200,7 +200,7 @@ func BenchmarkParseTxs(b *testing.B) {
 					tx := signedProxyTestTx(uint64(i))
 					raw[i] = utils.OrPanic1(tx.MarshalBinary())
 					if cached {
-						app.Remember(utils.OrPanic1(TestEvmTx(raw[i], proxyTestSender(tx))))
+						app.Remember(utils.OrPanic1(TestEvmTxFromRaw(raw[i], proxyTestSender(tx))))
 					}
 				}
 				b.ReportAllocs()

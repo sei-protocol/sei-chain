@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 const (
@@ -505,7 +506,7 @@ func TestPrepareBlockParallelParsePreservesOrderAndReturnsIndexedError(t *testin
 	})
 	require.NoError(t, err)
 	for i := range expectedSenders {
-		require.Equal(t, expectedSenders[i], prepared.Txs[i].Sender)
+		require.Equal(t, expectedSenders[i], prepared.Txs[i].Sender())
 	}
 
 	malformed := append([][]byte(nil), validRaw...)
@@ -587,10 +588,7 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 	require.NoError(t, err)
 	result, err = executor.ExecutePreparedBlock(t.Context(), PreparedBlock{
 		Context: ctx,
-		Txs: []PreparedTx{{
-			Tx:     tx,
-			Sender: sender,
-		}},
+		Txs:     []abevm.EvmTx{abevm.TestEvmTx(tx, sender)},
 	})
 
 	require.ErrorIs(t, err, errUnsupportedBlobTx)

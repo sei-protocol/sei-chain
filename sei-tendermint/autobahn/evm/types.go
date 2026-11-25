@@ -2,11 +2,13 @@ package evm
 
 import (
 	"errors"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
@@ -81,4 +83,19 @@ type EvmBlock struct {
 	Time    time.Time
 	Txs     [][]byte
 	ChainID string
+}
+
+// EffectiveGasTip returns the effective tip at baseFee and whether it is valid.
+// A nil baseFee means zero; an invalid base fee or transaction fee returns false.
+func (tx EvmTx) EffectiveGasTip(baseFee *big.Int) (uint256.Int, bool) {
+	if baseFee != nil && baseFee.Sign() < 0 {
+		return uint256.Int{}, false
+	}
+	tip, err := tx.tx.EffectiveGasTip(baseFee)
+	if err != nil {
+		return uint256.Int{}, false
+	}
+	var value uint256.Int
+	overflow := value.SetFromBig(tip)
+	return value, !overflow
 }

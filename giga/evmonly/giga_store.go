@@ -8,12 +8,12 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
-
-const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var errMissingStateStore = errors.New("executor requires a state store")
 
@@ -33,10 +33,10 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if stateStore == nil {
 		return nil, errMissingStateStore
 	}
-	if req.Context.Number > maxGigaStoreBlockNumber {
+	blockNumber, ok := utils.SafeCast[int64](req.Context.Number)
+	if !ok {
 		return nil, fmt.Errorf("giga store block number %d exceeds int64", req.Context.Number)
 	}
-	blockNumber := int64(req.Context.Number) //nolint:gosec // G115: bounded by maxGigaStoreBlockNumber above.
 
 	// Store-backed execution is serialized so two blocks cannot share a stale
 	// snapshot or overlap CommitStateChanges. Callers still submit block heights
@@ -65,18 +65,23 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// The previous block's commit may still be running, and this view cannot see it: a view "never
 	// observes writes made after the view was opened". The overlay supplies exactly that block's
 	// changes, so execution reads the state its predecessor produced without waiting for the write.
-	var source StateReader = gigaSnapshotStateReader{
+	source := pending.overlay(gigaSnapshotStateReader{
 		snapshot:     snapshot,
 		missingState: e.missingState,
-	}
-	source = pending.overlay(source)
+	})
+
+	req.Txs = abevm.CanonicalOrder{
+		BaseFee:  req.Context.BaseFee,
+		GetNonce: source.GetNonce,
+		Txs:      req.Txs,
+	}.Run()
 
 	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
 	if err != nil {
 		return nil, err
 	}
-	ok := false
+	ok = false
 	defer func() {
 		if !ok {
 			result.Release()

@@ -16,8 +16,8 @@ func archiveBlock(block PreparedBlock, result *BlockResult) (*archive.ExecutedBl
 	txs := make([]archive.Tx, len(block.Txs))
 	for i, tx := range block.Txs {
 		txs[i] = archive.Tx{
-			Tx:        tx.Tx,
-			Sender:    tx.Sender,
+			Tx:        tx.Transaction(),
+			Sender:    tx.Sender(),
 			Receipt:   result.Receipts[i],
 			Rejected:  result.Txs[i].Rejected,
 			Locatable: claimsHash(&result.Txs[i]),
