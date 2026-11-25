@@ -6,7 +6,6 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -21,13 +20,9 @@ import (
 )
 
 type gigaValidatorRouter struct {
-	*gigaRouterCommon
+	*GigaRouterCommon
 
 	consensus *consensus.State
-	producer  *producer.State
-	// validatorKey is the cached public form of cfg.ValidatorKey, used by
-	// EvmProxy to short-circuit self-shard sends to the local mempool.
-	validatorKey atypes.PublicKey
 }
 
 // NewGigaValidatorRouter constructs a validator GigaRouter over an already-built
@@ -64,10 +59,10 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App, signer)
+	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
-		gigaRouterCommon: &gigaRouterCommon{
+		GigaRouterCommon: &GigaRouterCommon{
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
@@ -76,8 +71,9 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:             cfg.App,
 			signer:          signer,
+			mempool:         utils.Some(producerState),
+			validatorKey:    utils.Some(validatorKey),
 			gigaSpec: gigaHandshakeSpec{
 				ValidatorKey: utils.Some(cfg.ValidatorKey),
 				EVMRPC:       cfg.EVMRPC,
@@ -87,14 +83,8 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
-		consensus:    consensusState,
-		producer:     producerState,
-		validatorKey: validatorKey,
+		consensus: consensusState,
 	}, nil
-}
-
-func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
-	return utils.Some(r.producer)
 }
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
@@ -103,7 +93,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
-		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
+		s.SpawnNamed("producer", func() error { return r.Mempool().OrPanic("validator mempool").Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
@@ -115,7 +105,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 // Self disables GetBlock: a loopback consumer always returns empty for missing
 // catch-up heights and can starve the contiguous prefix while higher gap-fills
 // keep retrying. Compare against the p2p node key (r.key.Public), not
-// validatorKey (consensus signing key used by EvmProxy): GigaNodeAddr.Key is a
+// validatorKey (consensus signing key used for shard selection): GigaNodeAddr.Key is a
 // NodePublicKey.
 func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
 	getBlock := addr.Key != r.key.Public()
@@ -128,27 +118,4 @@ func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey
 			return err
 		}
 	}
-}
-
-// EvmProxyEnabled reports whether this validator proxies txs of remote shards.
-func (r *gigaValidatorRouter) EvmProxyEnabled() bool {
-	return r.cfg.EnableEvmProxy
-}
-
-// EvmProxy on the validator returns None when the sender's shard owner is
-// us (handle locally via mempool). For remote
-// shards, we proxy only while the target validator is currently connected;
-// otherwise we keep the tx local as a best-effort availability heuristic.
-func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	if !r.EvmProxyEnabled() {
-		return utils.None[*ethrpc.Client]()
-	}
-	validator := r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
-	if r.validatorKey == validator {
-		return utils.None[*ethrpc.Client]()
-	}
-	if _, ok := r.poolOut.Get(validator); !ok {
-		return utils.None[*ethrpc.Client]()
-	}
-	return r.evmProxy(validator)
 }

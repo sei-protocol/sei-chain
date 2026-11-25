@@ -98,7 +98,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			for _, tx := range txs {
 				s.Spawn(func() error {
-					_, err := env.state.InsertTx(ctx, tx)
+					err := env.state.InsertTx(ctx, env.parseTx(tx))
 					return err
 				})
 			}
@@ -143,7 +143,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 			defer app.openGate()
 			holder := newTx()
 			s.Spawn(func() error {
-				_, err := env.state.InsertTx(ctx, holder)
+				err := env.state.InsertTx(ctx, env.parseTx(holder))
 				return err
 			})
 			// The single permit is now held by holder, blocked in CheckTx.
@@ -155,7 +155,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 				for range 4 {
 					tx := newTx()
 					s.Spawn(func() error {
-						_, err := env.state.InsertTx(ctx, tx)
+						err := env.state.InsertTx(ctx, env.parseTx(tx))
 						if !errors.Is(err, context.Canceled) {
 							return fmt.Errorf("InsertTx() = %v, want context.Canceled", err)
 						}
@@ -169,7 +169,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 			}
 			app.openGate()
 			// Once holder finishes, a fresh insert must acquire the permit.
-			_, err := env.state.InsertTx(ctx, newTx())
+			err := env.state.InsertTx(ctx, env.parseTx(newTx()))
 			return err
 		}); err != nil {
 			return err
@@ -179,40 +179,6 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 		}
 		if err := utils.TestDiff(2, len(env.state.UnconfirmedTxs())); err != nil {
 			return err
-		}
-		return nil
-	}))
-}
-
-// TryInsertTx on a full mempool fails with errMempoolFull without running CheckTx.
-func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newTestApp()
-	env := newTestEnv(t, rng, app.Cfg(), app)
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return env.Run(ctx) })
-		if _, err := env.waitForMempool(ctx); err != nil {
-			return err
-		}
-		if err := env.fillMempool(ctx, rng, app); err != nil {
-			return err
-		}
-
-		// On a full mempool, the capacity error wins over the app's rejection: an invalid tx
-		// gets the retryable errMempoolFull, not the CheckTx response it would get with room.
-		for _, tx := range [][]byte{env.fullTx(rng, app).encode(), {1}} {
-			calls := app.checked.Load()
-			resp, err := env.state.TryInsertTx(ctx, tx)
-			if resp != (abevm.AdmittedTx{}) {
-				return fmt.Errorf("expected nil response")
-			}
-			if !errors.Is(err, errMempoolFull) {
-				return fmt.Errorf("unexpected error: got %v, want %v", err, errMempoolFull)
-			}
-			if err := utils.TestDiff(calls, app.checked.Load()); err != nil {
-				return err
-			}
 		}
 		return nil
 	}))

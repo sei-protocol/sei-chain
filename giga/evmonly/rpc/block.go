@@ -16,9 +16,10 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -117,7 +118,7 @@ func transactionCount(block *coretypes.ResultBlock) *hexutil.Uint {
 // resolveBlockByHash returns the block with the given hash, or a nil block if
 // hash is unknown.
 func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
-	block, err := api.backend.BlockByHash(ctx, &coretypes.RequestBlockByHash{Hash: tmbytes.HexBytes(hash.Bytes())})
+	block, err := loadBackendBlockByHash(ctx, api.backend, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +158,7 @@ func (api *blockAPI) blockAt(ctx context.Context, height int64) (*coretypes.Resu
 // fetchBlock returns the backend's block at height, or the latest committed block for a nil
 // height, with a nil block for one the backend does not have.
 func (api *blockAPI) fetchBlock(ctx context.Context, height *coretypes.Int64) (*coretypes.ResultBlock, error) {
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
+	block, err := loadBackendBlock(ctx, api.backend, height)
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
 		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
 		return nil, nil
@@ -372,4 +373,57 @@ func blockGasUsed(ctx context.Context, store receiptdb.ReceiptStore, block *core
 		return 0, err
 	}
 	return receiptmetrics.ComputeBlockStats(records, nil).TotalGasUsed, nil
+}
+
+// loadBackendBlock returns the backend's EVM block in the RPC block envelope.
+func loadBackendBlock(ctx context.Context, backend Backend, height *coretypes.Int64) (*coretypes.ResultBlock, error) {
+	requested := utils.None[int64]()
+	if height != nil {
+		requested = utils.Some(int64(*height))
+	}
+	block, err := backend.BlockByNumber(ctx, requested)
+	if err != nil {
+		return nil, err
+	}
+	if block == nil {
+		return &coretypes.ResultBlock{}, nil
+	}
+	return rpcBlock(block), nil
+}
+
+// loadBackendBlockByHash returns the backend's EVM block in the RPC block envelope.
+func loadBackendBlockByHash(ctx context.Context, backend Backend, hash common.Hash) (*coretypes.ResultBlock, error) {
+	block, err := backend.BlockByHash(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	if value, ok := block.Get(); ok {
+		return rpcBlock(value), nil
+	}
+	return &coretypes.ResultBlock{}, nil
+}
+
+// rpcBlock returns block in the RPC block envelope.
+func rpcBlock(block *abevm.EvmBlock) *coretypes.ResultBlock {
+	txs := make(tmtypes.Txs, len(block.Txs))
+	for i, tx := range block.Txs {
+		txs[i] = tx
+	}
+	return &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: block.Hash.Bytes()},
+		Block: &tmtypes.Block{
+			Header: tmtypes.Header{
+				ChainID: block.ChainID,
+				Height:  utils.Clamp[int64](block.Height),
+				Time:    block.Time,
+			},
+			Data: tmtypes.Data{Txs: txs},
+			// Autobahn does not feed per-validator votes into the app. Filling N
+			// absent signatures would make trace replay's BeginBlock bump
+			// missed-block counters and diverge from production. ToReqBeginBlock
+			// skips the per-validator loop when Signatures is empty, so empty
+			// Votes flow into distribution/slashing on both paths.
+			LastCommit: &tmtypes.Commit{},
+		},
+	}
 }

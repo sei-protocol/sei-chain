@@ -307,7 +307,7 @@ func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) (
 		return records, err
 	}
 	blockHeight := coretypes.Int64(height)
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &blockHeight})
+	block, err := loadBackendBlock(ctx, api.backend, &blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("read block %d to recompute stats: %w", height, err)
 	}

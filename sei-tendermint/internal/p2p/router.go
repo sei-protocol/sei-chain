@@ -244,7 +244,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					}
 					giga, hasGiga := r.giga.Get()
 					if hasGiga {
-						spec = giga.fillInboundHandshake(spec)
+						spec = giga.Common().fillInboundHandshake(spec)
 					}
 					hConn, err := handshake(handshakeCtx, tcpConn, spec)
 					if err != nil {
@@ -252,7 +252,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					}
 					if hasGiga && hConn.msg.Giga.IsPresent() {
 						release()
-						return giga.RunInboundConn(ctx, hConn)
+						return giga.Common().runInboundConn(ctx, hConn)
 					}
 					// The node info exchange is part of the handshake, so it runs under
 					// the same deadline. Without it a peer that loses connectivity

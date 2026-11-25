@@ -229,7 +229,7 @@ func (api *subscribeAPI) streamHeads(
 // receipt store is read instead, yielding zero until its receipts land.
 func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadHeight, window atypes.ExecutedBlocks) (map[string]any, error) {
 	h := coretypes.Int64(utils.Clamp[int64](height))
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &h})
+	block, err := loadBackendBlock(ctx, api.backend, &h)
 	if err != nil {
 		return nil, err
 	}

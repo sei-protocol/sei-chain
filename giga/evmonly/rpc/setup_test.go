@@ -9,7 +9,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -39,7 +38,7 @@ type testBackend struct {
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
-	broadcast        func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	insertTx         func(context.Context, abevm.RawTx) (common.Hash, error)
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
 	chainConfig      func() *params.ChainConfig
 	chainID          func() uint64
@@ -47,14 +46,10 @@ type testBackend struct {
 	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
 	gasLimit         func() uint64
 	minGasPrice      func() *big.Int
-	proxy            utils.Option[*ethrpc.Client]
-	proxyCalls       int
-	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
-	senders          map[common.Hash]common.Address
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
-	pendingNonce     func(common.Address) utils.Option[uint64]
+	pendingNonce     func(context.Context, common.Address) (uint64, error)
 	// initialHeight is the genesis InitialHeight GenesisInitialHeight reports.
 	initialHeight int64
 
@@ -94,16 +89,48 @@ func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks],
 	return b.executedBlocks()
 }
 
-func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	return b.broadcast(ctx, req)
+func (b *testBackend) InsertTx(ctx context.Context, tx abevm.RawTx) (common.Hash, error) {
+	return b.insertTx(ctx, tx)
 }
 
-func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-	return b.block(ctx, req)
+func (b *testBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+	req := &coretypes.RequestBlockInfo{}
+	if h, ok := height.Get(); ok {
+		value := coretypes.Int64(h)
+		req.Height = &value
+	}
+	result, err := b.block(ctx, req)
+	return nativeTestBlock(result, err)
 }
 
-func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-	return b.blockByHash(ctx, req)
+func (b *testBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {
+	result, err := b.blockByHash(ctx, &coretypes.RequestBlockByHash{Hash: hash.Bytes()})
+	return optionalTestBlock(result, err)
+}
+
+func nativeTestBlock(result *coretypes.ResultBlock, err error) (*abevm.EvmBlock, error) {
+	if result == nil || result.Block == nil {
+		return nil, err
+	}
+	txs := make([][]byte, len(result.Block.Txs))
+	for i, tx := range result.Block.Txs {
+		txs[i] = tx
+	}
+	return &abevm.EvmBlock{
+		Hash:    common.BytesToHash(result.BlockID.Hash),
+		Height:  utils.Clamp[atypes.RoadHeight](result.Block.Height),
+		Time:    result.Block.Time,
+		Txs:     txs,
+		ChainID: result.Block.ChainID,
+	}, err
+}
+
+func optionalTestBlock(result *coretypes.ResultBlock, err error) (utils.Option[*abevm.EvmBlock], error) {
+	block, err := nativeTestBlock(result, err)
+	if err != nil || block == nil {
+		return utils.None[*abevm.EvmBlock](), err
+	}
+	return utils.Some(block), nil
 }
 
 func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
@@ -202,26 +229,6 @@ func (b *testBackend) EvmMinGasPrice() *big.Int {
 	return b.minGasPrice()
 }
 
-func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	b.proxyCalls++
-	return b.proxy
-}
-
-func (b *testBackend) RememberEvmSender(hash common.Hash, sender common.Address) {
-	if b.senders == nil {
-		b.senders = map[common.Hash]common.Address{}
-	}
-	b.senders[hash] = sender
-}
-
-func (b *testBackend) ForgetEvmSender(hash common.Hash) {
-	delete(b.senders, hash)
-}
-
-func (b *testBackend) EvmProxyEnabled() bool {
-	return b.proxyEnabled || b.proxy.IsPresent()
-}
-
 func (b *testBackend) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
 	return b.storage(address, key)
 }
@@ -230,11 +237,11 @@ func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
 	return b.transactionCount(address)
 }
 
-func (b *testBackend) EvmPendingNonce(address common.Address) utils.Option[uint64] {
+func (b *testBackend) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
 	if b.pendingNonce == nil {
-		return utils.None[uint64]()
+		return 0, abevm.ErrPendingNonceUnavailable
 	}
-	return b.pendingNonce(address)
+	return b.pendingNonce(ctx, address)
 }
 
 // stubReceiptStore overrides GetReceipt on an otherwise real store so tests can

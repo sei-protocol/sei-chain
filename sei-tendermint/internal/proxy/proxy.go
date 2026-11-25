@@ -117,10 +117,6 @@ func (app *Proxy) GetValidators() []types.ValidatorUpdate {
 	return app.app.GetValidators()
 }
 
-func (app *Proxy) LastBlockHeight() int64 {
-	return app.app.LastBlockHeight()
-}
-
 func (app *Proxy) ListSnapshots(ctx context.Context, req *types.RequestListSnapshots) (*types.ResponseListSnapshots, error) {
 	defer proxymetrics.Observe("list_snapshots", "sync")()
 	return app.app.ListSnapshots(ctx, req)

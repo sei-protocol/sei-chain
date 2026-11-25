@@ -38,7 +38,7 @@ func newPollFixture(t *testing.T) *pollFixture {
 	backend := filterFixtureBackend(t, 0)
 	backend.blockNumber = fx.head.Load
 	backend.blockByHash = func(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-		return filterFixtureBackend(t, fx.head.Load()).BlockByHash(ctx, req)
+		return filterFixtureBackend(t, fx.head.Load()).blockByHash(ctx, req)
 	}
 	fx.api = &filterAPI{
 		backend:              backend,

@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -102,7 +101,7 @@ func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria
 // range within the heights the receipt store has indexed.
 func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCriteria) (uint64, uint64, error) {
 	if crit.BlockHash != nil {
-		block, err := api.backend.BlockByHash(ctx, &coretypes.RequestBlockByHash{Hash: tmbytes.HexBytes(crit.BlockHash.Bytes())})
+		block, err := loadBackendBlockByHash(ctx, api.backend, *crit.BlockHash)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -216,7 +215,7 @@ func (api *filterAPI) blockHash(ctx context.Context, blockNumber uint64) (common
 		return common.Hash{}, fmt.Errorf("log block number %d exceeds int64", blockNumber)
 	}
 	height := coretypes.Int64(blockNumber)
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &height})
+	block, err := loadBackendBlock(ctx, api.backend, &height)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read log block %d: %w", blockNumber, err)
 	}

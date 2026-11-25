@@ -219,16 +219,12 @@ func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
 	require.Equal(t, int64(2), app.LastBlockHeight())
 }
 
-func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
-	app := NewMockApp(mockAppInfoTarget{})
+func TestMockAppInfoReportsMockState(t *testing.T) {
+	app := NewMockApp(mockAppFixture{})
 	err := app.InitChain(abevm.InitConfig{InitialHeight: 9})
 	require.NoError(t, err)
 
 	info := app.Info()
-	require.Equal(t, "wrapped-data", info.Data)
-	require.Equal(t, "wrapped-version", info.Version)
-	require.Equal(t, uint64(17), info.AppVersion)
-	require.Equal(t, "1usei", info.MinimumGasPrices)
 	require.Equal(t, int64(8), info.LastBlockHeight)
 	require.Empty(t, info.LastBlockAppHash)
 }
@@ -330,21 +326,6 @@ func (app *mockAppForwardTarget) RestoreBlockTime(lastHeader time.Time) {
 	app.lastHeader = utils.Some(lastHeader)
 }
 
-type mockAppInfoTarget struct {
-	mockAppFixture
-}
-
-func (mockAppInfoTarget) Info() *abevm.ResponseInfo {
-	return &abevm.ResponseInfo{
-		Data:             "wrapped-data",
-		Version:          "wrapped-version",
-		AppVersion:       17,
-		LastBlockHeight:  123,
-		LastBlockAppHash: []byte("wrapped-hash"),
-		MinimumGasPrices: "1usei",
-	}
-}
-
 type mockAppValidatorsTarget struct {
 	mockAppFixture
 	validators abevm.CommitteeWeights
@@ -391,14 +372,14 @@ func TestCheckMockTxEVMTransaction(t *testing.T) {
 	require.NotEqual(t, common.Address{}, decoded.Sender())
 }
 
-func TestMockAppRejectsUnprotectedTransaction(t *testing.T) {
+func TestMockAppSignerRejectsUnprotectedTransaction(t *testing.T) {
 	wrapped := NewMockApp(mockAppFixture{})
 	key, err := ethcrypto.GenerateKey()
 	require.NoError(t, err)
 	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
 	require.NoError(t, err)
-	_, _, err = abevm.CheckTx(abevm.NewProxy(wrapped), newTestSigner(wrapped.EvmChainID(), 0), utils.OrPanic1(signed.MarshalBinary()))
-	require.ErrorIs(t, err, abevm.ErrTxRejected)
+	_, err = newTestSigner(wrapped.EvmChainID(), 0).ParseTx(utils.OrPanic1(signed.MarshalBinary()))
+	require.Error(t, err)
 }
 
 func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
@@ -427,7 +408,6 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 
 	mock, ok := app.(*MockApp)
 	require.True(t, ok)
-	require.Equal(t, "evmonly", mock.Info().Data)
 
 	err = mock.InitChain(abevm.InitConfig{InitialHeight: 1, GasLimit: 30_000_000})
 	require.NoError(t, err)
@@ -526,7 +506,7 @@ func TestABCINodeIgnoresMockAppSetting(t *testing.T) {
 
 	env := node.RPCEnvironment()
 	require.True(t, env.App.IsPresent())
-	require.False(t, env.EVM.IsPresent())
+	require.False(t, node.gigaRPCEnv.IsPresent())
 }
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {

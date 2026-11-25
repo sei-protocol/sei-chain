@@ -7,21 +7,16 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
-	kvsink "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/kv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -54,22 +49,27 @@ func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
 // EvmNonce is the nonce the producer reports before its mempool is running.
 func (broadcastEVMApp) EvmNonce(common.Address) uint64 { return 7 }
 
-func newAutobahnBroadcastEnv(t *testing.T) *Environment {
+func newAutobahnBroadcastEnv(t *testing.T) *GigaEnvironment {
 	t.Helper()
 	return newAutobahnEnv(t, true)
 }
 
-func newAutobahnFullnodeEnv(t *testing.T) *Environment {
+func newAutobahnFullnodeEnv(t *testing.T) *GigaEnvironment {
 	t.Helper()
 	return newAutobahnEnv(t, false)
 }
 
-func newAutobahnEnv(t *testing.T, validator bool) *Environment {
+func newAutobahnEnv(t *testing.T, validator bool) *GigaEnvironment {
 	t.Helper()
 	return newAutobahnEnvWithApp(t, validator, abevm.NewProxy(broadcastEVMApp{}))
 }
 
-func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Environment {
+func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *GigaEnvironment {
+	t.Helper()
+	return newAutobahnEnvWithSigner(t, validator, app, newTestSigner(app.EvmChainID(), 0))
+}
+
+func newAutobahnEnvWithSigner(t *testing.T, validator bool, app *abevm.Proxy, signer *abevm.Signer) *GigaEnvironment {
 	t.Helper()
 	rng := utils.TestRng()
 	committee, keys := atypes.GenCommittee(rng, 1)
@@ -90,7 +90,6 @@ func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Envi
 	}
 	blockStore := blockstore.NewTestStore(t)
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
-	signer := newTestSigner(app.EvmChainID(), 0)
 	commonCfg := p2p.GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -128,33 +127,17 @@ func newAutobahnEnvWithApp(t *testing.T, validator bool, app *abevm.Proxy) *Envi
 		require.False(t, router.Mempool().IsPresent())
 		giga = router
 	}
-	endpoint := p2p.Endpoint{AddrPort: tcp.TestReserveAddr()}
-	nodeInfo := types.NodeInfo{
-		NodeID:     nodeKey.Public().NodeID(),
-		ListenAddr: endpoint.String(),
-		Moniker:    string(nodeKey.Public().NodeID()),
-		Network:    genDoc.ChainID,
-	}
-	router, err := p2p.NewRouter(
-		nodeKey,
-		func() *types.NodeInfo { return &nodeInfo },
-		dbm.NewMemDB(),
-		&p2p.RouterOptions{
-			Endpoint:                 endpoint,
-			Connection:               conn.DefaultMConnConfig(),
-			IncomingConnectionWindow: utils.Some(time.Duration(0)),
-			MaxAcceptRate:            rate.Inf,
-			MaxDialRate:              rate.Inf,
-			Giga:                     utils.Some[p2p.GigaRouter](giga),
-		},
-	)
-	require.NoError(t, err)
-	return &Environment{
-		EVM:        utils.Some(app),
-		GenDoc:     genDoc,
-		Router:     router,
-		EventSinks: []indexer.EventSink{kvsink.NewEventSink(dbm.NewMemDB(), nil)},
-		Config:     *config.DefaultRPCConfig(),
+	return &GigaEnvironment{
+		Proxy:  app,
+		GenDoc: genDoc,
+		Router: giga.Common(),
+		Executor: execution.New(&execution.Config{
+			GenDoc:         genDoc,
+			App:            app,
+			Signer:         signer,
+			AppHashBuilder: commonCfg.AppHashBuilder,
+			BlockStore:     blockStore,
+		}),
 	}
 }
 

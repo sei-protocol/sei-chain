@@ -5,24 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // maxInboundFullnodePeers caps GigaRouterCommonConfig.MaxInboundFullnodePeers.
@@ -37,7 +33,8 @@ var errGigaMembershipChanged = errors.New("inbound giga peer changed committee m
 // is refused because inboundFullnodeCap is already reached.
 var errInboundFullnodeLimit = errors.New("inbound fullnode peer limit reached")
 
-type gigaRouterCommon struct {
+// GigaRouterCommon provides shared Autobahn networking and EVM RPC services.
+type GigaRouterCommon struct {
 	cfg             *GigaRouterCommonConfig
 	key             NodeSecretKey
 	data            *data.State
@@ -46,7 +43,8 @@ type gigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	app             *abevm.Proxy
+	validatorKey    utils.Option[atypes.PublicKey]
+	mempool         utils.Option[*producer.State]
 	signer          *abevm.Signer
 	gigaSpec        gigaHandshakeSpec
 	selfAddr        utils.Option[NodeAddress]
@@ -57,41 +55,20 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
-// CheckTx checks a transaction for admission without inserting it into the mempool.
-func (r *gigaRouterCommon) CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error) {
-	return abevm.CheckTx(r.app, r.signer, raw)
+// Common returns the shared router services.
+func (r *GigaRouterCommon) Common() *GigaRouterCommon { return r }
+
+// Mempool returns the local transaction producer, or None on fullnodes.
+func (r *GigaRouterCommon) Mempool() utils.Option[*producer.State] {
+	return r.mempool
 }
 
-// RememberEvmSender records a verified sender for local admission.
-func (r *gigaRouterCommon) RememberEvmSender(hash common.Hash, sender common.Address) {
-	r.signer.Remember(hash, sender)
-}
-
-// ForgetEvmSender removes the cached sender for hash.
-func (r *gigaRouterCommon) ForgetEvmSender(hash common.Hash) {
-	r.signer.Forget(hash)
-}
-
-func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) handshakeSpec {
+func (r *GigaRouterCommon) fillInboundHandshake(spec handshakeSpec) handshakeSpec {
 	spec.Giga = utils.Some(r.gigaSpec)
 	if r.selfAddr.IsPresent() {
 		spec.SelfAddr = r.selfAddr
 	}
 	return spec
-}
-
-// genesisCommittee returns the committee epochs 0 and 1 start from: every
-// address-book validator with weight 1.
-func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes.Committee, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(validatorAddrs))
-	for k := range validatorAddrs {
-		weights[k] = 1
-	}
-	committee, err := atypes.NewCommittee(weights)
-	if err != nil {
-		return nil, fmt.Errorf("genesis committee: %w", err)
-	}
-	return committee, nil
 }
 
 // BuildDataState validates the common config and returns an initialised data.State backed by
@@ -128,85 +105,10 @@ func BuildDataState(
 	return ds, nil
 }
 
-func (r *gigaRouterCommon) LastCommittedHeight() int64 {
-	return r.app.LastBlockHeight()
-}
-
-// MaxGasEstimatedPerBlock reflects the network-wide block gas budget. Both
-// roles ultimately resolve to genDoc.ConsensusParams.Block.MaxGas — the
-// validator's producer.Config.MaxGasEstimatedPerBlock is also sourced from
-// it at setup time, so read directly from genDoc here and skip the cache.
-func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
-	return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
-}
-
-// BlockByNumber returns the finalized SuperBlock at road n as a CometBFT ResultBlock.
-// Its hash, height, timestamp, and transactions match the block passed to FinalizeBlock.
-func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error) {
-	gb, err := r.data.SuperBlock(ctx, n)
-	if err != nil {
-		// Map Autobahn's pruning sentinel to CometBFT's, so callers
-		// (env.Block, evmrpc, ops tooling) get the same error type they
-		// already handle on the CometBFT path. base is None because the
-		// active lower bound lives in BlockStore's prune watermark (internal
-		// to the store); both call sites format through the same helper.
-		if errors.Is(err, atypes.ErrPruned) {
-			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
-		}
-		return nil, fmt.Errorf("data.SuperBlock(%v): %w", n, err)
-	}
-	return r.translateSuperBlock(gb), nil
-}
-
-// BlockByHash returns a finalized SuperBlock as a CometBFT ResultBlock.
-// Unknown hashes return an empty ResultBlock with no error.
-func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
-	opt, err := r.data.SuperBlockByHash(atypes.RoadBlockHeaderHash(hash))
-	if err != nil {
-		return nil, fmt.Errorf("data.SuperBlockByHash: %w", err)
-	}
-	gb, ok := opt.Get()
-	if !ok {
-		return &coretypes.ResultBlock{}, nil
-	}
-	return r.translateSuperBlock(gb), nil
-}
-
-// translateSuperBlock converts a SuperBlock to the CometBFT result used by block RPCs.
-// LastCommit has empty Signatures, matching executeBlock's empty CommitInfo.
-func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes.ResultBlock {
-	srcTxs := gb.Txs
-	tmTxs := make(types.Txs, len(srcTxs))
-	for i, tx := range srcTxs {
-		tmTxs[i] = tx
-	}
-	h := common.Hash(gb.Hash)
-	return &coretypes.ResultBlock{
-		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
-		Block: &types.Block{
-			Header: types.Header{
-				ChainID: r.cfg.GenDoc.ChainID,
-				// Clamp accepts any constraints.Integer for From, so
-				// gb.Height (a typed uint64) goes in directly — no
-				// intermediate uint64() conversion needed.
-				Height: utils.Clamp[int64](gb.Height),
-				Time:   gb.Timestamp,
-			},
-			Data: types.Data{Txs: tmTxs},
-			// Autobahn does not feed per-validator votes into the app. Filling N
-			// absent signatures would make trace replay's BeginBlock bump
-			// missed-block counters and diverge from production. ToReqBeginBlock
-			// skips the per-validator loop when Signatures is empty, so empty
-			// Votes flow into distribution/slashing on both paths.
-			LastCommit: &types.Commit{},
-		},
-	}
-}
-
 // runPushAppHashes pushes the app hash of each executed block to the data layer,
 // in road order from its next app proposal. It waits on the app hash builder for
 // each one, so it never runs ahead of execution.
-func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
+func (r *GigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 	for n := r.data.NextAppProposal(); ; n++ {
 		entry, err := r.cfg.AppHashBuilder.GetAppHash(ctx, uint64(n))
 		if err != nil {
@@ -220,7 +122,7 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 }
 
 // runEvmProxy maintains an EVM RPC client for the lifetime of its Giga connection.
-func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator validatorHandshake) error {
+func (r *GigaRouterCommon) runEvmProxy(ctx context.Context, validator validatorHandshake) error {
 	if !r.cfg.AllowLocalAddrs && utils.IsLoopbackOrLinkLocalURL(validator.EVMRPC) {
 		logger.Error("committee member advertised an unroutable EVM RPC; not learning its address",
 			"validator", validator.auth.Key(), "evmRPC", validator.EVMRPC.String())
@@ -269,7 +171,7 @@ func RestoreProofFile(psd string) string {
 // connection's lifetime. It verifies the p2p node key against the selected
 // address, requires a validator claim for expectedValidatorKey, and registers
 // the client under that validator.
-func (r *gigaRouterCommon) dialAndRunConn(
+func (r *GigaRouterCommon) dialAndRunConn(
 	ctx context.Context,
 	expectedValidatorKey atypes.PublicKey,
 	expectedNodeKey NodePublicKey,
@@ -342,7 +244,7 @@ type memberSession struct {
 }
 
 // validatorAddr returns the configured address for a validator.
-func (r *gigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAddr, bool) {
+func (r *GigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAddr, bool) {
 	addr, ok := r.cfg.ValidatorAddrs[validator]
 	return addr, ok
 }
@@ -359,7 +261,7 @@ func inAnchorEpochs(anchor data.Anchor, validator atypes.PublicKey) bool {
 
 // stopStaleSessions stops sessions for validators outside epochs or dialing an
 // address that is no longer current.
-func (r *gigaRouterCommon) stopStaleSessions(
+func (r *GigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
 	epochs []*atypes.Epoch,
@@ -394,7 +296,7 @@ func (r *gigaRouterCommon) stopStaleSessions(
 
 // runPerCommitteeMember runs tasks for each reachable member of the Anchor
 // epochs, or of the commit epoch when currentCommitteeOnly is set.
-func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
+func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		live := map[atypes.PublicKey]*memberSession{}
 		// End all sessions before the scope waits for them.
@@ -458,7 +360,7 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 
 // runUntilMembershipChange runs f until validator leaves all Anchor epochs.
 // It returns errGigaMembershipChanged when a leave ends f.
-func (r *gigaRouterCommon) runUntilMembershipChange(
+func (r *GigaRouterCommon) runUntilMembershipChange(
 	ctx context.Context,
 	validator atypes.PublicKey,
 	f func(ctx context.Context) error,
@@ -476,10 +378,10 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 	})
 }
 
-// RunInboundConn serves an inbound giga connection. A peer proving membership
+// runInboundConn serves an inbound giga connection. A peer proving membership
 // of an Anchor epoch is served as a validator; every other peer is served
 // as a fullnode for the life of this socket.
-func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
+func (r *GigaRouterCommon) runInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	gigaHS, ok := hConn.msg.Giga.Get()
 	if !ok {
 		return fmt.Errorf("not a SeiGiga connection")
@@ -490,7 +392,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	return r.runInboundFullnode(ctx, hConn)
 }
 
-func (r *gigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handshakedConn) error {
+func (r *GigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handshakedConn) error {
 	key := hConn.msg.NodeAuth.Key()
 	server := rpc.NewServer[giga.API]()
 	// Acquired before InsertAndRun, which evicts any live connection for this key.
@@ -515,7 +417,7 @@ func (r *gigaRouterCommon) runInboundFullnode(ctx context.Context, hConn *handsh
 	})
 }
 
-func (r *gigaRouterCommon) runInboundValidator(ctx context.Context, hConn *handshakedConn, validator validatorHandshake) error {
+func (r *GigaRouterCommon) runInboundValidator(ctx context.Context, hConn *handshakedConn, validator validatorHandshake) error {
 	key := hConn.msg.NodeAuth.Key()
 	member := validator.auth.Key()
 	server := rpc.NewServer[giga.API]()
@@ -531,7 +433,7 @@ func (r *gigaRouterCommon) runInboundValidator(ctx context.Context, hConn *hands
 	return nil
 }
 
-func (r *gigaRouterCommon) runInboundMux(
+func (r *GigaRouterCommon) runInboundMux(
 	ctx context.Context,
 	server rpc.Server[giga.API],
 	hConn *handshakedConn,
@@ -549,62 +451,4 @@ func (r *gigaRouterCommon) runInboundMux(
 		}
 		return nil
 	})
-}
-
-// Validators returns the Autobahn validator set that certified global height n.
-// Before the first CommitQC, the genesis road resolves to the genesis committee.
-func (r *gigaRouterCommon) Validators(n atypes.RoadHeight) ([]*types.Validator, error) {
-	qc, err := r.data.TryQC(n)
-	anchor := r.data.Anchor().Load()
-	if err != nil {
-		if errors.Is(err, atypes.ErrNotFound) {
-			if genesis, ok := anchor.EpochAt(n).Get(); ok && genesis.EpochIndex() == 0 && n == genesis.RoadRange().First {
-				return committeeValidators(genesis.Committee())
-			}
-		}
-		return nil, heightLookupError(n, err)
-	}
-	ep, ok := anchor.EpochAt(qc.Height()).Get()
-	if !ok {
-		return nil, heightLookupError(n, atypes.ErrPruned)
-	}
-	return committeeValidators(ep.Committee())
-}
-
-// heightLookupError returns the RPC error for a data lookup at global height n.
-func heightLookupError(n atypes.RoadHeight, err error) error {
-	switch {
-	case errors.Is(err, atypes.ErrPruned):
-		return coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
-	case errors.Is(err, atypes.ErrNotFound):
-		return fmt.Errorf("%w (requested height: %d)", coretypes.ErrHeightExceedsChainHead, utils.Clamp[int64](n))
-	default:
-		return err
-	}
-}
-
-func committeeValidators(committee *atypes.Committee) ([]*types.Validator, error) {
-	vs := make([]*types.Validator, 0, committee.Lanes().Len())
-	for lane := range committee.Lanes().All() {
-		power, ok := utils.SafeCast[int64](committee.Weight(lane.Validator))
-		if !ok {
-			return nil, fmt.Errorf("committee member %v: weight %d does not fit int64", lane.Validator, committee.Weight(lane.Validator))
-		}
-		vs = append(vs, types.NewValidator(lane.Validator.ED25519(), power))
-	}
-	sort.Sort(types.ValidatorsByVotingPower(vs))
-	return vs, nil
-}
-
-// EvmProxy returns the shard owner's EVMRPC client for an EVM tx sender, or
-// None if the caller should handle it locally. Overridden on
-// *gigaValidatorRouter to short-circuit self-shard sends.
-func (r *gigaRouterCommon) evmProxy(validator atypes.PublicKey) utils.Option[*ethrpc.Client] {
-	for proxies := range r.proxies.RLock() {
-		client, ok := proxies[validator]
-		if ok {
-			return utils.Some(client)
-		}
-	}
-	return utils.None[*ethrpc.Client]()
 }

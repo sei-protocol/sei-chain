@@ -13,7 +13,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
@@ -143,9 +142,7 @@ func rawTxs(block parity.Block) [][]byte {
 	return txs
 }
 
-// consensusBlock returns block as the consensus layer would hand it to the
-// EVM-only RPC, carrying v2's reported values in the header fields the RPC
-// reads directly.
+// consensusBlock returns the block fields supplied by Autobahn to the EVM-only RPC.
 func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 	header := block.Header
 	txs := make(tmtypes.Txs, len(block.Txs))
@@ -156,13 +153,8 @@ func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 		BlockID: tmtypes.BlockID{Hash: header.Hash.Bytes()},
 		Block: &tmtypes.Block{
 			Header: tmtypes.Header{
-				Height:          int64(header.Number), //nolint:gosec // fixture heights fit int64.
-				Time:            header.Time,
-				LastBlockID:     tmtypes.BlockID{Hash: header.ParentHash.Bytes()},
-				AppHash:         header.StateRoot.Bytes(),
-				ProposerAddress: header.Miner.Bytes(),
-				DataHash:        header.TransactionsRoot.Bytes(),
-				LastResultsHash: header.ReceiptsRoot.Bytes(),
+				Height: int64(header.Number), //nolint:gosec // fixture heights fit int64.
+				Time:   header.Time,
 			},
 			Data:       tmtypes.Data{Txs: txs},
 			LastCommit: &tmtypes.Commit{Height: int64(header.Number) - 1}, //nolint:gosec // fixture heights fit int64.
@@ -170,7 +162,7 @@ func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 	}
 }
 
-func (b *replayBackend) Block(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+func (b *replayBackend) rpcBlock(req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 	if req.Height == nil {
 		return b.blocks[len(b.blocks)-1], nil
 	}
@@ -187,15 +179,30 @@ func (b *replayBackend) Block(_ context.Context, req *coretypes.RequestBlockInfo
 	return b.blocks[height-first], nil
 }
 
-func (b *replayBackend) BlockByHash(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+func (b *replayBackend) rpcBlockByHash(req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 	if block, ok := b.byHash[common.BytesToHash(req.Hash)]; ok {
 		return block, nil
 	}
 	return &coretypes.ResultBlock{}, nil
 }
 
-func (*replayBackend) BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	return nil, errNotReplayed
+func (*replayBackend) InsertTx(context.Context, abevm.RawTx) (common.Hash, error) {
+	return common.Hash{}, errNotReplayed
+}
+
+func (b *replayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+	req := &coretypes.RequestBlockInfo{}
+	if h, ok := height.Get(); ok {
+		value := coretypes.Int64(h)
+		req.Height = &value
+	}
+	result, err := b.rpcBlock(req)
+	return nativeTestBlock(result, err)
+}
+
+func (b *replayBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {
+	result, err := b.rpcBlockByHash(&coretypes.RequestBlockByHash{Hash: hash.Bytes()})
+	return optionalTestBlock(result, err)
 }
 
 func (b *replayBackend) EvmBalance(address common.Address) uint256.Int {
@@ -313,18 +320,6 @@ func (*replayBackend) EvmMinGasPrice() *big.Int {
 	return new(big.Int)
 }
 
-func (*replayBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	return utils.None[*ethrpc.Client]()
-}
-
-func (*replayBackend) RememberEvmSender(common.Hash, common.Address) {}
-
-func (*replayBackend) ForgetEvmSender(common.Hash) {}
-
-func (*replayBackend) EvmProxyEnabled() bool {
-	return false
-}
-
 func (*replayBackend) EvmStateAt(context.Context, int64) (vm.SeiStateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
@@ -339,9 +334,9 @@ func (b *replayBackend) EvmTransactionCount(address common.Address) uint64 {
 	return view.GetNonce(storeAddress(address))
 }
 
-// EvmPendingNonce reports no local mempool: the replay runs only executed blocks.
-func (*replayBackend) EvmPendingNonce(common.Address) utils.Option[uint64] {
-	return utils.None[uint64]()
+// EvmPendingNonce is unavailable because the replay runs only executed blocks.
+func (*replayBackend) EvmPendingNonce(context.Context, common.Address) (uint64, error) {
+	return 0, abevm.ErrPendingNonceUnavailable
 }
 
 func (b *replayBackend) EvmNonceAt(address common.Address, height int64) (uint64, error) {

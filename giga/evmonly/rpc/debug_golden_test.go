@@ -23,6 +23,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/parity"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -390,11 +392,11 @@ func (b *traceReplayBackend) client(t *testing.T) *ethrpc.Client {
 	return client
 }
 
-func (b *traceReplayBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-	if req.Height != nil && int64(*req.Height) == b.parent.Block.Height {
-		return b.parent, nil
+func (b *traceReplayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+	if h, ok := height.Get(); ok && h == b.parent.Block.Height {
+		return nativeTestBlock(b.parent, nil)
 	}
-	return b.replayBackend.Block(ctx, req)
+	return b.replayBackend.BlockByNumber(ctx, height)
 }
 
 func (b *traceReplayBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
