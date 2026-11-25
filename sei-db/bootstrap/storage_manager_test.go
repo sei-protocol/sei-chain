@@ -286,7 +286,7 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
 	// meaning to the collector: it fixes both cut lines as a minimum over every store before pruning
 	// any of them.
-	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS undo", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
+	require.Equal(t, []string{"FlatKV", "StateWAL", "SS undo", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered

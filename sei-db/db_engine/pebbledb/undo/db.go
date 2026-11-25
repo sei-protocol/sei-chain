@@ -1,13 +1,11 @@
-// Package undo is a Pebble state store that keeps recent history as a bucketed undo log.
+// Package undo is a Pebble state store that keeps recent history as an undo log.
 //
-// When block h changes a key, the store records the value the key held before h, under
+// When block h changes a key, the store records the value the key held before h under
 //
-//	bucket(h) | key | h        with bucket(h) = h / bucketSize
+//	bucket(h) | len(key) | key | h        with bucket(h) = h / bucketSize
 //
-// and nothing else: the value after the latest block lives in the state commit store, which this
-// store reads through a LiveStateView. The state after block T is the first record above T, or the
-// current value when there is none. Buckets are contiguous key ranges, so dropping history is one
-// Excise per expired bucket rather than a scan and a tombstone per version.
+// A key's value after block T is its first record above T, or its value in the live state store when
+// there is none. History is dropped one bucket at a time.
 package undo
 
 import (
@@ -32,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -68,10 +65,6 @@ const (
 
 	valueAbsent  = 0
 	valuePresent = 1
-
-	// module is the state commit store module whose history the store keeps.
-	module = keys.EVMStoreKey
-
 	// how many blocks a bucket covers. changing this is breaking.
 	// the retention window divided by this value should be a single digit or two digits
 	defaultBucketSize = 10000
@@ -83,10 +76,10 @@ var (
 	bucketSizeKey      = metadataKey("bucket_size")
 )
 
-// LiveStateView is a read-only view of the live state store at one committed block.
-// It remains unchanged as the store advances.
+// LiveStateView is a read-only view of the live state store at one committed block. It must not change as the
+// store advances.
 type LiveStateView interface {
-	Get(module string, key []byte) (value []byte, found bool)
+	GetRaw(key []byte) (value []byte, found bool)
 	Close()
 }
 
@@ -290,10 +283,8 @@ func heightOf(version int64) (uint64, error) {
 }
 
 // Resume binds current state as of version and enables block writes. It must succeed once before
-// ApplyBlock is called. version must be at or above the log's latest block.
-//
-// A log behind version is missing the records of the blocks in between, which only their execution
-// could supply, so history below version stops being served.
+// ApplyBlock is called. version must be at or above the log's latest block, and a log still behind it
+// stops serving history below it.
 func (db *Database) Resume(version int64, current LiveStateView) error {
 	db.lifecycleMu.Lock()
 	defer db.lifecycleMu.Unlock()
@@ -354,6 +345,25 @@ func (db *Database) ApplyBlock(version int64, mutations []mutation.Mutation, cur
 		current.Close()
 		panic(err)
 	}
+}
+
+// ReplayBlock writes block version's mutations before Resume. version must follow the latest block. It errors
+// once the store has resumed or closed.
+func (db *Database) ReplayBlock(version int64, mutations []mutation.Mutation) error {
+	db.lifecycleMu.Lock()
+	defer db.lifecycleMu.Unlock()
+	if db.closed {
+		return errors.New("undo: replay on a closed store")
+	}
+	if db.head.Load() != nil {
+		return errors.New("undo: replay after Resume")
+	}
+	height, err := db.writeBlock(version, mutations)
+	if err != nil {
+		return err
+	}
+	db.latestHeight.Store(height)
+	return nil
 }
 
 // WaitForPendingWrites blocks until every block queued so far is applied, including during Close.
@@ -460,14 +470,14 @@ type recordWriter struct {
 	g      errgroup.Group
 }
 
-// add stages the record of key, holding value, or absent when value is nil. A key outside the
-// supported EVM families fails the block, since the comparator could not split its records.
+// add stages the record of key, holding value, or absent when value is nil. A key no record can hold fails the
+// block.
 func (w *recordWriter) add(key, value []byte) {
 	if w.err != nil {
 		return
 	}
-	if keyLen, _ := keyLayout(key); keyLen == 0 || len(key) != keyLen {
-		w.err = fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+	if err := checkKey(key); err != nil {
+		w.err = err
 		return
 	}
 	if w.batch == nil {
@@ -615,12 +625,11 @@ func (v *View) Close() {
 	})
 }
 
-// Get returns a supported EVM key's value at the view's height, nil when it did not exist.
-// Unsupported or malformed keys, and reads after the database is closed, return an error.
+// Get returns key's value at the view's height, nil when it did not exist. A key no record can hold, and a read
+// after the database is closed, return an error.
 func (v *View) Get(key []byte) (_ []byte, err error) {
-	keyLen, _ := keyLayout(key)
-	if keyLen == 0 || len(key) != keyLen {
-		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+	if err := checkKey(key); err != nil {
+		return nil, err
 	}
 	v.db.lifecycleMu.RLock()
 	defer v.db.lifecycleMu.RUnlock()
@@ -638,7 +647,7 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 	h := v.db.acquireHead()
 	defer h.release()
 	if v.height == h.height {
-		return foundValue(h.view.Get(module, key)), nil
+		return foundValue(h.view.GetRaw(key)), nil
 	}
 
 	first := (v.height + 1) / v.db.bucketSize
@@ -673,7 +682,7 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		}
 		return decodeValue(itr.Value())
 	}
-	return foundValue(h.view.Get(module, key)), nil
+	return foundValue(h.view.GetRaw(key)), nil
 }
 
 // GetLatestVersion returns the latest block whose records are written and readable.
@@ -731,7 +740,7 @@ func (db *Database) firstNeededBucket() uint64 {
 
 // Name identifies the store to the collector it is pruned by.
 func (db *Database) Name() string {
-	return "EVM SS undo"
+	return "SS undo"
 }
 
 // PruneHistory drops the history below blockNumber, clamped to the head, keeping blockNumber

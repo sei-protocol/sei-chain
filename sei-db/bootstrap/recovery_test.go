@@ -89,9 +89,13 @@ func TestRecoveryTarget(t *testing.T) {
 			heads: storeHeads{stateWAL: 5, receiptStore: 6, appHashVault: 9}, want: 5},
 		{name: "receipts can be the lowest",
 			heads: storeHeads{stateWAL: 6, receiptStore: 4, appHashVault: 9}, want: 4},
-		{name: "the historical state DB can be the lowest",
-			heads: storeHeads{stateWAL: 7, historicalStateDB: 3, receiptStore: 6, appHashVault: 9},
-			want:  3},
+		{name: "a historical state DB the state WAL can replay does not lower the target",
+			heads: storeHeads{stateWALFirst: 1, stateWAL: 7, historicalStateDB: 3, receiptStore: 6, appHashVault: 9},
+			want:  6},
+		{name: "a historical state DB the state WAL cannot replay can be the lowest",
+			heads: storeHeads{stateWALFirst: 5, stateWAL: 7, liveStateDB: 4, historicalStateDB: 3, receiptStore: 6,
+				appHashVault: 9},
+			want: 3},
 		// A historical state DB newly enabled, or disabled, holds nothing to disagree with. Folding its 0 into
 		// the minimum would skip recovery for the stores that do have history.
 		{name: "an empty historical state DB does not collapse the target",
@@ -553,21 +557,21 @@ func TestRecoverHistoricalStateDBRollsBackToTheTarget(t *testing.T) {
 	commitBlock(t, manager, 3, evmBlock(3, 3))
 }
 
-// A crash that loses the historical state DB's write queue leaves it behind the other stores, and its head
-// then sets the target: every store rolls back to it, keeping the history it holds.
-func TestRecoveryConvergesOnAHistoricalStateDBBehindTheOthers(t *testing.T) {
+// A crash that loses the historical state DB's write queue leaves it behind the other stores. It replays the
+// blocks it lacks from the state WAL, so no store rolls back and the history it held survives.
+func TestRecoveryReplaysTheStateWALIntoAHistoricalStateDBBehindTheOthers(t *testing.T) {
 	cfg := newHome(t, nil)
 	writeNode(t, cfg, 5)
 	require.NoError(t, undo.DiscardStateAbove(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, 3))
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(3), manager.StateDB().LiveStateDB().Version())
-	require.Equal(t, int64(3), historicalStateDB(manager).GetLatestVersion())
-	requireWALTail(t, manager, 3)
+	require.Equal(t, int64(5), manager.StateDB().LiveStateDB().Version())
+	require.Equal(t, int64(5), historicalStateDB(manager).GetLatestVersion())
+	requireWALTail(t, manager, 5)
 	historicalStateDB(manager).WaitForPendingWrites()
 	require.Zero(t, historicalStateDB(manager).GetEarliestVersion(), "the history it held must survive")
-	for height := int64(0); height <= 3; height++ {
+	for height := int64(0); height <= 5; height++ {
 		view, ok := manager.StateDB().OpenViewAt(height)
 		require.True(t, ok, "height %d", height)
 		for addr := byte(1); addr <= 3; addr++ {

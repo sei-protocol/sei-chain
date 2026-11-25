@@ -371,8 +371,9 @@ func (c *accountColumns) input() proto.Input {
 	}
 }
 
-// historyInput returns the account_history rows. They share their columns with input's, which
-// is safe because an insert only reads its columns.
+// historyInput returns the account_history rows: the address and block of each change, from which
+// the table derives its key. They share their columns with input's, which is safe because an insert
+// only reads its columns.
 func (c *accountColumns) historyInput() proto.Input {
 	return proto.Input{
 		{Name: "address", Data: c.address},
@@ -395,8 +396,9 @@ func (c *storageColumns) input() proto.Input {
 	}
 }
 
-// historyInput returns the storage_history rows. They share their columns with input's, which
-// is safe because an insert only reads its columns.
+// historyInput returns the storage_history rows: the address, slot and block of each change, from
+// which the table derives its key. They share their columns with input's, which is safe because an
+// insert only reads its columns.
 func (c *storageColumns) historyInput() proto.Input {
 	return proto.Input{
 		{Name: "address", Data: c.address},

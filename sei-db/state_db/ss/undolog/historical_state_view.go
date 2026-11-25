@@ -1,127 +1,44 @@
 package undolog
 
 import (
-	"encoding/binary"
 	"fmt"
-	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-var _ gigatypes.StateView = (*historicalStateView)(nil)
+var _ gigatypes.RawStateView = (*historicalStateView)(nil)
 
-// historicalStateView serves the Giga read API at a past height from the undo log's history. Its EVM
-// accessors read the logical keys the executor writes, so they answer what those keys held after the
-// view's block.
+// historicalStateView reads the live state store's key-values as of a past block from the undo log.
 type historicalStateView struct {
+	view   *undo.View
 	height int64
-
-	// read returns the EVM key's value at height, nil when it did not exist then.
-	read func(key []byte) ([]byte, error)
-
-	// release frees whatever the view pins. Guarded by closeOnce.
-	release   func()
-	closeOnce sync.Once
 }
 
 func (v *historicalStateView) GetBlockHeight() int64 {
 	return v.height
 }
 
-// Get serves only the EVM module, the one the undo log keeps the history of.
-func (v *historicalStateView) Get(module string, key []byte) ([]byte, bool) {
-	if module != keys.EVMStoreKey {
-		panic(fmt.Sprintf("undolog: the undo log keeps no history of module %q", module))
-	}
-	value, err := v.read(key)
+// GetRaw returns the bytes the live state store held under key after the view's block, and whether it held any. It
+// panics on a read it cannot serve.
+func (v *historicalStateView) GetRaw(key []byte) ([]byte, bool) {
+	value, err := v.view.Get(key)
 	if err != nil {
-		// A view has no recoverable errors: a read it cannot serve is fatal to its caller.
-		panic(fmt.Sprintf("undolog: historical read of %s/%x at height %d: %v", module, key, v.height, err))
+		panic(fmt.Sprintf("undolog: historical read of %x at height %d: %v", key, v.height, err))
 	}
 	return value, value != nil
 }
 
-// GetRaw panics: a historical view holds no physical rows.
-func (v *historicalStateView) GetRaw([]byte) ([]byte, bool) {
-	panic("undolog: a historical view holds no physical rows")
-}
-
-// BatchGetRaw panics: a historical view holds no physical rows.
-func (v *historicalStateView) BatchGetRaw([][]byte) map[string][]byte {
-	panic("undolog: a historical view holds no physical rows")
+func (v *historicalStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
+	values := make(map[string][]byte, len(keys))
+	for _, key := range keys {
+		if value, found := v.GetRaw(key); found {
+			values[string(key)] = value
+		}
+	}
+	return values
 }
 
 func (v *historicalStateView) Close() {
-	v.closeOnce.Do(v.release)
-}
-
-// evm reads the EVM key of kind for keyBytes.
-func (v *historicalStateView) evm(kind keys.EVMKeyKind, keyBytes []byte) ([]byte, bool) {
-	return v.Get(keys.EVMStoreKey, keys.BuildEVMKey(kind, keyBytes))
-}
-
-func (v *historicalStateView) AccountExists(addr gigatypes.Address) bool {
-	_, ok := v.ReadAccount(addr)
-	return ok
-}
-
-func (v *historicalStateView) GetStorage(addr gigatypes.Address, slot gigatypes.Hash) gigatypes.Hash {
-	value, _ := v.evm(keys.EVMKeyStorage, append(addr[:], slot[:]...))
-	return common.BytesToHash(value)
-}
-
-func (v *historicalStateView) GetBalance(addr gigatypes.Address) gigatypes.Hash {
-	value, _ := v.evm(keys.EVMKeyBalance, addr[:])
-	return common.BytesToHash(value)
-}
-
-func (v *historicalStateView) GetNonce(addr gigatypes.Address) uint64 {
-	value, found := v.evm(keys.EVMKeyNonce, addr[:])
-	if !found || len(value) != 8 {
-		return 0
-	}
-	return binary.BigEndian.Uint64(value)
-}
-
-func (v *historicalStateView) GetCodeSize(addr gigatypes.Address) int {
-	return len(v.GetCode(addr))
-}
-
-func (v *historicalStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
-	account, ok := v.ReadAccount(addr)
-	if !ok {
-		return gigatypes.Hash{}
-	}
-	return account.CodeHash
-}
-
-func (v *historicalStateView) GetCode(addr gigatypes.Address) []byte {
-	value, _ := v.evm(keys.EVMKeyCode, addr[:])
-	return value
-}
-
-// ReadAccount reads the three account fields at the view's height. An account exists when any of
-// them is non-zero, as the state commit store keeps a row only for such an account; one with no code
-// hash stored has no code.
-func (v *historicalStateView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
-	balance, _ := v.evm(keys.EVMKeyBalance, addr[:])
-	nonce, _ := v.evm(keys.EVMKeyNonce, addr[:])
-	codeHash, hasCodeHash := v.evm(keys.EVMKeyCodeHash, addr[:])
-	account := gigatypes.Account{
-		Balance:  common.BytesToHash(balance),
-		CodeHash: gigatypes.EmptyCodeHash,
-	}
-	if len(nonce) == 8 {
-		account.Nonce = binary.BigEndian.Uint64(nonce)
-	}
-	if hasCodeHash {
-		account.CodeHash = common.BytesToHash(codeHash)
-	}
-	if account.Balance == (gigatypes.Hash{}) && account.Nonce == 0 && !hasCodeHash {
-		return gigatypes.Account{}, false
-	}
-	return account, true
+	v.view.Close()
 }

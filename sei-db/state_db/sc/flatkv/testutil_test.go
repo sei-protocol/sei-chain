@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/stateview"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -496,4 +498,9 @@ func requireNotStaged(t *testing.T, store view.ViewManager, physKey []byte, msgA
 func requireFlushedToDisk(t *testing.T, s *CommitStore) {
 	t.Helper()
 	require.NoError(t, s.flushLatestVersion())
+}
+
+// openStateView returns Giga's decoded view of s's latest committed block.
+func openStateView(s *CommitStore) gigatypes.StateView {
+	return stateview.New(s.OpenView())
 }

@@ -281,7 +281,7 @@ func buildValidatorGigaConfig(
 			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
 			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
 			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
-			BlockInterval:           time.Duration(fc.BlockInterval),
+			BlockInterval:           params.LaneBlockInterval,
 			MaxConcurrentCheckTx:    fc.MaxConcurrentCheckTx,
 		},
 	}, nil
