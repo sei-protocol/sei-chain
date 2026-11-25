@@ -75,6 +75,19 @@ func epochWeights(validators abevm.CommitteeWeights) (map[atypes.PublicKey]uint6
 	return weights, nil
 }
 
+// EpochOf returns the epoch road is in, when the retained window holds it.
+func (e *EpochRegistry) EpochOf(road atypes.RoadHeight) utils.Option[atypes.EpochIndex] {
+	for state := range e.state.Lock() {
+		for _, epoch := range state.registry.Epochs() {
+			if epoch.RoadRange().Has(road) {
+				return utils.Some(epoch.EpochIndex())
+			}
+		}
+		return utils.None[atypes.EpochIndex]()
+	}
+	panic("unreachable")
+}
+
 // ClosingEpoch returns the epoch road is the last road of, when the retained window holds it.
 func (e *EpochRegistry) ClosingEpoch(road atypes.RoadHeight) utils.Option[atypes.EpochIndex] {
 	for state := range e.state.Lock() {

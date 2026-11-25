@@ -283,8 +283,8 @@ func (s store) setEpochValidators(set []BondedValidator) {
 	s.SetWord(base, solstorage.Slot(uint64(len(set))))
 }
 
-// currentEpoch returns the epoch in progress: one after the last epoch a block
-// closed, or 0 before any.
+// currentEpoch returns the epoch in progress as of the last EndBlock, or 0
+// before any.
 func (s store) currentEpoch() uint64 {
 	return s.Uint64(solstorage.Slot(slotCurrentEpoch), 0)
 }

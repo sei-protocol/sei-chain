@@ -307,9 +307,9 @@ snapshot taken at the end of epoch E−2, or the configured validators until
 staking has taken one. The operations that snapshot counts
 take effect at the end of E−1, so the committee matches the delegations during
 E (see *Staged operations*). The snapshot is committed state, so every node
-reads the same one, and a node that state-syncs gets it too. The app marks the
-block that closes an epoch from its epoch registry, so staking never needs the
-epoch length.
+reads the same one, and a node that state-syncs gets it too. The app tells
+EndBlock, from its epoch registry, which epoch each block is in and whether it
+closes it, so staking never needs the epoch length.
 
 Staking keeps only the latest snapshot: the app reads it in the block that takes
 it, and from then on the epoch registry holds the committee. A snapshot that
@@ -325,22 +325,22 @@ still through every epoch and change only at its end. V2 applies each at once.
 
 A call checks the operation as V2 would at that block and queues it in
 `stagedQueue`, a first-in first-out queue like the others, under the epoch it
-waits for: `currentEpoch` plus one. EndBlock sets `currentEpoch` from the epoch
-the app marks the block as closing, whether or not the snapshot is taken. At the
-end of each epoch, EndBlock applies the operations due, in the order they were
-called, through the same code V2's messages run, then updates the bonded set,
-completes the validators whose unbonding period is over and adopts the params
-precompile's staking params. Nothing else changes a delegation, the validator
-set or the params staking applies: EndBlock on any other block only completes
-unbonding entries, which change none of them. So a validator
-finishes unbonding at the first epoch's end after its unbonding time, and a
-param change takes effect at the first epoch's end after the proposal passes,
-where V2 does both at once. Before staking has bonded a set, any EndBlock bonds
-the genesis validators, as V2 does at genesis, and once it has, its genesis
-writes of params and validators fail. Staking that starts after the chain's
-first epoch counts no epoch until it sees one close, and the operations staged
-before then are due at the end of the epoch after that one, as if staged during
-it.
+waits for: `currentEpoch` plus one. Each EndBlock sets `currentEpoch` to the
+epoch the next block is in: the one after the epoch the block closes, whether or
+not the snapshot is taken, or else the block's own. A call reads it from
+storage, since the EVM's block context has no place for the epoch, and staking
+refuses calls until its first EndBlock has set it. At the end of each epoch,
+EndBlock applies the operations due, in the order they were called, through the
+same code V2's messages run, then updates the bonded set, completes the
+validators whose unbonding period is over and adopts the params precompile's
+staking params. Nothing else changes a delegation, the validator set or the
+params staking applies: EndBlock on any other block only completes unbonding
+entries, which change none of them. So a validator finishes unbonding at the
+first epoch's end after its unbonding time, and a param change takes effect at
+the first epoch's end after the proposal passes, where V2 does both at once.
+Before staking has bonded a set, any EndBlock bonds the genesis validators, as
+V2 does at genesis, and once it has, its genesis writes of params and validators
+fail.
 
 EndBlock then projects the snapshot: it applies the operations still staged,
 those called during the epoch now ending, takes the bonded set they would

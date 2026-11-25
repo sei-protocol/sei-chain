@@ -853,6 +853,9 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 		}
 		a.finalizePhases.SetPhase(finalizePhaseExecute)
 		block := a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash)
+		if epoch, ok := a.epochRegistry.EpochOf(atypes.RoadHeight(number)).Get(); ok {
+			block.Epoch = utils.Some(uint64(epoch))
+		}
 		if epoch, ok := a.epochRegistry.ClosingEpoch(atypes.RoadHeight(number)).Get(); ok {
 			block.ClosingEpoch = utils.Some(uint64(epoch))
 		}

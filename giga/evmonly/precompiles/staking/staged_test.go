@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // TestAStagedOperationTakesEffectAtTheEndOfTheNextEpoch stages delegations in
@@ -162,12 +163,25 @@ func TestProjectingAnEpochSnapshotLeavesTheStateAndHooksAsTheyWere(t *testing.T)
 
 // TestOperationsStagedBeforeStakingSeesAnEpochCloseWaitForTheNextEpochsEnd
 // starts staking during epoch 5, so the first epoch it sees close is 5.
-func TestOperationsStagedBeforeStakingSeesAnEpochCloseWaitForTheNextEpochsEnd(t *testing.T) {
-	h := newHarness(t, testParams)
+// TestStakingThatStartsDuringAnEpochStagesForTheNextOne starts staking during
+// epoch 5, before it has seen an epoch close.
+func TestStakingThatStartsDuringAnEpochStagesForTheNextOne(t *testing.T) {
+	h := newGenesisHarness(t, testParams)
+	h.epoch = 5
+	h.endBlock()
+	require.Empty(t, h.failures)
 	require.NoError(t, h.stageDelegate(alice, val3, sei(15)))
+	log := h.state.logs[len(h.state.logs)-1]
+	data, err := ABI.Events[DelegateEvent].Inputs.NonIndexed().Unpack(log.Data)
+	require.NoError(t, err)
+	require.Equal(t, []interface{}{sei(15), uint64(6)}, data, "staged during epoch 5, it takes effect at the end of epoch 6")
+	staged := queryAll[StagedOperation](h, StagedOperationsMethod, alice)
+	require.Len(t, staged, 1)
+	require.Equal(t, uint64(6), staged[0].Epoch)
+
 	h.endEpoch(5)
 	require.Empty(t, h.failures)
-	require.Zero(t, h.shares(alice, val3).Sign(), "staged during epoch 5, it waits for the end of epoch 6")
+	require.Zero(t, h.shares(alice, val3).Sign(), "it waits for the end of epoch 6")
 	projected := []BondedValidator{
 		{Operator: val1, ConsensusPubkey: common.BytesToHash(val1[:]), Power: 30},
 		{Operator: val3, ConsensusPubkey: common.BytesToHash(val3[:]), Power: 25},
@@ -179,6 +193,20 @@ func TestOperationsStagedBeforeStakingSeesAnEpochCloseWaitForTheNextEpochsEnd(t 
 	require.Equal(t, dec.FromInt(sei(15)), h.shares(alice, val3))
 	require.Equal(t, projected, must(bondedValidators(h.store())))
 	h.requireInvariants(alice)
+}
+
+// TestAnEpochStakingIsNotGivenKeepsTheOneItCounted runs blocks whose epoch the
+// app does not know, and one that claims an earlier epoch than staking counts.
+func TestAnEpochStakingIsNotGivenKeepsTheOneItCounted(t *testing.T) {
+	h := newHarness(t, testParams)
+	h.endEpoch(0)
+	block := h.block()
+	block.Epoch = utils.None[uint64]()
+	h.endBlockWith(block)
+	require.Equal(t, uint64(1), h.store().currentEpoch(), "an unknown epoch leaves it")
+	h.epoch = 0
+	h.endBlock()
+	require.Equal(t, uint64(1), h.store().currentEpoch(), "it never moves back")
 }
 
 // TestAStagedDelegationMeetsTheValidatorItsProjectionCounted stages a

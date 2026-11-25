@@ -87,6 +87,8 @@ type BlockContext struct {
 	ParentHash  common.Hash
 	BlockHash   common.Hash
 	PrevRandao  common.Hash
+	// Epoch is the consensus epoch this block is in, when the app knows it.
+	Epoch utils.Option[uint64]
 	// ClosingEpoch is the consensus epoch this block is the last block of, if
 	// it is one.
 	ClosingEpoch utils.Option[uint64]

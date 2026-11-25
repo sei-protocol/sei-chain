@@ -143,7 +143,7 @@ contract StakingStorage {
 
     /// @dev Delegates and undelegates wait here from the epoch they are called
     /// in until the end of the next.
-    uint64 internal currentEpoch; // one after the last epoch a block closed, 0 before any
+    uint64 internal currentEpoch; // the epoch in progress as of the last EndBlock, 0 before any
     QueueBounds internal stagedQueueBounds;
     mapping(uint64 => StagedOperation) internal stagedQueue; // index =>
     mapping(address => mapping(address => StagedDelegation)) internal stagedDelegations; // delegator => validator =>
