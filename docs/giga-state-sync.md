@@ -20,11 +20,28 @@ snapshot_upload = true
 snapshot_upload_interval = "1h"
 ```
 
-Check the access to the bucket:
+Check the access to the bucket. The command also checks that the bucket refuses a failed
+conditional write, which keeps two uploading nodes from overwriting each other:
 
 ```sh
 seid statesync check --write
 ```
+
+Each bucket needs:
+
+- A lifecycle rule that expires old objects, for example after 2 days, and aborts incomplete
+  multipart uploads. The nodes do not delete snapshots.
+- An interval much shorter than the time that the peers keep blocks. See
+  [If the node stays at the snapshot height](#if-the-node-stays-at-the-snapshot-height).
+
+We recommend:
+
+- Two uploading nodes for each bucket. Only one uploads each snapshot, and the other continues
+  if it stops.
+- One bucket in each region, when the nodes are in more than one region.
+- Write access only for the uploading nodes. A new node trusts the snapshot that it imports.
+- An alert when `latest.txt` is older than two intervals. A successful upload logs only at the
+  info level.
 
 ## Start a new node
 
