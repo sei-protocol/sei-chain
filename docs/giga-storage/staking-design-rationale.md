@@ -214,7 +214,7 @@ Staking:
 | `0x41`, `0x43` | unbonding and validator queues | two queues |
 | `0x42` | redelegation queue | not carried over |
 | none | delegates and undelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue`, `stagedDelegations` and `stagedInbound` (see *Staged operations*) |
-
+| none | the operations staged during the current epoch, which price the next call | `stagedThisEpoch` (see *Staged operations*) |
 | none | the params staking applies | `params`, a copy of the params precompile's staking params (see *Staged operations*) |
 | `0x50` | historical info | not carried over (see below) |
 
@@ -376,8 +376,17 @@ Genesis writes both.
 
 Every operation staged during an epoch takes effect at the end of the next,
 however many there are, and the projection counts every one, so neither runs
-under EndBlock's budget. An epoch's end applies one epoch's operations and
-projects the next's, so its work grows with what the two epochs stage.
+under EndBlock's budget. The calls pay for that work instead.
+`stagedThisEpoch` counts the operations staged during the current epoch. The
+first 10,000 cost nothing extra. Past them each charges 100,000 gas through the
+call's gas meter, doubling every 2,000 operations up to a quarter of the block's
+gas limit, so no operation needs more than a quarter of a block. From there the
+gas an epoch can spend bounds its work: with a base fee that rises once blocks
+use more than half their gas limit, about two operations fit a block before
+block space gets dearer, so an epoch of 108,000 blocks stages about 240,000
+operations at most for the price of every block's target gas. An epoch's end
+applies one epoch's operations and projects the next's, so it does at most
+twice that.
 
 The tokens a delegate sends wait in `StagedEscrow`, apart from any validator's,
 and count toward no power until the delegation takes effect. Stake an

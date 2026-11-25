@@ -67,9 +67,19 @@ type Context struct {
 	// GasRemaining is the call's gas after RequiredGas, as Run begins. Storage
 	// reads and writes and logs draw on it.
 	GasRemaining uint64
-	Block        BlockContext
-	State        State
-	Logs         LogSink
+	// Gas charges the call, from the same gas, for work its storage accesses and
+	// logs do not pay for.
+	Gas   GasMeter
+	Block BlockContext
+	State State
+	Logs  LogSink
+}
+
+// GasMeter charges a call for work beyond its storage accesses and logs.
+type GasMeter interface {
+	// UseGas pays gas from what the call has left and reports whether it could.
+	// When it cannot, the call fails out of gas.
+	UseGas(gas uint64) bool
 }
 
 // BlockContext is the block data custom precompiles may read.
@@ -81,6 +91,7 @@ type BlockContext struct {
 	BlobBaseFee *big.Int
 	Coinbase    common.Address
 	PrevRandao  common.Hash
+	GasLimit    uint64
 	// Replay is set when the block runs only to rebuild its state, as for a
 	// trace, rather than to execute it.
 	Replay bool

@@ -107,6 +107,9 @@ interface IStaking {
     /// @notice Delegates msg.value to validator at the end of the epoch after
     /// this one. Until then staking holds msg.value, and a delegation that can no
     /// longer be made then is refunded.
+    /// @dev Once 10,000 operations have been staged in an epoch, staging one
+    /// charges 100,000 gas, doubling every 2,000 operations up to a quarter of
+    /// the block's gas limit. Undelegate charges the same.
     function delegate(address validator) external payable returns (bool success);
 
 

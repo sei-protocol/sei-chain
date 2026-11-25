@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
@@ -20,11 +21,26 @@ const (
 var (
 	errUnknownStagedKind = errors.New("unknown staged operation kind")
 	errStagedNotCounted  = errors.New("staged operation is not counted in its delegation's staged totals")
+	errUnmetered         = errors.New("staking call has no gas meter")
 )
 
-// stage queues op to take effect at the end of the epoch after the current one,
-// counts it in its delegations' staged totals, and returns that epoch.
-func stage(s store, op stagedOperation) (uint64, error) {
+// The gas staging charges for the work it adds to an epoch's end, beyond the
+// call's own storage: none for the first stagedFree operations staged during an
+// epoch, then stagedSurchargeBase an operation, doubling every
+// stagedSurchargeDoubling operations.
+const (
+	stagedFree              = 10_000
+	stagedSurchargeBase     = 100_000
+	stagedSurchargeDoubling = 2_000
+)
+
+// stage charges the call stagingGas, queues op to take effect at the end of the
+// epoch after the current one, counts it in its staged totals, and returns that
+// epoch.
+func stage(ctx *precompiles.Context, s store, op stagedOperation) (uint64, error) {
+	if err := chargeStaging(ctx, s); err != nil {
+		return 0, err
+	}
 	q := s.stagedQueue()
 	op.epoch = q.clamp(s.currentEpoch() + 1)
 	e, err := q.push(op.epoch)
@@ -34,6 +50,39 @@ func stage(s store, op stagedOperation) (uint64, error) {
 	s.setStagedOperation(e, op)
 	countStaged(s, op)
 	return op.epoch, nil
+}
+
+// chargeStaging charges the call stagingGas for one more operation staged
+// this epoch, and counts it.
+func chargeStaging(ctx *precompiles.Context, s store) error {
+	if ctx.Gas == nil {
+		return errUnmetered
+	}
+	staged := s.stagedThisEpoch()
+	if !ctx.Gas.UseGas(stagingGas(staged, ctx.Block.GasLimit)) {
+		return vm.ErrOutOfGas
+	}
+	s.setStagedThisEpoch(staged + 1)
+	return nil
+}
+
+// stagingGas returns the gas an operation pays when staged others were staged
+// before it this epoch, in a block whose gas limit is gasLimit: none within the
+// free tier, then stagedSurchargeBase doubling every stagedSurchargeDoubling
+// operations, up to a quarter of gasLimit.
+func stagingGas(staged, gasLimit uint64) uint64 {
+	if staged < stagedFree {
+		return 0
+	}
+	// A quarter of the block leaves room for the call's own gas, and for two
+	// such calls in the half of a block the base fee targets.
+	ceiling := gasLimit / 4
+	doublings := (staged - stagedFree) / stagedSurchargeDoubling
+	gas := uint64(stagedSurchargeBase)
+	for i := uint64(0); i < doublings && gas < ceiling; i++ {
+		gas *= 2
+	}
+	return min(gas, ceiling)
 }
 
 // countStaged adds op to its staged totals: a delegation to the count of those
@@ -82,7 +131,8 @@ func (p Precompile) applyStaged(block precompiles.BlockContext, s store, params 
 	// stored power is only updated once they all are, and a delegation checked
 	// against it would not see the stake an earlier one moved.
 	bondedPower := s.lastTotalPower()
-	// No budget: the snapshot the previous epoch's end took counted every one.
+	// No budget: the calls that staged these operations paid stagingGas for
+	// this work.
 	drain(s.stagedQueue(), ended, "staged", failures, nil,
 		func(e common.Hash) error {
 			return p.applyStagedOperation(block, s, params, bondedPower, s.stagedOperationAt(e))

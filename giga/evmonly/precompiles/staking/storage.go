@@ -293,6 +293,16 @@ func (s store) setCurrentEpoch(epoch uint64) {
 	s.SetUint64(solstorage.Slot(slotCurrentEpoch), 0, epoch)
 }
 
+// stagedThisEpoch returns how many operations were staged during the current
+// epoch.
+func (s store) stagedThisEpoch() uint64 {
+	return s.Uint64(solstorage.Slot(slotStagedThisEpoch), 0)
+}
+
+func (s store) setStagedThisEpoch(n uint64) {
+	s.SetUint64(solstorage.Slot(slotStagedThisEpoch), 0, n)
+}
+
 // lastTotalPower returns the consensus power of the bonded set as last stored.
 func (s store) lastTotalPower() *big.Int {
 	return s.Uint256(solstorage.Slot(slotLastTotalPower))

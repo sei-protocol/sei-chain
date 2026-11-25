@@ -26,8 +26,8 @@ var (
 // validator queues: one unit per entry, plus one per unbonding entry of the
 // delegation an unbonding queue entry pays. An entry larger than the whole budget
 // runs when nothing has spent it, and uses it up. Entries past the budget wait for
-// the next EndBlock that drains their queue. The staged queue has no budget: an
-// epoch's end applies every operation due.
+// the next EndBlock that drains their queue. The staged queue has no budget;
+// stagingGas bounds it.
 const endBlockBudget = 3_000
 
 // EndBlock makes the changes to delegations, the validator set and the params
@@ -64,12 +64,14 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 }
 
 // closeEpoch makes epoch's changes to delegations, the validator set and the
-// params staking applies. In order, it applies the staged operations due and
-// updates the bonded set under the params staking applies, completes the
-// validators whose unbonding period is over, adopts the params precompile's
-// staking params, and snapshots the bonded set as it will be once the
-// operations still staged take effect under them.
+// params staking applies. In order, it starts the count of operations staged
+// during the next epoch afresh, applies the staged operations due and updates
+// the bonded set under the params staking applies, completes the validators
+// whose unbonding period is over, adopts the params precompile's staking
+// params, and snapshots the bonded set as it will be once the operations still
+// staged take effect under them.
 func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, epoch uint64, failures *[]error) {
+	s.setStagedThisEpoch(0)
 	params := s.params()
 	// Operations are staged for the epoch after the current one, so those due
 	// here are the ones staged for the current epoch or before.
