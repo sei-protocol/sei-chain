@@ -29,7 +29,7 @@ func (env *GigaEnvironment) BlockByNumber(ctx context.Context, height utils.Opti
 	if h, ok := height.Get(); ok {
 		heightPtr = &h
 	}
-	resolved, err := resolveHeight(env.Proxy.LastBlockHeight(), heightPtr)
+	resolved, err := resolveHeight(env.LastBlockHeight(), heightPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -52,17 +52,17 @@ func (env *GigaEnvironment) InsertTx(ctx context.Context, input abevm.RawTx) (co
 
 // EvmTransactionCount returns the committed EVM nonce for address.
 func (env *GigaEnvironment) EvmTransactionCount(address common.Address) uint64 {
-	return env.Proxy.EvmNonce(address)
+	return env.EvmNonce(address)
 }
 
 // EvmPendingNonce returns the next nonce admitted by the sender's shard.
 func (env *GigaEnvironment) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
-	return env.Router.EvmPendingNonce(ctx, address)
+	return env.EvmPendingNonce(ctx, address)
 }
 
 // EvmBlockNumber returns the height of the most recently committed block.
 func (env *GigaEnvironment) EvmBlockNumber() uint64 {
-	return utils.Clamp[uint64](env.Proxy.LastBlockHeight())
+	return utils.Clamp[uint64](env.LastBlockHeight())
 }
 
 // GenesisInitialHeight returns the height of the chain's first block.
