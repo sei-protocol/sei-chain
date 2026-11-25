@@ -82,7 +82,7 @@ func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, proposal.Verify(vs, testViewTimeout))
 	qc := NewFullCommitQC(makeCommitQCFromProposal(keys, proposal), nil)
-	require.NoError(t, qc.Verify(ep))
+	require.NoError(t, qc.Verify(ep, vs.CommitQC))
 	require.NoError(t, FullCommitQCConv.Test(qc))
 	block := NewRoadBlock(qc, nil).SuperBlock()
 	require.Equal(t, qc.Height(), block.Height)

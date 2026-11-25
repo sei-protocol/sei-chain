@@ -237,11 +237,26 @@ func (b *RoadBlock) SuperBlock() *SuperBlock {
 	return superBlock
 }
 
-// Verify verifies the QC against the epoch and checks its lane blocks in header order.
-func (b *RoadBlock) Verify(ep *Epoch) error {
-	if err := b.qc.Verify(ep); err != nil {
+// Verify checks the QC against the epoch and against parent, the CommitQC of the road block
+// before it, and checks the lane blocks in header order.
+func (b *RoadBlock) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := b.qc.Verify(ep, parent); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
+	return b.verifyBlocks()
+}
+
+// VerifyWithoutParent checks the QC against the epoch and the lane blocks in header order, but
+// not the link to the road block before it.
+func (b *RoadBlock) VerifyWithoutParent(ep *Epoch) error {
+	if err := b.qc.verifyWithoutParent(ep); err != nil {
+		return fmt.Errorf("qc.Verify(): %w", err)
+	}
+	return b.verifyBlocks()
+}
+
+// verifyBlocks checks that the lane blocks are the ones the QC finalizes, in header order.
+func (b *RoadBlock) verifyBlocks() error {
 	if len(b.blocks) != len(b.qc.Headers()) {
 		return ErrQCBlocksMismatch
 	}

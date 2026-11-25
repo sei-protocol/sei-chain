@@ -92,7 +92,9 @@ func (m *FullTimeoutVote) Verify(ep *Epoch) error {
 		}
 		// TODO: verifying PrepareQC in all Timeout votes might be too inefficient.
 		// If it is, we can skip duplicated verification.
-		if err := pQC.Verify(ep); err != nil {
+		// A timeout vote can arrive before its parent CommitQC, so the parent is not checked here.
+		// TimeoutQC.Verify checks it for the PrepareQC that the reproposal re-signs.
+		if err := pQC.verifyWithoutParent(ep); err != nil {
 			return fmt.Errorf("latestPrepareQC: %w", err)
 		}
 		if got := pQC.View(); got != want {
@@ -199,11 +201,8 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 		if got, want := pQC.View(), (View{Height: view.Height, Number: vn, EpochIndex: view.EpochIndex}); got != want {
 			return fmt.Errorf("latestPrepareQC view number mismatch, got %v, want %v", got, want)
 		}
-		if err := pQC.Verify(ep); err != nil {
-			return fmt.Errorf("higPrepareQC: %w", err)
-		}
 		// The reproposal re-signs this header, so it must follow the previous road block.
-		if err := pQC.Header().VerifyWithParent(ep, prev); err != nil {
+		if err := pQC.Verify(ep, prev); err != nil {
 			return fmt.Errorf("latestPrepareQC: %w", err)
 		}
 	} else {

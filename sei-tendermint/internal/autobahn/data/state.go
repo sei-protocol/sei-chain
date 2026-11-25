@@ -250,19 +250,19 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		if err != nil {
 			return nil, fmt.Errorf("load block from BlockStore: %w", err)
 		}
-		if err := block.Verify(epoch); err != nil {
-			return nil, fmt.Errorf("block.Verify(): %w", err)
-		}
 		n := block.QC().Height()
 		if n != inner.nextPartialBlock {
 			return nil, fmt.Errorf("QC gap: got %d, want %d", n, inner.nextPartialBlock)
 		}
-		// The parent of the first stored road block may be pruned, so that road block is checked only
-		// at the first road height of the chain, where it must name no parent.
+		// The parent of the first stored road block may be pruned, so that road block is checked
+		// against its parent only at the first road height of the chain, where it has none.
 		if n > inner.first || (epoch.EpochIndex() == 0 && n == epoch.RoadRange().First) {
-			if err := block.Header().VerifyWithParent(epoch, inner.lastCommitQC()); err != nil {
-				return nil, fmt.Errorf("load block %d from BlockStore: %w", n, err)
-			}
+			err = block.Verify(epoch, inner.lastCommitQC())
+		} else {
+			err = block.VerifyWithoutParent(epoch)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("load block %d from BlockStore: %w", n, err)
 		}
 		blocks := make(map[uint64]*types.LaneBlock, len(block.LaneBlocks()))
 		for offset, laneBlock := range block.LaneBlocks() {
@@ -319,6 +319,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 	if !ok {
 		return nil
 	}
+	var parent utils.Option[*types.CommitQC]
 	nextFullBlock, nextPartialBlock, err := func() (types.RoadHeight, types.RoadHeight, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
@@ -332,6 +333,8 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 			}); err != nil {
 				return 0, 0, err
 			}
+			// When the qc is the next road, its parent is fixed until the next road advances.
+			parent = inner.lastCommitQC()
 			return inner.nextFullBlock, inner.nextPartialBlock, nil
 		}
 		panic("unreachable")
@@ -343,7 +346,7 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		return nil
 	}
 	if n == nextPartialBlock {
-		if err := qc.Verify(epoch); err != nil {
+		if err := qc.Verify(epoch, parent); err != nil {
 			return fmt.Errorf("qc.Verify(): %w", err)
 		}
 	}
@@ -359,9 +362,6 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		}
 		updated := false
 		if inner.nextPartialBlock == n {
-			if err := qc.Header().VerifyWithParent(epoch, inner.lastCommitQC()); err != nil {
-				return fmt.Errorf("qc: %w", err)
-			}
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: epoch, blocks: make(map[uint64]*types.LaneBlock, len(qc.Headers()))}
 			inner.laneBlockCount += uint64(len(qc.Headers()))

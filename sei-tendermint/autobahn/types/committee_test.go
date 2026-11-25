@@ -142,12 +142,12 @@ func TestPrepareQCVerifyChecksWeight(t *testing.T) {
 	heavyOnly := NewPrepareQC([]*Signed[*PrepareVote]{
 		keys[0].Sign(vote),
 	})
-	require.NoError(t, heavyOnly.Verify(ep))
+	require.NoError(t, heavyOnly.Verify(ep, utils.None[*CommitQC]()))
 	lightMajority := NewPrepareQC([]*Signed[*PrepareVote]{
 		keys[1].Sign(vote),
 		keys[2].Sign(vote),
 	})
-	require.Error(t, lightMajority.Verify(ep))
+	require.Error(t, lightMajority.Verify(ep, utils.None[*CommitQC]()))
 }
 
 func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
@@ -157,13 +157,13 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewPrepareQC([]*Signed[*PrepareVote]{keys[0].Sign(NewPrepareVote(p))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep, utils.None[*CommitQC]()))
 
 	wrongEpoch := &Proposal{header: newRoadBlockHeader(ep.EpochIndex()+1, ep.RoadRange().First, utils.None[RoadBlockHeaderHash](), time.Time{}, nil)}
-	require.Error(t, sign(wrongEpoch).Verify(ep))
+	require.Error(t, sign(wrongEpoch).Verify(ep, utils.None[*CommitQC]()))
 
 	outOfRoads := &Proposal{header: newRoadBlockHeader(ep.EpochIndex(), ep.RoadRange().Next, utils.None[RoadBlockHeaderHash](), time.Time{}, nil)}
-	require.Error(t, sign(outOfRoads).Verify(ep))
+	require.Error(t, sign(outOfRoads).Verify(ep, utils.None[*CommitQC]()))
 }
 
 func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
@@ -173,13 +173,13 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewCommitQC([]*Signed[*CommitVote]{keys[0].Sign(NewCommitVote(BuildPrepareQC(keys, p)))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Height: ep.RoadRange().First})).Verify(ep, utils.None[*CommitQC]()))
 
 	wrongEpoch := &Proposal{header: newRoadBlockHeader(ep.EpochIndex()+1, ep.RoadRange().First, utils.None[RoadBlockHeaderHash](), time.Time{}, nil)}
-	require.Error(t, sign(wrongEpoch).Verify(ep))
+	require.Error(t, sign(wrongEpoch).Verify(ep, utils.None[*CommitQC]()))
 
 	outOfRoads := &Proposal{header: newRoadBlockHeader(ep.EpochIndex(), ep.RoadRange().Next, utils.None[RoadBlockHeaderHash](), time.Time{}, nil)}
-	require.Error(t, sign(outOfRoads).Verify(ep))
+	require.Error(t, sign(outOfRoads).Verify(ep, utils.None[*CommitQC]()))
 }
 
 func TestCommitQCVerifyChecksWeight(t *testing.T) {
@@ -191,12 +191,12 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 	heavyOnly := NewCommitQC([]*Signed[*CommitVote]{
 		keys[0].Sign(vote),
 	})
-	require.NoError(t, heavyOnly.Verify(ep))
+	require.NoError(t, heavyOnly.Verify(ep, utils.None[*CommitQC]()))
 	lightMajority := NewCommitQC([]*Signed[*CommitVote]{
 		keys[1].Sign(vote),
 		keys[2].Sign(vote),
 	})
-	require.Error(t, lightMajority.Verify(ep))
+	require.Error(t, lightMajority.Verify(ep, utils.None[*CommitQC]()))
 }
 
 func TestAppQCVerifyChecksWeight(t *testing.T) {

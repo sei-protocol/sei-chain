@@ -36,8 +36,18 @@ func (m *PrepareQC) View() View {
 	return m.vote.Msg().View()
 }
 
-// Verify verifies the PrepareQC against the epoch.
-func (m *PrepareQC) Verify(ep *Epoch) error {
+// Verify checks the PrepareQC against the epoch and against parent, the CommitQC of the road
+// block before it. A None parent means the QC prepares the first road block of the chain.
+func (m *PrepareQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.Header().VerifyWithParent(ep, parent); err != nil {
+		return err
+	}
+	c := ep.Committee()
+	return m.vote.verifyQC(c, c.PrepareQuorum(), m.sigs)
+}
+
+// verifyWithoutParent checks the PrepareQC against the epoch only.
+func (m *PrepareQC) verifyWithoutParent(ep *Epoch) error {
 	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
 	}

@@ -220,7 +220,7 @@ func TestExporterProofSurvivesLossOfUnflushedRecords(t *testing.T) {
 	require.True(t, bytes.Equal(written, got))
 	proof, err := Decode(got, env.height)
 	require.NoError(t, err)
-	require.NoError(t, proof.RoadBlock().Verify(env.epoch))
+	require.NoError(t, proof.RoadBlock().VerifyWithoutParent(env.epoch))
 	require.NoError(t, proof.AppQC().Verify(env.epoch.Committee()))
 	require.Equal(t, failures, exportFailureCount(t))
 	require.Equal(t, inconsistent, inconsistentRecordCount(t))

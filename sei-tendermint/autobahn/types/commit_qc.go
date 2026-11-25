@@ -43,8 +43,18 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 	return m.Header().LaneRange(lane)
 }
 
-// Verify verifies the CommitQC against the epoch.
-func (m *CommitQC) Verify(ep *Epoch) error {
+// Verify checks the CommitQC against the epoch and against parent, the CommitQC of the road
+// block before it. A None parent means the QC finalizes the first road block of the chain.
+func (m *CommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.Header().VerifyWithParent(ep, parent); err != nil {
+		return err
+	}
+	c := ep.Committee()
+	return m.vote.verifyQC(c, c.CommitQuorum(), m.sigs)
+}
+
+// verifyWithoutParent checks the CommitQC against the epoch only.
+func (m *CommitQC) verifyWithoutParent(ep *Epoch) error {
 	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
 	}
@@ -82,11 +92,25 @@ func (m *FullCommitQC) Height() RoadHeight {
 	return m.qc.Height()
 }
 
-// Verify verifies the FullCommitQC against the epoch.
-func (m *FullCommitQC) Verify(ep *Epoch) error {
-	if err := m.qc.Verify(ep); err != nil {
+// Verify checks the FullCommitQC against the epoch and against parent, the CommitQC of the
+// road block before it.
+func (m *FullCommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.qc.Verify(ep, parent); err != nil {
 		return fmt.Errorf("qC: %w", err)
 	}
+	return m.verifyHeaders(ep)
+}
+
+// verifyWithoutParent checks the FullCommitQC against the epoch only.
+func (m *FullCommitQC) verifyWithoutParent(ep *Epoch) error {
+	if err := m.qc.verifyWithoutParent(ep); err != nil {
+		return fmt.Errorf("qC: %w", err)
+	}
+	return m.verifyHeaders(ep)
+}
+
+// verifyHeaders checks that the lane block headers are the ones the lane ranges of the QC finalize.
+func (m *FullCommitQC) verifyHeaders(ep *Epoch) error {
 	n := uint64(0)
 	if want, got := int(m.Header().NumBlocks()), len(m.headers); want != got { //nolint:gosec // lane block count is bounded by the committee size and per-lane limit
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)

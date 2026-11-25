@@ -67,7 +67,7 @@ func TestRoadBlockVerify(t *testing.T) {
 				ep = NewEpoch(ep.EpochIndex(), roads, committee)
 			}
 			qc := NewFullCommitQC(commitQC, headers)
-			err := NewRoadBlock(qc, blocks).Verify(ep)
+			err := NewRoadBlock(qc, blocks).Verify(ep, utils.None[*CommitQC]())
 			switch variant {
 			case "valid":
 				require.NoError(t, err)
@@ -205,7 +205,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	}
 	qc := BuildCommitQC(ep, keys, utils.None[*CommitQC](), laneQCs)
 	fullQC := NewFullCommitQC(qc, headers)
-	require.NoError(t, fullQC.Verify(ep))
+	require.NoError(t, fullQC.Verify(ep, utils.None[*CommitQC]()))
 	block := NewRoadBlock(fullQC, blocks).SuperBlock()
 	require.Equal(t, qc.Height(), block.Height)
 	require.Equal(t, qc.Header().Timestamp(), block.Timestamp)
@@ -254,6 +254,33 @@ func TestRoadBlockHeaderParentHashRoundTrips(t *testing.T) {
 		require.Equal(t, parentHash, got.ParentHash())
 		require.Equal(t, h.Hash(), got.Hash())
 	}
+}
+
+func TestRoadBlockVerifyChecksParentUnlessSkipped(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 3)
+	ep := GenEpochWithCommittee(rng, committee)
+	proposal, blocks := ProposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 3)
+	headers := make([]*LaneBlockHeader, len(blocks))
+	for i, block := range blocks {
+		headers[i] = block.Header()
+	}
+	signedBy := func(keys []SecretKey) *RoadBlock {
+		var votes []*Signed[*CommitVote]
+		for _, key := range keys {
+			votes = append(votes, key.Sign(NewCommitVote(BuildPrepareQC(keys, proposal))))
+		}
+		return NewRoadBlock(NewFullCommitQC(NewCommitQC(votes), headers), blocks)
+	}
+	block := signedBy(keys)
+	wrongParent := utils.Some(BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil))
+
+	require.NoError(t, block.Verify(ep, utils.None[*CommitQC]()))
+	require.ErrorIs(t, block.Verify(ep, wrongParent), ErrParentMismatch)
+	require.NoError(t, block.VerifyWithoutParent(ep))
+
+	_, otherKeys := GenCommittee(rng, 3)
+	require.Error(t, signedBy(otherKeys).VerifyWithoutParent(ep))
 }
 
 func TestRoadBlockHeaderVerifyWithParent(t *testing.T) {

@@ -106,11 +106,8 @@ func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) 
 
 	// PrepareQC is required when CommitVote is present (CommitVote requires PrepareQC justification).
 	if pqc, ok := p.PrepareQC.Get(); ok {
-		if err := checkViewAndSig("PrepareQC", pqc.View(), pqc.Verify(ep)); err != nil {
+		if err := checkViewAndSig("PrepareQC", pqc.View(), pqc.Verify(ep, spec.CommitQC)); err != nil {
 			return err
-		}
-		if err := pqc.Header().VerifyWithParent(ep, spec.CommitQC); err != nil {
-			return fmt.Errorf("corrupt persisted state: PrepareQC: %w", err)
 		}
 	} else if p.CommitVote.IsPresent() {
 		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
