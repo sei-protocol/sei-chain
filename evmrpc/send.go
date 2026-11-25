@@ -162,7 +162,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	return
 }
 
-// toEthBroadcastError maps a mempool rejection to its Ethereum equivalent, if it has one.
+// toEthBroadcastError maps a mempool rejection to its RPC equivalent, if it has one.
 func toEthBroadcastError(err error) error {
 	switch {
 	case errors.Is(err, tmtypes.ErrTxInMempool):
@@ -173,6 +173,8 @@ func toEthBroadcastError(err error) error {
 		return txpool.ErrReplaceUnderpriced
 	case errors.Is(err, tmtypes.ErrTxInsufficientFunds):
 		return core.ErrInsufficientFunds
+	case errors.Is(err, ethtypes.ErrInvalidChainId):
+		return sdkerrors.ErrInvalidChainID
 	default:
 		return err
 	}
