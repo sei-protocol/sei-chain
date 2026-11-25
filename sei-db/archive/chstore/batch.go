@@ -22,10 +22,12 @@ import (
 
 // Archive table names.
 const (
+	tableMeta           = "archive_meta"
 	tableCommits        = "archive_commits"
 	tableBlocks         = "blocks"
 	tableTxs            = "transactions_receipts"
-	tableLocator        = "hash_locator"
+	tableBlockLocator   = "block_hash_locator"
+	tableTxLocator      = "transaction_hash_locator"
 	tableLogs           = "logs"
 	tableAccountChanges = "account_changes"
 	tableAccountHistory = "account_history"
@@ -34,13 +36,8 @@ const (
 	tableCode           = "contract_code"
 )
 
-// hash_locator object kinds.
-const (
-	locatorBlock uint8 = 1
-	locatorTx    uint8 = 2
-)
-
-// txIndexBits is the width of the transaction index inside a packed hash_locator location.
+// txIndexBits is the width of the transaction index inside a packed transaction_hash_locator
+// location.
 const txIndexBits = 24
 
 // batch holds the rows of consecutive blocks for every archive table, column by column, in the
@@ -52,13 +49,14 @@ type batch struct {
 	// bytes is the variable-length data the batch holds: transactions, log data and bytecode.
 	bytes int
 
-	blockRows   blockColumns
-	txRows      txColumns
-	locatorRows locatorColumns
-	logRows     logColumns
-	accountRows accountColumns
-	storageRows storageColumns
-	codeRows    codeColumns
+	blockRows        blockColumns
+	txRows           txColumns
+	blockLocatorRows locatorColumns
+	txLocatorRows    locatorColumns
+	logRows          logColumns
+	accountRows      accountColumns
+	storageRows      storageColumns
+	codeRows         codeColumns
 
 	// encoded, payloads, topics and hasher are scratch space for add: encoded holds the block's
 	// encoded transactions, and payloads each one's bounds in it.
@@ -83,7 +81,7 @@ func (b *batch) add(block *archive.ExecutedBlock) error {
 	number := block.Number
 	n := len(block.Txs)
 	if number >= 1<<(64-txIndexBits) || n >= 1<<txIndexBits {
-		return fmt.Errorf("block %d with %d transactions exceeds the hash_locator encoding", number, n)
+		return fmt.Errorf("block %d with %d transactions exceeds the transaction_hash_locator encoding", number, n)
 	}
 	if err := b.encodeTxs(block); err != nil {
 		return err
@@ -141,7 +139,7 @@ func (b *batch) addHeader(block *archive.ExecutedBlock) {
 	r.gasUsed.Append(block.GasUsed)
 	r.gasLimit.Append(block.GasLimit)
 	r.baseFee.Append(u256(block.BaseFee))
-	b.locatorRows.append(block.Hash, locatorBlock, block.Number)
+	b.blockLocatorRows.append(block.Hash, block.Number)
 }
 
 // addTx appends transaction i of block number, its receipt and its logs.
@@ -165,7 +163,7 @@ func (b *batch) addTx(number uint64, blockHash common.Hash, i int, tx *archive.T
 	r.executed.Append(boolByte(!tx.Rejected))
 	b.bytes += len(payload)
 	if tx.Locatable {
-		b.locatorRows.append(rcpt.TxHash, locatorTx, number<<txIndexBits|uint64(index))
+		b.txLocatorRows.append(rcpt.TxHash, number<<txIndexBits|uint64(index))
 	}
 	for _, lg := range rcpt.Logs {
 		l := &b.logRows
@@ -230,7 +228,7 @@ func (b *batch) keccak(data []byte) common.Hash {
 
 // maxRows is the row count of the batch's largest table.
 func (b *batch) maxRows() int {
-	return max(b.txRows.number.Rows(), b.locatorRows.prefix.Rows(), b.logRows.number.Rows(),
+	return max(b.txRows.number.Rows(), b.txLocatorRows.prefix.Rows(), b.logRows.number.Rows(),
 		b.accountRows.number.Rows(), b.storageRows.number.Rows())
 }
 
@@ -245,7 +243,8 @@ func (b *batch) tables() []tableRows {
 	return []tableRows{
 		{tableBlocks, b.blockRows.input()},
 		{tableTxs, b.txRows.input()},
-		{tableLocator, b.locatorRows.input()},
+		{tableBlockLocator, b.blockLocatorRows.input("block_number")},
+		{tableTxLocator, b.txLocatorRows.input("location")},
 		{tableLogs, b.logRows.input()},
 		{tableAccountChanges, b.accountRows.input()},
 		{tableAccountHistory, b.accountRows.historyInput()},
@@ -316,22 +315,20 @@ func (c *txColumns) input() proto.Input {
 
 type locatorColumns struct {
 	prefix, location proto.ColUInt64
-	kind             proto.ColUInt8
 }
 
 // append adds the location of the object with hash h; the key is the hash's big-endian first
 // eight bytes.
-func (c *locatorColumns) append(h common.Hash, kind uint8, location uint64) {
+func (c *locatorColumns) append(h common.Hash, location uint64) {
 	c.prefix.Append(binary.BigEndian.Uint64(h[:8]))
-	c.kind.Append(kind)
 	c.location.Append(location)
 }
 
-func (c *locatorColumns) input() proto.Input {
+// input returns the locator rows, with the location in the column named location.
+func (c *locatorColumns) input(location string) proto.Input {
 	return proto.Input{
 		{Name: "hash_prefix", Data: &c.prefix},
-		{Name: "object_kind", Data: &c.kind},
-		{Name: "location", Data: &c.location},
+		{Name: location, Data: &c.location},
 	}
 }
 

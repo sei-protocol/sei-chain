@@ -305,7 +305,7 @@ func openArchive(ctx context.Context, cfg *config.GigaStorageConfig, first uint6
 		return nil, fmt.Errorf("the rollback window of %d blocks is shorter than the %d blocks the archive can "+
 			"trail the node by, so a node could not roll back to the archive after a crash", window, chstore.MaxLag)
 	}
-	exporter, err := chstore.StartExporter(ctx, *cfg.ArchiveConfig, first)
+	exporter, err := chstore.StartExporter(ctx, *cfg.ArchiveConfig, cfg.EVMChainID, first)
 	if err != nil {
 		// Returned as a nil Store, not a Store holding a nil exporter.
 		return nil, err

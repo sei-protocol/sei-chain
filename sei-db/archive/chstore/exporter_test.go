@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 )
 
 func TestArchiveBlockTakesOnlyTheNextBlock(t *testing.T) {
@@ -40,4 +42,9 @@ func TestArchiveBlockRefusesBlocksAfterAFailedWrite(t *testing.T) {
 	block := testBlock(5)
 	require.ErrorIs(t, e.ArchiveBlock(t.Context(), &block), failed)
 	require.Zero(t, e.cur.blocks)
+}
+
+func TestStartExporterRefusesAZeroChainID(t *testing.T) {
+	_, err := StartExporter(t.Context(), clickhouse.Config{}, 0, 1)
+	require.ErrorContains(t, err, "an archive needs an EVM chain ID")
 }

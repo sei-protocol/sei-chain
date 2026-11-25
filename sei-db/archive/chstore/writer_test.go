@@ -15,6 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 )
 
+// testChain is the EVM chain the tests' archives hold.
+const testChain = 713715
+
 // testConfig returns a config for a throwaway database on the ClickHouse server named by
 // SEI_ARCHIVE_TEST_CLICKHOUSE, skipping the test when it is unset.
 func testConfig(t *testing.T) clickhouse.Config {
@@ -73,8 +76,8 @@ func testWriter(t *testing.T, cfg clickhouse.Config) *writer {
 // rowCounts returns the row count of every archive table.
 func rowCounts(t *testing.T, cfg clickhouse.Config) map[string]uint64 {
 	out := map[string]uint64{}
-	for _, table := range []string{tableBlocks, tableTxs, tableLocator, tableLogs, tableAccountChanges, tableAccountHistory,
-		tableStorageChanges, tableStorageHistory, tableCode, tableCommits} {
+	for _, table := range []string{tableBlocks, tableTxs, tableBlockLocator, tableTxLocator, tableLogs, tableAccountChanges,
+		tableAccountHistory, tableStorageChanges, tableStorageHistory, tableCode, tableCommits} {
 		out[table] = query(t, cfg, "SELECT count() AS a FROM "+table)[0]
 	}
 	return out
@@ -108,7 +111,8 @@ func TestWrite(t *testing.T) {
 	require.Equal(t, map[string]uint64{
 		tableBlocks:         5,
 		tableTxs:            10,
-		tableLocator:        10, // each block and its executed transaction
+		tableBlockLocator:   5,
+		tableTxLocator:      5, // each block's executed transaction
 		tableLogs:           5,
 		tableAccountChanges: 10,
 		tableAccountHistory: 10,
@@ -123,13 +127,38 @@ func TestWrite(t *testing.T) {
 	// A transaction is found by its hash prefix.
 	executed := testBlock(2).Txs[0].Receipt.TxHash
 	require.Equal(t, []uint64{2 << txIndexBits}, query(t, cfg, fmt.Sprintf(
-		"SELECT location AS a FROM hash_locator WHERE hash_prefix = %d AND object_kind = %d",
-		binary.BigEndian.Uint64(executed[:8]), locatorTx)))
+		"SELECT location AS a FROM transaction_hash_locator WHERE hash_prefix = %d",
+		binary.BigEndian.Uint64(executed[:8]))))
 	require.Equal(t, []uint64{900}, query(t, cfg,
 		"SELECT toUInt64(balance) AS a FROM account_changes WHERE block_number = 2 AND nonce = 5"))
 	require.Equal(t, []uint64{0}, query(t, cfg,
 		"SELECT toUInt64(count()) AS a FROM storage_changes WHERE block_number = 2 AND value != repeat('\\0', 32)"+
 			" AND slot = unhex('52'||repeat('00', 31))"))
+}
+
+// TestTransactionLocatorAliases reads each transaction's block and index back through the
+// transaction locator's alias columns, which decode the location the writer packs.
+func TestTransactionLocatorAliases(t *testing.T) {
+	cfg := testConfig(t)
+	require.NoError(t, migrate(t.Context(), cfg))
+	w := testWriter(t, cfg)
+
+	// A block number above 2^32, so a decoding that keeps only 32 bits fails.
+	number := uint64(1)<<39 | 300
+	block := testBlock(number)
+	block.Time = 1_700_000_000
+	block.Txs[1].Locatable = true
+	b := newBatch()
+	require.NoError(t, b.add(&block))
+	require.NoError(t, w.write(t.Context(), b))
+
+	for i, tx := range block.Txs {
+		prefix := binary.BigEndian.Uint64(tx.Receipt.TxHash[:8])
+		require.Equal(t, []uint64{number}, query(t, cfg, fmt.Sprintf(
+			"SELECT block_number AS a FROM transaction_hash_locator WHERE hash_prefix = %d", prefix)), "transaction %d", i)
+		require.Equal(t, []uint64{uint64(i)}, query(t, cfg, fmt.Sprintf(
+			"SELECT toUInt64(transaction_index) AS a FROM transaction_hash_locator WHERE hash_prefix = %d", prefix)), "transaction %d", i)
+	}
 }
 
 // TestStateReads runs the two reads the account and storage tables are laid out for: a slot or an
@@ -183,6 +212,7 @@ func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
 	cfg := testConfig(t)
 	require.NoError(t, migrate(t.Context(), cfg))
 	w := testWriter(t, cfg)
+	require.NoError(t, w.insertMeta(t.Context(), testChain))
 	require.NoError(t, w.write(t.Context(), testBatch(t, 1, 2)))
 
 	// Blocks 3-4 stop after their pending row and one table, as a crash part way leaves them.
@@ -190,14 +220,14 @@ func TestStartExporterRefusesAnInterruptedBatch(t *testing.T) {
 	require.NoError(t, w.insertCommit(t.Context(), b.first, b.last, false))
 	require.NoError(t, w.client.Insert(t.Context(), tableBlocks, b.blockRows.input()))
 
-	_, err := StartExporter(t.Context(), cfg, 1)
+	_, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.ErrorIs(t, err, errInterruptedBatch)
 	require.ErrorContains(t, err, "blocks 3-4")
 }
 
 func TestExporterWritesExecutedBlocks(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg, 1)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	store := func(n uint64) {
 		block := testBlock(n)
@@ -210,7 +240,7 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 	require.Equal(t, uint64(3), rowCounts(t, cfg)[tableBlocks])
 
 	// A restarted exporter expects the block after the archived ones and refuses one it holds.
-	exporter, err = StartExporter(t.Context(), cfg, 1)
+	exporter, err = StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), exporter.LatestBlock())
 	block := testBlock(3)
@@ -235,7 +265,7 @@ func TestExporterWritesExecutedBlocks(t *testing.T) {
 
 func TestExporterStopsAtAFailedWrite(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg, 1)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	exec(t, cfg, cfg.Database, "DETACH TABLE blocks")
 	block := testBlock(1)
@@ -244,16 +274,16 @@ func TestExporterStopsAtAFailedWrite(t *testing.T) {
 	exec(t, cfg, cfg.Database, "ATTACH TABLE blocks")
 
 	// The failed batch stays pending, so the archive does not resume until it is removed.
-	_, err = StartExporter(t.Context(), cfg, 1)
+	_, err = StartExporter(t.Context(), cfg, testChain, 1)
 	require.ErrorIs(t, err, errInterruptedBatch)
 }
 
 func TestEmptyArchiveRecordsItsStartWhenOpened(t *testing.T) {
 	cfg := testConfig(t)
-	_, err := StartExporter(t.Context(), cfg, 0)
+	_, err := StartExporter(t.Context(), cfg, testChain, 0)
 	require.ErrorContains(t, err, "block 0")
 
-	exporter, err := StartExporter(t.Context(), cfg, 1)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 1)
 	require.NoError(t, err)
 	// Recorded before any block, as a committed row that ends at the block before the start.
 	require.Equal(t, []uint64{0}, query(t, cfg, "SELECT end_block AS a FROM archive_commits WHERE committed"))
@@ -261,7 +291,7 @@ func TestEmptyArchiveRecordsItsStartWhenOpened(t *testing.T) {
 	require.NoError(t, exporter.Close())
 
 	// A restart that lost the first batch keeps the start, however far the node has moved on.
-	exporter, err = StartExporter(t.Context(), cfg, 50)
+	exporter, err = StartExporter(t.Context(), cfg, testChain, 50)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = exporter.Close() })
 	require.Zero(t, exporter.LatestBlock())
@@ -275,10 +305,35 @@ func TestEmptyArchiveRecordsItsStartWhenOpened(t *testing.T) {
 
 func TestEmptyArchiveStartsMidChain(t *testing.T) {
 	cfg := testConfig(t)
-	exporter, err := StartExporter(t.Context(), cfg, 234234)
+	exporter, err := StartExporter(t.Context(), cfg, testChain, 234234)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = exporter.Close() })
 	require.Equal(t, uint64(234233), exporter.LatestBlock())
 	block := testBlock(234234)
 	require.NoError(t, exporter.ArchiveBlock(t.Context(), &block))
+}
+
+func TestArchiveRefusesAnotherChain(t *testing.T) {
+	cfg := testConfig(t)
+	exporter, err := StartExporter(t.Context(), cfg, 1329, 1)
+	require.NoError(t, err)
+	require.NoError(t, exporter.Close())
+	require.Equal(t, []uint64{1329}, query(t, cfg, "SELECT chain_id AS a FROM "+tableMeta))
+
+	_, err = StartExporter(t.Context(), cfg, 1328, 1)
+	require.ErrorContains(t, err, "the archive holds EVM chain 1329, not 1328")
+	exporter, err = StartExporter(t.Context(), cfg, 1329, 1)
+	require.NoError(t, err, "the chain the archive records reopens it")
+	require.NoError(t, exporter.Close())
+
+	// A lost or removed metadata row leaves an archive no chain can claim, until the row is restored.
+	exec(t, cfg, cfg.Database, "TRUNCATE TABLE "+tableMeta)
+	for _, chain := range []uint64{1328, 1329} {
+		_, err = StartExporter(t.Context(), cfg, chain, 1)
+		require.ErrorContains(t, err, "the archive is not empty but records no chain")
+	}
+	exec(t, cfg, cfg.Database, "INSERT INTO "+tableMeta+" VALUES (1329)")
+	exporter, err = StartExporter(t.Context(), cfg, 1329, 1)
+	require.NoError(t, err, "the restored row reopens the archive")
+	require.NoError(t, exporter.Close())
 }
