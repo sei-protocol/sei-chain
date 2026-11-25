@@ -202,7 +202,11 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
 func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheckTx) (*coretypes.ResultCheckTx, error) {
-	res, err := env.abciApplication().CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: req.Tx})
+	app, err := env.abciApplication()
+	if err != nil {
+		return nil, err
+	}
+	res, err := app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: req.Tx})
 	if err != nil {
 		return nil, err
 	}

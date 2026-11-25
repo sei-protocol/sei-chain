@@ -55,10 +55,11 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	if val, ok := env.validatorAtHeight(env.latestUncommittedHeight()).Get(); ok {
 		validatorInfo.VotingPower = val.VotingPower
 	}
-	var applicationInfo coretypes.ApplicationInfo
-	if abciInfo, err := env.ABCIInfo(ctx); err == nil {
-		applicationInfo.Version = fmt.Sprint(abciInfo.Response.AppVersion)
+	abciInfo, err := env.ABCIInfo(ctx)
+	if err != nil {
+		return nil, err
 	}
+	applicationInfo := coretypes.ApplicationInfo{Version: fmt.Sprint(abciInfo.Response.AppVersion)}
 
 	freezeHeight, frozen := env.freezeState()
 

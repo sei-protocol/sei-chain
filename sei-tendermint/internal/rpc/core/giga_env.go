@@ -57,7 +57,7 @@ func (env *GigaEnvironment) EvmTransactionCount(address common.Address) uint64 {
 
 // EvmPendingNonce returns the next nonce admitted by the sender's shard.
 func (env *GigaEnvironment) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
-	return env.EvmPendingNonce(ctx, address)
+	return env.Router.EvmPendingNonce(ctx, address)
 }
 
 // EvmBlockNumber returns the height of the most recently committed block.

@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -11,9 +10,9 @@ import (
 // ABCIQuery queries the application for some information.
 // More: https://docs.tendermint.com/master/rpc/#/ABCI/abci_query
 func (env *Environment) ABCIQuery(ctx context.Context, req *coretypes.RequestABCIQuery) (*coretypes.ResultABCIQuery, error) {
-	app, ok := env.App.Get()
-	if !ok {
-		return nil, errors.New("ABCI queries are unavailable on Autobahn")
+	app, err := env.abciApplication()
+	if err != nil {
+		return nil, err
 	}
 	resQuery, err := app.Query(ctx, &abci.RequestQuery{
 		Path:   req.Path,
@@ -31,6 +30,10 @@ func (env *Environment) ABCIQuery(ctx context.Context, req *coretypes.RequestABC
 // ABCIInfo gets some info about the application.
 // More: https://docs.tendermint.com/master/rpc/#/ABCI/abci_info
 func (env *Environment) ABCIInfo(ctx context.Context) (*coretypes.ResultABCIInfo, error) {
-	resInfo := env.abciApplication().Info()
+	app, err := env.abciApplication()
+	if err != nil {
+		return nil, err
+	}
+	resInfo := app.Info()
 	return &coretypes.ResultABCIInfo{Response: *resInfo}, nil
 }

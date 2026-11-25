@@ -54,6 +54,9 @@ var (
 
 	// ErrReadOnly indicates that an RPC operation would mutate a read-only node.
 	ErrReadOnly = errors.New("RPC writes are disabled in freeze mode")
+
+	// ErrABCIUnavailable indicates that this RPC environment has no ABCI application.
+	ErrABCIUnavailable = errors.New("ABCI application is unavailable in this RPC environment")
 )
 
 //----------------------------------------------
@@ -428,6 +431,10 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 	return listeners, nil
 }
 
-func (env *Environment) abciApplication() *proxy.Proxy {
-	return env.App.OrPanic("ABCI application is unavailable in this RPC environment")
+func (env *Environment) abciApplication() (*proxy.Proxy, error) {
+	app, ok := env.App.Get()
+	if !ok {
+		return nil, ErrABCIUnavailable
+	}
+	return app, nil
 }
