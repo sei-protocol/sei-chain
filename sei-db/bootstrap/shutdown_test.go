@@ -82,7 +82,7 @@ func TestCloseARestoredHomeBeforeItCommitsABlock(t *testing.T) {
 
 	manager, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
+	require.Equal(t, int64(3), manager.StateDB().LiveStateDB().Version())
 
 	require.NoError(t, manager.Close())
 	requireRunningMarker(t, cfg, false)
@@ -111,7 +111,7 @@ func TestCloseARestoredHomeAfterItCommitsABlock(t *testing.T) {
 		appHashVault:      4,
 	}, heads)
 	reopened := startManager(t, cfg)
-	require.Equal(t, int64(4), reopened.StateDB().SC().Version())
+	require.Equal(t, int64(4), reopened.StateDB().LiveStateDB().Version())
 }
 
 // commitBlockWithoutReceipts feeds block height to every store but the receipt store.
