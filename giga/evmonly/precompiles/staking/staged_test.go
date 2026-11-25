@@ -433,6 +433,40 @@ func TestAValidatorKeptForAStagedDelegationIsRemovedWhenItIsDropped(t *testing.T
 	h.requireInvariants(bob)
 }
 
+// TestADroppedDelegationIsRefundedWhenItsValidatorCannotBeRemoved drops a
+// staged delegation as TestAValidatorKeptForAStagedDelegationIsRemovedWhenItIsDropped
+// does, with a hook that fails val3's removal.
+func TestADroppedDelegationIsRefundedWhenItsValidatorCannotBeRemoved(t *testing.T) {
+	params := testParams
+	params.MaxVotingPowerRatio = dec.Quo(dec.FromInt(big.NewInt(56)), dec.FromInt(big.NewInt(100)))
+	params.MaxVotingPowerEnforcementThreshold = big.NewInt(1)
+	h := newHarness(t, params)
+	errRemoval := errors.New("removal refused")
+	h.staking.Hooks = refusingRemoval{err: errRemoval}
+	require.NoError(t, h.stageUndelegate(val1, val1, sei(20)))
+	require.NoError(t, h.stageUndelegate(val3, val3, sei(10)))
+	require.NoError(t, h.stageDelegate(bob, val3, sei(40)))
+
+	err := h.inEffect(nil)
+	require.ErrorIs(t, err, errExceedMaxVotingPower, "the delegation is dropped")
+	require.ErrorIs(t, err, errRemoval, "and val3's removal is reported")
+	_, ok := h.store().validator(val3)
+	require.True(t, ok, "val3 is kept")
+	require.Zero(t, h.store().stagedInbound(val3), "nothing is staged to val3")
+	require.Equal(t, sei(40), h.state.GetBalance(bob), "bob's tokens come back")
+	h.requireInvariants(bob)
+}
+
+// refusingRemoval is Hooks that fail every validator's removal with err.
+type refusingRemoval struct {
+	NoHooks
+	err error
+}
+
+func (r refusingRemoval) AfterValidatorRemoved(precompiles.BlockContext, precompiles.State, common.Address) error {
+	return r.err
+}
+
 // TestEveryOperationStagedInAnEpochTakesEffectAtTheNextEpochsEnd stages more
 // delegations to val3 than an EndBlock budget would allow, with the voting power
 // ratio unenforced.

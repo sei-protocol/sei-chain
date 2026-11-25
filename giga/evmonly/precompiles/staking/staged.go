@@ -167,7 +167,7 @@ func (p Precompile) applyStaged(block precompiles.BlockContext, s store, params 
 		func(e common.Hash) error {
 			return p.applyStagedOperation(block, s, params, bondedPower, s.stagedOperationAt(e))
 		},
-		func(e common.Hash) error { return p.dropStaged(block, s, s.stagedOperationAt(e)) })
+		func(e common.Hash) error { return p.dropStaged(block, s, s.stagedOperationAt(e), failures) })
 }
 
 // applyStagedOperation takes op out of its delegations' staged totals, carries
@@ -246,10 +246,11 @@ func bondedPowerOf(s store, ops []common.Address) *big.Int {
 	return power
 }
 
-// dropStaged takes op out of its staged totals, returns a delegation's tokens to
-// its delegator, and removes the validator op would have moved stake to when
-// that leaves it vacant.
-func (p Precompile) dropStaged(block precompiles.BlockContext, s store, op stagedOperation) error {
+// dropStaged takes op out of its staged totals and returns a delegation's
+// tokens to its delegator, then removes the validator op would have moved stake
+// to when that leaves it vacant. A removal that fails is reported in failures
+// and keeps the validator, and the rest of the drop stands.
+func (p Precompile) dropStaged(block precompiles.BlockContext, s store, op stagedOperation, failures *[]error) error {
 	if err := uncountStaged(s, op); err != nil {
 		return err
 	}
@@ -262,9 +263,8 @@ func (p Precompile) dropStaged(block precompiles.BlockContext, s store, op stage
 	if !ok {
 		return nil
 	}
-	v, ok := s.validator(to)
-	if !ok {
-		return nil
-	}
-	return p.removeIfVacant(block, s, to, v)
+	// The entry leaves the queue whatever happens here, and nothing else would
+	// settle it, so a failed removal must not take the drop back.
+	p.removeIfVacantReporting(block, s, to, failures)
+	return nil
 }

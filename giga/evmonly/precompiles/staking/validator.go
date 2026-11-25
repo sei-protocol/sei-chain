@@ -211,6 +211,20 @@ func (p Precompile) removeIfVacant(block precompiles.BlockContext, s store, op c
 	return p.removeValidator(block, s, op, v)
 }
 
+// removeIfVacantReporting removes op's validator as removeIfVacant does,
+// reverting the removal and adding to failures why when it fails.
+func (p Precompile) removeIfVacantReporting(block precompiles.BlockContext, s store, op common.Address, failures *[]error) {
+	v, ok := s.validator(op)
+	if !ok {
+		return
+	}
+	snap := s.State.Snapshot()
+	if err := p.removeIfVacant(block, s, op, v); err != nil {
+		s.State.RevertToSnapshot(snap)
+		*failures = append(*failures, fmt.Errorf("%w: vacant validator %s kept: %w", precompiles.ErrDegraded, op, err))
+	}
+}
+
 // bond makes op's validator bonded, as x/staking's bondValidator does.
 func (p Precompile) bond(block precompiles.BlockContext, s store, op common.Address, v *validator) error {
 	if v.status != statusUnbonded && v.status != statusUnbonding {
