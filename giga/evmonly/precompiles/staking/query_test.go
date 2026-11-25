@@ -250,6 +250,7 @@ func TestStagedOperationsQuery(t *testing.T) {
 	require.NoError(t, h.stageDelegate(alice, val2, sei(2)))
 	require.NoError(t, h.stageDelegate(bob, val1, sei(1)))
 	require.NoError(t, h.stageUndelegate(alice, val1, sei(3)))
+	require.NoError(t, h.stageRedelegate(alice, val1, val3, sei(1)))
 	staged := func(delegator common.Address) []StagedOperation {
 		return queryAll[StagedOperation](h, StagedOperationsMethod, delegator)
 	}
@@ -257,9 +258,10 @@ func TestStagedOperationsQuery(t *testing.T) {
 		{Epoch: 1, Kind: stagedDelegate, Delegator: alice, Validator: val2, Amount: sei(2), Shares: unpackedZero},
 		{Epoch: 1, Kind: stagedDelegate, Delegator: bob, Validator: val1, Amount: sei(1), Shares: unpackedZero},
 		{Epoch: 1, Kind: stagedUndelegate, Delegator: alice, Validator: val1, Amount: sei(3), Shares: dec.FromInt(sei(3))},
+		{Epoch: 1, Kind: stagedRedelegate, Delegator: alice, Validator: val1, DstValidator: val3, Amount: sei(1), Shares: dec.FromInt(sei(1))},
 	}
 	require.Equal(t, want, staged(common.Address{}), "the zero address lists everyone's")
-	require.Equal(t, []StagedOperation{want[0], want[2]}, staged(alice))
+	require.Equal(t, []StagedOperation{want[0], want[2], want[3]}, staged(alice))
 	require.Equal(t, want[1:2], staged(bob))
 	require.Empty(t, staged(val1))
 	got, err := queryAs[Delegation](h, DelegationMethod, alice, val1)

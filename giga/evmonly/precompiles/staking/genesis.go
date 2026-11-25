@@ -98,7 +98,7 @@ func (p Precompile) AddGenesisValidator(block precompiles.BlockContext, state pr
 	if err := p.hooks().AfterValidatorCreated(block, state, g.Operator); err != nil {
 		return err
 	}
-	_, err := p.delegate(block, s, s.params(), s.lastTotalPower(), g.Operator, g.Operator, &v, g.SelfDelegation, g.Operator)
+	_, err := p.delegate(block, s, s.params(), s.lastTotalPower(), g.Operator, g.Operator, &v, g.SelfDelegation, statusUnbonded, g.Operator)
 	return err
 }
 

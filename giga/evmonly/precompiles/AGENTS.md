@@ -72,8 +72,8 @@ same result from the same block, so each rule below is a consensus rule.
   validator set, so a block's cost cannot grow with user input.
 - The one exception is work the calls that queue it pay for: staking's staged
   operations, which an epoch's end applies in full. Each call charges
-  `stagingGas` through `Context.Gas`, a price that rises with the operations
-  already staged that epoch, so the gas an epoch can spend bounds what its end does. A
+  `stagingGas` through `Context.Gas`, a price that rises with the work already
+  staged that epoch, so the gas an epoch can spend bounds what its end does. A
   new exception needs the same: a charge in `Run`, rising with what is queued,
   up to a ceiling that still fits a block.
 

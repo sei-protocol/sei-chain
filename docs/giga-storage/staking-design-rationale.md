@@ -100,8 +100,8 @@ on where the state is stored:
   starts at its own hashed slot, so the slots after it are free, and no
   reserved slots are needed.
 - **A mapping value that is not a struct** (`validatorOutstandingRewards`,
-  `delegatorWithdrawAddr`, `stagedInbound`) can become a struct whose first
-  field is the old value, which stays in the same slot.
+  `delegatorWithdrawAddr`, `redelegationEntryCounts`) can become a struct whose
+  first field is the old value, which stays in the same slot.
 - **A struct inside another** (`Description` and `Commission` in `Validator`)
   cannot grow without moving the fields after it. A new field goes at the end
   of the outer struct instead.
@@ -210,11 +210,10 @@ Staking:
 | `0x31` | delegations | `delegations` (+ set per delegator) |
 | `0x37` | delegations by validator | `delegationsByValidator` (set per validator) |
 | `0x32`, `0x33` | unbonding delegations and their index | `unbondingDelegations`; the index is not carried over |
-| `0x34`–`0x36` | redelegations and their indexes | not carried over (see *No redelegation*) |
-| `0x41`, `0x43` | unbonding and validator queues | two queues |
-| `0x42` | redelegation queue | not carried over |
-| none | delegates and undelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue`, `stagedDelegations` and `stagedInbound` (see *Staged operations*) |
-| none | the operations staged during the current epoch, which price the next call | `stagedThisEpoch` (see *Staged operations*) |
+| `0x34`–`0x36` | redelegations and their indexes | `redelegationEntryCounts` and `redelegationsByValDst`; entries live in the redelegation queue, and `0x35` is not carried over |
+| `0x41`–`0x43` | unbonding, redelegation, validator queues | three queues |
+| none | delegates, undelegates and redelegates waiting for their epoch's end | `currentEpoch`, `stagedQueue`, `stagedDelegations` and `stagedInbound` (see *Staged operations*) |
+| none | the work staged during the current epoch, which prices the next call | `stagedWork` (see *Staged operations*) |
 | none | the params staking applies | `params`, a copy of the params precompile's staking params (see *Staged operations*) |
 | `0x50` | historical info | not carried over (see below) |
 
@@ -265,9 +264,10 @@ load the chain:
 - Moving from 41st to 1st today needs more than the top validator's stake,
   about 183M SEI on top of the 17.6M already there. Even a one-place move needs
   at least the smallest gap, about 225k SEI.
-- Moving the stake back is rate-limited. There is no redelegation, and
-  undelegating locks funds for 21 days, so each tranche of capital gets one
-  move in and one move out per unbonding period.
+- Moving the stake back is rate-limited. Undelegating locks funds for 21 days.
+  A redelegation's destination cannot be redelegated out of until that entry
+  matures, and `maxEntries` caps open entries at 7 per pair. Each tranche of
+  capital gets roughly two large moves per unbonding period.
 - The capital is not lost; it stays staked and earns rewards. The limit on the
   attacker is the capital needed and the lock-ups, and the cost is the gas,
   which is no worse than a contract writing N slots.
@@ -319,8 +319,8 @@ that served a block, would take it from the app rather than from staking.
 
 ### Staged operations
 
-Staking treats an epoch as its unit: a delegate or undelegate called during
-epoch T takes effect at the end of epoch T+1, so delegations hold
+Staking treats an epoch as its unit: a delegate, undelegate or redelegate
+called during epoch T takes effect at the end of epoch T+1, so delegations hold
 still through every epoch and change only at its end. V2 applies each at once.
 
 A call checks the operation as V2 would at that block and queues it in
@@ -332,7 +332,7 @@ called, through the same code V2's messages run, then updates the bonded set,
 completes the validators whose unbonding period is over and adopts the params
 precompile's staking params. Nothing else changes a delegation, the validator
 set or the params staking applies: EndBlock on any other block only completes
-unbonding entries, which change none of them. So a validator
+unbonding and redelegation entries, which change none of them. So a validator
 finishes unbonding at the first epoch's end after its unbonding time, and a
 param change takes effect at the first epoch's end after the proposal passes,
 where V2 does both at once. Before staking has bonded a set, any EndBlock bonds
@@ -356,7 +356,8 @@ delegation, the validator set or the params staking applies, so the operations
 it applies meet the same state, under the same params, when they take effect,
 and one that will be dropped then is left out of it too. Validators finish
 unbonding after the operations due and before the projection for the same
-reason. `stagedInbound` counts, for each validator, the delegates staged to it, and a validator is not removed while that count is above zero,
+reason. `stagedInbound` counts, for each validator, the delegates and redelegates
+staged to it, and a validator is not removed while that count is above zero,
 even once it is unbonded with no shares, so an operation finds its validator as
 the projection did.
 
@@ -373,29 +374,33 @@ Genesis writes both.
 
 Every operation staged during an epoch takes effect at the end of the next,
 however many there are, and the projection counts every one, so neither runs
-under EndBlock's budget. The calls pay for that work instead.
-`stagedThisEpoch` counts the operations staged during the current epoch. The
-first 10,000 cost nothing extra. Past them each charges 100,000 gas through the
-call's gas meter, doubling every 2,000 operations up to a quarter of the block's
-gas limit, so no operation needs more than a quarter of a block. From there the
-gas an epoch can spend bounds its work: with a base fee that rises once blocks
-use more than half their gas limit, about two operations fit a block before
-block space gets dearer, so an epoch of 108,000 blocks stages about 240,000
-operations at most for the price of every block's target gas. An epoch's end
-applies one epoch's operations and projects the next's, so it does at most
-twice that.
+under EndBlock's budget. The calls pay for that work instead. `stagedWork`
+counts the work staged during the current epoch, one unit per delegation an
+operation changes, so a redelegation is two. The first 10,000 units an epoch
+stages cost nothing extra. Past them each unit charges 100,000 gas through the
+call's gas meter, doubling every 2,000 units up to a quarter of the block's gas
+limit, so no operation needs more than half a block. From there the gas an
+epoch can spend bounds its work: with a base fee that rises once blocks use more
+than half their gas limit, about two units fit a block before block space gets
+dearer, so an epoch of 108,000 blocks stages about 240,000 units at most for
+the price of every block's target gas. An epoch's end applies one epoch's
+operations and projects the next's, so it does at most twice that.
 
 The tokens a delegate sends wait in `StagedEscrow`, apart from any validator's,
 and count toward no power until the delegation takes effect. Stake an
-undelegate takes stays with its validator, and keeps counting, until then; the
-unbonding period begins only when it takes effect.
+undelegate or redelegate takes stays with its validator, and keeps counting,
+until then; the unbonding or redelegation period begins only when it takes
+effect.
 
 Because the operations a delegation has staged have not changed it yet, a call
 has to count them to be checked as V2 checks it: `stagedDelegations` holds, for
-each delegation, the shares staged to leave it and how many undelegations are
-staged, in two slots that are zero again once everything staged has taken
-effect. A call may not stage away shares already staged away, and its
-undelegations count toward `maxEntries`.
+each delegation, the shares staged to leave it and how many undelegations,
+redelegations out and redelegations in are staged, in two slots that are zero
+again once everything staged has taken effect. A call may not stage away shares
+already staged away, its undelegations count toward `maxEntries`, a staged
+redelegation into a validator blocks one out of it as a redelegation in progress
+does, and redelegations staged out of a validator count toward `maxEntries` for
+every destination, since they are not counted per destination.
 
 What can still change between the call and its epoch's end is what other
 operations, and the validators finishing unbonding before them, do, and the
@@ -404,8 +409,8 @@ the epoch it is called in can adopt new ones. A delegation can reach the max
 voting power ratio once others ahead of it take effect, as it is checked against
 the bonded set's power as they leave it, not as last stored, or once the ratio
 is lowered. An operation that then fails is dropped and reported: a
-delegation's tokens go back to its delegator, an undelegation's stake stays
-where it is, and a validator kept only for
+delegation's tokens go back to its delegator, the stake an undelegation or
+redelegation would have moved stays where it is, and a validator kept only for
 the stake it would have moved is removed.
 
 The other queries show a delegation as it stands, so `stagedOperations` pages
@@ -438,14 +443,15 @@ V2's other walks have no on-chain reader in giga:
 | V2 walk | Read by |
 |---|---|
 | `0x33`, unbonding delegations by validator | slashing unbonding entries |
-| unbonding delegations by delegator | queries |
+| `0x35`, redelegations by source validator | slashing redelegation entries |
+| unbonding delegations and redelegations by delegator | queries |
 | slashing `0x01`, signing infos | queries; liveness reads each voter's by key |
 
 Queries would be served by an off-chain indexer reading the precompile's logs.
-Slashing unbonding entries is deferred (see *Not yet covered*). Unbonding
-entries keep their creation height and amounts, so turning it on needs only a
-way to find a validator's entries: the walk back, or a check made as each entry
-matures.
+Slashing unbonding and redelegation entries is deferred (see *Not yet covered*).
+Both kinds of entry keep their creation height and amounts, so turning it on
+needs only a way to find a validator's entries: these walks back, or a check
+made as each entry matures.
 
 Ordered flatkv keys, V2's approach on IAVL, are the alternative for the walks
 that remain and for the power index. They would give back ordered and prefix
@@ -456,19 +462,32 @@ iteration to the precompiles, as part of committed state.
 
 #### Smaller changes
 
-**No redelegation.** Giga has no `MsgBeginRedelegate`: stake moves between
-validators by an undelegate and, once it is paid, a delegate. V2's redelegation
-records (`0x34`–`0x36` and the `0x42` queue) hold back chained redelegations,
-count toward `maxEntries` and let redelegated stake be slashed; without the
-message only the slashing would remain, and it is deferred, so none is carried
-over. V2's `redelegate` selector reverts, naming the calls to use instead.
+**"Does any key exist under this prefix" becomes a counter.** V2 refuses to
+chain redelegations by checking whether any key exists under
+`0x36 ‖ dst ‖ delegator`. The draft counts open entries in
+`redelegationsByValDst` instead.
+
+**Redelegation entries live in the queue.** On chain, V2 reads a redelegation
+entry's fields only to slash it. Completing one moves no funds, since the stake
+moved when the redelegation began. The draft keeps each entry's fields in its
+`redelegationQueue` entry, and counts open entries per delegator, source and
+destination in `redelegationEntryCounts` for `maxEntries`. A matured entry pops
+off the queue and decrements that count and `redelegationsByValDst`.
 
 **Time-ordered queues become first-in, first-out lists.** V2 keys its maturity
 queues by completion time and walks them up to the current time. The draft
 makes each queue an array read from its head, with each new entry's completion
-time clamped to be no earlier than the entry before it. So after governance
-shortens `unbondingTime`, every new entry waits behind older ones rather than
-overtaking them.
+time clamped to be no earlier than the entry before it. Two kinds of entry are
+clamped:
+
+- A redelegation from an unbonding validator. V2 completes it when that
+  validator finishes unbonding. The clamp moves it to the completion time of the
+  entry queued before it, up to one unbonding period from now. The stake moves
+  when the redelegation takes effect either way, so the entry only holds the
+  delegator to the chaining rule and `maxEntries` for longer, by at most the
+  time since the source began unbonding.
+- Every new entry after governance shortens `unbondingTime`, which waits behind
+  older ones rather than overtaking them.
 
 A validator that re-bonds before its unbonding finishes would leave a stale
 queue entry, which EndBlock skips. Ordered flatkv keys would avoid the clamp.
@@ -511,7 +530,8 @@ counted on both sides.
 One way to handle this without giving staking a history is to freeze the inputs
 while gov counts:
 
-- staking refuses delegate and undelegate while a tally is being counted, with a revert naming the tally;
+- staking refuses delegate, undelegate and redelegate while a tally is being
+  counted, with a revert naming the tally;
 - gov stores the bonded validator set (at most `maxValidators` records) when
   counting starts, since jailing can change the set without any delegation
   write.
@@ -542,10 +562,10 @@ A possible sequence:
    EndBlock copies V2 records in V2 key order, a budgeted number per block, and
    saves its position in `migrationCursor`. Delegations first, each with its F1
    starting info, the historical rewards entry it references, and the
-   delegator's withdraw address; then unbonding entries and the unbonding
-   queue. V2's redelegation entries are not copied (see *No redelegation*). A
-   record that cannot be copied goes into `migrationFailures` and is skipped, so
-   one bad record does not stall the sweep.
+   delegator's withdraw address; then unbonding entries, redelegation entries
+   and the two remaining queues. A record that cannot be copied goes into
+   `migrationFailures` and is skipped, so one bad record does not stall the
+   sweep.
 3. **Finish.** When the cursor passes the last V2 key, `migrating` clears, V2
    state is no longer read, and the giga precompiles turn on.
 
@@ -554,8 +574,8 @@ was backfilled with a cursor key and a ready marker.
 
 **How long it might take.** Roughly V2 keys × writes per key ÷ the per-block
 budget. V2 holds about three or four keys per delegation, and each takes at
-most three or four slot writes; the keys giga does not carry over (`0x33` to
-`0x36`) take none. At a million delegations and 10,000 keys per
+most three or four slot writes; the index keys giga does not carry over
+(`0x33`, `0x35`) take none. At a million delegations and 10,000 keys per
 block, that is about 1,500 blocks, or ten minutes at 400 ms blocks; at 100,000
 delegations, about a minute. The real delegation count is not known yet.
 
@@ -569,7 +589,7 @@ then, that store may serve as the source.
 **What still runs during the migration.** Turning the precompiles off stops
 user writes, but some work is driven by the chain itself:
 
-- Unbonding maturity could pause, with entries that come due
+- Unbonding and redelegation maturity could pause, with entries that come due
   paid on the first block after the migration.
 - Gov could defer any tally that would start during the migration.
 - Whether the validator set can change during the window (jailing for downtime,
@@ -705,7 +725,7 @@ Known gaps that need an owner or a decision.
 - **Signing state at cutover.** Whether missed-block windows, jail times and
   tombstones copy as they are, or liveness windows restart, is undecided.
 - **Slashing stake.** Both slash fractions are zero on pacific-1. The proposal
-  pins them at zero and defers slashing unbonding entries.
+  pins them at zero and defers slashing unbonding and redelegation entries.
 - **Existing callers of the V2 precompiles.** Contracts calling the V2
   selectors would get a revert naming the method to use instead.
 - **Events.** Indexers and explorers would move from Cosmos events to EVM logs.
@@ -721,8 +741,9 @@ Known gaps that need an owner or a decision.
 2. Prefix walks: does `validatorSet` stay? And do the remaining sets and the
    power index stay in slots, or move to ordered flatkv keys?
 3. Reward and pool amounts: whole wei, or 1e18-scaled wei?
-4. Is the clamped queue behaviour acceptable: new entries waiting behind older
-   ones after a shortened `unbondingTime`?
+4. Is the clamped queue behaviour acceptable: a redelegation from an unbonding
+   validator held to the chaining rule for longer, and new entries waiting
+   behind older ones after a shortened `unbondingTime`?
 5. Do the gov changes (counting lock and stored bonded set) land in the gov PR
    stack or with the staking work, and is a tally lock of a couple of minutes
    acceptable for very large proposals?

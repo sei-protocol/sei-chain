@@ -67,12 +67,18 @@ func TestStagingCountsWhatIsAlreadyStaged(t *testing.T) {
 	require.ErrorIs(t, h.stageUndelegate(alice, val1, sei(5)), errInvalidShares, "staged shares are spoken for")
 	require.NoError(t, h.stageUndelegate(alice, val1, sei(1)))
 	require.ErrorIs(t, h.stageUndelegate(alice, val1, sei(1)), errMaxUnbondingEntries, "staged undelegations count toward maxEntries")
+	require.NoError(t, h.stageRedelegate(alice, val1, val2, sei(1)))
+	require.ErrorIs(t, h.stageRedelegate(alice, val2, val3, sei(1)), errTransitiveRedelegation, "a staged redelegation into val2 blocks one out of it")
+	require.NoError(t, h.stageRedelegate(alice, val1, val3, sei(1)))
+	require.ErrorIs(t, h.stageRedelegate(alice, val1, val3, sei(1)), errMaxRedelegationEntries, "staged redelegations out of val1 count toward every destination's maxEntries")
 	h.requireInvariants(alice)
 
 	h.endEpoch(0)
 	h.endEpoch(1)
 	require.Empty(t, h.failures, "what staging allowed takes effect")
-	require.Equal(t, dec.FromInt(sei(3)), h.shares(alice, val1))
+	require.Equal(t, dec.FromInt(sei(1)), h.shares(alice, val1))
+	require.Equal(t, dec.FromInt(sei(3)), h.shares(alice, val2))
+	require.Equal(t, dec.FromInt(sei(1)), h.shares(alice, val3))
 	require.Len(t, must(h.store().unbondingEntries(alice, val1)), 2)
 	h.requireInvariants(alice)
 }
@@ -246,19 +252,22 @@ func TestAStagedDelegationTakesEffectUnderTheParamsItsProjectionUsed(t *testing.
 }
 
 // TestAValidatorStakeIsStagedToIsKept has val3, unbonded, undelegate its last
-// shares ahead of a delegation staged to it.
+// shares ahead of a redelegation and a delegation staged to it.
 func TestAValidatorStakeIsStagedToIsKept(t *testing.T) {
 	h := newHarness(t, testParams)
+	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	require.NoError(t, h.stageUndelegate(val3, val3, sei(10)))
+	require.NoError(t, h.stageRedelegate(alice, val1, val3, sei(2)))
 	require.NoError(t, h.stageDelegate(bob, val3, sei(1)))
-	h.requireInvariants(bob)
+	h.requireInvariants(alice, bob)
 
 	h.endEpoch(0)
 	h.endEpoch(1)
 	require.Empty(t, h.failures)
 	require.Equal(t, statusUnbonded, h.validator(val3).status, "val3 is kept for the stake staged to it")
+	require.Equal(t, dec.FromInt(sei(2)), h.shares(alice, val3))
 	require.Equal(t, dec.FromInt(sei(1)), h.shares(bob, val3))
-	h.requireInvariants(bob)
+	h.requireInvariants(alice, bob)
 }
 
 // TestAStagedDelegationKeepsItsValidatorPastItsUnbonding stages a delegation to
@@ -369,59 +378,70 @@ func TestEveryOperationStagedInAnEpochTakesEffectAtTheNextEpochsEnd(t *testing.T
 	require.Equal(t, power, h.lastValidators()[0].power)
 }
 
-func TestStagingIsFreeUntilAnEpochHasStagedItsFreeOperations(t *testing.T) {
+func TestStagingIsFreeUntilAnEpochHasStagedItsFreeWork(t *testing.T) {
 	h := newHarness(t, testParams)
 	s := h.store()
-	s.setStagedThisEpoch(stagedFree - 1)
+	s.setStagedWork(stagedFreeWork - 1)
 	require.NoError(t, h.stageDelegate(alice, val1, sei(1)))
-	require.Zero(t, h.surcharge, "the last free operation")
+	require.Zero(t, h.surcharge, "the last free unit")
 	require.NoError(t, h.stageDelegate(bob, val1, sei(1)))
 	require.Equal(t, uint64(stagedSurchargeBase), h.surcharge)
-	require.Equal(t, uint64(stagedFree+1), s.stagedThisEpoch())
+	require.Equal(t, uint64(stagedFreeWork+1), s.stagedWork())
 }
 
-func TestAnUndelegationIsChargedAsADelegationIs(t *testing.T) {
+func TestAnUndelegationIsOneUnitOfWork(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	s := h.store()
-	s.setStagedThisEpoch(stagedFree + stagedSurchargeDoubling - 1)
+	s.setStagedWork(stagedFreeWork + stagedSurchargeDoubling - 1)
 	require.NoError(t, h.stageUndelegate(alice, val1, sei(1)))
-	require.Equal(t, uint64(stagedSurchargeBase), h.surcharge, "the last operation before the price doubles")
+	require.Equal(t, uint64(stagedSurchargeBase), h.surcharge, "the last unit before the price doubles")
 	require.NoError(t, h.stageDelegate(bob, val1, sei(1)))
 	require.Equal(t, uint64(2*stagedSurchargeBase), h.surcharge)
-	require.Equal(t, uint64(stagedFree+stagedSurchargeDoubling+1), s.stagedThisEpoch())
+	require.Equal(t, uint64(stagedFreeWork+stagedSurchargeDoubling+1), s.stagedWork())
+}
+
+func TestAStagedRedelegationIsTwoUnitsOfWork(t *testing.T) {
+	h := newHarness(t, testParams)
+	require.NoError(t, h.delegate(alice, val1, sei(5)))
+	s := h.store()
+	s.setStagedWork(stagedFreeWork + stagedSurchargeDoubling - 1)
+	require.NoError(t, h.stageRedelegate(alice, val1, val2, sei(1)))
+	require.Equal(t, uint64(3*stagedSurchargeBase), h.surcharge, "one unit before the price doubles and one after")
+	require.Equal(t, uint64(stagedFreeWork+stagedSurchargeDoubling+1), s.stagedWork())
 }
 
 func TestStagingGasDoublesUpToAQuarterOfTheBlock(t *testing.T) {
-	require.Zero(t, stagingGas(0, testGasLimit))
-	require.Zero(t, stagingGas(stagedFree-1, testGasLimit))
-	require.Equal(t, uint64(stagedSurchargeBase), stagingGas(stagedFree, testGasLimit))
-	require.Equal(t, uint64(stagedSurchargeBase), stagingGas(stagedFree+stagedSurchargeDoubling-1, testGasLimit))
-	require.Equal(t, uint64(2*stagedSurchargeBase), stagingGas(stagedFree+stagedSurchargeDoubling, testGasLimit))
-	require.Equal(t, uint64(128*stagedSurchargeBase), stagingGas(stagedFree+7*stagedSurchargeDoubling, testGasLimit))
-	require.Equal(t, uint64(testGasLimit/4), stagingGas(stagedFree+8*stagedSurchargeDoubling, testGasLimit),
+	require.Zero(t, stagingGas(0, 1, testGasLimit))
+	require.Zero(t, stagingGas(stagedFreeWork-1, 1, testGasLimit))
+	require.Equal(t, uint64(stagedSurchargeBase), stagingGas(stagedFreeWork, 1, testGasLimit))
+	require.Equal(t, uint64(stagedSurchargeBase), stagingGas(stagedFreeWork+stagedSurchargeDoubling-1, 1, testGasLimit))
+	require.Equal(t, uint64(2*stagedSurchargeBase), stagingGas(stagedFreeWork+stagedSurchargeDoubling, 1, testGasLimit))
+	require.Equal(t, uint64(128*stagedSurchargeBase), stagingGas(stagedFreeWork+7*stagedSurchargeDoubling, 1, testGasLimit))
+	require.Equal(t, uint64(testGasLimit/4), stagingGas(stagedFreeWork+8*stagedSurchargeDoubling, 1, testGasLimit),
 		"256 times the base is past a quarter of the block")
-	require.Equal(t, uint64(testGasLimit/4), stagingGas(math.MaxUint64, testGasLimit))
+	require.Equal(t, uint64(testGasLimit/4), stagingGas(math.MaxUint64-1, 1, testGasLimit))
+	require.Equal(t, uint64(testGasLimit/2), stagingGas(math.MaxUint64-2, 2, testGasLimit))
 }
 
-func TestTheStagedCountStartsAfreshEachEpoch(t *testing.T) {
+func TestTheStagedWorkCountStartsAfreshEachEpoch(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.stageDelegate(alice, val1, sei(1)))
 	require.NoError(t, h.stageDelegate(bob, val1, sei(1)))
-	require.Equal(t, uint64(2), h.store().stagedThisEpoch())
+	require.Equal(t, uint64(2), h.store().stagedWork())
 	h.endCurrentEpoch()
-	require.Zero(t, h.store().stagedThisEpoch(), "what was staged before takes effect at the end of this epoch, not the next")
+	require.Zero(t, h.store().stagedWork(), "what was staged before takes effect at the end of this epoch, not the next")
 }
 
 func TestACallThatCannotPayForItsStagingStagesNothing(t *testing.T) {
 	h := newHarness(t, testParams)
 	s := h.store()
-	s.setStagedThisEpoch(stagedFree)
+	s.setStagedWork(stagedFreeWork)
 	h.callGas = stagedSurchargeBase - 1
 	require.ErrorIs(t, h.stageDelegate(alice, val1, sei(1)), vm.ErrOutOfGas)
 	q := s.stagedQueue()
 	require.Equal(t, q.head(), q.tail())
-	require.Equal(t, uint64(stagedFree), s.stagedThisEpoch())
+	require.Equal(t, uint64(stagedFreeWork), s.stagedWork())
 	require.Equal(t, sei(1), h.state.GetBalance(alice), "the value stays with alice")
 }
 

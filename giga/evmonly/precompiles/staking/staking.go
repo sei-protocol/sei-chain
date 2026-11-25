@@ -3,20 +3,20 @@
 // storage at Address. It applies its own copy of the params precompile's
 // staking subspace.
 //
-// It serves delegate and undelegate, and queries of validators, delegations,
-// unbonding delegations, staged operations, the pool and its params. A delegate
-// or undelegate is staged when called and takes effect at the end of the epoch
-// after the one it is called in. Delegations, the validator set and the params
-// staking applies change only at an epoch's end, where EndBlock applies the
-// staged operations due, updates the bonded set, completes matured validators,
-// adopts the params precompile's staking params and snapshots the bonded set;
-// every EndBlock completes matured unbondings. Unlike x/staking, it has no
-// redelegation; it never jails a validator, so an operator may hold less than
-// its minimum self-delegation; a validator finishes unbonding at the first
-// epoch's end after its unbonding time; a param change takes effect at the
-// first epoch's end after it is made; its queues are first-in first-out, so an
-// entry never completes before one queued ahead of it; and it does not slash
-// unbonding entries.
+// It serves delegate, redelegate and undelegate, and queries of validators,
+// delegations, unbonding delegations, staged operations, the pool and its
+// params. A delegate, redelegate or undelegate is staged when called and takes
+// effect at the end of the epoch after the one it is called in. Delegations,
+// the validator set and the params staking applies change only at an epoch's
+// end, where EndBlock applies the staged operations due, updates the bonded
+// set, completes matured validators, adopts the params precompile's staking
+// params and snapshots the bonded set; every EndBlock completes matured
+// unbondings and redelegations. Unlike x/staking, it never jails a validator,
+// so an operator may hold less than its minimum self-delegation; a validator
+// finishes unbonding at the first epoch's end after its unbonding time; a
+// param change takes effect at the first epoch's end after it is made; its
+// queues are first-in first-out, so an entry never completes before one queued
+// ahead of it; and it does not slash unbonding or redelegation entries.
 package staking
 
 import (
@@ -50,6 +50,7 @@ var (
 	// Each is found by signature: ABI suffixes every overload of a name but the
 	// first solc lists, and solc, not this package, picks that order.
 	DelegateMethod             = methodNamed("delegate(address)")
+	RedelegateMethod           = methodNamed("redelegate(address,address,uint256)")
 	UndelegateMethod           = methodNamed("undelegate(address,uint256)")
 	DelegationMethod           = methodNamed("delegation(address,address)")
 	ValidatorMethod            = methodNamed("validator(address)")
@@ -77,6 +78,7 @@ func methodNamed(sig string) string {
 // Events.
 const (
 	DelegateEvent   = "Delegate"
+	RedelegateEvent = "Redelegate"
 	UndelegateEvent = "Undelegate"
 )
 
@@ -87,7 +89,7 @@ const authzUnsupported = "staking authorizations are not supported"
 // before dispatch.
 var retiredMethods = map[string]string{
 	"delegate(string)":                                           "delegate(string) is not supported; use delegate(address) with the validator's operator address",
-	"redelegate(string,string,uint256)":                          "redelegation is not supported; use undelegate(address,uint256), then delegate(address) once the tokens are paid",
+	"redelegate(string,string,uint256)":                          "redelegate(string,string,uint256) is not supported; use redelegate(address,address,uint256) with the validators' operator addresses and an amount in wei",
 	"undelegate(string,uint256)":                                 "undelegate(string,uint256) is not supported; use undelegate(address,uint256) with the validator's operator address and an amount in wei",
 	"grantStakingAuthorization(address,string[],uint256,int64)":  authzUnsupported,
 	"delegateWithAuthorization(address,string)":                  authzUnsupported,
@@ -210,7 +212,8 @@ func (p Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) 
 	switch method.Name {
 	case DelegateMethod:
 		return p.delegateCall(ctx, s, method, args)
-
+	case RedelegateMethod:
+		return p.redelegateCall(ctx, s, method, args)
 	case UndelegateMethod:
 		return p.undelegateCall(ctx, s, method, args)
 	}
@@ -231,8 +234,8 @@ func methodOf(input []byte) (*abi.Method, error) {
 // argChecks range-check each method's arguments, and delegate's value, before
 // it reads state. A failure reverts the call with the error's message.
 var argChecks = map[string]func(ctx *precompiles.Context, args []interface{}) error{
-	DelegateMethod: func(ctx *precompiles.Context, _ []interface{}) error { return checkAmount(ctx.ApparentValue) },
-
+	DelegateMethod:   func(ctx *precompiles.Context, _ []interface{}) error { return checkAmount(ctx.ApparentValue) },
+	RedelegateMethod: func(_ *precompiles.Context, args []interface{}) error { return checkAmount(args[2].(*big.Int)) },
 	UndelegateMethod: func(_ *precompiles.Context, args []interface{}) error { return checkAmount(args[1].(*big.Int)) },
 	ValidatorsMethod: func(_ *precompiles.Context, args []interface{}) error {
 		if err := checkStatusFilter(args[0].(uint8)); err != nil {

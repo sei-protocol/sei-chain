@@ -61,8 +61,12 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"delegationsByDelegator":      slotDelegationsByDelegator,
 		"delegationsByValidator":      slotDelegationsByValidator,
 		"unbondingDelegations":        slotUnbondingDelegations,
+		"redelegationEntryCounts":     slotRedelegationEntryCounts,
+		"redelegationsByValDst":       slotRedelegationsByValDst,
 		"unbondingQueueBounds":        slotUnbondingQueueBounds,
 		"unbondingQueue":              slotUnbondingQueue,
+		"redelegationQueueBounds":     slotRedelegationQueueBounds,
+		"redelegationQueue":           slotRedelegationQueue,
 		"validatorQueueBounds":        slotValidatorQueueBounds,
 		"validatorQueue":              slotValidatorQueue,
 		"currentEpoch":                slotCurrentEpoch,
@@ -70,11 +74,11 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"stagedQueue":                 slotStagedQueue,
 		"stagedDelegations":           slotStagedDelegations,
 		"stagedInbound":               slotStagedInbound,
-		"stagedThisEpoch":             slotStagedThisEpoch,
+		"stagedWork":                  slotStagedWork,
 		"params":                      slotParams,
-		"migrating":                   25,
-		"migrationCursor":             26,
-		"migrationFailures":           27,
+		"migrating":                   29,
+		"migrationCursor":             30,
+		"migrationFailures":           31,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and
@@ -132,6 +136,15 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"delegator":      unbondingQueueDelegator,
 			"validator":      unbondingQueueValidator,
 		}, unbondingQueueEntrySlots},
+		"struct StakingStorage.RedelegationQueueEntry": {map[string]member{
+			"completionTime": queueCompletionTime,
+			"delegator":      redelegationQueueDelegator,
+			"creationHeight": redelegationQueueCreationHeight,
+			"srcValidator":   redelegationQueueSrcValidator,
+			"dstValidator":   redelegationQueueDstValidator,
+			"initialBalance": redelegationQueueInitialBalance,
+			"sharesDst":      redelegationQueueSharesDst,
+		}, redelegationQueueEntrySlots},
 		"struct StakingStorage.ValidatorQueueEntry": {map[string]member{
 			"completionTime":  queueCompletionTime,
 			"unbondingHeight": validatorQueueUnbondingHeight,
@@ -142,15 +155,18 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"tail": queueTail,
 		}, 1},
 		"struct StakingStorage.StagedOperation": {map[string]member{
-			"epoch":     queueCompletionTime,
-			"kind":      stagedOperationKind,
-			"delegator": stagedOperationDelegator,
-			"validator": stagedOperationValidator,
-			"amount":    stagedOperationAmount,
+			"epoch":        queueCompletionTime,
+			"kind":         stagedOperationKind,
+			"delegator":    stagedOperationDelegator,
+			"validator":    stagedOperationValidator,
+			"dstValidator": stagedOperationDstValidator,
+			"amount":       stagedOperationAmount,
 		}, stagedQueueEntrySlots},
 		"struct StakingStorage.StagedDelegation": {map[string]member{
-			"sharesOut":     stagedSharesOut,
-			"undelegations": stagedUndelegations,
+			"sharesOut":        stagedSharesOut,
+			"undelegations":    stagedUndelegations,
+			"redelegationsOut": stagedRedelegationsOut,
+			"redelegationsIn":  stagedRedelegationsIn,
 		}, stagedDelegationSlots},
 		"struct StakingStorage.Params": {map[string]member{
 			"unbondingTime":                      paramsUnbondingTime,
@@ -256,6 +272,8 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		{creationHeight: 51, completionTime: 52, initialBalance: big.NewInt(53), balance: big.NewInt(54)},
 		{creationHeight: 55, completionTime: 56, initialBalance: big.NewInt(57), balance: big.NewInt(58)},
 	}, must(s.unbondingEntries(delegator, op)))
+	require.Equal(t, big.NewInt(2), s.redelegationEntryCount(delegator, op, other))
+	require.Equal(t, big.NewInt(3), s.receivingRedelegations(other, delegator))
 
 	q := s.unbondingQueue()
 	require.Equal(t, uint64(1), q.head())
@@ -267,6 +285,15 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.Equal(t, op, gotOp)
 	_, due = q.due(60)
 	require.False(t, due)
+
+	e, due = s.redelegationQueue().due(71)
+	require.True(t, due)
+	require.Equal(t, delegator, s.AddressAt(at(e, redelegationQueueDelegator), redelegationQueueDelegator.offset))
+	require.Equal(t, uint64(72), s.Uint64(at(e, redelegationQueueCreationHeight), redelegationQueueCreationHeight.offset))
+	require.Equal(t, op, s.AddressAt(at(e, redelegationQueueSrcValidator), redelegationQueueSrcValidator.offset))
+	require.Equal(t, other, s.AddressAt(at(e, redelegationQueueDstValidator), redelegationQueueDstValidator.offset))
+	require.Equal(t, big.NewInt(73), s.Uint256(at(e, redelegationQueueInitialBalance)))
+	require.Equal(t, big.NewInt(74), s.Uint256(at(e, redelegationQueueSharesDst)))
 
 	vq := s.validatorQueue()
 	require.Equal(t, uint64(4), vq.head())
@@ -282,9 +309,10 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.False(t, due)
 	e, due = sq.due(10)
 	require.True(t, due)
-	require.Equal(t, stagedOperation{epoch: 10, kind: stagedUndelegate, delegator: delegator, validator: op, amount: big.NewInt(91)},
+	require.Equal(t, stagedOperation{epoch: 10, kind: stagedRedelegate, delegator: delegator, validator: op, dstValidator: other, amount: big.NewInt(91)},
 		s.stagedOperationAt(e))
-	require.Equal(t, stagedDelegation{sharesOut: big.NewInt(92), undelegations: 93}, s.stagedDelegation(delegator, op))
+	require.Equal(t, stagedDelegation{sharesOut: big.NewInt(92), undelegations: 93, redelegationsOut: 94, redelegationsIn: 95},
+		s.stagedDelegation(delegator, op))
 	require.Equal(t, uint64(96), s.stagedInbound(other))
 }
 

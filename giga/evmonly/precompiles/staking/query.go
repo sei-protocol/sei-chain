@@ -172,16 +172,17 @@ func stagedOperationsQuery(s store, method *abi.Method, args []interface{}) ([]b
 }
 
 // stagedOperationData returns op with the tokens it stages: a delegation's
-// amount, or what an undelegation's shares are worth at its validator's current
-// exchange rate.
+// amount, or what an undelegation's or redelegation's shares are worth at its
+// source validator's current exchange rate.
 func stagedOperationData(s store, op stagedOperation) (StagedOperation, error) {
 	out := StagedOperation{
-		Epoch:     op.epoch,
-		Kind:      op.kind,
-		Delegator: op.delegator,
-		Validator: op.validator,
-		Amount:    op.amount,
-		Shares:    new(big.Int),
+		Epoch:        op.epoch,
+		Kind:         op.kind,
+		Delegator:    op.delegator,
+		Validator:    op.validator,
+		DstValidator: op.dstValidator,
+		Amount:       op.amount,
+		Shares:       new(big.Int),
 	}
 	if op.kind == stagedDelegate {
 		return out, nil
