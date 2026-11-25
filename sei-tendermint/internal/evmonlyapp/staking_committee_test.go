@@ -55,14 +55,16 @@ func (corruptEpochSnapshot) EndBlock(_ precompiles.BlockContext, state precompil
 	return nil, nil
 }
 
-// closingEpochRecorder is staking, with each EndBlock only recording the epoch
-// its block closes.
-type closingEpochRecorder struct {
+// epochRecorder is staking, with each EndBlock only recording the epoch its
+// block is in and the epoch it closes.
+type epochRecorder struct {
 	staking.Precompile
+	epochs *[]utils.Option[uint64]
 	closed *[]utils.Option[uint64]
 }
 
-func (r closingEpochRecorder) EndBlock(block precompiles.BlockContext, _ precompiles.State) ([]error, error) {
+func (r epochRecorder) EndBlock(block precompiles.BlockContext, _ precompiles.State) ([]error, error) {
+	*r.epochs = append(*r.epochs, block.Epoch)
 	*r.closed = append(*r.closed, block.ClosingEpoch)
 	return nil, nil
 }
@@ -129,12 +131,13 @@ func testGenesisValidator(operator common.Address, key ed25519.PublicKey, self i
 	}
 }
 
-func TestEVMOnlyApplicationTellsEndBlockersWhichEpochABlockCloses(t *testing.T) {
-	var closed []utils.Option[uint64]
-	app := newStakingEVMOnlyTestApp(t, nil, utils.Some[precompiles.Contract](closingEpochRecorder{closed: &closed}))
+func TestEVMOnlyApplicationTellsEndBlockersWhichEpochABlockIsInAndCloses(t *testing.T) {
+	var epochs, closed []utils.Option[uint64]
+	app := newStakingEVMOnlyTestApp(t, nil, utils.Some[precompiles.Contract](epochRecorder{epochs: &epochs, closed: &closed}))
 	runEVMOnlyTestBlocks(t, app, 1, 7)
-	none := utils.None[uint64]()
-	require.Equal(t, []utils.Option[uint64]{none, none, utils.Some[uint64](0), none, none, utils.Some[uint64](1), none}, closed)
+	none, epoch := utils.None[uint64](), utils.Some[uint64]
+	require.Equal(t, []utils.Option[uint64]{epoch(0), epoch(0), epoch(0), epoch(1), epoch(1), epoch(1), epoch(2)}, epochs)
+	require.Equal(t, []utils.Option[uint64]{none, none, epoch(0), none, none, epoch(1), none}, closed)
 }
 
 func TestEVMOnlyApplicationCommitsEachDerivedEpochToStakingsSnapshot(t *testing.T) {

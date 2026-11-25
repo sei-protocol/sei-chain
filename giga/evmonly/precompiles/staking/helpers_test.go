@@ -149,6 +149,8 @@ type harness struct {
 	callGas uint64
 	// surcharge is the gas the last call paid through its context's meter.
 	surcharge uint64
+	// epoch is the consensus epoch the current block is in.
+	epoch uint64
 	// failures are the last EndBlock's failures.
 	failures []error
 }
@@ -193,7 +195,7 @@ func newGenesisHarness(t *testing.T, params chainparams.Staking) *harness {
 }
 
 func (h *harness) block() precompiles.BlockContext {
-	return precompiles.BlockContext{Number: h.number, UnixNano: h.time, GasLimit: testGasLimit}
+	return precompiles.BlockContext{Number: h.number, UnixNano: h.time, GasLimit: testGasLimit, Epoch: utils.Some(h.epoch)}
 }
 
 // endBlock runs EndBlock at the current block, which closes no epoch, then
@@ -202,11 +204,14 @@ func (h *harness) endBlock() {
 	h.endBlockWith(h.block())
 }
 
-// endEpoch ends the current block as the last block of epoch.
+// endEpoch ends the current block as the last block of epoch, and starts the
+// next block in the epoch after it.
 func (h *harness) endEpoch(epoch uint64) {
+	h.epoch = epoch
 	block := h.block()
 	block.ClosingEpoch = utils.Some(epoch)
 	h.endBlockWith(block)
+	h.epoch = epoch + 1
 }
 
 // endCurrentEpoch ends the current block as the last block of the epoch in

@@ -32,10 +32,10 @@ const endBlockBudget = 3_000
 
 // EndBlock makes the changes to delegations, the validator set and the params
 // staking applies of the epoch the block closes, as closeEpoch does, or, while
-// staking has no bonded set, bonds the genesis validators. It then completes the
-// unbonding entries whose unbonding period is over, as x/staking's
-// BlockValidatorUpdates does. Before staking's params are written it
-// does nothing. Its failures are staged operations that could not be applied,
+// staking has no bonded set, bonds the genesis validators. It then records the
+// epoch the next block is in, and completes the unbonding entries whose
+// unbonding period is over, as x/staking's BlockValidatorUpdates does. Before
+// staking's params are written it does nothing. Its failures are staged operations that could not be applied,
 // which are dropped, a bonded set that could not be updated, which is kept as it
 // was, a snapshot that could not be taken, and queue entries whose stored data
 // does not add up, which are dropped. It returns no error.
@@ -53,6 +53,7 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 	} else if !s.started() {
 		p.updateBondedSetReporting(block, s, s.params(), &failures)
 	}
+	advanceEpoch(block, s)
 	drain(s.unbondingQueue(), block.UnixNano, "unbonding", &failures,
 		func(e common.Hash) uint64 {
 			delegator, op := unbondingQueueEntry(s, e)
@@ -63,21 +64,18 @@ func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.S
 }
 
 // closeEpoch makes epoch's changes to delegations, the validator set and the
-// params staking applies. In order, it advances the current epoch past epoch,
-// which starts the count of operations staged during it afresh, applies the
-// staged operations due and updates the bonded set under the params staking
-// applies, completes the validators whose unbonding period is over, adopts the
-// params precompile's staking params, and snapshots the bonded set as it will be
-// once the operations still staged take effect under them.
+// params staking applies. In order, it starts the count of operations staged
+// during the next epoch afresh, applies the staged operations due and updates
+// the bonded set under the params staking applies, completes the validators
+// whose unbonding period is over, adopts the params precompile's staking
+// params, and snapshots the bonded set as it will be once the operations still
+// staged take effect under them.
 func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, epoch uint64, failures *[]error) {
-	// Operations are staged for the epoch after the one staking counts as
-	// current, which is epoch unless staking started during it and has counted
-	// none: what was staged then is due at the end of the next epoch.
-	due := s.currentEpoch()
-	s.setCurrentEpoch(epoch + 1)
 	s.setStagedThisEpoch(0)
 	params := s.params()
-	p.applyStaged(block, s, params, due, failures)
+	// Operations are staged for the epoch after the current one, so those due
+	// here are the ones staged for the current epoch or before.
+	p.applyStaged(block, s, params, s.currentEpoch(), failures)
 	p.updateBondedSetReporting(block, s, params, failures)
 	// Validators finish unbonding after the operations due and before the
 	// projection, so the operations a projection applies meet the same validators
@@ -90,6 +88,20 @@ func (p Precompile) closeEpoch(block precompiles.BlockContext, s store, epoch ui
 	// under the params it projected them with.
 	if err := snapshotEpoch(block, s, s.adoptParams()); err != nil {
 		*failures = append(*failures, fmt.Errorf("%w: epoch %d's bonded set not snapshotted: %w", precompiles.ErrDegraded, epoch, err))
+	}
+}
+
+// advanceEpoch records the epoch the next block is in, which the operations
+// staged in it are counted from: the one after the epoch block closes, or else
+// block's own. It never moves the current epoch back, and leaves it as it was
+// when block's epoch is unknown.
+func advanceEpoch(block precompiles.BlockContext, s store) {
+	next, ok := block.Epoch.Get()
+	if closing, closes := block.ClosingEpoch.Get(); closes {
+		next, ok = closing+1, true
+	}
+	if ok && next > s.currentEpoch() {
+		s.setCurrentEpoch(next)
 	}
 }
 
