@@ -63,6 +63,45 @@ func TestReturnsCheckTxRejection(t *testing.T) {
 	require.EqualError(t, err, "bad nonce")
 }
 
+func TestSendRawTransactionWrongChainID(t *testing.T) {
+	chainID := big.NewInt(713700)
+	wrongChainID := big.NewInt(74565)
+	signer := abevm.NewSigner(ethtypes.LatestSignerForChainID(chainID), 0, 1)
+	backend := &testBackend{
+		insertTx: func(_ context.Context, raw abevm.RawTx) (common.Hash, error) {
+			_, err := signer.ParseTx(raw)
+			require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
+			return common.Hash{}, err
+		},
+	}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	for _, txData := range []ethtypes.TxData{
+		&ethtypes.LegacyTx{To: &to, Gas: 21000, GasPrice: big.NewInt(1_000_000_000)},
+		&ethtypes.DynamicFeeTx{ChainID: wrongChainID, To: &to, Gas: 21000, GasFeeCap: big.NewInt(1_000_000_000)},
+	} {
+		tx, err := ethtypes.SignTx(ethtypes.NewTx(txData), ethtypes.LatestSignerForChainID(wrongChainID), key)
+		require.NoError(t, err)
+		raw, err := tx.MarshalBinary()
+		require.NoError(t, err)
+		var hash common.Hash
+		err = client.CallContext(t.Context(), &hash, "eth_sendRawTransaction", hexutil.Bytes(raw))
+		require.EqualError(t, err, "invalid chain-id")
+		var rpcErr ethrpc.Error
+		require.ErrorAs(t, err, &rpcErr)
+		require.Equal(t, -32000, rpcErr.ErrorCode())
+	}
+}
+
 func TestSendRawTransactionBroadcastError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("mempool full")

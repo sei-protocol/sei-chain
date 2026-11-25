@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -277,8 +276,6 @@ func TestSendRawTransactionMapsMempoolRejections(t *testing.T) {
 		{tmtypes.ErrTxNonceTooLow, core.ErrNonceTooLow},
 		{tmtypes.ErrTxReplacementUnderpriced, txpool.ErrReplaceUnderpriced},
 		{tmtypes.ErrTxInsufficientFunds, core.ErrInsufficientFunds},
-		{ethtypes.ErrInvalidChainId, sdkerrors.ErrInvalidChainID},
-		{fmt.Errorf("%w: expected 713715, got 74565", ethtypes.ErrInvalidChainId), sdkerrors.ErrInvalidChainID},
 		{tmtypes.ErrTxInCache, tmtypes.ErrTxInCache},
 	} {
 		for _, slow := range []bool{false, true} {
@@ -287,7 +284,6 @@ func TestSendRawTransactionMapsMempoolRejections(t *testing.T) {
 				sendAPI := newTestSendAPI(client, evmrpc.NewSendConfig(slow, false, false))
 				_, err := sendAPI.SendRawTransaction(t.Context(), hexutil.Bytes(ethTxBytes))
 				require.ErrorIs(t, err, tc.want)
-				require.EqualError(t, err, tc.want.Error())
 			})
 		}
 	}

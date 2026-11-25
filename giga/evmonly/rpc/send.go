@@ -2,11 +2,13 @@ package rpc
 
 import (
 	"context"
+	"errors"
 
 	"golang.org/x/sync/semaphore"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
@@ -36,5 +38,9 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return common.Hash{}, limitExceededError{}
 	}
 	defer api.requestLimiter.Release(1)
-	return api.backend.InsertTx(ctx, append(abevm.RawTx(nil), input...))
+	hash, err := api.backend.InsertTx(ctx, append(abevm.RawTx(nil), input...))
+	if errors.Is(err, ethtypes.ErrInvalidChainId) {
+		return hash, errors.New("invalid chain-id")
+	}
+	return hash, err
 }
