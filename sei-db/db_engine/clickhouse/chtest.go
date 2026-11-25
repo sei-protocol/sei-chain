@@ -2,7 +2,6 @@ package clickhouse
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -25,13 +24,12 @@ const (
 )
 
 // testServerConfig is a test server's configuration: its data in a directory, its native protocol alone on a
-// port of the loopback interface, a default user without a password, and memory limits suited to tests.
+// port of the loopback interface, a default user without a password, and a small mark cache.
 const testServerConfig = `<clickhouse>
-    <logger><level>warning</level><console>true</console></logger>
+    <logger><level>information</level><console>true</console></logger>
     <listen_host>127.0.0.1</listen_host>
     <tcp_port>%d</tcp_port>
     <path>%s/</path>
-    <max_server_memory_usage>1073741824</max_server_memory_usage>
     <mark_cache_size>67108864</mark_cache_size>
     <users>
         <default>
@@ -49,6 +47,13 @@ const testServerConfig = `<clickhouse>
 // testServerTimeout bounds how long a test server takes to answer once started, and to exit once stopped.
 const testServerTimeout = time.Minute
 
+// A failure prints at most testServerLogHead bytes from the start of a test server's log, which tell how its
+// startup went, and testServerLogTail from the end.
+const (
+	testServerLogHead = 16 << 10
+	testServerLogTail = 48 << 10
+)
+
 // testServer is the server of the package under test, set by RunTests.
 var testServer struct {
 	addr, password string
@@ -64,14 +69,19 @@ func RunTests(m *testing.M) int {
 		testServer.addr, testServer.password = addr, os.Getenv(testServerEnvPassword)
 		return m.Run()
 	}
-	addr, stop, err := startTestServer()
+	addr, logPath, stop, err := startTestServer()
 	if err != nil {
 		testServer.err = err
 		return m.Run()
 	}
 	defer stop()
 	testServer.addr = addr
-	return m.Run()
+	code := m.Run()
+	if code != 0 {
+		// Printed with the failed package's output: the server's side of the failure.
+		fmt.Fprintf(os.Stderr, "clickhouse server log:\n%s\n", logExcerpt(logPath))
+	}
+	return code
 }
 
 // TestServer returns the address and password of the ClickHouse server RunTests provides. Without one it skips
@@ -89,30 +99,31 @@ func TestServer(t testing.TB) (addr, password string) {
 	return testServer.addr, testServer.password
 }
 
-// startTestServer starts a ClickHouse server on a free loopback port, with its data in a temporary directory,
-// and returns its address and a function that stops it and removes the directory.
-func startTestServer() (addr string, stop func(), err error) {
+// startTestServer starts a ClickHouse server on a free loopback port, with its data and log in a temporary
+// directory, and returns its address, the log's path and a function that stops it and removes the directory.
+func startTestServer() (addr, logPath string, stop func(), err error) {
 	bin, err := exec.LookPath("clickhouse")
 	if err != nil {
-		return "", nil, fmt.Errorf("the clickhouse binary is not installed: %w", err)
+		return "", "", nil, fmt.Errorf("the clickhouse binary is not installed: %w", err)
 	}
 	port, err := freeTestPort()
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	dir, err := os.MkdirTemp("", "clickhouse-test-")
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
-	cfg, logPath := filepath.Join(dir, "config.xml"), filepath.Join(dir, "server.log")
+	cfg := filepath.Join(dir, "config.xml")
+	logPath = filepath.Join(dir, "server.log")
 	if err := os.WriteFile(cfg, fmt.Appendf(nil, testServerConfig, port, dir), 0o600); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", nil, err
+		return "", "", nil, err
 	}
 	log, err := os.Create(logPath) //nolint:gosec // a path in the directory created above
 	if err != nil {
 		_ = os.RemoveAll(dir)
-		return "", nil, err
+		return "", "", nil, err
 	}
 	cmd := exec.Command(bin, "server", "--config-file="+cfg) //nolint:gosec // the clickhouse binary on PATH
 	// Without its watchdog the process is the server itself, so killing it stops the server.
@@ -121,7 +132,7 @@ func startTestServer() (addr string, stop func(), err error) {
 	if err := cmd.Start(); err != nil {
 		_ = log.Close()
 		_ = os.RemoveAll(dir)
-		return "", nil, fmt.Errorf("start clickhouse: %w", err)
+		return "", "", nil, fmt.Errorf("start clickhouse: %w", err)
 	}
 	// exited closes when the server exits, after waitErr holds why.
 	exited := make(chan struct{})
@@ -143,14 +154,27 @@ func startTestServer() (addr string, stop func(), err error) {
 	}
 	addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	if err := waitTestServer(addr, exited); err != nil {
+		out := logExcerpt(logPath)
 		stop()
-		out, _ := os.ReadFile(logPath) //nolint:gosec // the log written above
 		if waitErr != nil {
 			err = fmt.Errorf("%w (%w)", err, waitErr)
 		}
-		return "", nil, fmt.Errorf("%w; server log:\n%s", err, out)
+		return "", "", nil, fmt.Errorf("%w; server log:\n%s", err, out)
 	}
-	return addr, stop, nil
+	return addr, logPath, stop, nil
+}
+
+// logExcerpt returns the log at path, cut to its first testServerLogHead and last testServerLogTail bytes.
+func logExcerpt(path string) string {
+	out, err := os.ReadFile(path) //nolint:gosec // a test server's log
+	if err != nil {
+		return fmt.Sprintf("(unreadable: %v)", err)
+	}
+	if len(out) <= testServerLogHead+testServerLogTail {
+		return string(out)
+	}
+	return fmt.Sprintf("%s\n[... %d bytes ...]\n%s", out[:testServerLogHead],
+		len(out)-testServerLogHead-testServerLogTail, out[len(out)-testServerLogTail:])
 }
 
 // freeTestPort returns a loopback port that nothing listens on.
@@ -164,24 +188,31 @@ func freeTestPort() (int, error) {
 }
 
 // waitTestServer waits until the server at addr answers a ping, failing when exited closes or testServerTimeout
-// passes first.
+// passes first. Its error holds the last attempt's.
 func waitTestServer(addr string, exited <-chan struct{}) error {
 	ctx, cancel := context.WithTimeout(context.Background(), testServerTimeout)
 	defer cancel()
 	for {
-		if c, err := ch.Dial(ctx, ch.Options{Address: addr}); err == nil {
-			err = c.Ping(ctx)
-			_ = c.Close()
-			if err == nil {
-				return nil
-			}
+		err := ping(ctx, addr)
+		if err == nil {
+			return nil
 		}
 		select {
 		case <-exited:
-			return errors.New("clickhouse exited before answering")
+			return fmt.Errorf("clickhouse exited before answering: %w", err)
 		case <-ctx.Done():
-			return fmt.Errorf("clickhouse did not answer within %s", testServerTimeout)
+			return fmt.Errorf("clickhouse did not answer within %s: %w", testServerTimeout, err)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// ping connects to the server at addr and pings it.
+func ping(ctx context.Context, addr string) error {
+	c, err := ch.Dial(ctx, ch.Options{Address: addr})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	return c.Ping(ctx)
 }
