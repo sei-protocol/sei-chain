@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -1404,4 +1405,45 @@ func TestNewStateRejectsInvalidMaxRate(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// A replica signs a CommitVote for a PrepareQC only when its header names the tip CommitQC as parent.
+func TestPushPrepareQCRejectsAWrongParent(t *testing.T) {
+	e := newLiveEnv(t, utils.TestRng())
+	spec := advancingSpec(e.keys, e.reg)
+	view := types.View{Height: spec.Height(), EpochIndex: spec.Epoch.EpochIndex()}
+	prepareQC := func(parentHash utils.Option[types.RoadBlockHeaderHash]) *types.PrepareQC {
+		return makePrepareQC(e.keys, types.ProposalWithParent(spec.Epoch, view, parentHash))
+	}
+	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runOutputs(ctx)) })
+		if err := e.s.pushSpec(ctx, spec); err != nil {
+			return err
+		}
+		if _, err := e.s.waitForView(ctx, view); err != nil {
+			return err
+		}
+		for _, wrong := range []utils.Option[types.RoadBlockHeaderHash]{
+			utils.None[types.RoadBlockHeaderHash](),
+			utils.Some(types.GenRoadBlockHeaderHash(e.rng)),
+		} {
+			if err := e.s.pushPrepareQC(ctx, prepareQC(wrong)); !errors.Is(err, types.ErrParentMismatch) {
+				return fmt.Errorf("pushPrepareQC(%v) = %v, want %v", wrong, err, types.ErrParentMismatch)
+			}
+		}
+		return e.s.pushPrepareQC(ctx, prepareQC(spec.ParentHeader().Map((*types.RoadBlockHeader).Hash)))
+	})
+	require.NoError(t, err)
+	require.True(t, e.inner().CommitVote.IsPresent())
+}
+
+// The first road block of the chain names no parent, so a PrepareQC that names a parent is not accepted.
+func TestPushPrepareQCRejectsAParentOnTheFirstRoadBlock(t *testing.T) {
+	e := newLiveEnv(t, utils.TestRng())
+	forged := makePrepareQC(e.keys, types.ProposalWithParent(e.vs.Epoch, e.vs.View(), utils.Some(types.GenRoadBlockHeaderHash(e.rng))))
+	require.ErrorIs(t, e.s.pushPrepareQC(t.Context(), forged), types.ErrParentMismatch)
+	require.False(t, e.inner().CommitVote.IsPresent())
+	honest := makePrepareQC(e.keys, types.ProposalWithParent(e.vs.Epoch, e.vs.View(), utils.None[types.RoadBlockHeaderHash]()))
+	require.NoError(t, e.s.pushPrepareQC(t.Context(), honest))
+	require.True(t, e.inner().CommitVote.IsPresent())
 }
