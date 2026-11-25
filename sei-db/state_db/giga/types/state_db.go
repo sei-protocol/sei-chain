@@ -1,5 +1,6 @@
 // Package types declares the contracts the Giga EVM executor reads and writes state through —
-// StateDB, LiveStateStore and StateView — together with the EVM value types in their signatures.
+// StateDB, LiveStateStore, HistoricalStateStore and StateView — together with the EVM value types in
+// their signatures.
 // It holds no implementation, so a store and its callers can both depend on it.
 package types
 

@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -24,6 +23,12 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 // store retains.
 var ErrReceiptsPruned = errors.New("receipts have been pruned")
 
+// StateVersionBounds reports the range of heights the state store holds.
+type StateVersionBounds interface {
+	GetEarliestVersion() int64
+	GetLatestVersion() int64
+}
+
 // WatermarkManager coordinates access to block, state, and receipt stores to
 // determine queryable block heights for RPC consumers. It ensures read-side
 // requests only target heights where all backing data sources are fully
@@ -31,14 +36,14 @@ var ErrReceiptsPruned = errors.New("receipts have been pruned")
 type WatermarkManager struct {
 	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
-	stateStore   types.StateStore       // nil if SS is disabled.
+	stateStore   StateVersionBounds     // nil if SS is disabled.
 	receiptStore receiptdb.ReceiptStore // nil if the receipt store is disabled.
 }
 
 func NewWatermarkManager(
 	tmClient client.LocalClient,
 	ctxProvider func(int64) sdk.Context,
-	stateStore types.StateStore,
+	stateStore StateVersionBounds,
 	receiptStore receiptdb.ReceiptStore,
 ) *WatermarkManager {
 	return &WatermarkManager{

@@ -112,7 +112,7 @@ func TestMakeEVMApplicationFullModeOpensStateStore(t *testing.T) {
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
-	require.NotNil(t, manager.StateDB().UndoSS())
+	require.NotNil(t, manager.StateDB().HistoricalStateDB())
 }
 
 func TestMakeEVMApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {

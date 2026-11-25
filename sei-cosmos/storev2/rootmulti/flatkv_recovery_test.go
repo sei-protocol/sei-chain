@@ -7,7 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -124,7 +124,7 @@ func TestRollbackToVersionWithoutStateStoreSnapshots(t *testing.T) {
 // nonRollbackableStateStore is a state store with no rollback capability: the
 // embedded interface carries the read and write methods but not Rollback.
 type nonRollbackableStateStore struct {
-	seidbtypes.StateStore
+	sstypes.StateStore
 }
 
 // A state store that cannot roll back must not disable the command. Rollback is

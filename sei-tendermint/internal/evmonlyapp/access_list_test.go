@@ -72,7 +72,7 @@ func TestEVMOnlyApplicationSimulatesAgainstAPastBlock(t *testing.T) {
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2, deployRaw))
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 	beforeDeploy, deployed := traceTestHeader(1, common.Hash{}), traceTestHeader(2, first.Hash)
 	msg := func() *ethcore.Message { return callMessage(sender, &contract) }
 

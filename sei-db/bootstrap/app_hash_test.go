@@ -107,9 +107,7 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 
 	manager := startManager(t, cfg)
 
-	version, err := manager.StateDB().SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(3), version)
+	require.Equal(t, int64(3), manager.StateDB().LiveStateDB().Version())
 	stored := publishedAppHashes(t, manager, 3, 3)[0]
 
 	commitBlock(t, manager, 4, evmBlock(4, 4))
@@ -132,7 +130,7 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 	manager, err := NewGigaStorageManager(t.Context(), cfg)
 	require.NoError(t, err)
 
-	require.Equal(t, int64(3), manager.StateDB().SC().Version())
+	require.Equal(t, int64(3), manager.StateDB().LiveStateDB().Version())
 	published := publishedAppHashes(t, manager, 3, 3)[0]
 	stateHashes, _ := canonicalHashes(t, 3)
 	require.Equal(t, stateHashes[2], published.StateHash())
@@ -158,7 +156,7 @@ func TestStartupThatReplaysBlocksSetsUpTheAppHashBuilderAtTheLiveStateDBHeight(t
 
 	manager := startManager(t, cfg)
 
-	require.Equal(t, int64(10), manager.StateDB().SC().Version())
+	require.Equal(t, int64(10), manager.StateDB().LiveStateDB().Version())
 	_, published, ok, err := manager.AppHashBuilder().Bounds()
 	require.NoError(t, err)
 	require.True(t, ok)

@@ -2,7 +2,7 @@ package backend
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 // OpenFunc creates a StateStore from a data directory and config.
