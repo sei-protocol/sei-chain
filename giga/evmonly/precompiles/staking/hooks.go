@@ -10,9 +10,12 @@ import (
 
 // Hooks are the calls staking makes into the precompiles that track its
 // delegations and validators, at the points x/staking's StakingHooks are
-// called. A hook must not fail. In EndBlock, one that does has its writes
-// reverted and its failure reported, and the operation that called it goes
-// ahead; at genesis, its error fails the genesis write.
+// called. A hook must not fail, and follows the precompiles guide's EndBlock
+// rules. In EndBlock, a hook that returns an error has its writes reverted and
+// its failure reported, and the operation that called it goes ahead; at
+// genesis, its error fails the genesis write. A failed state access, such as a
+// balance change made without checking it first, is not undone by the revert
+// and fails the block.
 type Hooks interface {
 	AfterValidatorCreated(block precompiles.BlockContext, state precompiles.State, validator common.Address) error
 	BeforeDelegationCreated(block precompiles.BlockContext, state precompiles.State, delegator, validator common.Address) error
@@ -81,8 +84,9 @@ func (p Precompile) withHookFailures(failures *[]error) Precompile {
 	return p
 }
 
-// reportingHooks runs each of hooks in its own snapshot. A hook that fails has
-// its writes reverted and its failure added to failures, and returns nil.
+// reportingHooks runs each of hooks in its own snapshot. A hook that returns an
+// error has its writes reverted and its failure added to failures, and returns
+// nil. A state access the hook failed stays failed.
 type reportingHooks struct {
 	hooks    Hooks
 	failures *[]error
