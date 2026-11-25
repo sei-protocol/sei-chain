@@ -31,7 +31,8 @@ Each bucket needs:
 
 - A lifecycle rule that expires old objects, for example after 2 days, and aborts incomplete
   multipart uploads. The nodes do not delete snapshots.
-- An interval much shorter than the time that the peers keep blocks. See
+- An interval much shorter than the time that the peers keep blocks. A peer keeps
+  `rollback_window` plus `lookback_window` blocks of `[giga.storage]`. See
   [If the node stays at the snapshot height](#if-the-node-stays-at-the-snapshot-height).
 
 We recommend:
@@ -40,8 +41,11 @@ We recommend:
   if it stops.
 - One bucket in each region, when the nodes are in more than one region.
 - Write access only for the uploading nodes. A new node trusts the snapshot that it imports.
-- An alert when `latest.txt` is older than two intervals. A successful upload logs only at the
-  info level.
+- An alert when `latest.txt` is older than the interval plus two hours. When a node stops during
+  an upload, the other node continues one hour later. A successful upload logs only at the info
+  level.
+- A `checkpoint_time_interval` of `[giga.storage]` that is not longer than the interval. A node
+  uploads only a new checkpoint.
 
 ## Start a new node
 
@@ -62,6 +66,9 @@ seid start
 ```
 
 If the home is not `~/.sei`, add `--home <dir>` to both commands.
+
+The node needs read access to the bucket: `s3:GetObject` and `s3:ListBucket`. To check it, run
+`seid statesync check`.
 
 `seid statesync import` takes the newest snapshot. The uploading nodes write its height to the
 object `latest.txt` in the bucket. To take another snapshot:
