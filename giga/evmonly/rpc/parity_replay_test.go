@@ -238,8 +238,9 @@ func (*replayBackend) GenesisInitialHeight() int64 {
 	return 1
 }
 
-func (*replayBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
-	return utils.AtomicRecv[atypes.ExecutedBlocks]{}, errNotReplayed
+func (b *replayBackend) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
+	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: atypes.RoadHeight(b.tip.Number)}))
+	return executed.Subscribe()
 }
 
 func (b *replayBackend) EvmCall(ctx context.Context, msg *core.Message, _ abevm.CallOverrides) (*core.ExecutionResult, error) {

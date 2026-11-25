@@ -315,17 +315,6 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	}()
 
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
-		if client, ok := t.tmClient.EvmProxy(address).Get(); ok {
-			recordRedirectedRequest(ctx, "eth_getTransactionCount", string(t.connectionType))
-
-			var nonce hexutil.Uint64
-			if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)); err != nil {
-				// No error wrapping, because evm server is too dumb to handle wrapped error.
-				return nil, err
-			}
-			return &nonce, nil
-		}
-
 		nonce := t.tmClient.EvmNextPendingNonce(address)
 		return (*hexutil.Uint64)(&nonce), nil
 	}

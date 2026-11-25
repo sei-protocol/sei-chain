@@ -32,11 +32,8 @@ func TestEvmPendingNonceFollowsMempool(t *testing.T) {
 
 	t.Run("validator", func(t *testing.T) {
 		env := newAutobahnBroadcastEnv(t)
-		giga := env.Router
-		mp, ok := giga.Mempool().Get()
-		require.True(t, ok)
 		got, err := env.EvmPendingNonce(t.Context(), address)
 		require.NoError(t, err)
-		require.Equal(t, mp.EvmNextPendingNonce(address), got)
+		require.Equal(t, uint64(7), got)
 	})
 }

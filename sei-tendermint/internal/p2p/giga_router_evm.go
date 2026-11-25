@@ -100,7 +100,7 @@ func (r *GigaRouterCommon) EvmPendingNonce(ctx context.Context, address common.A
 		}
 		return uint64(nonce), nil
 	}
-	mp, ok := r.Mempool().Get()
+	mp, ok := r.mempool.Get()
 	if !ok {
 		return 0, abevm.ErrPendingNonceUnavailable
 	}

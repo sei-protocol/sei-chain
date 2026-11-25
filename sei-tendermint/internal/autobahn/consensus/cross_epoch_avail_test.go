@@ -106,7 +106,7 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 		for _, epoch := range anchor.Epochs {
 			rr := epoch.RoadRange()
 			for road := rr.First; road < rr.Next; road++ {
-				if _, err := shared.TestTryQC(road); !errors.Is(err, types.ErrNotFound) {
+				if _, err := shared.TryQC(road); !errors.Is(err, types.ErrNotFound) {
 					return fmt.Errorf("shared data reconstructed road %d before final availability exchange: %v", road, err)
 				}
 			}

@@ -9,12 +9,10 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -59,10 +57,6 @@ func (*chainClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
 func (*chainClient) GenesisInitialHeight() int64 { return 1 }
 
 func (*chainClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
-
-func (*chainClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
-}
 
 func (c *chainClient) Block(_ context.Context, height *int64) (*coretypes.ResultBlock, error) {
 	h, err := c.at(height)

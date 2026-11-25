@@ -6,6 +6,6 @@ import (
 )
 
 // ExecutedBlocks returns the Autobahn executor's executed-block watch.
-func (env *GigaEnvironment) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
-	return env.Executor.ExecutedBlocks(), nil
+func (env *GigaEnvironment) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
+	return env.Executor.ExecutedBlocks()
 }

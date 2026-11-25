@@ -35,8 +35,8 @@ func newLogsSubscriptionFixture(t *testing.T, limits gigaconfig.RPCConfig) *logs
 		executed:    utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 9})),
 	}
 	backend := fx.api.backend.(*testBackend)
-	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
-		return fx.executed.Subscribe(), nil
+	backend.executedBlocks = func() utils.AtomicRecv[atypes.ExecutedBlocks] {
+		return fx.executed.Subscribe()
 	}
 	handler, err := newHandler(backend, fx.store, limits)
 	require.NoError(t, err)

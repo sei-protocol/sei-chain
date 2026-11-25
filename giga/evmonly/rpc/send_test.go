@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestSendRawTransaction(t *testing.T) {
@@ -202,27 +204,41 @@ func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 }
 
 func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
-	_, raw := testSignedTransaction(t)
-	want := errors.New("broadcast failed")
-	backend := &testBackend{
-		insertTx: func(ctx context.Context, _ abevm.RawTx) (common.Hash, error) {
-			if err := ctx.Err(); err != nil {
-				return common.Hash{}, err
-			}
-			return common.Hash{}, want
-		},
-	}
-	api := newSendAPI(backend, 1)
-	_, err := api.SendRawTransaction(t.Context(), nil)
-	require.Error(t, err)
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	_, err = api.SendRawTransaction(ctx, raw)
-	require.ErrorIs(t, err, context.Canceled)
-	for range 2 {
-		_, err = api.SendRawTransaction(t.Context(), raw)
+	synctest.Test(t, func(t *testing.T) {
+		_, raw := testSignedTransaction(t)
+		want := errors.New("broadcast failed")
+		block := true
+		backend := &testBackend{
+			insertTx: func(ctx context.Context, input abevm.RawTx) (common.Hash, error) {
+				if len(input) > 0 && block {
+					<-ctx.Done()
+					return common.Hash{}, ctx.Err()
+				}
+				return common.Hash{}, want
+			},
+		}
+		api := newSendAPI(backend, 1)
+		_, err := api.SendRawTransaction(t.Context(), nil)
 		require.ErrorIs(t, err, want)
-	}
+		var callErr error
+		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			callCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			s.Spawn(func() error {
+				_, callErr = api.SendRawTransaction(callCtx, raw)
+				return nil
+			})
+			synctest.Wait()
+			cancel()
+			return nil
+		}))
+		require.ErrorIs(t, callErr, context.Canceled)
+		block = false
+		for range 2 {
+			_, err = api.SendRawTransaction(t.Context(), raw)
+			require.ErrorIs(t, err, want)
+		}
+	})
 }
 
 func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {

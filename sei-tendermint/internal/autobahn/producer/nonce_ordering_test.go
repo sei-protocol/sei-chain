@@ -81,7 +81,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 			return err
 		}
 		t.Log("sequence tx1")
-		if err := env.state.InsertTx(ctx, env.parseTx(tx1.encode())); err != nil {
+		if err := env.state.InsertTx(ctx, tx1); err != nil {
 			return err
 		}
 		height := env.data.Anchor().Load().Epochs[0].RoadRange().First
@@ -89,11 +89,11 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := utils.TestDiff([][]byte{tx1.encode()}, firstBlock.Txs); err != nil {
+		if err := utils.TestDiff([][]byte{utils.OrPanic1(tx1.MarshalBinary())}, firstBlock.Txs); err != nil {
 			return err
 		}
 		t.Log("insert tx2")
-		if err := env.state.InsertTx(ctx, env.parseTx(tx2.encode())); err != nil {
+		if err := env.state.InsertTx(ctx, tx2); err != nil {
 			return err
 		}
 		// We test evmNextPendingNonce directly instead of InsertTx or EVMNextPendingNonce,
@@ -116,7 +116,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 		for inner, ctrl := range mp.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
 				r, ok := inner.evmNonces[addr]
-				return ok && r.first == tx2.Nonce
+				return ok && r.first == tx2.Nonce()
 			}); err != nil {
 				return err
 			}

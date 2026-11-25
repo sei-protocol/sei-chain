@@ -76,8 +76,12 @@ func signedEVMOnlyTestTxFrom(t *testing.T, key *ecdsa.PrivateKey, chainID uint64
 }
 
 func evmOnlyTestBlock(app abevm.Application, height int64, txs ...[]byte) abevm.FinalizeBlockReq {
+	raw := make([]abevm.RawTx, len(txs))
+	for i, tx := range txs {
+		raw[i] = tx
+	}
 	return abevm.FinalizeBlockReq{
-		Txs:  utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs(txs)),
+		Txs:  utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs(raw)),
 		Hash: common.BytesToHash(crypto.Keccak256(binary.BigEndian.AppendUint64([]byte("block-"), uint64(height)))), //nolint:gosec // G115: test heights are positive.
 
 		Height: atypes.RoadHeight(height),
@@ -515,7 +519,7 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.Equal(t, evmOnlyBaseBalance, gotBalance.ToBig())
 
 	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -554,7 +558,7 @@ func TestEVMOnlyApplicationFinalizesBlocksWithoutReceiptStore(t *testing.T) {
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 
 	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -633,7 +637,7 @@ func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	first := newInitializedEVMOnlyTestApp(t)
 	second := newInitializedEVMOnlyTestApp(t)
 	request := abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(first.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(first.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("same-block"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)}
@@ -654,7 +658,7 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 
 	checkedProxy := abevm.NewProxy(checked)
 	request := abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(checkedProxy.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(checkedProxy.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("checked-block"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)}
@@ -670,16 +674,17 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	require.Equal(t, uint64(1), checked.EvmNonce(sender))
 }
 
-// CheckTx uses the sender recorded for a transaction before it arrived, instead of recovering it.
+// CheckTx accepts a transaction whose verified sender was remembered before admission.
 func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
-	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	app := abevm.NewProxy(newInitializedEVMOnlyTestApp(t))
-	signer := newTestSigner(app.EvmChainID(), 0)
-	remembered := common.HexToAddress("0x2000000000000000000000000000000000000002")
-	signer.Remember(utils.OrPanic1(abevm.TestEvmTx(raw, remembered)))
+	recoverer := &abevm.TestCountingSigner{Signer: ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(app.EvmChainID()))}
+	signer := abevm.NewSigner(recoverer, 1024, 1)
+	signer.Remember(abevm.TestEvmTx(decodeEVMOnlyTestTx(t, raw)))
 
 	decoded := utils.OrPanic1(signer.ParseTx(raw))
-	require.Equal(t, remembered, decoded.Sender())
+	require.Equal(t, sender, decoded.Sender())
+	require.Equal(t, uint64(0), recoverer.Calls.Load())
 	_, err := app.CheckTx(decoded)
 	require.NoError(t, err)
 }
@@ -687,8 +692,9 @@ func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
 func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	app := abevm.NewProxy(newInitializedEVMOnlyTestApp(t))
-	signer := newTestSigner(app.EvmChainID(), 0)
-	remembered := utils.OrPanic1(abevm.TestEvmTx(raw, common.HexToAddress("0x2000000000000000000000000000000000000002")))
+	recoverer := &abevm.TestCountingSigner{Signer: ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(app.EvmChainID()))}
+	signer := abevm.NewSigner(recoverer, 1024, 1)
+	remembered := abevm.TestEvmTx(decodeEVMOnlyTestTx(t, raw))
 	signer.Remember(remembered)
 	signer.ForgetTxs([]abevm.EvmTx{remembered})
 
@@ -696,6 +702,7 @@ func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
 	_, err := app.CheckTx(decoded)
 	require.NoError(t, err)
 	require.Equal(t, sender, decoded.Sender())
+	require.Equal(t, uint64(1), recoverer.Calls.Load())
 }
 
 // The cursor does not carry the block time, so a resumed app would answer
@@ -1004,7 +1011,7 @@ func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	proposer := newInitializedEVMOnlyTestApp(t)
 	block := abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(proposer.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(proposer.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)}
@@ -1045,7 +1052,7 @@ func TestEVMOnlyApplicationServesDeployedCode(t *testing.T) {
 	require.Empty(t, codeReader.EvmCode(sender))
 
 	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -1071,7 +1078,7 @@ func TestEVMOnlyApplicationServesStoredStorage(t *testing.T) {
 	require.Equal(t, common.Hash{}, storageReader.EvmStorage(contract, slot))
 
 	response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})
@@ -1239,7 +1246,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	_, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{raw})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{raw})),
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("block-1"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)})

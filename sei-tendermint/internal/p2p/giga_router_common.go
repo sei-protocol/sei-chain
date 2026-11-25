@@ -58,11 +58,6 @@ type GigaRouterCommon struct {
 // Common returns the shared router services.
 func (r *GigaRouterCommon) Common() *GigaRouterCommon { return r }
 
-// Mempool returns the local transaction producer, or None on fullnodes.
-func (r *GigaRouterCommon) Mempool() utils.Option[*producer.State] {
-	return r.mempool
-}
-
 func (r *GigaRouterCommon) fillInboundHandshake(spec handshakeSpec) handshakeSpec {
 	spec.Giga = utils.Some(r.gigaSpec)
 	if r.selfAddr.IsPresent() {

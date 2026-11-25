@@ -37,7 +37,7 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx1, tx2})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx1, tx2})),
 		Height: 3})
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
@@ -83,14 +83,14 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx0, tx2, tx1})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx0, tx2, tx1})),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(62_000), res.GasUsed)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 
 	duplicate, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx1})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx1})),
 		Height: 2})
 	require.NoError(t, err)
 	require.Zero(t, duplicate.GasUsed)
@@ -110,7 +110,7 @@ func TestMockAppFinalizeBlockSkipsInvalidTransactions(t *testing.T) {
 	invalid, _, _ := buildFastCheckTxBytesForKey(t, key, 0, math.MaxUint64)
 
 	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx0, invalid, tx1})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx0, invalid, tx1})),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(52_000), res.GasUsed)

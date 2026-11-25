@@ -81,7 +81,7 @@ func (s *Signer) ParseTx(raw RawTx) (EvmTx, error) {
 
 // ParseTxs parses replay-protected transactions, reusing cached senders or recovering them.
 // Results follow input order.
-func (s *Signer) ParseTxs(raw [][]byte) ([]EvmTx, error) {
+func (s *Signer) ParseTxs(raw []RawTx) ([]EvmTx, error) {
 	if len(raw) == 0 {
 		return []EvmTx{}, nil
 	}

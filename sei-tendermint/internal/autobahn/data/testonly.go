@@ -106,19 +106,3 @@ func TestSetAnchor(state *State, anchor Anchor) {
 		ctrl.Updated()
 	}
 }
-
-// TestTryQC returns the FullCommitQC covering global height n without waiting.
-// Returns ErrNotFound if n is not yet covered (n >= nextPartialBlock).
-// Returns ErrPruned if BlockStore no longer has an evicted height.
-func (s *State) TestTryQC(n types.RoadHeight) (*types.FullCommitQC, error) {
-	for inner := range s.inner.Lock() {
-		if n >= inner.nextPartialBlock {
-			return nil, types.ErrNotFound
-		}
-		if n < inner.first {
-			break
-		}
-		return inner.blocks[n].qc, nil
-	}
-	return s.qcFromDB(n)
-}
