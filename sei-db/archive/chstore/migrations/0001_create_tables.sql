@@ -164,6 +164,9 @@ SETTINGS auto_statistics_types = '';
 -- almost every pair of marks. Without them, a read of an account changed in many blocks reads every
 -- granule of its history instead of one. block_number keeps per-part min/max statistics, so a read
 -- at an old height skips the parts written after it.
+--
+-- Note: the tradeoff chosen here is less space and a bit more CPU. k_hi | k_lo is 16 bytes vs address 20 bytes which
+-- saves storage. but as a con a hash is added which increases CPU. if ingestion rates become an issue, revisit this.
 CREATE TABLE IF NOT EXISTS account_history
 (
     address                 FixedString(20) EPHEMERAL,
