@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type gigaFullnodeRouter struct {
@@ -77,4 +78,14 @@ func (r *gigaFullnodeRouter) runCommitteeConnections(ctx context.Context) error 
 			}
 		}
 	})
+}
+
+// InsertTx submits input to its sender's shard and returns the transaction hash.
+func (r *gigaFullnodeRouter) InsertTx(ctx context.Context, input types.Tx) (common.Hash, error) {
+	return r.gigaRouterCommon.insertTx(ctx, input, r)
+}
+
+// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+func (r *gigaFullnodeRouter) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
+	return r.gigaRouterCommon.evmPendingNonce(ctx, address, r)
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -69,23 +68,17 @@ type GigaValidatorConfig struct {
 	Producer        *producer.Config
 }
 
-// GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
-// *gigaValidatorRouter and *gigaFullnodeRouter; Mempool returns Some only
-// on validators. RunInboundConn is served by both — non-committee peers
-// get the block-sync subset only. A fullnode accepts committee peers but
-// has no consensus state to serve them.
+// GigaRouter serves Autobahn peers, blocks, and shard-routed EVM requests.
+// Mempool returns Some only on validators. RunInboundConn is served by both
+// validators and fullnodes — non-committee peers get the block-sync subset only.
+// A fullnode accepts committee peers but has no consensus state to serve them.
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
 	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*abevm.EvmBlock, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error)
-	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
-	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
-	EvmProxyEnabled() bool
-	// RememberEvmSender records a verified sender for local admission.
-	RememberEvmSender(hash common.Hash, sender common.Address)
-	// ForgetEvmSender removes the cached sender for hash.
-	ForgetEvmSender(hash common.Hash)
+	InsertTx(ctx context.Context, input types.Tx) (common.Hash, error)
+	EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error)
 	Mempool() utils.Option[*producer.State]
 	fillInboundHandshake(spec handshakeSpec) handshakeSpec
 }

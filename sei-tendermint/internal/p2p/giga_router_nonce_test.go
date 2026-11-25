@@ -1,4 +1,4 @@
-package core
+package p2p
 
 import (
 	"context"
@@ -49,9 +49,9 @@ func TestGigaPendingNonceForwardsToShardOwner(t *testing.T) {
 		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
 			address := common.Address{1}
 			client, requests := newNonceProxy(t, 9, utils.None[error]())
-			env := newAutobahnEnv(t, validator)
+			env := newAutobahnEnv(t, utils.TestRng(), validator)
 			router := trackSendRouter(env, true, utils.Some(client))
-			nonce, err := env.EvmPendingNonce(t.Context(), address)
+			nonce, err := router.EvmPendingNonce(t.Context(), address)
 			require.NoError(t, err)
 			require.Equal(t, uint64(9), nonce)
 			request, err := utils.Recv(t.Context(), requests)
@@ -68,9 +68,9 @@ func TestGigaPendingNonceForwardsToShardOwner(t *testing.T) {
 
 func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	client, requests := newNonceProxy(t, 0, utils.Some[error](sendProxyError{}))
-	env := newAutobahnBroadcastEnv(t)
+	env := newAutobahnBroadcastEnv(t, utils.TestRng())
 	router := trackSendRouter(env, true, utils.Some(client))
-	nonce, err := env.EvmPendingNonce(t.Context(), common.Address{1})
+	nonce, err := router.EvmPendingNonce(t.Context(), common.Address{1})
 	rpcErr, ok := errors.AsType[ethrpc.Error](err)
 	require.True(t, ok)
 	require.Equal(t, -32012, rpcErr.ErrorCode())
@@ -82,18 +82,18 @@ func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 
 func TestGigaPendingNoncePropagatesCanceledRequest(t *testing.T) {
 	client, _ := newNonceProxy(t, 9, utils.None[error]())
-	env := newAutobahnBroadcastEnv(t)
+	env := newAutobahnBroadcastEnv(t, utils.TestRng())
 	router := trackSendRouter(env, true, utils.Some(client))
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err := env.EvmPendingNonce(ctx, common.Address{1})
+	_, err := router.EvmPendingNonce(ctx, common.Address{1})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, router.mempoolCalls)
 }
 
 func TestGigaPendingNonceIncludesLocalAdmissions(t *testing.T) {
 	app := &senderCacheApp{}
-	env := newAutobahnEnvWithApp(t, true, abevm.NewProxy(app))
+	env := newAutobahnEnvWithApp(t, utils.TestRng(), true, abevm.NewProxy(app))
 	mempool := env.Router.Mempool().OrPanic("validator mempool")
 	tx := signedEVMStateTestTx(t, 0)
 	raw := utils.OrPanic1(tx.MarshalBinary())
@@ -103,14 +103,14 @@ func TestGigaPendingNonceIncludesLocalAdmissions(t *testing.T) {
 		if err := mempool.WaitForMempool(ctx); err != nil {
 			return err
 		}
-		if _, err := env.InsertTx(ctx, raw); err != nil {
+		if _, err := env.Router.InsertTx(ctx, raw); err != nil {
 			return err
 		}
-		nonce, err := env.EvmPendingNonce(ctx, sender)
+		nonce, err := env.Router.EvmPendingNonce(ctx, sender)
 		if err != nil {
 			return err
 		}
 		return utils.TestDiff(uint64(4), nonce)
 	}))
-	require.Equal(t, uint64(3), env.EvmTransactionCount(sender))
+	require.Equal(t, uint64(3), env.Proxy.EvmNonce(sender))
 }

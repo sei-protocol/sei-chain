@@ -151,3 +151,13 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	}
 	return r.evmProxy(validator)
 }
+
+// InsertTx submits input to its sender's shard and returns the transaction hash.
+func (r *gigaValidatorRouter) InsertTx(ctx context.Context, input types.Tx) (common.Hash, error) {
+	return r.gigaRouterCommon.insertTx(ctx, input, r)
+}
+
+// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+func (r *gigaValidatorRouter) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
+	return r.gigaRouterCommon.evmPendingNonce(ctx, address, r)
+}

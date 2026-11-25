@@ -53,36 +53,12 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
-// RememberEvmSender records a verified sender for local admission.
-func (r *gigaRouterCommon) RememberEvmSender(hash common.Hash, sender common.Address) {
-	r.signer.Remember(hash, sender)
-}
-
-// ForgetEvmSender removes the cached sender for hash.
-func (r *gigaRouterCommon) ForgetEvmSender(hash common.Hash) {
-	r.signer.Forget(hash)
-}
-
 func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) handshakeSpec {
 	spec.Giga = utils.Some(r.gigaSpec)
 	if r.selfAddr.IsPresent() {
 		spec.SelfAddr = r.selfAddr
 	}
 	return spec
-}
-
-// genesisCommittee returns the committee epochs 0 and 1 start from: every
-// address-book validator with weight 1.
-func genesisCommittee(validatorAddrs map[atypes.PublicKey]GigaNodeAddr) (*atypes.Committee, error) {
-	weights := make(map[atypes.PublicKey]uint64, len(validatorAddrs))
-	for k := range validatorAddrs {
-		weights[k] = 1
-	}
-	committee, err := atypes.NewCommittee(weights)
-	if err != nil {
-		return nil, fmt.Errorf("genesis committee: %w", err)
-	}
-	return committee, nil
 }
 
 // BuildDataState validates the common config and returns an initialised data.State backed by
