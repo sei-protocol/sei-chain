@@ -89,11 +89,18 @@ type AutobahnParams struct {
 	MinRoadBlockInterval time.Duration `json:"min_road_block_interval,string"`
 	// EpochLength is the number of road blocks per epoch; zero selects the default.
 	EpochLength atypes.RoadHeight `json:"epoch_length,string"`
+	// LaneBlockInterval is the delay after which a non-full lane block is produced;
+	// zero selects the default from DefaultAutobahnParams.
+	LaneBlockInterval time.Duration `json:"lane_block_interval,string"`
 }
 
 // DefaultAutobahnParams returns the default Autobahn genesis parameters.
 func DefaultAutobahnParams() AutobahnParams {
-	return AutobahnParams{ViewTimeout: 1500 * time.Millisecond, EpochLength: epoch.DefaultEpochLength}
+	return AutobahnParams{
+		ViewTimeout:       1500 * time.Millisecond,
+		EpochLength:       epoch.DefaultEpochLength,
+		LaneBlockInterval: 150 * time.Millisecond,
+	}
 }
 
 // Validate checks Autobahn consensus parameters and their timing constraints.
@@ -106,6 +113,9 @@ func (p AutobahnParams) Validate() error {
 	}
 	if p.MinRoadBlockInterval >= p.ViewTimeout {
 		return errors.New("min_road_block_interval must be shorter than view_timeout")
+	}
+	if p.LaneBlockInterval < 0 {
+		return errors.New("lane_block_interval must not be negative")
 	}
 	return nil
 }
@@ -175,6 +185,9 @@ func (genDoc *GenesisDoc) ValidateAndComplete() error {
 	if params, ok := genDoc.Autobahn.Get(); ok {
 		if params.EpochLength == 0 {
 			params.EpochLength = epoch.DefaultEpochLength
+		}
+		if params.LaneBlockInterval == 0 {
+			params.LaneBlockInterval = DefaultAutobahnParams().LaneBlockInterval
 		}
 		genDoc.Autobahn = utils.Some(params)
 		if err := params.Validate(); err != nil {
