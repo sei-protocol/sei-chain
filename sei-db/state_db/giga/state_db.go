@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/stateview"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -154,16 +155,16 @@ func (s *StateDB) Close() error {
 	// Before the live state DB: the historical state DB holds a view of the live state DB's current block until
 	// it closes.
 	if s.historicalStateDB != nil {
-		timer.SetPhase("ss")
+		timer.SetPhase("historical_state_db")
 		if err := s.historicalStateDB.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close the historical state DB: %w", err))
 		}
 	}
-	timer.SetPhase("sc")
+	timer.SetPhase("live_state_db")
 	if err := s.liveStateDB.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close the live state DB: %w", err))
 	}
-	timer.SetPhase("wal")
+	timer.SetPhase("state_wal")
 	if err := s.wal.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 	}
@@ -234,14 +235,14 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 	// so what is timed here is the wait to hand the block over.
 	if s.historicalStateDB != nil {
 		s.commitPhases.SetPhase("enqueue_ss")
-		s.historicalStateDB.ApplyBlock(blockNum, changes, s.liveStateDB.OpenView())
+		s.historicalStateDB.ApplyBlock(blockNum, mutations, s.liveStateDB.OpenView())
 	}
 
 	return nil
 }
 
 func (s *StateDB) OpenView() gigatypes.StateView {
-	return s.liveStateDB.OpenView()
+	return stateview.New(s.liveStateDB.OpenView())
 }
 
 // OpenViewAt returns a view of the state after blockNum served from the historical state DB, and false
@@ -253,15 +254,18 @@ func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 	if s.historicalStateDB == nil {
 		return nil, false
 	}
-	return s.historicalStateDB.OpenView(blockNum)
+	raw, ok := s.historicalStateDB.OpenView(blockNum)
+	if !ok {
+		return nil, false
+	}
+	return stateview.New(raw), true
 }
 
-// RegisterHashListener forwards to the state commit store, which is the layer that hashes blocks and
-// so is the layer that dispatches them.
+// RegisterHashListener registers listener for the block hashes the live state DB produces.
 func (s *StateDB) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
 	mostRecentHash, err := s.liveStateDB.RegisterHashListener(listener)
 	if err != nil {
-		return mostRecentHash, fmt.Errorf("register hash listener on the state commit store: %w", err)
+		return mostRecentHash, fmt.Errorf("register hash listener on the live state DB: %w", err)
 	}
 	return mostRecentHash, nil
 }

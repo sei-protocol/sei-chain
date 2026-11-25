@@ -29,17 +29,16 @@ type LiveStateStore interface {
 	// found.
 	Get(module string, key []byte) (value []byte, found bool)
 
-	// OpenView returns a view of the latest committed block. The caller must Close it.
-	OpenView() StateView
+	// OpenView returns a view of the key-values as of the latest committed block. The caller must Close it.
+	OpenView() RawStateView
 
 	// MutationsFromStateChangeSet converts block blockNum's changes into one mutation per physical key the
 	// block writes, read against the latest committed block, which must be blockNum-1. The returned mutations
 	// must not be modified.
 	MutationsFromStateChangeSet(blockNum int64, changes *StateChangeSet) ([]mutation.Mutation, error)
 
-	// CommitStateChanges commits block blockNum, which must be the committed version plus one. mutations holds
-	// one entry per physical key the block writes, each PreviousValue being that key's row as of blockNum-1, as
-	// MutationsFromStateChangeSet produces them. mutations must not be modified after the call.
+	// CommitStateChanges commits block blockNum, the committed version plus one, from the mutations
+	// MutationsFromStateChangeSet produced for it. mutations must not be modified after the call.
 	CommitStateChanges(blockNum int64, mutations []mutation.Mutation) error
 
 	// RegisterHashListener registers listener for the hash of each block the store commits: exactly one per
