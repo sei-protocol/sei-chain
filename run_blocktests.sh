@@ -4,7 +4,7 @@
 # usage: run_blocktests.sh <fixtures/blockchain_tests/for_osaka> [runner_index runner_total]
 # LIST_ONLY=1 prints the selected cases without running them.
 
-set -e
+set -eo pipefail
 
 fixtures_dir=$1
 runner_index=${2:-0}
@@ -85,6 +85,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# drop_matching drops stdin lines containing any line of the pattern file.
+drop_matching() {
+    grep -v -F -f "$1" || [ $? -eq 1 ]
+}
+
 # list_cases prints "<file>\t<test id>" for every selected case. Cases with
 # blob txs or with pre-state accounts in the Sei precompile range
 # (0x1001-0x10ff) are left out.
@@ -93,7 +98,7 @@ list_cases() {
     local test_pattern=$work_dir/skip_tests
     printf '%s\n' "${skip_dirs[@]}" | sed "s|^|$fixtures_dir/|" > "$dir_pattern"
     printf '%s\n' "${skip_tests[@]}" > "$test_pattern"
-    find "$fixtures_dir" -name '*.json' | sort | grep -v -F -f "$dir_pattern" | while read -r file; do
+    find "$fixtures_dir" -name '*.json' | sort | drop_matching "$dir_pattern" | while read -r file; do
         jq -r --arg file "$file" '
             to_entries[]
             | select(any(.value.pre | keys[];
@@ -102,7 +107,7 @@ list_cases() {
                   and $a <= "00000000000000000000000000000000000010ff") | not)
             | select(any(.value.blocks[]?.transactions[]?; .type == "0x03") | not)
             | [$file, .key] | @tsv' "$file"
-    done | grep -v -F -f "$test_pattern"
+    done | drop_matching "$test_pattern"
 }
 
 # Wrap gentx so the local chain init binds to loopback.
@@ -139,7 +144,12 @@ if [ -n "$LIST_ONLY" ]; then
 fi
 
 list_cases | awk -v idx="$runner_index" -v total="$runner_total" '(NR - 1) % total == idx' > "$work_dir/cases.tsv"
-echo "running $(wc -l < "$work_dir/cases.tsv" | tr -d ' ') cases on runner $runner_index of $runner_total"
+case_count=$(wc -l < "$work_dir/cases.tsv" | tr -d ' ')
+if [ "$case_count" -eq 0 ]; then
+    echo "no cases selected on runner $runner_index of $runner_total" >&2
+    exit 1
+fi
+echo "running $case_count cases on runner $runner_index of $runner_total"
 
 # Initialize one chain home and copy it for each case.
 rm -rf ~/.sei || true
