@@ -81,7 +81,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 			return err
 		}
 		t.Log("sequence tx1")
-		if err := env.state.InsertTx(ctx, tx1.encode()); err != nil {
+		if err := env.state.InsertTx(ctx, env.parseTx(tx1.encode())); err != nil {
 			return err
 		}
 		height := env.data.Anchor().Load().Epochs[0].RoadRange().First
@@ -93,7 +93,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 			return err
 		}
 		t.Log("insert tx2")
-		if err := env.state.InsertTx(ctx, tx2.encode()); err != nil {
+		if err := env.state.InsertTx(ctx, env.parseTx(tx2.encode())); err != nil {
 			return err
 		}
 		// We test evmNextPendingNonce directly instead of InsertTx or EVMNextPendingNonce,

@@ -27,7 +27,6 @@ import (
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const shutdownWait = 5 * time.Second
@@ -46,7 +45,7 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 type Backend interface {
 	BlockByNumber(context.Context, utils.Option[int64]) (*abevm.EvmBlock, error)
 	BlockByHash(context.Context, common.Hash) (utils.Option[*abevm.EvmBlock], error)
-	InsertTx(context.Context, tmtypes.Tx) (common.Hash, error)
+	InsertTx(context.Context, abevm.RawTx) (common.Hash, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int

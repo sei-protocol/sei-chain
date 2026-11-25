@@ -19,7 +19,6 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -39,7 +38,7 @@ type testBackend struct {
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
-	insertTx         func(context.Context, tmtypes.Tx) (common.Hash, error)
+	insertTx         func(context.Context, abevm.RawTx) (common.Hash, error)
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
 	chainConfig      func() *params.ChainConfig
 	chainID          func() uint64
@@ -90,7 +89,7 @@ func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks],
 	return b.executedBlocks()
 }
 
-func (b *testBackend) InsertTx(ctx context.Context, tx tmtypes.Tx) (common.Hash, error) {
+func (b *testBackend) InsertTx(ctx context.Context, tx abevm.RawTx) (common.Hash, error) {
 	return b.insertTx(ctx, tx)
 }
 

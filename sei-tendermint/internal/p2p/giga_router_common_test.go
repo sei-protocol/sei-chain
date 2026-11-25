@@ -37,7 +37,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
+func registerEvmProxyForTest(t *testing.T, router *GigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
 	t.Helper()
 	client, err := ethrpc.DialContext(t.Context(), rpcURL.String())
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func newAppHashTestRouter(
 	t *testing.T,
 	rng utils.Rng,
 	key atypes.SecretKey,
-) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon, *execution.Executor) {
+) (*testApp, *manualAppHashBuilder, *data.State, *GigaRouterCommon, *execution.Executor) {
 	t.Helper()
 	genDoc := &tmtypes.GenesisDoc{
 		ChainID:         "apphash-test",
@@ -187,7 +187,7 @@ func newAppHashTestRouter(
 	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	signer := newTestSigner(cfg.App.EvmChainID(), 0)
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg:    cfg,
 		data:   state,
 		signer: signer,
@@ -387,7 +387,7 @@ func TestGigaRouterCommon_ValidatorAddrUsesConfiguredBook(t *testing.T) {
 		Key:      makeKey(rng).Public(),
 		HostPort: tcp.HostPort{Hostname: "configured.example", Port: 26656},
 	}
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{validator: configured}},
 	}
 	got, ok := router.validatorAddr(validator)
@@ -395,7 +395,7 @@ func TestGigaRouterCommon_ValidatorAddrUsesConfiguredBook(t *testing.T) {
 	require.NoError(t, utils.TestDiff(configured, got))
 }
 
-func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *testing.T) {
+func TestGigaRouterCommon_runInboundConnAuthenticatesMemberAndClosesOnLeave(t *testing.T) {
 	rng := utils.TestRng()
 	validatorKey := atypes.GenSecretKey(rng)
 	localKey := makeKey(rng)
@@ -433,7 +433,7 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 			},
 		})
 	// Router treats vaildators outside of committee as full nodes. And capped router rejects all full nodes.
-	require.ErrorIs(t, cappedRouter.RunInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
+	require.ErrorIs(t, cappedRouter.runInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
 	_, ok := cappedRouter.validatorAddr(dummy.Public())
 	require.False(t, ok)
 
@@ -461,8 +461,8 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 			return err
 		}
 		s.Spawn(func() error {
-			if err, wantErr := router.RunInboundConn(ctx, pair[0]), errGigaMembershipChanged; !errors.Is(err, wantErr) {
-				return fmt.Errorf("RunInboundConn() = nil, want %v", wantErr)
+			if err, wantErr := router.runInboundConn(ctx, pair[0]), errGigaMembershipChanged; !errors.Is(err, wantErr) {
+				return fmt.Errorf("runInboundConn() = nil, want %v", wantErr)
 			}
 			return nil
 		})
@@ -480,7 +480,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberFollowsCommittee(t *testing.T) {
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
 	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{b: 1}))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -537,7 +537,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 	ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1, c: 1})
 	ep3 := testEpoch(3, map[atypes.PublicKey]uint64{a: 1, c: 1, d: 1})
 	state := testDataWithAnchor(t, testCertifiedAnchor(ep1, ep2, keys[:2]))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -595,7 +595,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberLimitsToCommitEpoch(t *testing.T)
 	)
 	qc, blocks := testRoadQC(registry.MustEpoch(2), []atypes.SecretKey{keyA}, registry.LastRoad(2))
 	state := testStateAtRoad(t, registry, qc, blocks)
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -670,7 +670,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsNextEpoch(t *testing.T) {
 	)
 	qc2, blocks2 := testRoadQC(registry.MustEpoch(2), []atypes.SecretKey{keyA, keyB}, registry.LastRoad(2))
 	state := testStateAtRoad(t, registry, qc2, blocks2)
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -807,7 +807,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberRunsOneSessionPerMember(t *testin
 	// b has no address-book entry, so an epoch containing only b starts nothing.
 	b := atypes.GenSecretKey(rng).Public()
 	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 		}},
@@ -851,7 +851,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberCancelsAllDepartingBeforeAwait(t 
 	b := atypes.GenSecretKey(rng).Public()
 	c := atypes.GenSecretKey(rng).Public()
 	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1}))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -890,7 +890,7 @@ func TestGigaRouterCommon_CommitteeTasksReturnWhenWorkReturns(t *testing.T) {
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
 	state := testDataWithAnchor(t, testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
-	router := &gigaRouterCommon{data: state}
+	router := &GigaRouterCommon{data: state}
 
 	err := router.runUntilMembershipChange(t.Context(), a, func(context.Context) error {
 		return nil
@@ -903,7 +903,7 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
 	state := testDataWithAnchor(t, testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1})))
-	router := &gigaRouterCommon{data: state}
+	router := &GigaRouterCommon{data: state}
 	started := make(chan struct{})
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
@@ -927,7 +927,7 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 	listener, err := tcp.Listen(addr)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, listener.Close()) })
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{HandshakeTimeout: utils.Some(100 * time.Millisecond)},
 		key: makeKey(rng),
 	}
@@ -1093,7 +1093,10 @@ func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 				auth:   keys[0].Sign(atypes.Challenge{}),
 				EVMRPC: *utils.OrPanic1(url.Parse(endpoint)),
 			}))
-			require.False(t, router.evmProxy(keys[0].Public()).IsPresent())
+			for proxies := range router.proxies.RLock() {
+				_, present := proxies[keys[0].Public()]
+				require.False(t, present)
+			}
 		})
 	}
 }
@@ -1192,14 +1195,18 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 		if err := fullnodeRouter.poolOut.WaitFor(ctx, validatorKey.Public()); err != nil {
 			return err
 		}
-		if fullnodeRouter.evmProxy(validatorKey.Public()).IsPresent() {
-			return fmt.Errorf("fullnode EVM proxy created for loopback EVM RPC address")
+		for proxies := range fullnodeRouter.proxies.RLock() {
+			if _, present := proxies[validatorKey.Public()]; present {
+				return fmt.Errorf("fullnode EVM proxy created for loopback EVM RPC address")
+			}
 		}
 		if err := validatorRouter.poolOut.WaitFor(ctx, validatorKey.Public()); err != nil {
 			return err
 		}
-		if validatorRouter.evmProxy(validatorKey.Public()).IsPresent() {
-			return fmt.Errorf("validator EVM proxy created for loopback EVM RPC address")
+		for proxies := range validatorRouter.proxies.RLock() {
+			if _, present := proxies[validatorKey.Public()]; present {
+				return fmt.Errorf("validator EVM proxy created for loopback EVM RPC address")
+			}
 		}
 		return nil
 	}))
@@ -1227,7 +1234,7 @@ func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
 	listener, err := tcp.Listen(addr)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, listener.Close()) })
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg:     &GigaRouterCommonConfig{DialInterval: time.Second, AllowLocalAddrs: true},
 		key:     localKey,
 		poolOut: giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
@@ -1281,5 +1288,8 @@ func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
 		_, _, err := utils.RecvOrClosed(ctx, closed)
 		return err
 	}))
-	require.False(t, router.evmProxy(validatorKey.Public()).IsPresent())
+	for proxies := range router.proxies.RLock() {
+		_, present := proxies[validatorKey.Public()]
+		require.False(t, present)
+	}
 }

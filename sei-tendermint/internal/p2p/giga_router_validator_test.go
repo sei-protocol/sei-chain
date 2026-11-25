@@ -161,7 +161,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					return fmt.Errorf("producer.WaitForMempool(): %w", err)
 				}
 				for _, tx := range txs {
-					if err := v.InsertTx(ctx, tx); err != nil {
+					if err := v.InsertTx(ctx, utils.OrPanic1(signer.ParseTx(tx))); err != nil {
 						return fmt.Errorf("producer.InsertTx(): %w", err)
 					}
 				}
@@ -337,7 +337,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		if len(connectedRemote) >= 3 {
 			break
 		}
-		client := registerEvmProxyForTest(t, router.gigaRouterCommon, validator, urlByValidator[validator])
+		client := registerEvmProxyForTest(t, router.GigaRouterCommon, validator, urlByValidator[validator])
 		connectedRemote[validator] = client
 		expectedRemoteClients[client] = struct{}{}
 	}
@@ -364,7 +364,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
 			shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
 
-			proxyClient, ok := router.EvmProxy(sender).Get()
+			proxyClient, ok := router.evmProxy(sender).Get()
 
 			if shardValidator == localValidator {
 				// Self-shard: validator short-circuits to local mempool.

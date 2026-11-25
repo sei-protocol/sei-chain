@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // limitExceededError reports a request exceeding an RPC resource limit.
@@ -36,5 +36,5 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return common.Hash{}, limitExceededError{}
 	}
 	defer api.requestLimiter.Release(1)
-	return api.backend.InsertTx(ctx, append(tmtypes.Tx(nil), input...))
+	return api.backend.InsertTx(ctx, append(abevm.RawTx(nil), input...))
 }

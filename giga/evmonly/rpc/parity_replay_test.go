@@ -186,7 +186,7 @@ func (b *replayBackend) rpcBlockByHash(req *coretypes.RequestBlockByHash) (*core
 	return &coretypes.ResultBlock{}, nil
 }
 
-func (*replayBackend) InsertTx(context.Context, tmtypes.Tx) (common.Hash, error) {
+func (*replayBackend) InsertTx(context.Context, abevm.RawTx) (common.Hash, error) {
 	return common.Hash{}, errNotReplayed
 }
 

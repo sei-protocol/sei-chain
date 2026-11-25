@@ -107,7 +107,7 @@ func (c *Local) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultChec
 
 func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
 	if giga, ok := c.Environment.Router.Giga().Get(); ok {
-		if v, ok := giga.Mempool().Get(); ok {
+		if v, ok := giga.Common().Mempool().Get(); ok {
 			return v.EvmNextPendingNonce(addr)
 		}
 		// Fullnode: no local mempool; the pending nonce lives on the

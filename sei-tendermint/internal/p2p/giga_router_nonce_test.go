@@ -49,8 +49,8 @@ func TestGigaPendingNonceForwardsToShardOwner(t *testing.T) {
 		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
 			address := common.Address{1}
 			client, requests := newNonceProxy(t, 9, utils.None[error]())
-			env := newAutobahnEnv(t, utils.TestRng(), validator)
-			router := trackSendRouter(env, utils.Some(client))
+			env := newAutobahnProxyEnv(t, utils.TestRng(), validator, address, client)
+			router := env.Router
 			nonce, err := router.EvmPendingNonce(t.Context(), address)
 			require.NoError(t, err)
 			require.Equal(t, uint64(9), nonce)
@@ -60,16 +60,14 @@ func TestGigaPendingNonceForwardsToShardOwner(t *testing.T) {
 			number, ok := request.block.Number()
 			require.True(t, ok)
 			require.Equal(t, ethrpc.PendingBlockNumber, number)
-			require.Equal(t, 1, router.proxyCalls)
-			require.Zero(t, router.mempoolCalls)
 		})
 	}
 }
 
 func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	client, requests := newNonceProxy(t, 0, utils.Some[error](sendProxyError{}))
-	env := newAutobahnBroadcastEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.Some(client))
+	env := newAutobahnProxyEnv(t, utils.TestRng(), true, common.Address{1}, client)
+	router := env.Router
 	nonce, err := router.EvmPendingNonce(t.Context(), common.Address{1})
 	rpcErr, ok := errors.AsType[ethrpc.Error](err)
 	require.True(t, ok)
@@ -77,18 +75,16 @@ func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	require.Zero(t, nonce)
 	_, err = utils.Recv(t.Context(), requests)
 	require.NoError(t, err)
-	require.Zero(t, router.mempoolCalls)
 }
 
 func TestGigaPendingNoncePropagatesCanceledRequest(t *testing.T) {
 	client, _ := newNonceProxy(t, 9, utils.None[error]())
-	env := newAutobahnBroadcastEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.Some(client))
+	env := newAutobahnProxyEnv(t, utils.TestRng(), true, common.Address{1}, client)
+	router := env.Router
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := router.EvmPendingNonce(ctx, common.Address{1})
 	require.ErrorIs(t, err, context.Canceled)
-	require.Zero(t, router.mempoolCalls)
 }
 
 func TestGigaPendingNonceIncludesLocalAdmissions(t *testing.T) {

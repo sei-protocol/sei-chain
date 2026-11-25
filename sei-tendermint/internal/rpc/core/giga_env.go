@@ -17,7 +17,7 @@ import (
 // GigaEnvironment provides RPC services for Autobahn and the EVM-only application.
 type GigaEnvironment struct {
 	*abevm.Proxy
-	Router p2p.GigaRouter
+	Router *p2p.GigaRouterCommon
 	// Executor runs the Autobahn blocks.
 	Executor *execution.Executor
 	GenDoc   *types.GenesisDoc
@@ -46,7 +46,7 @@ func (env *GigaEnvironment) BlockByHash(ctx context.Context, hash common.Hash) (
 }
 
 // InsertTx submits input to its sender's shard and returns the transaction hash.
-func (env *GigaEnvironment) InsertTx(ctx context.Context, input types.Tx) (common.Hash, error) {
+func (env *GigaEnvironment) InsertTx(ctx context.Context, input abevm.RawTx) (common.Hash, error) {
 	return env.Router.InsertTx(ctx, input)
 }
 

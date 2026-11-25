@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var errTooLarge = errors.New("transaction too large")
@@ -177,29 +176,20 @@ func (s *State) WaitForMempool(ctx context.Context) error {
 
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
 // for the duration of the call. Waiting for a permit is cancelled with ctx.
-func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (abevm.EvmTx, abevm.AdmittedTx, error) {
+func (s *State) checkTx(ctx context.Context, tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	start := time.Now()
 	release, err := s.checkTxSem.Acquire(ctx)
 	metrics.ObserveCheckTxWait(time.Since(start))
 	if err != nil {
-		return abevm.EvmTx{}, abevm.AdmittedTx{}, err
+		return abevm.AdmittedTx{}, err
 	}
 	defer release()
-	decoded, err := s.signer.ParseTx(tx)
-	if err != nil {
-		return abevm.EvmTx{}, abevm.AdmittedTx{}, fmt.Errorf("%w: %w", abevm.ErrTxRejected, err)
-	}
-	admitted, err := s.app.CheckTx(decoded)
-	if err != nil {
-		return decoded, admitted, err
-	}
-	s.signer.Remember(decoded.Hash(), decoded.Sender())
-	return decoded, admitted, nil
+	return s.app.CheckTx(tx)
 }
 
 // InsertTx inserts tx into the mempool, waiting for capacity when full.
 // Concurrent calls waiting for capacity are admitted in arrival order.
-func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (err error) {
+func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTx) (err error) {
 	defer func() {
 		metrics.Global.InsertsAt(insertTxResult(err)).Add(1)
 	}()
@@ -207,15 +197,19 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (err error) {
 	if !ok {
 		return ErrNotProducing
 	}
-	if uint64(len(tx)) > types.MaxTxsBytesPerLaneBlock {
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	if uint64(len(raw)) > types.MaxTxsBytesPerLaneBlock {
 		return errTooLarge
 	}
-	decoded, resp, err := s.checkTx(ctx, tx)
+	resp, err := s.checkTx(ctx, tx)
 	if err != nil {
 		return err
 	}
 
-	gasWanted := decoded.Gas()
+	gasWanted := tx.Gas()
 	if gasWanted > s.cfg.MaxGasWantedPerBlock {
 		return errTooLarge
 	}
@@ -230,8 +224,8 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (err error) {
 
 	// Quick check the evm pending nonce.
 	// It has a side effect of resetting the pending nonce, if gap is detected.
-	addr := decoded.Sender()
-	if got, want := decoded.Nonce(), s.evmNextPendingNonce(mp, addr); got != want {
+	addr := tx.Sender()
+	if got, want := tx.Nonce(), s.evmNextPendingNonce(mp, addr); got != want {
 		return fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
 	}
 	// Rate limiting for incoming transactions.
@@ -263,18 +257,18 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (err error) {
 		// This is fine, as our pending nonce tracking is always consistent,
 		// and converges to correct state if sender's txs are submitted sequentially in nonce order.
 		if r, ok := m.evmNonces[addr]; ok {
-			if r.next != decoded.Nonce() {
-				return fmt.Errorf("%w: got %v, want %v", errBadNonce, decoded.Nonce(), r.next)
+			if r.next != tx.Nonce() {
+				return fmt.Errorf("%w: got %v, want %v", errBadNonce, tx.Nonce(), r.next)
 			}
 			r.next += 1
 		} else {
-			m.evmNonces[addr] = &nonceRange{m.nextNonceRangeID, decoded.Nonce(), decoded.Nonce() + 1}
+			m.evmNonces[addr] = &nonceRange{m.nextNonceRangeID, tx.Nonce(), tx.Nonce() + 1}
 			m.nextNonceRangeID += 1
 		}
 		// If any limit would be exceeded, then construct a payload.
 		// Note that we use subtraction in a way avoiding arithmetic overflows.
 		ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
-		ok = ok && types.MaxTxsBytesPerLaneBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
+		ok = ok && types.MaxTxsBytesPerLaneBlock-m.nextBlock.sizeBytes >= uint64(len(raw))
 		ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
 		ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
 		if !ok {
@@ -287,9 +281,9 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (err error) {
 
 		b := m.nextBlock
 		b.gasEstimated += gasEstimated
-		b.gasWanted += decoded.Gas()
-		b.sizeBytes += uint64(len(tx))
-		b.rawTxs = append(b.rawTxs, tx)
+		b.gasWanted += tx.Gas()
+		b.sizeBytes += uint64(len(raw))
+		b.rawTxs = append(b.rawTxs, raw)
 		p := &pendingTx{
 			addr:         addr,
 			nonceRangeID: m.evmNonces[addr].id,

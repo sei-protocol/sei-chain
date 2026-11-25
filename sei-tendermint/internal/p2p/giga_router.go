@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -68,17 +67,8 @@ type GigaValidatorConfig struct {
 	Producer        *producer.Config
 }
 
-// GigaRouter serves Autobahn peers, blocks, and shard-routed EVM requests.
-// Mempool returns Some only on validators. RunInboundConn is served by both
-// validators and fullnodes — non-committee peers get the block-sync subset only.
-// A fullnode accepts committee peers but has no consensus state to serve them.
+// GigaRouter runs an Autobahn node and provides its shared services.
 type GigaRouter interface {
 	Run(ctx context.Context) error
-	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
-	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*abevm.EvmBlock, error)
-	BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error)
-	InsertTx(ctx context.Context, input types.Tx) (common.Hash, error)
-	EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error)
-	Mempool() utils.Option[*producer.State]
-	fillInboundHandshake(spec handshakeSpec) handshakeSpec
+	Common() *GigaRouterCommon
 }

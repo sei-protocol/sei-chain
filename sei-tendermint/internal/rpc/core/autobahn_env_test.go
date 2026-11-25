@@ -130,7 +130,7 @@ func newAutobahnEnvWithSigner(t *testing.T, validator bool, app *abevm.Proxy, si
 	return &GigaEnvironment{
 		Proxy:  app,
 		GenDoc: genDoc,
-		Router: giga,
+		Router: giga.Common(),
 		Executor: execution.New(&execution.Config{
 			GenDoc:         genDoc,
 			App:            app,

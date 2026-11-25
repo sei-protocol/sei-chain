@@ -19,31 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-type sendRouter struct {
-	gigaEvmRouting
-	common       *gigaRouterCommon
-	proxy        utils.Option[*ethrpc.Client]
-	proxyCalls   int
-	mempoolCalls int
-}
-
-func trackSendRouter(env *gigaEvmTestFixture, proxy utils.Option[*ethrpc.Client]) *sendRouter {
-	router := &sendRouter{gigaEvmRouting: env.Router, common: env.common, proxy: proxy}
-	env.Router = router
-	return router
-}
-
-func (r *sendRouter) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	r.proxyCalls++
-	return r.proxy
-}
-func (r *sendRouter) Mempool() utils.Option[*producer.State] {
-	r.mempoolCalls++
-	return r.gigaEvmRouting.Mempool()
-}
 
 type sendProxyError struct{}
 
@@ -89,11 +65,10 @@ func TestGigaInsertTxRejectsMalformedInput(t *testing.T) {
 	for _, input := range [][]byte{nil, {1, 2}} {
 		t.Run(fmt.Sprintf("%x", input), func(t *testing.T) {
 			env := newAutobahnFullnodeEnv(t, utils.TestRng())
-			router := trackSendRouter(env, utils.None[*ethrpc.Client]())
+			router := env.Router
 			hash, err := router.InsertTx(t.Context(), input)
 			require.Error(t, err)
 			require.Equal(t, common.Hash{}, hash)
-			require.Zero(t, router.mempoolCalls)
 		})
 	}
 }
@@ -101,12 +76,10 @@ func TestGigaInsertTxRejectsMalformedInput(t *testing.T) {
 func TestGigaInsertTxRejectsUnprotectedTransaction(t *testing.T) {
 	tx := signEVMStateTestTx(t, ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 3}), ethtypes.HomesteadSigner{})
 	env := newAutobahnFullnodeEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.None[*ethrpc.Client]())
+	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	require.Error(t, err)
 	require.Equal(t, common.Hash{}, hash)
-	require.Zero(t, router.proxyCalls)
-	require.Zero(t, router.mempoolCalls)
 }
 
 func TestGigaInsertTxRejectsForeignChainTransaction(t *testing.T) {
@@ -123,12 +96,10 @@ func TestGigaInsertTxRejectsForeignChainTransaction(t *testing.T) {
 				tx = signEVMStateTestTx(t, ethtypes.NewTx(&ethtypes.DynamicFeeTx{ChainID: id}), ethtypes.LatestSignerForChainID(id))
 			}
 			env := newAutobahnFullnodeEnv(t, utils.TestRng())
-			router := trackSendRouter(env, utils.None[*ethrpc.Client]())
+			router := env.Router
 			hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 			require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 			require.Equal(t, common.Hash{}, hash)
-			require.Zero(t, router.proxyCalls)
-			require.Zero(t, router.mempoolCalls)
 		})
 	}
 }
@@ -140,16 +111,15 @@ func TestGigaInsertTxProxiesToShardOwner(t *testing.T) {
 			raw := utils.OrPanic1(tx.MarshalBinary())
 			remoteHash := common.HexToHash("0x1234")
 			client, requests := newSendProxy(t, remoteHash, utils.None[error]())
-			env := newAutobahnEnv(t, utils.TestRng(), validator)
-			router := trackSendRouter(env, utils.Some(client))
+			sender := utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))
+			env := newAutobahnProxyEnv(t, utils.TestRng(), validator, sender, client)
+			router := env.Router
 			got, err := router.InsertTx(t.Context(), raw)
 			require.NoError(t, err)
 			require.Equal(t, remoteHash, got)
 			forwarded, err := utils.Recv(t.Context(), requests)
 			require.NoError(t, err)
 			require.Equal(t, hexutil.Bytes(raw), forwarded)
-			require.Equal(t, 1, router.proxyCalls)
-			require.Zero(t, router.mempoolCalls)
 		})
 	}
 }
@@ -157,8 +127,9 @@ func TestGigaInsertTxProxiesToShardOwner(t *testing.T) {
 func TestGigaInsertTxReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	tx := signedEVMStateTestTx(t, 0)
 	client, requests := newSendProxy(t, common.Hash{}, utils.Some[error](sendProxyError{}))
-	env := newAutobahnBroadcastEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.Some(client))
+	sender := utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))
+	env := newAutobahnProxyEnv(t, utils.TestRng(), true, sender, client)
+	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	rpcErr, ok := errors.AsType[ethrpc.Error](err)
 	require.True(t, ok)
@@ -166,39 +137,34 @@ func TestGigaInsertTxReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	require.Equal(t, tx.Hash(), hash)
 	_, err = utils.Recv(t.Context(), requests)
 	require.NoError(t, err)
-	require.Zero(t, router.mempoolCalls)
 }
 
 func TestGigaInsertTxFallsBackToLocalMempool(t *testing.T) {
 	tx := signedEVMStateTestTx(t, 0)
 	env := newAutobahnBroadcastEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.None[*ethrpc.Client]())
+	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	require.ErrorIs(t, err, producer.ErrNotProducing)
 	require.Equal(t, tx.Hash(), hash)
-	require.Equal(t, 1, router.proxyCalls)
 }
 
 func TestGigaInsertTxFailsWithoutLocalMempool(t *testing.T) {
 	tx := signedEVMStateTestTx(t, 0)
 	env := newAutobahnFullnodeEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.None[*ethrpc.Client]())
+	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	require.Error(t, err)
 	require.Equal(t, tx.Hash(), hash)
-	require.Equal(t, 1, router.proxyCalls)
 }
 
 func TestGigaInsertTxDoesNotProxyInvalidSignature(t *testing.T) {
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{V: big.NewInt(37), R: new(big.Int), S: new(big.Int)})
 	client, _ := newSendProxy(t, common.HexToHash("0x1234"), utils.None[error]())
-	env := newAutobahnFullnodeEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.Some(client))
+	env := newAutobahnProxyEnv(t, utils.TestRng(), false, common.Address{}, client)
+	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	require.Error(t, err)
 	require.Equal(t, common.Hash{}, hash)
-	require.Zero(t, router.proxyCalls)
-	require.Zero(t, router.mempoolCalls)
 }
 
 func TestGigaInsertTxCachesOnlyAdmittedSenders(t *testing.T) {
@@ -215,8 +181,8 @@ func TestGigaInsertTxCachesOnlyAdmittedSenders(t *testing.T) {
 			}
 			signer := abevm.NewSigner(counted, 1024, 0)
 			env := newAutobahnEnvWithSigner(t, utils.TestRng(), true, abevm.NewProxy(app), signer)
-			router := trackSendRouter(env, utils.None[*ethrpc.Client]())
-			mp := router.gigaEvmRouting.Mempool().OrPanic("validator mempool")
+			router := env.Router
+			mp := env.common.Mempool().OrPanic("validator mempool")
 			tx := signedEVMStateTestTx(t, 0)
 			raw := utils.OrPanic1(tx.MarshalBinary())
 			sender := utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(1)), tx))
@@ -258,14 +224,6 @@ func TestGigaInsertTxCachesOnlyAdmittedSenders(t *testing.T) {
 	}
 }
 
-func (r *sendRouter) InsertTx(ctx context.Context, input types.Tx) (common.Hash, error) {
-	return r.common.insertTx(ctx, input, r)
-}
-
-func (r *sendRouter) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
-	return r.common.evmPendingNonce(ctx, address, r)
-}
-
 type countingEvmSigner struct {
 	ethtypes.Signer
 	calls utils.Mutex[*int]
@@ -281,10 +239,8 @@ func (s *countingEvmSigner) Sender(tx *ethtypes.Transaction) (common.Address, er
 func TestGigaInsertTxRejectsUnsupportedTransactionType(t *testing.T) {
 	tx := ethtypes.NewTx(&ethtypes.BlobTx{ChainID: uint256.NewInt(1)})
 	env := newAutobahnFullnodeEnv(t, utils.TestRng())
-	router := trackSendRouter(env, utils.None[*ethrpc.Client]())
+	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 	require.Equal(t, common.Hash{}, hash)
-	require.Zero(t, router.proxyCalls)
-	require.Zero(t, router.mempoolCalls)
 }

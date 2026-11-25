@@ -144,7 +144,11 @@ func parseBlockTxs(raw [][]byte, signer ethtypes.Signer, known []utils.Option[co
 	parser := NewSigner(signer, len(known), workers)
 	for i, sender := range known {
 		if sender, ok := sender.Get(); ok {
-			parser.Remember(crypto.Keccak256Hash(raw[i]), sender)
+			tx, err := TestEvmTx(raw[i], sender)
+			if err != nil {
+				return nil, err
+			}
+			parser.Remember(tx)
 		}
 	}
 	return parser.ParseTxs(raw)
@@ -195,7 +199,7 @@ func TestSignerOptionalCache(t *testing.T) {
 		t.Run(fmt.Sprintf("capacity=%d", capacity), func(t *testing.T) {
 			signer := NewSigner(ethtypes.LatestSignerForChainID(tx.ChainId()), capacity, 4)
 			require.Equal(t, capacity > 0, signer.cache.IsPresent())
-			signer.Remember(tx.Hash(), claimed)
+			signer.Remember(utils.OrPanic1(TestEvmTx(raw, claimed)))
 			want := sender
 			if capacity > 0 {
 				want = claimed
@@ -206,7 +210,7 @@ func TestSignerOptionalCache(t *testing.T) {
 			batch, err := signer.ParseTxs([][]byte{raw})
 			require.NoError(t, err)
 			require.Equal(t, want, batch[0].Sender())
-			signer.Forget(tx.Hash())
+			signer.ForgetTxs(batch)
 			parsed, err = signer.ParseTx(raw)
 			require.NoError(t, err)
 			require.Equal(t, sender, parsed.Sender())

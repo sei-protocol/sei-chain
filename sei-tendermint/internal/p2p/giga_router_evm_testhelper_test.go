@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"context"
 	"math/big"
 	"net/url"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -23,16 +23,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-type gigaEvmTestRouting interface {
-	gigaEvmRouting
-	InsertTx(context.Context, types.Tx) (common.Hash, error)
-	EvmPendingNonce(context.Context, common.Address) (uint64, error)
-}
-
 type gigaEvmTestFixture struct {
 	Proxy  *abevm.Proxy
-	Router gigaEvmTestRouting
-	common *gigaRouterCommon
+	Router *GigaRouterCommon
+	common *GigaRouterCommon
 }
 
 type evmStateApp struct{ abevm.Application }
@@ -101,8 +95,31 @@ func newAutobahnEnvWithApp(t *testing.T, rng utils.Rng, validator bool, app *abe
 
 func newAutobahnEnvWithSigner(t *testing.T, rng utils.Rng, validator bool, app *abevm.Proxy, signer *abevm.Signer) *gigaEvmTestFixture {
 	t.Helper()
-	committee, keys := atypes.GenCommittee(rng, 1)
+	return newAutobahnRoutingEnv(t, rng, validator, app, signer, utils.None[common.Address]())
+}
+
+func newAutobahnProxyEnv(t *testing.T, rng utils.Rng, validator bool, address common.Address, client *ethrpc.Client) *gigaEvmTestFixture {
+	t.Helper()
+	app := abevm.NewProxy(broadcastEVMApp{})
+	env := newAutobahnRoutingEnv(t, rng, validator, app, newTestSigner(app.EvmChainID(), 0), utils.Some(address))
+	owner := env.common.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(address)
+	for proxies := range env.common.proxies.Lock() {
+		proxies[owner] = client
+	}
+	return env
+}
+
+func newAutobahnRoutingEnv(t *testing.T, rng utils.Rng, validator bool, app *abevm.Proxy, signer *abevm.Signer, remoteSender utils.Option[common.Address]) *gigaEvmTestFixture {
+	t.Helper()
+	size := 1
+	if remoteSender.IsPresent() {
+		size = 2
+	}
+	committee, keys := atypes.GenCommittee(rng, size)
 	valKey := keys[0]
+	if address, ok := remoteSender.Get(); ok && committee.EvmShard(address) == valKey.Public() {
+		valKey = keys[1]
+	}
 	nodeKey := NodeSecretKey(ed25519.TestSecretKey(utils.GenBytes(rng, 32)))
 	genDoc := &types.GenesisDoc{
 		ChainID:         "rpc-autobahn",
@@ -126,13 +143,14 @@ func newAutobahnEnvWithSigner(t *testing.T, rng utils.Rng, validator bool, app *
 		App:                app,
 		AppHashBuilder:     newManualAppHashBuilder(),
 		GenDoc:             genDoc,
+		EnableEvmProxy:     true,
 	}
 	registry, err := epoch.TestGenesisRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), epoch.DefaultEpochLength)
 	require.NoError(t, err)
 	dataState, err := BuildDataState(&commonCfg, blockStore, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
-	var giga gigaEvmTestRouting
-	var common *gigaRouterCommon
+	var giga GigaRouter
+	var common *GigaRouterCommon
 	if validator {
 		router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 			EVMRPC:                 url.URL{Scheme: "ws", Host: "127.0.0.1:8546"},
@@ -151,15 +169,15 @@ func newAutobahnEnvWithSigner(t *testing.T, rng utils.Rng, validator bool, app *
 		require.NoError(t, err)
 		require.True(t, router.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
 		giga = router
-		common = router.gigaRouterCommon
+		common = router.GigaRouterCommon
 	} else {
 		router, err := NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState, signer)
 		require.NoError(t, err)
 		require.False(t, router.Mempool().IsPresent())
 		giga = router
-		common = router.gigaRouterCommon
+		common = router.GigaRouterCommon
 	}
-	return &gigaEvmTestFixture{Proxy: app, Router: giga, common: common}
+	return &gigaEvmTestFixture{Proxy: app, Router: giga.Common(), common: common}
 }
 
 func (broadcastEVMApp) EvmChainID() uint64 { return 1 }

@@ -35,20 +35,11 @@ func NewSigner(signer ethtypes.Signer, cacheCapacity, workers int) *Signer {
 	return s
 }
 
-// Remember records a verified sender for hash when caching is enabled.
-func (s *Signer) Remember(hash common.Hash, sender common.Address) {
+// Remember caches the verified sender of tx when caching is enabled.
+func (s *Signer) Remember(tx EvmTx) {
 	if cached, ok := s.cache.Get(); ok {
 		for senders := range cached.Lock() {
-			senders.push(hash, sender)
-		}
-	}
-}
-
-// Forget removes hash from the sender cache when caching is enabled.
-func (s *Signer) Forget(hash common.Hash) {
-	if cached, ok := s.cache.Get(); ok {
-		for senders := range cached.Lock() {
-			senders.pop(hash)
+			senders.push(tx.Hash(), tx.Sender())
 		}
 	}
 }
@@ -65,7 +56,7 @@ func (s *Signer) ForgetTxs(txs []EvmTx) {
 }
 
 // ParseTx parses a replay-protected transaction and returns its verified sender.
-func (s *Signer) ParseTx(raw []byte) (EvmTx, error) {
+func (s *Signer) ParseTx(raw RawTx) (EvmTx, error) {
 	tx := new(ethtypes.Transaction)
 	if err := tx.UnmarshalBinary(raw); err != nil {
 		return EvmTx{}, err

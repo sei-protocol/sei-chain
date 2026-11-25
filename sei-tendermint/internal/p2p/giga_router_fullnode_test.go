@@ -92,7 +92,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, err)
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
 	for validator, rpcURL := range urlByValidator {
-		clientByValidator[validator] = registerEvmProxyForTest(t, router.gigaRouterCommon, validator, rpcURL)
+		clientByValidator[validator] = registerEvmProxyForTest(t, router.GigaRouterCommon, validator, rpcURL)
 	}
 
 	// EvmProxy: for every sender, the fullnode router resolves to the
@@ -107,7 +107,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
 		shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
 		expectedClient := clientByValidator[shardValidator]
-		proxyClient, ok := router.EvmProxy(sender).Get()
+		proxyClient, ok := router.evmProxy(sender).Get()
 		require.True(t, ok)
 		require.Equal(t, expectedClient, proxyClient)
 		returnedRemoteClients[proxyClient] = struct{}{}
@@ -232,6 +232,9 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 	_, err = utils.Recv(t.Context(), closed)
 	require.NoError(t, err)
 	for _, key := range keys {
-		require.False(t, router.evmProxy(key.Public()).IsPresent())
+		for proxies := range router.proxies.RLock() {
+			_, present := proxies[key.Public()]
+			require.False(t, present)
+		}
 	}
 }

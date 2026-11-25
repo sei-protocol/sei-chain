@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 func TestSendRawTransaction(t *testing.T) {
@@ -26,7 +26,7 @@ func TestSendRawTransaction(t *testing.T) {
 	returnedHash := common.HexToHash("0x1234")
 	var broadcastRaw []byte
 	backend := &testBackend{
-		insertTx: func(_ context.Context, req tmtypes.Tx) (common.Hash, error) {
+		insertTx: func(_ context.Context, req abevm.RawTx) (common.Hash, error) {
 			broadcastRaw = append([]byte(nil), req...)
 			return returnedHash, nil
 		},
@@ -55,7 +55,7 @@ func TestSendRawTransaction(t *testing.T) {
 func TestReturnsCheckTxRejection(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) (common.Hash, error) {
+		insertTx: func(context.Context, abevm.RawTx) (common.Hash, error) {
 			return common.Hash{}, errors.New("bad nonce")
 		},
 	}
@@ -67,7 +67,7 @@ func TestSendRawTransactionBroadcastError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("mempool full")
 	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) (common.Hash, error) {
+		insertTx: func(context.Context, abevm.RawTx) (common.Hash, error) {
 			return common.Hash{}, want
 		},
 	}
@@ -111,7 +111,7 @@ func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(gate) }) }
 	backend := &testBackend{
-		insertTx: func(ctx context.Context, _ tmtypes.Tx) (common.Hash, error) {
+		insertTx: func(ctx context.Context, _ abevm.RawTx) (common.Hash, error) {
 			started <- struct{}{}
 			select {
 			case <-ctx.Done():
@@ -166,7 +166,7 @@ func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("broadcast failed")
 	backend := &testBackend{
-		insertTx: func(ctx context.Context, _ tmtypes.Tx) (common.Hash, error) {
+		insertTx: func(ctx context.Context, _ abevm.RawTx) (common.Hash, error) {
 			if err := ctx.Err(); err != nil {
 				return common.Hash{}, err
 			}
@@ -190,7 +190,7 @@ func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	var broadcasts atomic.Int64
 	backend := &testBackend{
-		insertTx: func(context.Context, tmtypes.Tx) (common.Hash, error) {
+		insertTx: func(context.Context, abevm.RawTx) (common.Hash, error) {
 			broadcasts.Add(1)
 			return common.Hash{}, nil
 		},

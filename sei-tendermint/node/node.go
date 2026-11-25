@@ -367,7 +367,7 @@ func makeNode(
 		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), evmSigner.OrPanic("Autobahn requires a transaction signer"), genDoc, manager, opts.giga.Execution.MaxBlocksInFlight))
 		node.gigaRPCEnv = utils.Some(&rpccore.GigaEnvironment{
 			Proxy:    evmApp.OrPanic("Autobahn RPC requires an EVM application"),
-			Router:   node.giga.OrPanic("Autobahn RPC requires a router"),
+			Router:   node.giga.OrPanic("Autobahn RPC requires a router").Common(),
 			Executor: node.executor.OrPanic("Autobahn RPC requires an executor"),
 			GenDoc:   genDoc,
 		})
