@@ -39,6 +39,7 @@ func (s *Store) seed(seed Seed) error {
 	if err := s.WriteAppQC(seed.AppQC); err != nil {
 		return fmt.Errorf("s.WriteAppQC(): %w", err)
 	}
+	// The caller removes the restore files after New returns, so the seed must be durable by then.
 	// A crash before this flush leaves a prefix of the three records, which the next open completes.
 	if err := s.Flush(); err != nil {
 		return fmt.Errorf("s.Flush(): %w", err)
