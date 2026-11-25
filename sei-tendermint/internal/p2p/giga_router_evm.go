@@ -17,7 +17,6 @@ import (
 // gigaEvmRouting selects remote shard owners and local transaction admission.
 type gigaEvmRouting interface {
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
-	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
 }
 
@@ -28,15 +27,17 @@ func (r *gigaRouterCommon) insertTx(ctx context.Context, input types.Tx, router 
 		return common.Hash{}, err
 	}
 	hash := tx.Hash()
-	if router.EvmProxyEnabled() {
-		if client, ok := router.EvmProxy(tx.Sender()).Get(); ok {
-			err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", hexutil.Bytes(input))
-			return hash, err
-		}
+	if client, ok := router.EvmProxy(tx.Sender()).Get(); ok {
+		err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", hexutil.Bytes(input))
+		return hash, err
+	}
+	mempool, ok := router.Mempool().Get()
+	if !ok {
+		return errors.New("autobahn fullnode has no local mempool; transactions must be sent to a validator")
 	}
 	// Local admission reuses the verified sender through the shared signer.
 	r.signer.Remember(hash, tx.Sender())
-	if err := r.insertLocalTx(ctx, input, router); err != nil {
+	if _, err := mempool.InsertTx(ctx, input); err != nil {
 		r.signer.Forget(hash)
 		return hash, err
 	}
@@ -44,11 +45,7 @@ func (r *gigaRouterCommon) insertTx(ctx context.Context, input types.Tx, router 
 }
 
 func (r *gigaRouterCommon) insertLocalTx(ctx context.Context, input types.Tx, router gigaEvmRouting) error {
-	mempool, ok := router.Mempool().Get()
-	if !ok {
-		return errors.New("autobahn fullnode has no local mempool; transactions must be sent to a validator")
-	}
-	_, err := mempool.InsertTx(ctx, input)
+	
 	return err
 }
 

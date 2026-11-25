@@ -190,8 +190,8 @@ func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (abevm.EvmTx, abevm.
 
 // InsertTx inserts tx into the mempool, waiting for capacity when full.
 // Concurrent calls waiting for capacity are admitted in arrival order.
-func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx, error) {
-	resp, err := s.doInsertTx(ctx, tx)
+func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) error {
+	err := s.doInsertTx(ctx, tx)
 	var result string
 	switch {
 	case errors.Is(err, errTooLarge):
@@ -208,26 +208,26 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx, 
 		result = "ok"
 	}
 	metrics.Global.InsertsAt(result).Add(1)
-	return resp, err
+	return err
 }
 
 // Inserts transaction. Blocks until there is capacity in the mempool.
-func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx, error) {
+func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) error {
 	mp, ok := s.mempool.Load().Get()
 	if !ok {
-		return abevm.AdmittedTx{}, ErrNotProducing
+		return ErrNotProducing
 	}
 	if uint64(len(tx)) > types.MaxTxsBytesPerLaneBlock {
-		return abevm.AdmittedTx{}, errTooLarge
+		return errTooLarge
 	}
 	decoded, resp, err := s.checkTx(ctx, tx)
 	if err != nil {
-		return abevm.AdmittedTx{}, err
+		return err
 	}
 
 	gasWanted := decoded.Gas()
 	if gasWanted > s.cfg.MaxGasWantedPerBlock {
-		return abevm.AdmittedTx{}, errTooLarge
+		return errTooLarge
 	}
 	// Normalize the gas estimate.
 	gasEstimated := resp.GasEstimated
@@ -235,20 +235,20 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx
 		gasEstimated = gasWanted
 	}
 	if gasEstimated > s.cfg.MaxGasEstimatedPerBlock {
-		return abevm.AdmittedTx{}, errTooLarge
+		return errTooLarge
 	}
 
 	// Quick check the evm pending nonce.
 	// It has a side effect of resetting the pending nonce, if gap is detected.
 	addr := decoded.Sender()
 	if got, want := decoded.Nonce(), s.evmNextPendingNonce(mp, addr); got != want {
-		return abevm.AdmittedTx{}, fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
+		return fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
 	}
 	// Rate limiting for incoming transactions.
 	// This is lane throughput throttling, so it comes after tx validation.
 	// Also it is TESTONLY feature as of today, noop in prod.
 	if err := s.insertTxLimiter.Wait(ctx); err != nil {
-		return abevm.AdmittedTx{}, err
+		return err
 	}
 	capacityWaitStart := time.Now()
 	// In case there are many concurrent insertTx calls waiting for capacity,
@@ -257,16 +257,16 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx
 	// It is ok, because all waiting insertTx calls wait on exactly the same condition (capacity).
 	release, err := s.insertTxSem.Acquire(ctx)
 	if err != nil {
-		return abevm.AdmittedTx{}, err
+		return err
 	}
 	defer release()
 	for m, ctrl := range mp.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return m.closed || !m.IsFull() }); err != nil {
-			return abevm.AdmittedTx{}, err
+			return err
 		}
 		metrics.ObserveCapacityWait(time.Since(capacityWaitStart))
 		if m.closed {
-			return abevm.AdmittedTx{}, ErrNotProducing
+			return ErrNotProducing
 		}
 		// Verify the nonce again under lock.
 		// Here we have a race condition between app execution and evmNonces updates.
@@ -274,7 +274,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx
 		// and converges to correct state if sender's txs are submitted sequentially in nonce order.
 		if r, ok := m.evmNonces[addr]; ok {
 			if r.next != decoded.Nonce() {
-				return abevm.AdmittedTx{}, fmt.Errorf("%w: got %v, want %v", errBadNonce, decoded.Nonce(), r.next)
+				return fmt.Errorf("%w: got %v, want %v", errBadNonce, decoded.Nonce(), r.next)
 			}
 			r.next += 1
 		} else {
@@ -306,5 +306,5 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx) (abevm.AdmittedTx
 		}
 		b.txs = append(b.txs, p)
 	}
-	return resp, nil
+	return nil
 }

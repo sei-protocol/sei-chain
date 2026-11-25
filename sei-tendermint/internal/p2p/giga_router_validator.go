@@ -146,9 +146,6 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}
-	if _, ok := r.poolOut.Get(validator); !ok {
-		return utils.None[*ethrpc.Client]()
-	}
 	return r.evmProxy(validator)
 }
 
