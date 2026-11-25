@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
@@ -249,9 +249,7 @@ func TestRootMultiAutoKickoff_RestartResumesMigrateEVM(t *testing.T) {
 // mode as complete.
 func migrationComplete(t *testing.T, store *Store, mode sctypes.WriteMode) bool {
 	t.Helper()
-	reporter, ok := store.scStore.(writeModeCompletionReporter)
-	require.True(t, ok)
-	complete, err := reporter.IsWriteModeComplete(mode)
+	complete, err := store.scStore.IsWriteModeComplete(mode)
 	require.NoError(t, err)
 	return complete
 }
@@ -550,8 +548,8 @@ func TestRootMultiCacheMultiStoreForExport_PreKickoffHeightAfterKickoff(t *testi
 		simulateCosmosOnlyBlock(t, store, storeKeys, i)
 	}
 
-	_, err := store.scStore.LoadVersion(pre, true)
-	require.ErrorIs(t, err, gigatypes.ErrVersionUnreachable)
+	_, err := store.scStore.LoadVersionReadOnly(pre)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 
 	cms, err := store.CacheMultiStoreForExport(pre)
 	require.NoError(t, err)

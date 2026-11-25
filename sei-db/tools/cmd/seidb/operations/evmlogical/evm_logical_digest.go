@@ -22,7 +22,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -873,7 +872,7 @@ func memiavlReportContext(dbDir string, height int64, normalization string, stre
 }
 
 type compositeMigrateEVMSource struct {
-	opened   gigatypes.LiveStateStore
+	opened   *operations.OpenedFlatKV
 	boundary migration.MigrationBoundary
 	memIAVL  *memiavlLeafStream
 	ctx      digestPrintContext
@@ -885,7 +884,7 @@ func openCompositeMigrateEVMSource(flatKVDir, memIAVLDir string, height int64, m
 		return nil, fmt.Errorf("open flatkv read-only: %w", err)
 	}
 
-	boundary, versionKnown, migrationVersion, err := readFlatKVMigrationState(opened)
+	boundary, versionKnown, migrationVersion, err := readFlatKVMigrationState(opened.CommitStore)
 	if err != nil {
 		_ = opened.Close()
 		return nil, err
@@ -950,7 +949,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 	d := evmDigest{findTarget: findTarget}
 	accounts := make(map[string]*semanticAccountDigestState)
 
-	if err := consumeCompositeFlatKV(source.opened, d.addLogical, accounts, nil, func(seen uint64, accountBuffered int) {
+	if err := consumeCompositeFlatKV(source.opened.CommitStore, d.addLogical, accounts, nil, func(seen uint64, accountBuffered int) {
 		digestOut.sayf("  progress backend=composite source=flatkv input_physical_rows=%d account_buffered=%d code=%d storage=%d misc=%d\n", seen, accountBuffered, d.code.count, d.storage.count, d.misc.count)
 	}); err != nil {
 		return err
@@ -967,7 +966,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 	return d.emit(source.ctx)
 }
 
-func readFlatKVMigrationState(store gigatypes.LiveStateStore) (migration.MigrationBoundary, bool, uint64, error) {
+func readFlatKVMigrationState(store *flatkv.CommitStore) (migration.MigrationBoundary, bool, uint64, error) {
 	if data, ok := store.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey)); ok {
 		if len(data) != 8 {
 			return migration.MigrationBoundary{}, false, 0, fmt.Errorf("flatkv migration version length=%d, want 8", len(data))
@@ -997,7 +996,7 @@ func shouldIncludeFlatKVEVMLogicalDigestKey(physKey []byte) bool {
 }
 
 func consumeCompositeFlatKV(
-	opened gigatypes.LiveStateStore,
+	opened *flatkv.CommitStore,
 	consume semanticLogicalConsumer,
 	accounts map[string]*semanticAccountDigestState,
 	allowAccountKey func([]byte) bool,
@@ -1471,7 +1470,7 @@ func inspectCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, fano
 	if fanout.inspectsAccounts() {
 		accounts = make(map[string]*semanticAccountDigestState)
 	}
-	if err := consumeCompositeFlatKV(source.opened, fanout.addLogical, accounts, fanout.matchesAccountPhysicalKey, nil); err != nil {
+	if err := consumeCompositeFlatKV(source.opened.CommitStore, fanout.addLogical, accounts, fanout.matchesAccountPhysicalKey, nil); err != nil {
 		return err
 	}
 	if source.boundary.Status() != migration.MigrationComplete {

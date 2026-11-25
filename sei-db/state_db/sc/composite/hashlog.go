@@ -30,12 +30,16 @@ func (cs *CompositeCommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber 
 			return err
 		}
 	}
-	if cs.loadFlatKV() != nil {
+	if flatKV := cs.loadFlatKV(); flatKV != nil {
+		hash, err := flatKV.CommittedHash()
+		if err != nil {
+			return fmt.Errorf("read the flatkv hash of block %d: %w", blockNumber, err)
+		}
 		// Keyed on the block cosmos committed rather than the hash's own height, which is what keeps
 		// this row complete: a block whose writes never reached flatKV leaves its hash on the height
 		// before, and the AppHash reports that same hash for this block.
 		//nolint:gosec // commit versions are non-negative
-		if err := hl.HashListener(cs.ctx, int64(blockNumber), cs.flatKVHash.Load()); err != nil {
+		if err := hl.HashListener(cs.ctx, int64(blockNumber), &hash); err != nil {
 			return fmt.Errorf("record flatkv hashes for block %d: %w", blockNumber, err)
 		}
 	}

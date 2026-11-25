@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	sstest "github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/sstest"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 func TestStorageTestSuite(t *testing.T) {
@@ -74,7 +74,7 @@ func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
 	require.Equal(t, int64(10), store.GetLatestVersion())
 	require.Equal(t, int64(4), store.GetEarliestVersion())
 	for key, want := range map[string]uint64{latestVersionKey: 10, earliestVersionKey: 4} {
-		marker, closer, err := store.(*Database).storage.Get([]byte(key))
+		marker, closer, err := store.storage.Get([]byte(key))
 		require.NoError(t, err)
 		require.Equal(t, want, binary.LittleEndian.Uint64(marker), "live %s changed", key)
 		require.NoError(t, closer.Close())

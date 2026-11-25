@@ -17,7 +17,7 @@ const (
 	// writeTimeout bounds one attempt to write a batch.
 	writeTimeout = time.Minute
 	// writerConns is the number of data tables, which a write inserts at once.
-	writerConns = 9
+	writerConns = 10
 )
 
 // writer writes batches to the archive. It is not safe for concurrent use.

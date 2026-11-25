@@ -44,9 +44,9 @@ const sortPoolQueueSize = 65536
 
 var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
 
-// ErrVersionUnreachable is gigatypes.ErrVersionUnreachable: FlatKV cannot reconstruct the requested
-// version from its retained snapshots and WAL.
-var ErrVersionUnreachable = gigatypes.ErrVersionUnreachable
+// ErrVersionUnreachable reports that FlatKV cannot reconstruct the requested version from its retained
+// snapshots and WAL.
+var ErrVersionUnreachable = errors.New("version unreachable")
 
 // CommitStore implements gigatypes.LiveStateStore for EVM state.
 //
@@ -475,7 +475,7 @@ func (s *CommitStore) LoadWorkingCopy() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes.LiveStateStore, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened *CommitStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
@@ -1339,6 +1339,15 @@ func (s *CommitStore) currentHash() *lthash.BlockHash {
 // dispatched, which is the block the listener's first delivery follows.
 func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
 	return s.hashListeners.register(listener, s.currentHash()), nil
+}
+
+// CommittedHash blocks until every block committed so far has been hashed, and returns the hash of the
+// latest.
+func (s *CommitStore) CommittedHash() (lthash.BlockHash, error) {
+	if err := s.FlushHashes(); err != nil {
+		return lthash.BlockHash{}, err
+	}
+	return s.RegisterHashListener(nil)
 }
 
 // Flush returns immediately: Commit writes and flushes the block WAL before it returns, so nothing is

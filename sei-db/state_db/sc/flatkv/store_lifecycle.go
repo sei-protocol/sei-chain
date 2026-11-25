@@ -145,10 +145,5 @@ func (s *CommitStore) Exporter(version int64) (types.Exporter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load readonly version for export: %w", err)
 	}
-	cs, ok := roStore.(*CommitStore)
-	if !ok {
-		_ = roStore.Close()
-		return nil, fmt.Errorf("unexpected store type from LoadVersionReadOnly")
-	}
-	return NewKVExporter(cs, version), nil
+	return NewKVExporter(roStore, version), nil
 }

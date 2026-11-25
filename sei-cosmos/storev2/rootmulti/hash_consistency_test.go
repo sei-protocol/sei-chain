@@ -79,7 +79,7 @@ func TestCommitAndHistoricalQueryHashConsistency(t *testing.T) {
 	for _, rec := range records {
 		t.Logf("--- Historical query version %d ---", rec.version)
 
-		scStore, err := store.scStore.LoadVersion(rec.version, true)
+		scStore, err := store.scStore.LoadVersionReadOnly(rec.version)
 		require.NoError(t, err)
 
 		commitInfo := convertCommitInfo(scStore.LastCommitInfo())
@@ -168,7 +168,7 @@ func TestCommitAndHistoricalQueryWithDoubleFlush(t *testing.T) {
 	}
 
 	for _, rec := range records {
-		scStore, err := store.scStore.LoadVersion(rec.version, true)
+		scStore, err := store.scStore.LoadVersionReadOnly(rec.version)
 		require.NoError(t, err)
 
 		commitInfo := convertCommitInfo(scStore.LastCommitInfo())

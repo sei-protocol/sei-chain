@@ -86,7 +86,8 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sccomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -418,7 +419,7 @@ type App struct {
 
 	genesisImportConfig genesistypes.GenesisImportConfig
 
-	stateStore   seidb.StateStore
+	stateStore   sstypes.StateStore
 	rootStore    *rootmulti.Store
 	receiptStore receiptdb.ReceiptStore
 
@@ -652,7 +653,8 @@ func New(
 
 		if app.evmRPCConfig.TraceBakeUseSnapshot {
 			if rs, ok := app.CommitMultiStore().(*rootmulti.Store); ok {
-				app.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(app.evmRPCConfig.TraceBakeSnapshotWindow))
+				app.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore[*sccomposite.CompositeCommitStore](
+					app.evmRPCConfig.TraceBakeSnapshotWindow))
 				app.EvmKeeper.SetTraceSnapshotCapture(rs.SnapshotSCStore)
 			} else {
 				logger.Info("trace_bake_use_snapshot set but commit multistore is not storev2 rootmulti; falling back to SS-pebble")
@@ -1086,7 +1088,7 @@ func (app *App) Name() string { return app.BaseApp.Name() }
 func (app *App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
 // GetStateStore returns the state store of the application
-func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
+func (app *App) GetStateStore() sstypes.StateStore { return app.stateStore }
 
 // MidBlocker application updates every mid block
 func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {

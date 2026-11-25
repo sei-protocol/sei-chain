@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
 )
@@ -28,11 +29,11 @@ import (
 var logger = seilog.NewLogger("db", "state-db", "ss", "composite")
 
 // Compile-time check.
-var _ types.StateStore = (*CompositeStateStore)(nil)
-var _ types.ContextIteratorStore = (*CompositeStateStore)(nil)
+var _ sstypes.StateStore = (*CompositeStateStore)(nil)
+var _ sstypes.ContextIteratorStore = (*CompositeStateStore)(nil)
 
 // CompositeStateStore routes operations between Cosmos_SS and EVM_SS.
-// Both are db_engine.StateStore; the composite itself also implements db_engine.StateStore.
+// Both are sstypes.StateStore; the composite itself also implements sstypes.StateStore.
 type CompositeStateStore struct {
 	compositeState
 	closeOnce sync.Once
@@ -44,8 +45,8 @@ type CompositeStateStore struct {
 // the result in one assignment, so state added here travels with it. Anything
 // added to CompositeStateStore itself does not.
 type compositeState struct {
-	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
-	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
+	cosmosStore    sstypes.StateStore // CosmosStateStore wrapping MVCC DB
+	evmStore       sstypes.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
 	snapshotMgr    *snapshotCoordinator
 	config         config.StateStoreConfig
@@ -189,13 +190,13 @@ func NewCompositeStateStore(
 }
 
 // ssHasData: checks both latest and earliest because state-sync restore only sets earliest.
-func ssHasData(ss types.StateStore) bool {
+func ssHasData(ss sstypes.StateStore) bool {
 	return ss.GetLatestVersion() > 0 || ss.GetEarliestVersion() > 0
 }
 
 // validateEVMSSDirectory rejects enabling evm-ss-split on a populated Cosmos SS
 // when the EVM SS dir is missing or empty (i.e. flipping the flag without state sync).
-func validateEVMSSDirectory(cosmosStore types.StateStore, evmDir string) error {
+func validateEVMSSDirectory(cosmosStore sstypes.StateStore, evmDir string) error {
 	if !ssHasData(cosmosStore) {
 		return nil // fresh node, nothing to diverge from
 	}
@@ -304,16 +305,16 @@ func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, st
 
 func (s *CompositeStateStore) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if s.evmRouted(storeKey) {
-		return types.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, false)
+		return sstypes.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, false)
 	}
-	return types.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, false)
+	return sstypes.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, false)
 }
 
 func (s *CompositeStateStore) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if s.evmRouted(storeKey) {
-		return types.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, true)
+		return sstypes.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, true)
 	}
-	return types.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, true)
+	return sstypes.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, true)
 }
 
 func (s *CompositeStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {
@@ -394,8 +395,9 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 	return nil
 }
 
-// CommitBlock records a committed block and offers its version to the snapshot cadence. It is the
-// commit path's entry point: the apply methods are raw writes and take no snapshot.
+// CommitBlock records a committed block and offers its version to the snapshot cadence. The commit path
+// must call it for every committed block, including one with no writes; the apply methods are raw writes
+// and take no snapshot.
 func (s *CompositeStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
 	// A block that changed nothing writes no changelog entry, but its version marker still moves.
 	if len(changesets) == 0 {

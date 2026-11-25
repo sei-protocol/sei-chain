@@ -40,9 +40,8 @@ func openMergeTestDB(t *testing.T, dir string) *Database {
 	t.Helper()
 	cfg := config.DefaultStateStoreConfig()
 	cfg.Backend = "pebbledb"
-	store, err := OpenDB(dir, cfg)
+	db, err := OpenDB(dir, cfg)
 	require.NoError(t, err)
-	db := store.(*Database)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }

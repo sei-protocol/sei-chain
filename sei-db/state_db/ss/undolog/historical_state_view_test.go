@@ -1,4 +1,4 @@
-package giga
+package undolog
 
 import (
 	"testing"
@@ -12,7 +12,7 @@ import (
 
 // An account exists at a past height exactly when the state commit store would have held a row for
 // it: when its balance, nonce or code hash is non-zero. A stored zero nonce alone is no account.
-func TestHistoricalViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
+func TestHistoricalStateViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
 	addr := common.Address{0x42}
 	codeHash := common.Hash{0xc0}
 	for _, tc := range []struct {
@@ -35,7 +35,7 @@ func TestHistoricalViewAccountExistsWhenAFieldIsNonZero(t *testing.T) {
 			for kind, value := range tc.stored {
 				stored[string(keys.BuildEVMKey(kind, addr[:]))] = value
 			}
-			view := &historicalView{
+			view := &historicalStateView{
 				height: 7,
 				read: func(key []byte) ([]byte, error) {
 					return stored[string(key)], nil
