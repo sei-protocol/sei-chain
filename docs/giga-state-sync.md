@@ -29,8 +29,8 @@ seid statesync check --write
 
 Each bucket needs:
 
-- A lifecycle rule that expires old objects, for example after 2 days, and aborts incomplete
-  multipart uploads. The nodes do not delete snapshots.
+- A lifecycle rule that expires old objects and aborts incomplete multipart uploads. The nodes
+  do not delete snapshots.
 - An interval much shorter than the time that the peers keep blocks. A peer keeps
   `rollback_window` plus `lookback_window` blocks of `[giga.storage]`. See
   [If the node stays at the snapshot height](#if-the-node-stays-at-the-snapshot-height).
@@ -46,6 +46,16 @@ We recommend:
   level.
 - A `checkpoint_time_interval` of `[giga.storage]` that is not longer than the interval. A node
   uploads only a new checkpoint.
+
+### Values for giga-testnet
+
+The rules above apply to each Autobahn chain. These values are for giga-testnet:
+
+| Setting | Value |
+|---|---|
+| `snapshot_upload_interval` | `"1h"` |
+| Lifecycle rule | Expire objects after 2 days, and incomplete multipart uploads after 1 day |
+| Alert | `latest.txt` older than 3 hours |
 
 ## Start a new node
 
