@@ -135,6 +135,7 @@ type stateSyncUploader struct {
 	// stagingDir holds the hard-linked checkpoint during an upload. It is under flatKVDir.
 	stagingDir string
 	now        func() time.Time
+	metrics    *stateSyncUploadMetrics
 	// uploaded is the newest archive height known to be in store, or 0.
 	uploaded int64
 }
@@ -149,6 +150,7 @@ func newStateSyncUploader(cfg StateSyncUploadConfig, flatKVDir, proofDir string)
 		proofDir:   proofDir,
 		stagingDir: stateSyncUploadStagingDir(flatKVDir),
 		now:        time.Now,
+		metrics:    defaultStateSyncUploadMetrics(),
 	}
 }
 
@@ -186,9 +188,10 @@ func sweepDelay(interval time.Duration, failures int) time.Duration {
 	return delay
 }
 
-// logStoreAccess reads latest.txt once and logs the result. A failure does not stop the loop.
+// logStoreAccess reads latest.txt once, logs the result and records it. A failure does not stop the
+// loop.
 func (u *stateSyncUploader) logStoreAccess(ctx context.Context) {
-	latest, err := statesync.ReadLatest(ctx, u.store, u.chainID)
+	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
 	switch {
 	case errors.Is(err, statesync.ErrObjectNotFound):
 		logger.Info("state sync archive store is readable and has no archive of this chain")
@@ -197,17 +200,19 @@ func (u *stateSyncUploader) logStoreAccess(ctx context.Context) {
 			logger.Error("state sync archive store is not readable", "err", err)
 		}
 	default:
+		u.metrics.recordLatest(ctx, latest, info.Modified)
 		logger.Info("state sync archive store is readable", "latest", latest)
 	}
 }
 
-// sweepLogged runs one sweep and returns its error text, or "" on success. It logs the error only
-// when the text differs from lastErr, the text of the previous sweep.
+// sweepLogged runs one sweep and returns its error text, or "" on success. It counts each failed
+// sweep, and logs the error only when the text differs from lastErr, the text of the previous sweep.
 func (u *stateSyncUploader) sweepLogged(ctx context.Context, lastErr string) string {
 	err := u.sweep(ctx)
 	if err == nil || ctx.Err() != nil {
 		return ""
 	}
+	u.metrics.recordFailure(ctx)
 	if err.Error() != lastErr {
 		logger.Error("state sync archive upload failed; retrying on next sweep", "err", err)
 	}
@@ -217,13 +222,20 @@ func (u *stateSyncUploader) sweepLogged(ctx context.Context, lastErr string) str
 // sweep uploads the archive of the newest retained checkpoint that has a state sync proof file. It
 // does nothing when the store already has an archive at that height or above, when the last
 // archive upload of the chain is less than the interval ago, or when another node holds the upload
-// claim.
+// claim. It records that checkpoint, and the newest archive of the chain that it reads or writes.
 func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	height, ok, err := u.newestCheckpointWithProof()
-	if err != nil || !ok || height <= u.uploaded {
+	if err != nil || !ok {
 		return err
 	}
+	u.metrics.recordCheckpoint(ctx, height)
+	if height <= u.uploaded {
+		return nil
+	}
 	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
+	if err == nil {
+		u.metrics.recordLatest(ctx, latest, info.Modified)
+	}
 	switch {
 	case errors.Is(err, statesync.ErrObjectNotFound):
 	case err != nil:
@@ -241,6 +253,10 @@ func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	newest, err := u.upload(ctx, height)
 	if err != nil {
 		return err
+	}
+	// A newer height is from another node, and the next sweep that reads latest.txt records it.
+	if newest == height {
+		u.metrics.recordLatest(ctx, height, u.now())
 	}
 	u.uploaded = max(u.uploaded, newest)
 	return nil
@@ -312,8 +328,10 @@ func (u *stateSyncUploader) upload(ctx context.Context, height int64) (newest in
 	if err != nil {
 		return 0, err
 	}
+	duration := time.Since(start)
+	u.metrics.recordUpload(ctx, size, duration)
 	logger.Info("uploaded state sync archive", "height", height, "bytes", size, "rows", m.RowCount,
-		"duration", time.Since(start))
+		"duration", duration)
 	return newest, nil
 }
 
