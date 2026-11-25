@@ -24,8 +24,8 @@ type metrics struct {
 	timeoutVotes prometheus.CounterIntVec `metrics_labels:"leader,phase"`
 	// CommitQCs admitted by avail, labeled by the committed view's leader address.
 	commits prometheus.CounterIntVec `metrics_labels:"leader"`
-	// Votes the aggregator accepted (new for that replica, or a strictly later view).
-	votesIngested prometheus.CounterIntVec `metrics_labels:"type"`
+	// Votes the aggregator accepted (new for that replica, or a strictly later view), labeled by vote type and signer address.
+	votesIngested prometheus.CounterIntVec `metrics_labels:"type,validator"`
 	// View number of the current consensus view.
 	viewNumber prometheus.GaugeIntVec
 	// Latency from a proposal's construction to this replica casting its PrepareVote, and to it observing the PrepareQC and the CommitQC. It includes clock skew between the leader and this replica.
