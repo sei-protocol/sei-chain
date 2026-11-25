@@ -391,9 +391,10 @@ func (h *harness) inEffect(err error) error {
 		return err
 	}
 	var failures []error
+	var hookErr error
 	s := h.store()
-	h.staking.withHookFailures(&failures).applyStaged(h.block(), s, s.params(), math.MaxUint64, &failures)
-	return errors.Join(failures...)
+	h.staking.recordingHookErrors(&hookErr).applyStaged(h.block(), s, s.params(), math.MaxUint64, &failures)
+	return errors.Join(append(failures, hookErr)...)
 }
 
 // stagedTotals returns each delegation's staged totals, keyed by delegator and

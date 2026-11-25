@@ -458,40 +458,49 @@ func TestADroppedDelegationIsRefundedWhenItsValidatorCannotBeRemoved(t *testing.
 	h.requireInvariants(bob)
 }
 
-// TestAFailingHookDoesNotDropTheOperationThatCalledIt fails the hook a staged
-// delegation calls as it takes effect, after the hook has written to state.
-func TestAFailingHookDoesNotDropTheOperationThatCalledIt(t *testing.T) {
-	h := newHarness(t, testParams)
+// TestAFailingHookFailsTheBlock fails a hook staking calls as an epoch's end
+// applies a staged delegation, and one it calls as it bonds the genesis
+// validators.
+func TestAFailingHookFailsTheBlock(t *testing.T) {
 	errHook := errors.New("hook failed")
-	h.staking.Hooks = failingDelegationHook{err: errHook}
-	require.NoError(t, h.stageDelegate(alice, val1, sei(5)))
-	h.endEpoch(0)
-	require.Empty(t, h.failures)
-	projected := must(EpochValidators(h.state))
+	closing := func(h *harness, epoch uint64) precompiles.BlockContext {
+		block := h.block()
+		block.Epoch, block.ClosingEpoch = utils.Some(epoch), utils.Some(epoch)
+		return block
+	}
 
-	h.endEpoch(1)
-	err := errors.Join(h.failures...)
-	require.ErrorIs(t, err, errHook)
-	require.ErrorIs(t, err, precompiles.ErrDegraded)
-	require.Equal(t, dec.FromInt(sei(5)), h.shares(alice, val1), "the delegation takes effect")
-	require.Equal(t, common.Hash{}, h.state.GetState(hookScratch, common.Hash{}), "the hook's write is reverted")
-	require.Equal(t, projected, must(bondedValidators(h.store())), "the bonded set is the one the snapshot projected")
-	h.requireInvariants(alice)
+	t.Run("as a staged operation takes effect", func(t *testing.T) {
+		h := newHarness(t, testParams)
+		h.staking.Hooks = failingHook{afterDelegationModified: errHook}
+		require.NoError(t, h.stageDelegate(alice, val1, sei(5)))
+		h.endEpoch(0)
+		require.Empty(t, h.failures, "the projection calls no hooks")
+		_, err := h.staking.EndBlock(closing(h, 1), h.state)
+		require.ErrorIs(t, err, errHook)
+	})
+
+	t.Run("as the bonded set is updated", func(t *testing.T) {
+		h := newGenesisHarness(t, testParams)
+		h.staking.Hooks = failingHook{afterValidatorBonded: errHook}
+		_, err := h.staking.EndBlock(h.block(), h.state)
+		require.ErrorIs(t, err, errHook)
+	})
 }
 
-// hookScratch is where failingDelegationHook writes.
-var hookScratch = common.HexToAddress("0xb00c")
-
-// failingDelegationHook is Hooks whose AfterDelegationModified writes to
-// hookScratch and then fails with err.
-type failingDelegationHook struct {
+// failingHook is Hooks whose AfterDelegationModified and AfterValidatorBonded
+// return the errors it holds.
+type failingHook struct {
 	NoHooks
-	err error
+	afterDelegationModified error
+	afterValidatorBonded    error
 }
 
-func (f failingDelegationHook) AfterDelegationModified(_ precompiles.BlockContext, state precompiles.State, _, _ common.Address) error {
-	state.SetState(hookScratch, common.Hash{}, common.Hash{1})
-	return f.err
+func (f failingHook) AfterDelegationModified(precompiles.BlockContext, precompiles.State, common.Address, common.Address) error {
+	return f.afterDelegationModified
+}
+
+func (f failingHook) AfterValidatorBonded(precompiles.BlockContext, precompiles.State, common.Address) error {
+	return f.afterValidatorBonded
 }
 
 // TestEveryOperationStagedInAnEpochTakesEffectAtTheNextEpochsEnd stages more

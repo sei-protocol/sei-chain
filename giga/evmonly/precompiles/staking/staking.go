@@ -128,9 +128,9 @@ var (
 // StakingHooks; with none, nothing else tracks delegations.
 type Precompile struct {
 	Hooks Hooks
-	// hookFailures, when set, collects the hook failures EndBlock reports in
-	// place of failing the operation that called the hook.
-	hookFailures *[]error
+	// hookErr, when set, holds the first error a hook returns, which fails the
+	// EndBlock running it.
+	hookErr *error
 }
 
 var (

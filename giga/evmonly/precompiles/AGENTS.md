@@ -93,6 +93,10 @@ same result from the same block, so each rule below is a consensus rule.
 - One operation's failure holds up no other: the next due operation in the same
   EndBlock proceeds. An operation that returns success but leaves its queue
   entry in place is failed the same way.
+- Staking's hooks are the exception: a hook must not fail. Staking fails its
+  `EndBlock` on a hook's error, halting the chain until an upgrade fixes the
+  hook, since a staking change can neither go ahead without its hook nor be
+  dropped once the epoch snapshot has counted it.
 - Check a balance change before making it. A balance change that fails marks
   `ctx.State` failed, which reverting a snapshot does not undo: later writes are
   dropped and the block fails. Gov checks the escrow and the depositor's balance
