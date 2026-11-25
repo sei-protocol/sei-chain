@@ -46,32 +46,11 @@ type BlockRequest struct {
 	Txs     [][]byte
 }
 
-// DecodedBlock contains decoded transactions with verified senders for a block.
-type DecodedBlock struct {
-	context BlockContext
-	txs     []abevm.EvmTx
-}
-
-func (b DecodedBlock) prepared() PreparedBlock {
-	txs := make([]PreparedTx, len(b.txs))
-	for i, tx := range b.txs {
-		txs[i] = PreparedTx{Tx: tx.Transaction(), Sender: tx.Sender()}
-	}
-	return PreparedBlock{Context: b.context, Txs: txs}
-}
-
 // PreparedBlock contains transactions and verified senders ready for execution.
 // ExecutePreparedBlock trusts it unchanged and does not recover senders again.
 type PreparedBlock struct {
 	Context BlockContext
-	Txs     []PreparedTx
-}
-
-// PreparedTx is the stateless per-transaction work needed before EVM execution.
-// Sender is trusted data recovered by PrepareBlock.
-type PreparedTx struct {
-	Tx     *ethtypes.Transaction
-	Sender common.Address
+	Txs     []abevm.EvmTx
 }
 
 // BlockContext contains block-constant EVM execution data.

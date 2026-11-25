@@ -444,14 +444,6 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 	}
 }
 
-// GenSuperBlock generates a random SuperBlock.
-func GenSuperBlock(rng utils.Rng) *SuperBlock {
-	block := GenLaneBlock(rng)
-	qc := GenFullCommitQCAt(rng, GenRoadHeight(rng), 1)
-	qc = NewFullCommitQC(qc.QC(), []*LaneBlockHeader{block.Header()})
-	return NewRoadBlock(qc, []*LaneBlock{block}).SuperBlock()
-}
-
 // GenPrepareVote generates a random PrepareVote.
 func GenPrepareVote(rng utils.Rng) *PrepareVote {
 	voteProposal := GenProposal(rng)

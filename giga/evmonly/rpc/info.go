@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"math/big"
 
-	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gmath "github.com/ethereum/go-ethereum/common/math"
@@ -15,8 +13,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -36,9 +36,9 @@ type infoAPI struct {
 	store   receiptdb.ReceiptStore
 }
 
-// BlockNumber returns the height of the most recently committed block.
+// BlockNumber returns the latest height available for EVM block queries.
 func (api *infoAPI) BlockNumber(ctx context.Context) hexutil.Uint64 {
-	return hexutil.Uint64(committedHead(ctx, api.backend))
+	return utils.Clamp[hexutil.Uint64](committedHead(ctx, api.backend))
 }
 
 // ChainId returns the EVM chain ID this Autobahn shard is configured for.
@@ -175,7 +175,7 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 func (api *infoAPI) resolveEndHeight(ctx context.Context, lastBlock ethrpc.BlockNumber) (int64, error) {
 	current := api.store.LatestVersion()
 	if head, ok := pinnedHead(ctx).Get(); ok {
-		current = min(current, int64(head)) //nolint:gosec // G115: a committed height fits in int64.
+		current = min(current, head)
 	}
 	kind, err := classifyBlockNumber(lastBlock)
 	if err != nil {
@@ -306,12 +306,11 @@ func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) (
 	if !errors.Is(err, receiptdb.ErrRangeQueryNotSupported) {
 		return records, err
 	}
-	blockHeight := coretypes.Int64(height)
-	block, err := loadBackendBlock(ctx, api.backend, &blockHeight)
+	block, err := api.backend.BlockByNumber(ctx, utils.Some(height))
 	if err != nil {
 		return nil, fmt.Errorf("read block %d to recompute stats: %w", height, err)
 	}
-	if block == nil || block.Block == nil {
+	if block == nil {
 		return nil, fmt.Errorf("block %d body is not available to recompute stats", height)
 	}
 	return receiptRecordsFromBlock(ctx, api.store, block)
@@ -319,8 +318,8 @@ func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) (
 
 // blockReceiptRecords returns the receipts stored for block, in transaction
 // index order.
-func blockReceiptRecords(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) ([]receipttypes.ReceiptRecord, error) {
-	records, err := receiptRecordsFromIterator(ctx, store, block.Block.Height)
+func blockReceiptRecords(ctx context.Context, store receiptdb.ReceiptStore, block *abevm.EvmBlock) ([]receipttypes.ReceiptRecord, error) {
+	records, err := receiptRecordsFromIterator(ctx, store, utils.Clamp[int64](block.Height))
 	if errors.Is(err, receiptdb.ErrRangeQueryNotSupported) {
 		return receiptRecordsFromBlock(ctx, store, block)
 	}
@@ -354,10 +353,10 @@ func receiptRecordsFromIterator(ctx context.Context, store receiptdb.ReceiptStor
 
 // receiptRecordsFromBlock answers block's receipts by decoding its body and fetching each
 // transaction's receipt by hash, for a store whose IterateReceipts is unsupported.
-func receiptRecordsFromBlock(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) ([]receipttypes.ReceiptRecord, error) {
-	height := block.Block.Height
-	records := make([]receipttypes.ReceiptRecord, 0, len(block.Block.Txs))
-	for i, txbz := range block.Block.Txs {
+func receiptRecordsFromBlock(ctx context.Context, store receiptdb.ReceiptStore, block *abevm.EvmBlock) ([]receipttypes.ReceiptRecord, error) {
+	height := utils.Clamp[int64](block.Height)
+	records := make([]receipttypes.ReceiptRecord, 0, len(block.Txs))
+	for i, txbz := range block.Txs {
 		tx, err := decodeBlockTx(txbz, height, i)
 		if err != nil {
 			return nil, err

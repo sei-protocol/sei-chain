@@ -22,6 +22,10 @@ type Application interface {
 	GetValidators() CommitteeWeights
 	EpochRegistry() (*atypes.EpochRegistry, error)
 	LastBlockHeight() int64
+	// EvmBlockNumber returns the latest height available for EVM block queries.
+	EvmBlockNumber() int64
+	// BlockTxsHashes returns the receipt-backed transaction hashes at height, in execution order.
+	BlockTxsHashes(height int64) ([]common.Hash, error)
 	InitChain(InitConfig) error
 	RestoreBlockTime(time.Time)
 

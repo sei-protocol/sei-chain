@@ -230,8 +230,8 @@ func (*replayBackend) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error)
 	return vm.BlockContext{}, errNotReplayed
 }
 
-func (b *replayBackend) EvmBlockNumber() uint64 {
-	return b.tip.Number
+func (b *replayBackend) EvmBlockNumber() int64 {
+	return utils.Clamp[int64](b.tip.Number)
 }
 
 func (*replayBackend) GenesisInitialHeight() int64 {

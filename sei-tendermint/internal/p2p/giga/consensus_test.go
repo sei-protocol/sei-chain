@@ -39,7 +39,7 @@ func TestConsensusClientServer(t *testing.T) {
 			wantAppProposal := utils.None[*types.AppProposal]()
 			for _, n := range nodes {
 				t.Logf("[%v] Wait for it to be final.", height)
-				got, err := n.data.SuperBlock(ctx, height)
+				got, err := n.data.RoadBlock(ctx, height)
 				if err != nil {
 					return fmt.Errorf("ds.Block(): %w", err)
 				}
@@ -47,8 +47,8 @@ func TestConsensusClientServer(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
-				want := types.NewRoadBlock(qc, []*types.LaneBlock{b.Msg().Block()}).SuperBlock()
-				if err := utils.TestDiff(want, got); err != nil {
+				want := types.NewRoadBlock(qc, []*types.LaneBlock{b.Msg().Block()})
+				if err := roadBlockDiff(want, got); err != nil {
 					return err
 				}
 				if !wantAppProposal.IsPresent() {

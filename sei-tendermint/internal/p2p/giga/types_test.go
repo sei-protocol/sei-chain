@@ -33,3 +33,12 @@ func firstErr(errs ...error) error {
 	}
 	return nil
 }
+
+// roadBlockDiff compares road headers and ordered lane blocks.
+func roadBlockDiff(want, got *types.RoadBlock) error {
+	// Nodes can certify the same header with different quorum signatures.
+	return firstErr(
+		utils.TestDiff(want.Header(), got.Header()),
+		utils.TestDiff(want.LaneBlocks(), got.LaneBlocks()),
+	)
+}

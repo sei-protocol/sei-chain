@@ -84,11 +84,11 @@ func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 	qc := NewFullCommitQC(makeCommitQCFromProposal(keys, proposal), nil)
 	require.NoError(t, qc.Verify(ep))
 	require.NoError(t, FullCommitQCConv.Test(qc))
-	block := NewRoadBlock(qc, nil).SuperBlock()
-	require.Equal(t, qc.Height(), block.Height)
-	require.Equal(t, proposal.Header().Timestamp(), block.Timestamp)
-	require.Zero(t, block.GasWanted)
-	require.Empty(t, block.Txs)
+	block := NewRoadBlock(qc, nil)
+	require.Equal(t, qc.Height(), block.Header().Height())
+	require.Equal(t, proposal.Header().Timestamp(), block.Header().Timestamp())
+	require.Empty(t, block.LaneBlocks())
+	require.Empty(t, block.Txs())
 }
 
 // oneLaneQCMap builds a single LaneQC advancing the first lane.
@@ -164,7 +164,7 @@ func TestProposalTimestampStrictlyMonotone(t *testing.T) {
 	))
 	p1 := secondProposal.Proposal().Msg()
 	require.Equal(t, p0.Height()+1, p1.Height())
-	require.True(t, p0.Header().Timestamp().Before(p1.Header().Timestamp()), "consecutive SuperBlock timestamps must increase")
+	require.True(t, p0.Header().Timestamp().Before(p1.Header().Timestamp()), "consecutive RoadBlock timestamps must increase")
 }
 
 func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {

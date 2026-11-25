@@ -18,5 +18,5 @@ var ErrMissingAppProposal = errors.New("missing AppProposal")
 // The floor is re-derived on reopen, so hidden records may become readable again.
 var ErrPruned = errors.New("pruned: below retention watermark")
 
-// ErrQCBlocksMismatch indicates inconsistent SuperBlock metadata, hash, or lane blocks.
+// ErrQCBlocksMismatch indicates inconsistent RoadBlock metadata, hash, or lane blocks.
 var ErrQCBlocksMismatch = errors.New("QC blocks do not match headers")

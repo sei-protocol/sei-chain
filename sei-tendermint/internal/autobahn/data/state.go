@@ -440,24 +440,18 @@ func (s *State) NextAppQC() types.RoadHeight {
 	panic("unreachable")
 }
 
-// SuperBlockByHash returns a retained SuperBlock by its road block hash.
+// RoadBlockByHash returns a retained road block by its header hash.
 // Unknown, pruned, or incomplete blocks and roads beyond the contiguous complete prefix return None.
-func (s *State) SuperBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*types.SuperBlock], error) {
+func (s *State) RoadBlockByHash(hash types.RoadBlockHeaderHash) (utils.Option[*types.RoadBlock], error) {
 	for inner := range s.inner.Lock() {
 		if n, ok := inner.byHash[hash]; ok {
 			if n >= inner.nextFullBlock {
-				return utils.None[*types.SuperBlock](), nil
+				return utils.None[*types.RoadBlock](), nil
 			}
-			return utils.Some(inner.blocks[n].FullBlock().OrPanic("hash without full block").SuperBlock()), nil
+			return utils.Some(inner.blocks[n].FullBlock().OrPanic("hash without full block")), nil
 		}
 	}
-	block, err := s.blockStore.ReadBlockByHash(hash)
-	if err != nil {
-		return utils.None[*types.SuperBlock](), err
-	}
-	return block.Map(func(b *types.RoadBlock) *types.SuperBlock {
-		return b.SuperBlock()
-	}), nil
+	return s.blockStore.ReadBlockByHash(hash)
 }
 
 // Block returns the lane block at position n.
@@ -481,7 +475,7 @@ func (s *State) Block(ctx context.Context, n types.LaneBlockPos) (*types.LaneBlo
 	return s.blockFromDB(n)
 }
 
-// TryBlock returns an available lane block, including from a partial SuperBlock.
+// TryBlock returns an available lane block, including from a partial road block.
 // Missing blocks return ErrNotFound. Evicted blocks are read from BlockStore
 // and return ErrPruned if they are below its retention floor.
 func (s *State) TryBlock(n types.LaneBlockPos) (*types.LaneBlock, error) {
@@ -519,15 +513,15 @@ func (s *State) NeedBlock(n types.LaneBlockPos) bool {
 	panic("unreachable")
 }
 
-// SuperBlock waits for all lane blocks through road n and returns their merged transactions.
+// RoadBlock waits for all lane blocks through road n and returns the complete road block.
 // Evicted roads are read from BlockStore; pruned roads return ErrPruned.
-func (s *State) SuperBlock(ctx context.Context, n types.RoadHeight) (*types.SuperBlock, error) {
+func (s *State) RoadBlock(ctx context.Context, n types.RoadHeight) (*types.RoadBlock, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return nil, err
 		}
 		if inner.first <= n {
-			return inner.blocks[n].FullBlock().OrPanic("bad full block").SuperBlock(), nil
+			return inner.blocks[n].FullBlock().OrPanic("bad full block"), nil
 		}
 	}
 	opt, err := s.blockStore.ReadBlock(n)
@@ -535,7 +529,7 @@ func (s *State) SuperBlock(ctx context.Context, n types.RoadHeight) (*types.Supe
 		return nil, err
 	}
 	if b, ok := opt.Get(); ok {
-		return b.SuperBlock(), nil
+		return b, nil
 	}
 	return nil, types.ErrPruned
 }

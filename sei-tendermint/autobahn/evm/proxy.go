@@ -42,6 +42,18 @@ func (app *Proxy) LastBlockHeight() int64 {
 	return app.app.LastBlockHeight()
 }
 
+// EvmBlockNumber returns the latest height available for EVM block queries.
+func (app *Proxy) EvmBlockNumber() int64 {
+	defer proxymetrics.Observe("evm_block_number", "sync")()
+	return app.app.EvmBlockNumber()
+}
+
+// BlockTxsHashes returns the receipt-backed transaction hashes at height, in execution order.
+func (app *Proxy) BlockTxsHashes(height int64) ([]common.Hash, error) {
+	defer proxymetrics.Observe("block_txs_hashes", "sync")()
+	return app.app.BlockTxsHashes(height)
+}
+
 func (app *Proxy) InitChain(req InitConfig) error {
 	defer proxymetrics.Observe("init_chain", "sync")()
 	return app.app.InitChain(req)

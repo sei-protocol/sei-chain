@@ -327,11 +327,11 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 		require.True(t, at[finalize(0)] < at[finalize(1)])
 	}
 	for i, req := range app.finalized() {
-		want := env.blocks[i].SuperBlock()
-		require.Equal(t, want.Height, req.Height)
-		require.True(t, want.Timestamp.Equal(req.Time))
-		require.Equal(t, common.Hash(want.Hash), req.Hash)
-		require.Equal(t, len(want.Txs), len(req.Txs))
+		want := env.blocks[i]
+		require.Equal(t, want.Header().Height(), req.Height)
+		require.True(t, want.Header().Timestamp().Equal(req.Time))
+		require.Equal(t, common.Hash(want.Header().Hash()), req.Hash)
+		require.Equal(t, len(want.Txs()), len(req.Txs))
 	}
 }
 
@@ -429,13 +429,13 @@ func TestExecutionReusesAndEvictsInjectedSignerCache(t *testing.T) {
 	executor := env.executor(app)
 	_, err := executor.initApp(t.Context())
 	require.NoError(t, err)
-	block := env.blocks[0].SuperBlock()
-	require.NotEmpty(t, block.Txs)
-	raw := block.Txs[0]
+	block := env.blocks[0]
+	require.NotEmpty(t, block.Txs())
+	raw := block.Txs()[0]
 	verified, err := executor.cfg.Signer.ParseTx(raw)
 	require.NoError(t, err)
 	claimed := common.Address{1}
-	executor.cfg.Signer.Remember(utils.OrPanic1(abevm.TestEvmTx(raw, claimed)))
+	executor.cfg.Signer.Remember(utils.OrPanic1(abevm.TestEvmTxFromRaw(raw, claimed)))
 	_, err = executor.executeBlock(t.Context(), block)
 	require.NoError(t, err)
 	require.Equal(t, claimed, app.finalized()[0].Txs[0].Sender())

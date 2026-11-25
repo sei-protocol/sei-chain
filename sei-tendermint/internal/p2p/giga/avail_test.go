@@ -107,17 +107,17 @@ func TestAvailClientServer(t *testing.T) {
 				return err
 			}
 			finalized += len(qc.Headers())
-			want, err := nodes[0].data.SuperBlock(ctx, n)
+			want, err := nodes[0].data.RoadBlock(ctx, n)
 			if err != nil {
 				return err
 			}
 			h := types.GenAppHash(rng)
 			for _, node := range nodes {
-				got, err := node.data.SuperBlock(ctx, n)
+				got, err := node.data.RoadBlock(ctx, n)
 				if err != nil {
 					return err
 				}
-				if err := utils.TestDiff(want, got); err != nil {
+				if err := roadBlockDiff(want, got); err != nil {
 					return err
 				}
 				if err := node.data.PushAppHash(ctx, n, h); err != nil {

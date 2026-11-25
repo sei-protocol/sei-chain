@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -31,7 +32,7 @@ func (api *filterAPI) NewFilter(ctx context.Context, crit filters.FilterCriteria
 // NewBlockFilter installs a filter whose polls return the hashes of the blocks committed since
 // the previous poll, and returns its ID.
 func (api *filterAPI) NewBlockFilter(ctx context.Context) (ethrpc.ID, error) {
-	return api.filters.add(&pollFilter{cursor: committedHead(ctx, api.backend) + 1})
+	return api.filters.add(&pollFilter{cursor: utils.Clamp[uint64](committedHead(ctx, api.backend)) + 1})
 }
 
 // NewPendingTransactionFilter returns the regular RPC's not-supported error.
@@ -176,7 +177,7 @@ func (api *filterAPI) pollLogs(ctx context.Context, crit filters.FilterCriteria,
 // than maxBlockFilterHashes blocks. A failed lookup returns cursor, so the next poll returns the
 // same blocks.
 func (api *filterAPI) pollBlockHashes(ctx context.Context, cursor uint64) ([]common.Hash, uint64, error) {
-	latest := committedHead(ctx, api.backend)
+	latest := utils.Clamp[uint64](committedHead(ctx, api.backend))
 	if cursor > latest {
 		return []common.Hash{}, cursor, nil
 	}

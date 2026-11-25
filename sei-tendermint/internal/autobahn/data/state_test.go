@@ -227,13 +227,13 @@ func TestState(t *testing.T) {
 			for offset := range blocks {
 				blocks[offset] = want.Blocks[types.LaneBlockPos{Height: n.Height, Offset: uint64(offset)}]
 			}
-			wantG := types.NewRoadBlock(qc, blocks).SuperBlock()
-			gotG, err := state.SuperBlock(ctx, n.Height)
+			wantG := types.NewRoadBlock(qc, blocks)
+			gotG, err := state.RoadBlock(ctx, n.Height)
 			if err != nil {
-				return fmt.Errorf("state.SuperBlock(%v): %w", n, err)
+				return fmt.Errorf("state.RoadBlock(%v): %w", n, err)
 			}
 			if err := utils.TestDiff(wantG, gotG); err != nil {
-				return fmt.Errorf("state.SuperBlock(%v): %w", n, err)
+				return fmt.Errorf("state.RoadBlock(%v): %w", n, err)
 			}
 		}
 		return nil
@@ -700,18 +700,18 @@ func TestPushEmptyQC(t *testing.T) {
 	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
 	require.NoError(t, state.PushPartialBlock(t.Context(), previous, TestBlockMap(blocks)))
 	require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
-	want := types.NewRoadBlock(qc, nil).SuperBlock()
-	byHash, err := state.SuperBlockByHash(want.Hash)
+	want := types.NewRoadBlock(qc, nil)
+	byHash, err := state.RoadBlockByHash(want.Header().Hash())
 	require.NoError(t, err)
 	require.True(t, byHash.IsPresent())
 	require.Equal(t, qc.Height()+1, state.NextQC())
-	got, err := state.SuperBlock(t.Context(), qc.Height())
+	got, err := state.RoadBlock(t.Context(), qc.Height())
 	require.NoError(t, err)
-	require.Equal(t, want.Height, got.Height)
-	require.Empty(t, got.Txs)
+	require.Equal(t, want.Header().Height(), got.Header().Height())
+	require.Empty(t, got.Txs())
 }
 
-func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
+func TestRoadBlockByHashDoesNotServeGaps(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -729,23 +729,23 @@ func TestSuperBlockByHashDoesNotServeGaps(t *testing.T) {
 			require.True(t, indexed, "CommitQC must be indexed before the contiguous prefix advances")
 			require.Equal(t, qc.Height(), n)
 		}
-		got, err := state.SuperBlockByHash(hash)
+		got, err := state.RoadBlockByHash(hash)
 		require.NoError(t, err)
 		require.False(t, got.IsPresent(), "hash lookups must not serve incomplete blocks or skip gaps")
 	}
 
 	require.NoError(t, state.PushPartialBlock(ctx, qc1, TestBlockMap(blocks1)))
 	for _, qc := range []*types.FullCommitQC{qc1, qc2} {
-		got, err := state.SuperBlockByHash(qc.Header().Hash())
+		got, err := state.RoadBlockByHash(qc.Header().Hash())
 		require.NoError(t, err)
 		block, ok := got.Get()
 		require.True(t, ok)
-		require.Equal(t, qc.Height(), block.Height)
-		require.Equal(t, qc.Header().Hash(), block.Hash)
+		require.Equal(t, qc.Height(), block.Header().Height())
+		require.Equal(t, qc.Header().Hash(), block.Header().Hash())
 	}
 }
 
-func TestSuperBlockByHash(t *testing.T) {
+func TestRoadBlockByHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -755,29 +755,29 @@ func TestSuperBlockByHash(t *testing.T) {
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)))
 	n := qc.Height()
-	wantBlock := types.NewRoadBlock(qc, blocks).SuperBlock()
-	wantHash := wantBlock.Hash
-	gotOpt, err := state.SuperBlockByHash(wantHash)
+	wantBlock := types.NewRoadBlock(qc, blocks)
+	wantHash := wantBlock.Header().Hash()
+	gotOpt, err := state.RoadBlockByHash(wantHash)
 	require.NoError(t, err)
 	gotGB, ok := gotOpt.Get()
 	require.True(t, ok)
-	require.Equal(t, n, gotGB.Height)
-	require.Equal(t, wantBlock.Txs, gotGB.Txs)
-	require.Equal(t, wantBlock.GasWanted, gotGB.GasWanted)
+	require.Equal(t, n, gotGB.Header().Height())
+	require.Equal(t, wantBlock.Txs(), gotGB.Txs())
+	require.Equal(t, wantBlock.LaneBlocks(), gotGB.LaneBlocks())
 
 	// Zero hash → None.
-	zeroOpt, err := state.SuperBlockByHash(types.RoadBlockHeaderHash{})
+	zeroOpt, err := state.RoadBlockByHash(types.RoadBlockHeaderHash{})
 	require.NoError(t, err)
 	_, ok = zeroOpt.Get()
-	require.False(t, ok, "SuperBlockByHash(zero) returned Some")
+	require.False(t, ok, "RoadBlockByHash(zero) returned Some")
 
 	// Random unknown hash → None.
 	var randHash types.RoadBlockHeaderHash
 	rng.Read(randHash[:])
-	randOpt, err := state.SuperBlockByHash(randHash)
+	randOpt, err := state.RoadBlockByHash(randHash)
 	require.NoError(t, err)
 	_, ok = randOpt.Get()
-	require.False(t, ok, "SuperBlockByHash(random) returned Some")
+	require.False(t, ok, "RoadBlockByHash(random) returned Some")
 }
 
 // TestPushPartialBlockBeforeRunPersistsToBlockStore seeds in-memory QCs/blocks before Run
@@ -1412,11 +1412,11 @@ func TestPruningPreservesRAMAndRecoveryAnchor(t *testing.T) {
 		got, err := state1.TryBlock(types.LaneBlockPos{Height: n})
 		require.NoError(t, err, "height %d must remain readable from RAM (>= exclusive floor)", n)
 		require.NotNil(t, got)
-		byHash, err := state1.SuperBlockByHash(utils.OrPanic1(state1.SuperBlock(ctx, n)).Hash)
+		byHash, err := state1.RoadBlockByHash(utils.OrPanic1(state1.RoadBlock(ctx, n)).Header().Hash())
 		require.NoError(t, err)
 		gb, ok := byHash.Get()
-		require.True(t, ok, "SuperBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
-		require.Equal(t, n, gb.Height)
+		require.True(t, ok, "RoadBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
+		require.Equal(t, n, gb.Header().Height())
 	}
 
 	// Consistent retained range: full qc2.
@@ -1475,7 +1475,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 }
 
 // TestTryBlockServesPartialBlocks verifies that received lane blocks are readable
-// before their SuperBlock is complete.
+// before their RoadBlock is complete.
 func TestTryBlockServesPartialBlocks(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -1498,18 +1498,18 @@ func TestTryBlockServesPartialBlocks(t *testing.T) {
 	require.Equal(t, qc.Height(), state.NextFullBlock())
 	require.False(t, state.NeedBlock(last))
 	require.True(t, state.NeedBlock(types.LaneBlockPos{Height: qc.Height()}))
-	want := types.NewRoadBlock(qc, blocks).SuperBlock()
-	opt, err := state.SuperBlockByHash(want.Hash)
+	want := types.NewRoadBlock(qc, blocks)
+	opt, err := state.RoadBlockByHash(want.Header().Hash())
 	require.NoError(t, err)
-	require.False(t, opt.IsPresent(), "incomplete SuperBlock must not be served")
+	require.False(t, opt.IsPresent(), "incomplete RoadBlock must not be served")
 	for offset, block := range blocks {
 		require.NoError(t, state.PushBlock(ctx, types.LaneBlockPos{Height: qc.Height(), Offset: uint64(offset)}, block))
 	}
 	require.Equal(t, qc.Height()+1, state.NextFullBlock())
-	got, err := state.SuperBlock(ctx, qc.Height())
+	got, err := state.RoadBlock(ctx, qc.Height())
 	require.NoError(t, err)
-	require.Equal(t, want.Txs, got.Txs)
-	opt, err = state.SuperBlockByHash(want.Hash)
+	require.Equal(t, want.Txs(), got.Txs())
+	opt, err = state.RoadBlockByHash(want.Header().Hash())
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
 }

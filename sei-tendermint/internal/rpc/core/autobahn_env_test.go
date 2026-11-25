@@ -45,6 +45,7 @@ func (stubAppHashBuilder) Close() error                          { return nil }
 type broadcastEVMApp struct{ abevm.Application }
 
 func (broadcastEVMApp) LastBlockHeight() int64 { return 0 }
+func (broadcastEVMApp) EvmBlockNumber() int64  { return 0 }
 
 // EvmNonce is the nonce the producer reports before its mempool is running.
 func (broadcastEVMApp) EvmNonce(common.Address) uint64 { return 7 }

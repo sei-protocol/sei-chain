@@ -15,6 +15,7 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -57,7 +58,7 @@ func (api *txAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (
 	if err != nil || stored == nil {
 		return nil, err
 	}
-	return encodeReceipt(hash, stored, common.BytesToHash(block.BlockID.Hash)), nil
+	return encodeReceipt(hash, stored, block.Hash), nil
 }
 
 // GetTransactionByHash returns hash's transaction as committed in a finalized
@@ -69,24 +70,24 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 	if err != nil || stored == nil {
 		return nil, err
 	}
-	if int(stored.TransactionIndex) >= len(block.Block.Txs) {
+	if int(stored.TransactionIndex) >= len(block.Txs) {
 		return nil, fmt.Errorf("receipt transaction index %d exceeds block %d transaction count %d",
-			stored.TransactionIndex, stored.BlockNumber, len(block.Block.Txs))
+			stored.TransactionIndex, stored.BlockNumber, len(block.Txs))
 	}
-	ethtx, err := decodeBlockTx(block.Block.Txs[stored.TransactionIndex], block.Block.Height, int(stored.TransactionIndex))
+	ethtx, err := decodeBlockTx(block.Txs[stored.TransactionIndex], utils.Clamp[int64](block.Height), int(stored.TransactionIndex))
 	if err != nil {
 		return nil, err
 	}
 	chainConfig := api.backend.EvmChainConfig()
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+	blockUnix, ok := utils.SafeCast[uint64](block.Time.Unix())
 	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", stored.BlockNumber, block.Block.Time)
+		return nil, fmt.Errorf("block %d time is negative: %s", stored.BlockNumber, block.Time)
 	}
 	baseFee := api.backend.EvmBaseFee()
 	// TODO: If the EVM-only base fee becomes dynamic, read the fee for
 	// stored.BlockNumber here or persist it with the receipt. Using the current
 	// fee would misreport a historical transaction's effective gas price.
-	result := export.NewRPCTransaction(ethtx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, blockUnix,
+	result := export.NewRPCTransaction(ethtx, block.Hash, stored.BlockNumber, blockUnix,
 		uint64(stored.TransactionIndex), baseFee, chainConfig)
 	replaceFrom(result, stored)
 	return result, nil
@@ -118,7 +119,7 @@ func (api *txAPI) GetTransactionErrorByHash(ctx context.Context, hash common.Has
 // lookupFinalizedTx resolves hash's stored receipt and finalized block. It
 // returns a nil receipt with a nil error when hash is unknown or its block is
 // not yet finalized.
-func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, *coretypes.ResultBlock, error) {
+func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, *abevm.EvmBlock, error) {
 	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
 	if errors.Is(err, receiptdb.ErrNotFound) {
 		return nil, nil, nil
@@ -133,15 +134,15 @@ func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evm
 		return nil, nil, fmt.Errorf("receipt block number %d exceeds int64", stored.BlockNumber)
 	}
 
-	height := coretypes.Int64(stored.BlockNumber)
-	block, err := loadBackendBlock(ctx, api.backend, &height)
+	height := int64(stored.BlockNumber)
+	block, err := api.backend.BlockByNumber(ctx, utils.Some(height))
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) {
 		return nil, nil, nil
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("read receipt block %d: %w", stored.BlockNumber, err)
 	}
-	if block == nil || block.Block == nil {
+	if block == nil {
 		return nil, nil, nil
 	}
 	return stored, block, nil

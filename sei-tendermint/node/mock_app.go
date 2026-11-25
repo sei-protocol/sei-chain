@@ -123,6 +123,24 @@ func (app *MockApp) InitChain(req abevm.InitConfig) error {
 
 func (app *MockApp) RestoreBlockTime(time.Time) {}
 
+// BlockTxsHashes returns an empty transaction list.
+func (app *MockApp) BlockTxsHashes(int64) ([]common.Hash, error) {
+	return []common.Hash{}, nil
+}
+
+// EvmBlockNumber returns the latest height available for EVM block queries.
+func (app *MockApp) EvmBlockNumber() int64 {
+	height := app.LastBlockHeight()
+	if storage, ok := app.storage.Get(); ok {
+		receipts := storage.ReceiptDB()
+		if receipts == nil {
+			return 0
+		}
+		height = min(height, receipts.LatestVersion())
+	}
+	return max(0, height)
+}
+
 func (app *MockApp) Info() *abevm.ResponseInfo {
 	for state := range app.state.RLock() {
 		return &abevm.ResponseInfo{

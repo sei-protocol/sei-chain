@@ -10,10 +10,10 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // logsRetryInterval is how long a logs subscription waits to poll again when an executed block's
@@ -228,12 +228,11 @@ func (api *subscribeAPI) streamHeads(
 // commit recorded while window still holds height; for an older height the
 // receipt store is read instead, yielding zero until its receipts land.
 func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadHeight, window atypes.ExecutedBlocks) (map[string]any, error) {
-	h := coretypes.Int64(utils.Clamp[int64](height))
-	block, err := loadBackendBlock(ctx, api.backend, &h)
+	block, err := api.backend.BlockByNumber(ctx, utils.Some(utils.Clamp[int64](height)))
 	if err != nil {
 		return nil, err
 	}
-	if block == nil || block.Block == nil {
+	if block == nil {
 		return nil, fmt.Errorf("block %d not found", height)
 	}
 	committed, ok := window.Get(height)

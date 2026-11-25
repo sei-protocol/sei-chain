@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 func TestArchiveBlock(t *testing.T) {
@@ -25,7 +26,7 @@ func TestArchiveBlock(t *testing.T) {
 	// An executed transaction, a stale-nonce rejection and a rejection the sender can still cure.
 	for i, err := range []error{nil, core.ErrNonceTooLow, core.ErrNonceTooHigh} {
 		tx := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: uint64(i)})
-		block.Txs = append(block.Txs, PreparedTx{Tx: tx, Sender: common.Address{byte(i)}})
+		block.Txs = append(block.Txs, abevm.TestEvmTx(tx, common.Address{byte(i)}))
 		result.Txs = append(result.Txs, TxResult{Hash: tx.Hash(), Rejected: err != nil, Err: err})
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TxHash: tx.Hash()})
 	}
@@ -42,8 +43,8 @@ func TestArchiveBlock(t *testing.T) {
 	require.Equal(t, result.ChangeSet, got.Changes)
 	require.Len(t, got.Txs, 3)
 	for i, tx := range got.Txs {
-		require.Same(t, block.Txs[i].Tx, tx.Tx)
-		require.Equal(t, block.Txs[i].Sender, tx.Sender)
+		require.Same(t, block.Txs[i].Transaction(), tx.Tx)
+		require.Equal(t, block.Txs[i].Sender(), tx.Sender)
 		require.Same(t, result.Receipts[i], tx.Receipt)
 		require.Equal(t, result.Txs[i].Rejected, tx.Rejected)
 	}

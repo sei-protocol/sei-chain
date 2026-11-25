@@ -82,14 +82,14 @@ func (e *Executor) Run(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("WaitForBlock(%v): %w", n, err)
 				}
-				b := block.SuperBlock()
+				header := block.Header()
 				// Reported here, in road order: the builder requires each height to follow the last.
-				if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.Height), [32]byte(b.Hash)); err != nil {
-					return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", b.Height, err)
+				if err := e.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(header.Height()), [32]byte(header.Hash())); err != nil {
+					return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", header.Height(), err)
 				}
 				result := s.Spawn1(func() (atypes.ExecutedBlock, error) {
 					defer release()
-					executed, err := e.executeBlock(ctx, b)
+					executed, err := e.executeBlock(ctx, block)
 					if err != nil {
 						return atypes.ExecutedBlock{}, fmt.Errorf("executeBlock(%v): %w", n, err)
 					}
@@ -160,9 +160,10 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 
 // executeBlock finalizes b and returns its execution result. FinalizeBlock may
 // still be running for earlier blocks; the app finalizes them in road order.
-func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (atypes.ExecutedBlock, error) {
+func (e *Executor) executeBlock(ctx context.Context, b *atypes.RoadBlock) (atypes.ExecutedBlock, error) {
 	app := e.cfg.App
-	txs, err := e.cfg.Signer.ParseTxs(b.Txs)
+	header := b.Header()
+	txs, err := e.cfg.Signer.ParseTxs(b.Txs())
 	if err != nil {
 		return atypes.ExecutedBlock{}, fmt.Errorf("decode block transactions: %w", err)
 	}
@@ -171,14 +172,14 @@ func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (atyp
 	resp, err := app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{
 		Txs: txs,
 		// The road block hash identifies the block before execution and is fed as the block hash to EVM contracts.
-		Hash:   common.Hash(b.Hash),
-		Height: b.Height,
-		Time:   b.Timestamp,
+		Hash:   common.Hash(header.Hash()),
+		Height: header.Height(),
+		Time:   header.Timestamp(),
 	})
 	if err != nil {
 		return atypes.ExecutedBlock{}, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
-	return atypes.ExecutedBlock{Height: b.Height, GasUsed: resp.GasUsed}, nil
+	return atypes.ExecutedBlock{Height: header.Height(), GasUsed: resp.GasUsed}, nil
 }
 
 // publishExecuted records b in the executed-block window and the gas metric.

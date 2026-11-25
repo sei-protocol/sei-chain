@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var (
@@ -26,7 +25,7 @@ func (api *blockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash ethrpc.
 	if err != nil || block == nil {
 		return nil, err
 	}
-	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
+	height := uint64(block.Height)
 	if _, latest := indexedRange(ctx, api.backend, api.store); height > latest {
 		return nil, nil
 	}
@@ -38,7 +37,7 @@ func (api *blockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash ethrpc.
 	if earliest, _ := indexedRange(ctx, api.backend, api.store); height < earliest {
 		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errBlockReceiptsPruned, height, earliest)
 	}
-	blockHash := common.BytesToHash(block.BlockID.Hash)
+	blockHash := block.Hash
 	receipts := make([]map[string]any, len(records))
 	for i, record := range records {
 		receipts[i] = encodeReceipt(record.TxHash, record.Receipt, blockHash)
@@ -49,7 +48,7 @@ func (api *blockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash ethrpc.
 // resolveReceiptsBlock returns the block blockNrOrHash names, or a nil block
 // when there is none. Current-state tags name the latest block whose receipts
 // are indexed rather than the committed head.
-func (api *blockAPI) resolveReceiptsBlock(ctx context.Context, blockNrOrHash ethrpc.BlockNumberOrHash) (*coretypes.ResultBlock, error) {
+func (api *blockAPI) resolveReceiptsBlock(ctx context.Context, blockNrOrHash ethrpc.BlockNumberOrHash) (*abevm.EvmBlock, error) {
 	if hash, ok := blockNrOrHash.Hash(); ok {
 		return api.resolveBlockByHash(ctx, hash)
 	}

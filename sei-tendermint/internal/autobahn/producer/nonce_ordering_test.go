@@ -85,11 +85,11 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 			return err
 		}
 		height := env.data.Anchor().Load().Epochs[0].RoadRange().First
-		firstBlock, err := env.data.SuperBlock(ctx, height)
+		firstBlock, err := env.data.RoadBlock(ctx, height)
 		if err != nil {
 			return err
 		}
-		if err := utils.TestDiff([][]byte{tx1.encode()}, firstBlock.Txs); err != nil {
+		if err := utils.TestDiff([][]byte{tx1.encode()}, firstBlock.Txs()); err != nil {
 			return err
 		}
 		t.Log("insert tx2")

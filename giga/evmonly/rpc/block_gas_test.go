@@ -157,7 +157,9 @@ func TestBlockGasRPCsSkipUnavailableReceiptHeights(t *testing.T) {
 			require.Zero(t, store.reads)
 			// Gas lookup also skips decoding transactions for unavailable heights.
 			block.Block.Txs[99] = []byte("invalid transaction")
-			gas, err := blockGasUsed(t.Context(), store, block)
+			native, err := nativeTestBlock(block, nil)
+			require.NoError(t, err)
+			gas, err := blockGasUsed(t.Context(), store, native)
 			require.NoError(t, err)
 			require.Zero(t, gas)
 		})
