@@ -362,8 +362,10 @@ unbonded with no shares, so an operation finds its validator as the projection
 did. Unbonding entries do mature in between, so `maxEntries`, which counts them,
 is checked only when an undelegation is called; one already staged takes effect
 even if `maxEntries` has since been lowered. The projection calls no hooks, so a
-hook must not fail: in EndBlock, one that does has its writes reverted and is
-reported, and the operation that called it goes ahead.
+hook must not fail: in EndBlock, one that returns an error has its writes
+reverted and is reported, and the operation that called it goes ahead. Like any
+EndBlock code, a hook checks a balance change before making it, since a failed
+state access fails the block.
 
 The params need the same, so staking applies its own copy, `params`, rather
 than the params precompile's. A proposal can change those in any block, and a
