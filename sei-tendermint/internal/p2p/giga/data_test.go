@@ -136,15 +136,15 @@ func TestDataClientServer(t *testing.T) {
 		}
 		t.Logf("wait for replication")
 		for n := firstBlock; n < server.data.NextQC(); n++ {
-			want, err := server.data.SuperBlock(ctx, n)
+			want, err := server.data.RoadBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)
 			}
-			got, err := client.data.SuperBlock(ctx, n)
+			got, err := client.data.RoadBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("clientState.FinalBlock(): %w", err)
 			}
-			if err := utils.TestDiff(want, got); err != nil {
+			if err := roadBlockDiff(want, got); err != nil {
 				return err
 			}
 

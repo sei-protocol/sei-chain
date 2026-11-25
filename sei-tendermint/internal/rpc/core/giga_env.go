@@ -23,13 +23,13 @@ type GigaEnvironment struct {
 	GenDoc   *types.GenesisDoc
 }
 
-// BlockByNumber returns the finalized EVM block at height, or the latest executed height when omitted.
+// BlockByNumber returns the finalized EVM block at height, or the latest servable block when omitted.
 func (env *GigaEnvironment) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
 	var heightPtr *int64
 	if h, ok := height.Get(); ok {
 		heightPtr = &h
 	}
-	resolved, err := resolveHeight(env.LastBlockHeight(), heightPtr)
+	resolved, err := resolveHeight(env.EvmBlockNumber(), heightPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +58,6 @@ func (env *GigaEnvironment) EvmTransactionCount(address common.Address) uint64 {
 // EvmPendingNonce returns the next nonce admitted by the sender's shard.
 func (env *GigaEnvironment) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
 	return env.Router.EvmPendingNonce(ctx, address)
-}
-
-// EvmBlockNumber returns the height of the most recently committed block.
-func (env *GigaEnvironment) EvmBlockNumber() uint64 {
-	return utils.Clamp[uint64](env.LastBlockHeight())
 }
 
 // GenesisInitialHeight returns the height of the chain's first block.

@@ -33,10 +33,12 @@ import (
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
@@ -335,6 +337,49 @@ func (a *evmOnlyApplication) LastBlockHeight() int64 {
 		return state.committed.height
 	}
 	panic("unreachable")
+}
+
+// EvmBlockNumber returns the latest height available for EVM block queries.
+func (a *evmOnlyApplication) EvmBlockNumber() int64 {
+	store := a.storage.ReceiptDB()
+	if store == nil {
+		return 0
+	}
+	return max(0, min(a.LastBlockHeight(), store.LatestVersion()))
+}
+
+// BlockTxsHashes returns the receipt-backed transaction hashes at height, in execution order.
+func (a *evmOnlyApplication) BlockTxsHashes(height int64) (hashes []common.Hash, err error) {
+	store := a.storage.ReceiptDB()
+	if store == nil {
+		return nil, receiptdb.ErrNotConfigured
+	}
+	if height <= 0 {
+		return nil, fmt.Errorf("invalid block height %d", height)
+	}
+	if earliest := store.EarliestVersion(); height < earliest {
+		return nil, coretypes.WrapErrHeightNotAvailable(height, utils.Some(earliest))
+	}
+	if latest := a.EvmBlockNumber(); height > latest {
+		return nil, fmt.Errorf("%w (requested height: %d, receipt-backed height: %d)", coretypes.ErrHeightExceedsChainHead, height, latest)
+	}
+	blockNumber := uint64(height) //nolint:gosec // G115: height is positive.
+	it, err := store.IterateReceipts(blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, it.Close()) }()
+	hashes = []common.Hash{}
+	for {
+		next, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !next || it.BlockNumber() != blockNumber {
+			return hashes, nil
+		}
+		hashes = append(hashes, it.TxHash())
+	}
 }
 
 // EvmGasLimit returns the gas limit of the most recently committed block.

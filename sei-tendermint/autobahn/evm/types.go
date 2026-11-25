@@ -6,12 +6,18 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 // RawTx is an encoded Ethereum transaction.
 type RawTx []byte
+
+// Hash returns the transaction hash of the encoded transaction.
+func (tx RawTx) Hash() common.Hash {
+	return crypto.Keccak256Hash(tx)
+}
 
 // ErrPendingNonceUnavailable indicates that neither a connected shard owner nor
 // a local mempool can serve the pending nonce.

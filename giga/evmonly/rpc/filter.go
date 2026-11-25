@@ -11,9 +11,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // These mirror the legacy evmrpc defaults for evm.max_blocks_for_log and
@@ -105,10 +106,10 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 		if err != nil {
 			return 0, 0, err
 		}
-		if block == nil || block.Block == nil {
+		if block == nil {
 			return 0, 0, errUnknownBlock
 		}
-		height := uint64(block.Block.Height) //nolint:gosec // block heights are positive
+		height := uint64(block.Height)
 		earliest, latest := indexedRange(ctx, api.backend, api.store)
 		return height, height, checkIndexed(height, height, earliest, latest)
 	}
@@ -133,11 +134,11 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 // the last block whose receipts it has indexed.
 func indexedRange(ctx context.Context, backend Backend, store receiptdb.ReceiptStore) (uint64, uint64) {
 	latest := committedHead(ctx, backend)
-	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
-		latest = uint64(stored) //nolint:gosec // stored is non-negative
+	if stored := store.LatestVersion(); stored >= 0 {
+		latest = min(latest, stored)
 	}
 	earliest := uint64(earliestRetainedHeight(backend, store)) //nolint:gosec // never below the first block
-	return earliest, latest
+	return earliest, utils.Clamp[uint64](latest)
 }
 
 // checkIndexed reports whether [fromBlock, toBlock] lies within
@@ -214,15 +215,15 @@ func (api *filterAPI) blockHash(ctx context.Context, blockNumber uint64) (common
 	if blockNumber > math.MaxInt64 {
 		return common.Hash{}, fmt.Errorf("log block number %d exceeds int64", blockNumber)
 	}
-	height := coretypes.Int64(blockNumber)
-	block, err := loadBackendBlock(ctx, api.backend, &height)
+	height := int64(blockNumber)
+	block, err := api.backend.BlockByNumber(ctx, utils.Some(height))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read log block %d: %w", blockNumber, err)
 	}
-	if block == nil || block.Block == nil {
+	if block == nil {
 		return common.Hash{}, fmt.Errorf("log block %d is not finalized", blockNumber)
 	}
-	return common.BytesToHash(block.BlockID.Hash), nil
+	return block.Hash, nil
 }
 
 // firstLogIndex returns the block-wide index of txHash's first log. Stored

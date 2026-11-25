@@ -17,7 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -126,11 +127,11 @@ func (b *traceBackend) traceHeight(ctx context.Context, number ethrpc.BlockNumbe
 	}
 	switch kind {
 	case headBlock:
-		latest := committedHead(ctx, b.backend)
-		if !b.headersOnly {
-			_, latest = indexedRange(ctx, b.backend, b.blocks.store)
+		if b.headersOnly {
+			return committedHead(ctx, b.backend), nil
 		}
-		return int64(latest), nil //nolint:gosec // G115: a committed height fits in int64.
+		_, latest := indexedRange(ctx, b.backend, b.blocks.store)
+		return utils.Clamp[int64](latest), nil
 	case earliestBlock:
 		return earliestRetainedHeight(b.backend, b.blocks.store), nil
 	}
@@ -148,7 +149,7 @@ func preChainBlock(height int64) *ethtypes.Block {
 
 // ethBlock returns block as go-ethereum's tracer reads it: carrying the block's own hash, and holding
 // the transactions that executed, in execution order, unless b serves headers only.
-func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Block, error) {
+func (b *traceBackend) ethBlock(ctx context.Context, block *abevm.EvmBlock) (*ethtypes.Block, error) {
 	var txs []*ethtypes.Transaction
 	if !b.headersOnly {
 		var err error
@@ -161,14 +162,14 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 		return nil, err
 	}
 	eth := ethtypes.NewBlockWithHeader(header).WithBody(ethtypes.Body{Transactions: txs})
-	eth.OverwriteHash(common.BytesToHash(block.BlockID.Hash))
+	eth.OverwriteHash(block.Hash)
 	return eth, nil
 }
 
 // executedTxs returns the transactions of block that executed, in execution order, read from its
 // indexed receipts.
-func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultBlock) ([]*ethtypes.Transaction, error) {
-	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
+func (b *traceBackend) executedTxs(ctx context.Context, block *abevm.EvmBlock) ([]*ethtypes.Transaction, error) {
+	height := uint64(block.Height)
 	if _, latest := indexedRange(ctx, b.backend, b.blocks.store); height > latest {
 		return nil, fmt.Errorf("%w: block %d", errTraceBlockNotIndexed, height)
 	}
@@ -205,7 +206,7 @@ func (b *traceBackend) GetTransaction(ctx context.Context, hash common.Hash) (bo
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
-	return true, tx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, uint64(stored.TransactionIndex), nil
+	return true, tx, block.Hash, stored.BlockNumber, uint64(stored.TransactionIndex), nil
 }
 
 // GetCanonicalTransaction returns the finalized transaction with hash, its block hash and number,
@@ -249,7 +250,7 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 		return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("block %d not found", block.NumberU64())
 	}
 	var tx *ethtypes.Transaction
-	if txIndex != 0 || len(stored.Block.Txs) != 0 {
+	if txIndex != 0 || len(stored.Txs) != 0 {
 		if tx, err = blockTx(stored, txIndex); err != nil {
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
@@ -259,7 +260,7 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
-	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, stored.Block.Txs[:txIndex].ToSliceOfBytes())
+	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, stored.Txs[:txIndex])
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
@@ -360,9 +361,9 @@ func executed(receipt *evmtypes.Receipt) bool {
 }
 
 // blockTx decodes the transaction at index of block's stored transactions.
-func blockTx(block *coretypes.ResultBlock, index int) (*ethtypes.Transaction, error) {
-	if index < 0 || index >= len(block.Block.Txs) {
-		return nil, fmt.Errorf("%w: %d in block %d of %d transactions", errTraceTxIndex, index, block.Block.Height, len(block.Block.Txs))
+func blockTx(block *abevm.EvmBlock, index int) (*ethtypes.Transaction, error) {
+	if index < 0 || index >= len(block.Txs) {
+		return nil, fmt.Errorf("%w: %d in block %d of %d transactions", errTraceTxIndex, index, utils.Clamp[int64](block.Height), len(block.Txs))
 	}
-	return decodeBlockTx(block.Block.Txs[index], block.Block.Height, index)
+	return decodeBlockTx(block.Txs[index], utils.Clamp[int64](block.Height), index)
 }

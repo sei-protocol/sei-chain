@@ -51,7 +51,8 @@ type Backend interface {
 	EvmBaseFee() *big.Int
 	// EvmBlockContext returns the block context header's block executed at.
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
-	EvmBlockNumber() uint64
+	// EvmBlockNumber returns the latest height available for EVM block queries.
+	EvmBlockNumber() int64
 	// GenesisInitialHeight returns the height of the chain's first block, or 0 when unknown.
 	GenesisInitialHeight() int64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
@@ -150,10 +151,10 @@ func Start(backend Backend, receiptStore receiptdb.ReceiptStore, port int, wsPor
 	}, nil
 }
 
-// headPinKey is the context key of the committed head a request pins.
+// headPinKey is the context key of the servable head a request pins.
 type headPinKey struct{}
 
-// pinHeadPerRequest serves each HTTP request through next with one committed head, read from
+// pinHeadPerRequest serves each HTTP request through next with one servable head, read from
 // backend the first time a call in the request needs it. Block, receipt, fee-history, filter and
 // trace lookups in the request resolve current-state tags to that head; state reads at those tags
 // still read live state.
@@ -164,16 +165,16 @@ func pinHeadPerRequest(backend Backend, next http.Handler) http.Handler {
 	})
 }
 
-// pinnedHead returns the committed head the request carrying ctx pins, if any.
-func pinnedHead(ctx context.Context) utils.Option[uint64] {
-	if head, ok := ctx.Value(headPinKey{}).(func() uint64); ok {
+// pinnedHead returns the servable head the request carrying ctx pins, if any.
+func pinnedHead(ctx context.Context) utils.Option[int64] {
+	if head, ok := ctx.Value(headPinKey{}).(func() int64); ok {
 		return utils.Some(head())
 	}
-	return utils.None[uint64]()
+	return utils.None[int64]()
 }
 
-// committedHead returns the committed head the request carrying ctx pins, or else backend's.
-func committedHead(ctx context.Context, backend Backend) uint64 {
+// committedHead returns the servable head the request carrying ctx pins, or else backend's.
+func committedHead(ctx context.Context, backend Backend) int64 {
 	if head, ok := pinnedHead(ctx).Get(); ok {
 		return head
 	}

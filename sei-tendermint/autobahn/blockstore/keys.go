@@ -13,7 +13,7 @@ type ledgerKey struct {
 	payload []byte
 }
 
-// blockKey identifies a SuperBlock record by its road height.
+// blockKey identifies a RoadBlock record by its road height.
 type blockKey struct{ Height types.RoadHeight }
 
 func (k blockKey) encode() ledgerKey {
@@ -96,7 +96,7 @@ func (k ledgerKey) decodeLaneBlock() (laneBlockKey, error) {
 	return laneBlockKey{Height: types.RoadHeight(binary.BigEndian.Uint64(payload)), Offset: binary.BigEndian.Uint64(payload[8:])}, nil
 }
 
-// blockHashKey identifies a SuperBlock by its hash.
+// blockHashKey identifies a RoadBlock by its hash.
 type blockHashKey struct{ Hash types.RoadBlockHeaderHash }
 
 func (k blockHashKey) encode() ledgerKey {

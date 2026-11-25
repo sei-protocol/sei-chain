@@ -157,8 +157,8 @@ func (b *testBackend) EvmBaseFee() *big.Int {
 	return b.baseFee()
 }
 
-func (b *testBackend) EvmBlockNumber() uint64 {
-	return b.blockNumber()
+func (b *testBackend) EvmBlockNumber() int64 {
+	return utils.Clamp[int64](b.blockNumber())
 }
 
 func (b *testBackend) GenesisInitialHeight() int64 {

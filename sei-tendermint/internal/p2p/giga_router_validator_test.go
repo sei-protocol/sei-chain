@@ -231,7 +231,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
-		// data layer holds (SuperBlock.Payload.Txs) must equal the txs
+		// data layer holds (RoadBlock.Txs()) must equal the txs
 		// surfaced through BlockByNumber. Iterates the full retain window
 		// rather than a fixed tail so the assertion holds regardless of
 		// where producers placed the test txs. Reaches into giga0.data
@@ -240,7 +240,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		latest := apps[0].LastBlockHeight()
 		for h := int64(1); h <= latest; h++ {
 			gbn := atypes.RoadHeight(h) //nolint:gosec // h is positive
-			gb, err := giga0.data.SuperBlock(ctx, gbn)
+			gb, err := giga0.data.RoadBlock(ctx, gbn)
 			if err != nil {
 				continue // pruned out of the retain window
 			}
@@ -248,8 +248,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
-			if err := utils.TestDiff(gb.Txs, rb.Txs); err != nil {
-				return fmt.Errorf("router[0].BlockByNumber(%v).Txs differs from data.SuperBlock(%v).Txs: %w", h, h, err)
+			if err := utils.TestDiff(gb.Txs(), rb.Txs); err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v).Txs differs from data.RoadBlock(%v).Txs: %w", h, h, err)
 			}
 		}
 		return nil

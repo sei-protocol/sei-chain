@@ -176,18 +176,13 @@ func (b *RoadBlock) QC() *FullCommitQC { return b.qc }
 // LaneBlocks returns the lane blocks in header order.
 func (b *RoadBlock) LaneBlocks() []*LaneBlock { return b.blocks }
 
-// SuperBlock returns the merged transactions and execution metadata for the road.
-func (b *RoadBlock) SuperBlock() *SuperBlock {
-	superBlock := &SuperBlock{
-		Hash:      b.Header().Hash(),
-		Height:    b.qc.Height(),
-		Timestamp: b.Header().Timestamp(),
-	}
+// Txs returns the transactions in lane-block header order.
+func (b *RoadBlock) Txs() [][]byte {
+	var txs [][]byte
 	for _, block := range b.blocks {
-		superBlock.GasWanted += block.Payload().TotalGasWanted()
-		superBlock.Txs = append(superBlock.Txs, block.Payload().Txs()...)
+		txs = append(txs, block.Payload().Txs()...)
 	}
-	return superBlock
+	return txs
 }
 
 // Verify verifies the QC against the epoch and checks its lane blocks in header order.
@@ -207,18 +202,6 @@ func (b *RoadBlock) Verify(ep *Epoch) error {
 		}
 	}
 	return nil
-}
-
-// SuperBlock contains all transactions finalized by one CommitQC in header order.
-type SuperBlock struct {
-	Hash   RoadBlockHeaderHash
-	Height RoadHeight
-	// Timestamp extracted from CommitQC.
-	Timestamp time.Time
-	// Sum of GasWanted of the CommitQC's lane blocks.
-	// I.e. sum of GasWanted of Txs.
-	GasWanted uint64
-	Txs       [][]byte
 }
 
 // LaneRangeConv is the protobuf converter for LaneRange.

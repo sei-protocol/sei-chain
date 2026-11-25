@@ -17,6 +17,7 @@ type evmStateApp struct{ abevm.Application }
 func (a evmStateApp) EvmChainID() uint64 { return 1 }
 
 func (a evmStateApp) LastBlockHeight() int64                       { return 17 }
+func (a evmStateApp) EvmBlockNumber() int64                        { return 17 }
 func (a evmStateApp) EvmNonce(common.Address) uint64               { return 3 }
 func (a evmStateApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
 func (a evmStateApp) EvmBalance(common.Address) uint256.Int        { return *uint256.NewInt(99) }
@@ -24,7 +25,7 @@ func (a evmStateApp) EvmBalance(common.Address) uint256.Int        { return *uin
 func TestGigaEnvironmentReadsStateWithoutABCI(t *testing.T) {
 	app := abevm.NewProxy(evmStateApp{})
 	env := newAutobahnEnvWithApp(t, false, app)
-	require.Equal(t, uint64(17), env.EvmBlockNumber())
+	require.Equal(t, int64(17), env.EvmBlockNumber())
 	require.Equal(t, uint64(3), env.EvmTransactionCount(common.Address{1}))
 	require.Equal(t, *uint256.NewInt(99), app.EvmBalance(common.Address{1}))
 }

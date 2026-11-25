@@ -217,9 +217,9 @@ func (env *testEnv) Run(ctx context.Context) error {
 		firstBlock := env.data.Anchor().Load().Epochs[0].RoadRange().First
 		for i := firstBlock; ; i += 1 {
 			// Wait for the next block to be finalized.
-			b, err := env.data.SuperBlock(ctx, i)
+			b, err := env.data.RoadBlock(ctx, i)
 			if err != nil {
-				return fmt.Errorf("env.data.SuperBlock(): %w", err)
+				return fmt.Errorf("env.data.RoadBlock(): %w", err)
 			}
 
 			qc, err := env.data.QC(ctx, i)
@@ -268,9 +268,9 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Mark block as executed.
-			txs := utils.OrPanic1(env.signer.ParseTxs(b.Txs))
+			txs := utils.OrPanic1(env.signer.ParseTxs(b.Txs()))
 			env.signer.ForgetTxs(txs)
-			_, err = env.app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{Txs: txs, Hash: common.BytesToHash(b.Hash[:])})
+			_, err = env.app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{Txs: txs, Hash: common.Hash(b.Header().Hash())})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}

@@ -98,7 +98,7 @@ func TestRoadBlockHeaderHashIndependentOfView(t *testing.T) {
 	}
 	roadBlock := NewRoadBlock(NewFullCommitQC(qc, headers), blocks)
 	require.Equal(t, proposal.Header(), roadBlock.Header())
-	require.Equal(t, roadBlock.Header().Hash(), roadBlock.SuperBlock().Hash)
+	require.Equal(t, qc, roadBlock.QC().QC())
 }
 
 func TestRoadBlockHeaderHashCanonicalLaneRanges(t *testing.T) {
@@ -173,7 +173,7 @@ func TestRoadBlockHeaderIdentity(t *testing.T) {
 	}
 }
 
-func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
+func TestRoadBlockTransactionsInHeaderOrder(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 2)
 	ep := GenEpochWithCommittee(rng, committee)
@@ -201,11 +201,11 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	qc := BuildCommitQC(ep, keys, utils.None[*CommitQC](), laneQCs)
 	fullQC := NewFullCommitQC(qc, headers)
 	require.NoError(t, fullQC.Verify(ep))
-	block := NewRoadBlock(fullQC, blocks).SuperBlock()
-	require.Equal(t, qc.Height(), block.Height)
-	require.Equal(t, qc.Header().Timestamp(), block.Timestamp)
-	require.Equal(t, uint64(6), block.GasWanted)
-	require.Equal(t, [][]byte{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}}, block.Txs)
+	block := NewRoadBlock(fullQC, blocks)
+	require.Equal(t, qc.Height(), block.Header().Height())
+	require.Equal(t, qc.Header().Timestamp(), block.Header().Timestamp())
+	require.Equal(t, blocks, block.LaneBlocks())
+	require.Equal(t, [][]byte{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}}, block.Txs())
 }
 
 func TestLaneRangeVerifyRejectsHashOnEmptyRange(t *testing.T) {

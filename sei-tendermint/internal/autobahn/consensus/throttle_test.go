@@ -53,7 +53,7 @@ func TestConsensusMaxRate(t *testing.T) {
 				})
 				sc.SpawnBg(func() error {
 					for n := state.Data().First(); ; n++ {
-						if _, err := state.Data().SuperBlock(ctx, n); err != nil {
+						if _, err := state.Data().RoadBlock(ctx, n); err != nil {
 							return utils.IgnoreCancel(err)
 						}
 						if err := state.Data().PushAppHash(ctx, n, types.AppHash{}); err != nil {

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"math/big"
 
-	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -16,10 +14,10 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
+	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -93,14 +91,14 @@ func (api *blockAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, hash
 
 // transactionAtIndex renders the transaction at index in block, or returns nil
 // if index is past the end of the block.
-func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.ResultBlock, index hexutil.Uint) (*export.RPCTransaction, error) {
+func (api *blockAPI) transactionAtIndex(ctx context.Context, block *abevm.EvmBlock, index hexutil.Uint) (*export.RPCTransaction, error) {
 	i, ok := utils.SafeCast[int](uint(index))
-	if !ok || i >= len(block.Block.Txs) {
+	if !ok || i >= len(block.Txs) {
 		return nil, nil
 	}
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+	blockUnix, ok := utils.SafeCast[uint64](block.Time.Unix())
 	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
+		return nil, fmt.Errorf("block %d time is negative: %s", block.Height, block.Time)
 	}
 	baseFee := api.backend.EvmBaseFee()
 	chainConfig := api.backend.EvmChainConfig()
@@ -110,28 +108,21 @@ func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.Re
 // transactionCount returns the number of transactions in block, counting every
 // transaction its body carries, as the transactions list of eth_getBlockBy*
 // does.
-func transactionCount(block *coretypes.ResultBlock) *hexutil.Uint {
-	count := hexutil.Uint(len(block.Block.Txs)) //nolint:gosec // G115: a slice length is non-negative.
+func transactionCount(block *abevm.EvmBlock) *hexutil.Uint {
+	count := hexutil.Uint(len(block.Txs)) //nolint:gosec // G115: a slice length is non-negative.
 	return &count
 }
 
 // resolveBlockByHash returns the block with the given hash, or a nil block if
 // hash is unknown.
-func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
-	block, err := loadBackendBlockByHash(ctx, api.backend, hash)
-	if err != nil {
-		return nil, err
-	}
-	if block == nil || block.Block == nil {
-		return nil, nil
-	}
-	return block, nil
+func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*abevm.EvmBlock, error) {
+	return loadBackendBlockByHash(ctx, api.backend, hash)
 }
 
 // resolveBlockByNumber returns the block number names, with earliest and 0x0 naming the earliest
 // block the receipt store retains. It returns a nil block for a future height, and coretypes.ErrHeightNotAvailable
 // for a pruned height.
-func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
+func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*abevm.EvmBlock, error) {
 	kind, err := classifyBlockNumber(number)
 	if err != nil {
 		return nil, err
@@ -139,9 +130,9 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	switch kind {
 	case headBlock:
 		if head, ok := pinnedHead(ctx).Get(); ok {
-			return api.blockAt(ctx, int64(head)) //nolint:gosec // G115: a committed height fits in int64.
+			return api.blockAt(ctx, head)
 		}
-		return api.fetchBlock(ctx, nil)
+		return api.fetchBlock(ctx, utils.None[int64]())
 	case earliestBlock:
 		return api.blockAt(ctx, earliestRetainedHeight(api.backend, api.store))
 	}
@@ -150,24 +141,20 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 
 // blockAt returns the block at height, or a nil block for a height below 1 or above the head. It
 // returns coretypes.ErrHeightNotAvailable for a pruned height.
-func (api *blockAPI) blockAt(ctx context.Context, height int64) (*coretypes.ResultBlock, error) {
-	h := coretypes.Int64(height)
-	return api.fetchBlock(ctx, &h)
+func (api *blockAPI) blockAt(ctx context.Context, height int64) (*abevm.EvmBlock, error) {
+	return api.fetchBlock(ctx, utils.Some(height))
 }
 
-// fetchBlock returns the backend's block at height, or the latest committed block for a nil
-// height, with a nil block for one the backend does not have.
-func (api *blockAPI) fetchBlock(ctx context.Context, height *coretypes.Int64) (*coretypes.ResultBlock, error) {
-	block, err := loadBackendBlock(ctx, api.backend, height)
+// fetchBlock returns the block at height, or the latest committed block when height is omitted.
+// It returns nil for an unknown height.
+func (api *blockAPI) fetchBlock(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+	block, err := api.backend.BlockByNumber(ctx, height)
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
 		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	if block == nil || block.Block == nil {
-		return nil, nil
 	}
 	return block, nil
 }
@@ -189,12 +176,12 @@ func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*etht
 }
 
 // executionHeader returns block's header with the fields its execution context reads.
-func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Header, error) {
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+func (api *blockAPI) executionHeader(ctx context.Context, block *abevm.EvmBlock) (*ethtypes.Header, error) {
+	blockUnix, ok := utils.SafeCast[uint64](block.Time.Unix())
 	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
+		return nil, fmt.Errorf("block %d time is negative: %s", block.Height, block.Time)
 	}
-	parentHash, err := api.parentHash(ctx, block.Block.Height)
+	parentHash, err := api.parentHash(ctx, utils.Clamp[int64](block.Height))
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +189,7 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 	baseFee := api.backend.EvmBaseFee()
 	return &ethtypes.Header{
 		ParentHash: parentHash,
-		Number:     big.NewInt(block.Block.Height),
+		Number:     big.NewInt(utils.Clamp[int64](block.Height)),
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
@@ -224,23 +211,27 @@ func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash,
 	if parent == nil {
 		return common.Hash{}, nil
 	}
-	return common.BytesToHash(parent.BlockID.Hash), nil
+	return parent.Hash, nil
 }
 
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
 // sha3Uncles, difficulty, extraData, uncles, and totalDifficulty are always
 // their zero value; unlike evmrpc's v2 encoder, mixHash does not report PREVRANDAO.
 // logsBloom is always zero; receipt blooms are not aggregated here.
-func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlock, fullTx bool) (map[string]any, error) {
-	number := block.Block.Height
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+func (api *blockAPI) encodeBlock(ctx context.Context, block *abevm.EvmBlock, fullTx bool) (map[string]any, error) {
+	number := utils.Clamp[int64](block.Height)
+	blockUnix, ok := utils.SafeCast[uint64](block.Time.Unix())
 	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Block.Time)
+		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Time)
 	}
 	gasLimit := api.backend.EvmGasLimit()
 	baseFee := api.backend.EvmBaseFee()
 
-	txs := block.Block.Txs
+	txs := block.Txs
+	var size uint64
+	for _, raw := range txs {
+		size += uint64(len(raw)) //nolint:gosec // G115: transaction lengths are non-negative.
+	}
 	transactions := make([]any, len(txs))
 	if fullTx {
 		chainConfig := api.backend.EvmChainConfig()
@@ -268,8 +259,8 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	}
 
 	result := headerFields(block, blockUnix, gasLimit, baseFee, gasUsed)
-	result["size"] = hexutil.Uint64(block.Block.Size()) //nolint:gosec // G115: block size is positive.
-	result["uncles"] = []common.Hash{}                  // inapplicable to Sei
+	result["size"] = hexutil.Uint64(size)
+	result["uncles"] = []common.Hash{} // inapplicable to Sei
 	result["transactions"] = transactions
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
@@ -280,9 +271,9 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 // rpcTransaction renders the transaction at index in block as a full
 // eth_getBlockBy* transaction entry, taking its sender from the stored receipt
 // when the signature does not resolve one.
-func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.ResultBlock, index int, blockUnix uint64, baseFee *big.Int, chainConfig *params.ChainConfig) (*export.RPCTransaction, error) {
-	number := block.Block.Height
-	ethtx, err := decodeBlockTx(block.Block.Txs[index], number, index)
+func (api *blockAPI) rpcTransaction(ctx context.Context, block *abevm.EvmBlock, index int, blockUnix uint64, baseFee *big.Int, chainConfig *params.ChainConfig) (*export.RPCTransaction, error) {
+	number := utils.Clamp[int64](block.Height)
+	ethtx, err := decodeBlockTx(block.Txs[index], number, index)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +281,7 @@ func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.Result
 	if err != nil {
 		return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, index, err)
 	}
-	blockHash := common.BytesToHash(block.BlockID.Hash)
+	blockHash := block.Hash
 	result := export.NewRPCTransaction(ethtx, blockHash, uint64(number), blockUnix, uint64(index), baseFee, chainConfig) //nolint:gosec // G115: number is a validated block height.
 	if stored != nil {
 		replaceFrom(result, stored)
@@ -300,10 +291,10 @@ func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.Result
 
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
 // decodes.
-func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+func encodeHeader(backend Backend, block *abevm.EvmBlock, gasUsed uint64) (map[string]any, error) {
+	blockUnix, ok := utils.SafeCast[uint64](block.Time.Unix())
 	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
+		return nil, fmt.Errorf("block %d time is negative: %s", block.Height, block.Time)
 	}
 	gasLimit := backend.EvmGasLimit()
 	baseFee := backend.EvmBaseFee()
@@ -311,25 +302,25 @@ func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64)
 }
 
 // headerFields returns the Ethereum JSON header fields of block.
-func headerFields(block *coretypes.ResultBlock, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
+func headerFields(block *abevm.EvmBlock, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
 	return map[string]any{
-		"number":           (*hexutil.Big)(big.NewInt(block.Block.Height)),
-		"hash":             common.BytesToHash(block.BlockID.Hash),
-		"parentHash":       common.BytesToHash(block.Block.LastBlockID.Hash),
+		"number":           (*hexutil.Big)(big.NewInt(utils.Clamp[int64](block.Height))),
+		"hash":             block.Hash,
+		"parentHash":       common.Hash{},
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
 		"logsBloom":        ethtypes.Bloom{},
-		"stateRoot":        common.BytesToHash(block.Block.AppHash),
-		"miner":            common.BytesToAddress(block.Block.ProposerAddress),
+		"stateRoot":        common.Hash{},
+		"miner":            common.Address{},
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
 		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
 		"gasLimit":         hexutil.Uint64(gasLimit),
 		"gasUsed":          hexutil.Uint64(gasUsed),
 		"timestamp":        hexutil.Uint64(blockUnix),
-		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec // G115: block timestamps are positive.
-		"transactionsRoot": common.BytesToHash(block.Block.DataHash),
-		"receiptsRoot":     common.BytesToHash(block.Block.LastResultsHash),
+		"milliTimestamp":   hexutil.Uint64(block.Time.UnixMilli()), //nolint:gosec // G115: block timestamps are positive.
+		"transactionsRoot": common.Hash{},
+		"receiptsRoot":     common.Hash{},
 		"baseFeePerGas":    (*hexutil.Big)(baseFee),
 	}
 }
@@ -347,13 +338,12 @@ func receiptFor(ctx context.Context, store receiptdb.ReceiptStore, hash common.H
 	return stored, nil
 }
 
-// blockGasUsed returns the gas used by block: its stored BlockStats when the store
-// has them, otherwise the total recomputed from the receipts that belong to the
-// block at their original index. It is zero when the store does not cover block.
-func blockGasUsed(ctx context.Context, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
+// blockGasUsed returns block's stored gas total, falling back to summing its receipts.
+// It is zero when the store does not cover block.
+func blockGasUsed(ctx context.Context, store receiptdb.ReceiptStore, block *abevm.EvmBlock) (uint64, error) {
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
-	height := block.Block.Height
+	height := utils.Clamp[int64](block.Height)
 	if store == nil || height > store.LatestVersion() || height < store.EarliestVersion() {
 		return 0, nil
 	}
@@ -375,55 +365,12 @@ func blockGasUsed(ctx context.Context, store receiptdb.ReceiptStore, block *core
 	return receiptmetrics.ComputeBlockStats(records, nil).TotalGasUsed, nil
 }
 
-// loadBackendBlock returns the backend's EVM block in the RPC block envelope.
-func loadBackendBlock(ctx context.Context, backend Backend, height *coretypes.Int64) (*coretypes.ResultBlock, error) {
-	requested := utils.None[int64]()
-	if height != nil {
-		requested = utils.Some(int64(*height))
-	}
-	block, err := backend.BlockByNumber(ctx, requested)
-	if err != nil {
-		return nil, err
-	}
-	if block == nil {
-		return &coretypes.ResultBlock{}, nil
-	}
-	return rpcBlock(block), nil
-}
-
-// loadBackendBlockByHash returns the backend's EVM block in the RPC block envelope.
-func loadBackendBlockByHash(ctx context.Context, backend Backend, hash common.Hash) (*coretypes.ResultBlock, error) {
+// loadBackendBlockByHash returns the backend's EVM block, or nil when hash is unknown.
+func loadBackendBlockByHash(ctx context.Context, backend Backend, hash common.Hash) (*abevm.EvmBlock, error) {
 	block, err := backend.BlockByHash(ctx, hash)
 	if err != nil {
 		return nil, err
 	}
-	if value, ok := block.Get(); ok {
-		return rpcBlock(value), nil
-	}
-	return &coretypes.ResultBlock{}, nil
-}
-
-// rpcBlock returns block in the RPC block envelope.
-func rpcBlock(block *abevm.EvmBlock) *coretypes.ResultBlock {
-	txs := make(tmtypes.Txs, len(block.Txs))
-	for i, tx := range block.Txs {
-		txs[i] = tx
-	}
-	return &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: block.Hash.Bytes()},
-		Block: &tmtypes.Block{
-			Header: tmtypes.Header{
-				ChainID: block.ChainID,
-				Height:  utils.Clamp[int64](block.Height),
-				Time:    block.Time,
-			},
-			Data: tmtypes.Data{Txs: txs},
-			// Autobahn does not feed per-validator votes into the app. Filling N
-			// absent signatures would make trace replay's BeginBlock bump
-			// missed-block counters and diverge from production. ToReqBeginBlock
-			// skips the per-validator loop when Signatures is empty, so empty
-			// Votes flow into distribution/slashing on both paths.
-			LastCommit: &tmtypes.Commit{},
-		},
-	}
+	value, _ := block.Get()
+	return value, nil
 }

@@ -149,7 +149,7 @@ type iterEntry struct {
 	qc *types.FullCommitQC
 
 	// blk is the block at the position; nil when no block is persisted there.
-	blk *types.SuperBlock
+	blk *types.RoadBlock
 
 	// appQC is the AppQC at the position; nil when no AppQC is persisted there.
 	appQC *types.AppQC
@@ -173,7 +173,7 @@ func drainSuffix(t *testing.T, db *Store) []iterEntry {
 	for _, group := range suffix.Blocks {
 		qc := group.QC()
 		if qc.Height() >= floor {
-			entries = append(entries, iterEntry{n: qc.Height(), qc: qc, blk: group.SuperBlock()})
+			entries = append(entries, iterEntry{n: qc.Height(), qc: qc, blk: group})
 		}
 	}
 	for _, appQC := range suffix.AppQCs {
@@ -262,7 +262,7 @@ func assertTipsMatchPresent(t *testing.T, db *Store) {
 	if tips.NextBlock > tips.First {
 		blk, err := db.ReadBlock(tips.NextBlock - 1)
 		require.NoError(t, err)
-		require.True(t, blk.IsPresent(), "NextBlock must point past a readable SuperBlock")
+		require.True(t, blk.IsPresent(), "NextBlock must point past a readable RoadBlock")
 	}
 
 	if tips.NextBlock > tips.First {
@@ -726,7 +726,7 @@ func recoverLastAppQC(t *testing.T, db *Store) (*types.AppQC, bool) {
 	return nil, false
 }
 
-// testWriteEmptyQC verifies that an empty QC persists a SuperBlock and advances the road.
+// testWriteEmptyQC verifies that an empty QC persists a RoadBlock and advances the road.
 func testWriteEmptyQC(t *testing.T, build builder) {
 	rng := utils.TestRng()
 	db, reopen := openFresh(t, build)
@@ -751,13 +751,13 @@ func testWriteEmptyQC(t *testing.T, build builder) {
 
 // --- shared assertions ---
 
-func assertSuperBlocksEqual(t *testing.T, want, got *types.SuperBlock) {
+func assertRoadBlocksEqual(t *testing.T, want, got *types.RoadBlock) {
 	t.Helper()
-	require.Equal(t, want.Hash, got.Hash)
-	require.Equal(t, want.Height, got.Height)
-	require.True(t, want.Timestamp.Equal(got.Timestamp))
-	require.Equal(t, want.GasWanted, got.GasWanted)
-	require.Equal(t, want.Txs, got.Txs)
+	require.Equal(t, types.FullCommitQCConv.Encode(want.QC()), types.FullCommitQCConv.Encode(got.QC()))
+	require.Len(t, got.LaneBlocks(), len(want.LaneBlocks()))
+	for i, block := range want.LaneBlocks() {
+		require.Equal(t, types.LaneBlockConv.Encode(block), types.LaneBlockConv.Encode(got.LaneBlocks()[i]))
+	}
 }
 
 func assertBlocksReadable(t *testing.T, db *Store, batches []batch) {
@@ -771,19 +771,19 @@ func assertBlocksReadable(t *testing.T, db *Store, batches []batch) {
 			require.Equal(t, block.Payload().Txs(), got.Payload().Txs())
 			alias, err := db.ReadBlockByHash(types.RoadBlockHeaderHash(block.Header().Hash()))
 			require.NoError(t, err)
-			require.False(t, alias.IsPresent(), "lane block hashes must not index SuperBlocks")
+			require.False(t, alias.IsPresent(), "lane block hashes must not index RoadBlocks")
 		}
 		missing, err := db.ReadLaneBlock(types.LaneBlockPos{Height: b.first, Offset: uint64(len(b.blocks))})
 		require.NoError(t, err)
 		require.False(t, missing.IsPresent())
-		for i, blk := range b.superBlocks() {
+		for i, blk := range b.roadBlocks() {
 			n := b.first + gbn(i)
 
 			byNum, err := db.ReadBlock(n)
 			require.NoError(t, err)
 			got, ok := byNum.Get()
 			require.True(t, ok, "block %d should exist", n)
-			assertSuperBlocksEqual(t, blk, got.SuperBlock())
+			assertRoadBlocksEqual(t, blk, got)
 			require.Equal(t, types.FullCommitQCConv.Encode(b.qc), types.FullCommitQCConv.Encode(got.QC()))
 			require.Len(t, got.LaneBlocks(), len(b.blocks))
 			for offset, block := range b.blocks {
@@ -794,7 +794,7 @@ func assertBlocksReadable(t *testing.T, db *Store, batches []batch) {
 			require.NoError(t, err)
 			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")
-			assertSuperBlocksEqual(t, blk, bwn.SuperBlock())
+			assertRoadBlocksEqual(t, blk, bwn)
 			require.Equal(t, n, bwn.QC().Height(), "block %d hash lookup should return its number", n)
 		}
 	}
@@ -852,7 +852,7 @@ const (
 
 var genesisTime = time.Unix(1_700_000_000, 0)
 
-// batch is a SuperBlock at First with its CommitQC and ordered lane blocks.
+// batch is a RoadBlock at First with its CommitQC and ordered lane blocks.
 // Next is First+1.
 type batch struct {
 	first  types.RoadHeight
@@ -964,9 +964,9 @@ func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 	return types.NewAppQC(votes)
 }
 
-// superBlocks returns the execution unit represented by this batch.
-func (b batch) superBlocks() []*types.SuperBlock {
-	return []*types.SuperBlock{types.NewRoadBlock(b.qc, b.blocks).SuperBlock()}
+// roadBlocks returns the execution unit represented by this batch.
+func (b batch) roadBlocks() []*types.RoadBlock {
+	return []*types.RoadBlock{types.NewRoadBlock(b.qc, b.blocks)}
 }
 
 func testSuffixSnapshot(t *testing.T, build builder) {

@@ -129,9 +129,8 @@ func TestBlocksLargerThanALedgerBlockAreStoredAndReopened(t *testing.T) {
 	require.NoError(t, err)
 	block, ok := stored.Get()
 	require.True(t, ok, "the newest block should be in the ledger")
-	superBlock := block.SuperBlock()
-	require.Len(t, superBlock.Txs, maxLedgerEntries, "the transactions are packed into the ledger's entries")
-	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(superBlock.Txs))
+	require.Len(t, block.Txs(), maxLedgerEntries, "the transactions are packed into the ledger's entries")
+	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Txs()))
 }
 
 // TestSuperblockWritesEveryLaneBlockAndCommitsOnce pins that a superblock stores each lane block and
@@ -179,7 +178,7 @@ func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest int6
 	require.NoError(t, err)
 	block, ok := stored.Get()
 	require.True(t, ok, "the newest lane block should be in the ledger")
-	require.Equal(t, int64(config.blockPayloadBytes())*int64(lanes), payloadBytes(block.SuperBlock().Txs),
+	require.Equal(t, int64(config.blockPayloadBytes())*int64(lanes), payloadBytes(block.Txs()),
 		"SuperBlock merges every lane block payload")
 }
 

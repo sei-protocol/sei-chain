@@ -26,7 +26,7 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	for _, b := range batches {
-		for i, blk := range b.superBlocks() {
+		for i, blk := range b.roadBlocks() {
 			n := b.first + gbn(i)
 			if n < watermark {
 				continue
@@ -35,7 +35,7 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-			assertSuperBlocksEqual(t, blk, got.SuperBlock())
+			assertRoadBlocksEqual(t, blk, got)
 		}
 		if b.next > watermark {
 			lookup := b.first
@@ -63,7 +63,7 @@ func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	// Blocks at or above the watermark within the retained batch survive.
-	for i, blk := range retained.superBlocks() {
+	for i, blk := range retained.roadBlocks() {
 		n := retained.first + gbn(i)
 		if n < watermark {
 			continue
@@ -72,7 +72,7 @@ func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-		assertSuperBlocksEqual(t, blk, got.SuperBlock())
+		assertRoadBlocksEqual(t, blk, got)
 	}
 
 	// The retained QC stays (its Next > watermark); a lookup at or above the
@@ -101,7 +101,7 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	below := batches[0]
-	for i := range below.superBlocks() {
+	for i := range below.roadBlocks() {
 		n := below.first + gbn(i)
 		require.Less(t, n, watermark)
 
@@ -134,8 +134,8 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 // reports a plain utils.None with a nil error (absent, but a future write may
 // fill it). Both implementations must agree.
 //
-// The prune point is a road boundary: the retained SuperBlock stays readable,
-// and the previous SuperBlock becomes pruned.
+// The prune point is a road boundary: the retained RoadBlock stays readable,
+// and the previous RoadBlock becomes pruned.
 func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -153,7 +153,7 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	// Cohort atomicity: every block in the retained cohort is still served,
 	// including those numerically below the prune point — the cohort does not
 	// split.
-	for i := range retained.superBlocks() {
+	for i := range retained.roadBlocks() {
 		n := retained.first + gbn(i)
 		opt, err := db.ReadBlock(n)
 		require.NoError(t, err, "block %d in the retained cohort must not report ErrPruned", n)
@@ -221,7 +221,7 @@ func testPruneIdempotentMonotonic(t *testing.T, build builder) {
 
 	// Everything at or above the highest watermark is still intact and correct.
 	for _, b := range batches {
-		for i, blk := range b.superBlocks() {
+		for i, blk := range b.roadBlocks() {
 			n := b.first + gbn(i)
 			if n < watermark {
 				continue
@@ -230,7 +230,7 @@ func testPruneIdempotentMonotonic(t *testing.T, build builder) {
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must survive redundant prunes", n, watermark)
-			assertSuperBlocksEqual(t, blk, got.SuperBlock())
+			assertRoadBlocksEqual(t, blk, got)
 		}
 	}
 }
@@ -285,14 +285,14 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			require.NoError(t, db.PruneBefore(prune))
 
 			// Every block in the newest cohort is still served on every read path.
-			for i, blk := range last.superBlocks() {
+			for i, blk := range last.roadBlocks() {
 				n := last.first + gbn(i)
 
 				byNum, err := db.ReadBlock(n)
 				require.NoError(t, err)
 				got, ok := byNum.Get()
 				require.True(t, ok, "block %d in the newest cohort must survive PruneBefore(%d)", n, prune)
-				assertSuperBlocksEqual(t, blk, got.SuperBlock())
+				assertRoadBlocksEqual(t, blk, got)
 
 				byHash, err := db.ReadBlockByHash(last.qc.Header().Hash())
 				require.NoError(t, err)
@@ -435,7 +435,7 @@ func TestPruneHidesEverythingBelowWatermark(t *testing.T) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	// The first batch is below the watermark and must read as pruned.
-	for i := range batches[0].superBlocks() {
+	for i := range batches[0].roadBlocks() {
 		n := batches[0].first + gbn(i)
 		opt, err := db.ReadBlock(n)
 		require.ErrorIs(t, err, types.ErrPruned, "block %d should be pruned", n)
@@ -453,8 +453,8 @@ func TestPruneHidesEverythingBelowWatermark(t *testing.T) {
 	assertSuffixAbove(t, db, watermark)
 }
 
-// TestPruneRetainsWholeSuperBlock checks retention at a SuperBlock boundary.
-func TestPruneRetainsWholeSuperBlock(t *testing.T) {
+// TestPruneRetainsWholeRoadBlock checks retention at a RoadBlock boundary.
+func TestPruneRetainsWholeRoadBlock(t *testing.T) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db := newTestStore(t)
@@ -466,8 +466,8 @@ func TestPruneRetainsWholeSuperBlock(t *testing.T) {
 	require.Greater(t, retained.next, pruneAt, "prune point must precede the next road")
 	require.NoError(t, db.PruneBefore(pruneAt))
 
-	// The retained SuperBlock and all its lane blocks remain readable.
-	for i := range retained.superBlocks() {
+	// The retained RoadBlock and all its lane blocks remain readable.
+	for i := range retained.roadBlocks() {
 		n := retained.first + gbn(i)
 		opt, err := db.ReadBlock(n)
 		require.NoError(t, err, "block %d in the retained cohort must be served", n)
@@ -475,7 +475,7 @@ func TestPruneRetainsWholeSuperBlock(t *testing.T) {
 	}
 
 	// The retained QC is retained and resolves across its whole range.
-	for i := range retained.superBlocks() {
+	for i := range retained.roadBlocks() {
 		n := retained.first + gbn(i)
 		qc, err := db.ReadQC(n)
 		require.NoError(t, err, "cohort QC must resolve at %d", n)
@@ -483,7 +483,7 @@ func TestPruneRetainsWholeSuperBlock(t *testing.T) {
 	}
 
 	// The fully-below first cohort is pruned.
-	for i := range batches[0].superBlocks() {
+	for i := range batches[0].roadBlocks() {
 		n := batches[0].first + gbn(i)
 		opt, err := db.ReadBlock(n)
 		require.ErrorIs(t, err, types.ErrPruned, "block %d in the fully-below cohort must be pruned", n)

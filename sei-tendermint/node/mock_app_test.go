@@ -42,6 +42,7 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 	require.Equal(t, uint64(52_000), res.GasUsed)
+	require.Equal(t, int64(3), app.EvmBlockNumber())
 
 	decoded := utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(tx2))
 	_, checkErr := app.CheckTx(decoded)

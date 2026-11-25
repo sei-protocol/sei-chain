@@ -15,6 +15,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -107,6 +108,27 @@ func (a *testApp) LastBlockHeight() int64 {
 			return 0
 		}
 		return int64(init.InitialHeight) + int64(len(state.Blocks)) - 1
+	}
+	panic("unreachable")
+}
+
+func (a *testApp) EvmBlockNumber() int64 {
+	return max(0, a.LastBlockHeight())
+}
+
+func (a *testApp) BlockTxsHashes(height int64) ([]common.Hash, error) {
+	for state := range a.state.Lock() {
+		for _, block := range state.Blocks {
+			if utils.Clamp[int64](block.Height) != height {
+				continue
+			}
+			hashes := make([]common.Hash, len(block.Txs))
+			for i, raw := range block.Txs {
+				hashes[i] = crypto.Keccak256Hash(raw)
+			}
+			return hashes, nil
+		}
+		return nil, fmt.Errorf("block %d has not executed", height)
 	}
 	panic("unreachable")
 }

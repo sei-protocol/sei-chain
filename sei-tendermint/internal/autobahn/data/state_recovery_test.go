@@ -126,7 +126,7 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 
 	state, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, db)
 	require.NoError(t, err)
-	_, err = state.SuperBlock(t.Context(), qc1.Height())
+	_, err = state.RoadBlock(t.Context(), qc1.Height())
 	require.ErrorIs(t, err, types.ErrPruned)
 }
 
@@ -197,7 +197,7 @@ func TestRecoveryAfterPruning(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrPruned)
 	_, err = state2.QC(t.Context(), qc1.Height())
 	require.ErrorIs(t, err, types.ErrPruned)
-	_, err = state2.SuperBlock(t.Context(), qc1.Height())
+	_, err = state2.RoadBlock(t.Context(), qc1.Height())
 	require.ErrorIs(t, err, types.ErrPruned)
 	for n := qc2.Height(); n < qc3.Height()+1; n++ {
 		got, err := state2.TryBlock(types.LaneBlockPos{Height: n})

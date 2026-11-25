@@ -110,7 +110,7 @@ func stateHeight(ctx context.Context, backend Backend, store receiptdb.ReceiptSt
 		}
 	}
 	head := committedHead(ctx, backend)
-	if uint64(height) > head { //nolint:gosec // non-negative
+	if height > head {
 		return 0, false, fmt.Errorf("%w: block %d, latest %d", errBlockAboveHead, height, head)
 	}
 	return height, false, nil
