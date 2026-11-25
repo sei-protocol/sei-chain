@@ -13,8 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-var _ types.Committer = (*CommitStore)(nil)
-
 type CommitStore struct {
 	db      *DB
 	opts    Options
@@ -64,7 +62,7 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 
 // LoadVersion loads the specified version of the database.
 // If copyExisting is true, creates a read-only copy for querying.
-func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
+func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (*CommitStore, error) {
 	logger.Info("SeiDB loading target memIAVL version", "version", targetVersion, "read-only", readOnly)
 
 	if readOnly {
@@ -97,20 +95,8 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	return cs, nil
 }
 
-// SetWriteMode implements types.Committer. The memiavl commit store is a
-// single-backend store; its write mode is fixed.
-func (cs *CommitStore) SetWriteMode(types.WriteMode) error {
-	return fmt.Errorf("memiavl commit store does not support runtime write-mode changes")
-}
-
-// SetMigrationBatchSize implements types.Committer. The memiavl commit
-// store runs no migration of its own, so this is a no-op.
-func (cs *CommitStore) SetMigrationBatchSize(int) error {
-	return nil
-}
-
 // Copy returns an O(1) memiavl snapshot; COW nodes are shared with the live store.
-func (cs *CommitStore) Copy() types.Committer {
+func (cs *CommitStore) Copy() *CommitStore {
 	if cs == nil || cs.db == nil {
 		return nil
 	}

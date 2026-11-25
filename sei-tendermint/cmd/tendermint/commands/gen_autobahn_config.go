@@ -114,7 +114,6 @@ Output is written to the file specified by --output.`,
 			cfg := config.AutobahnFileConfig{
 				Validators:     validators,
 				MaxTxsPerBlock: 2_000,
-				BlockInterval:  utils.Duration(400 * time.Millisecond),
 				// node/setup.go rootifies a relative path against cfg.RootDir at load time.
 				PersistentStateDir: persistentStateDir,
 				DialInterval:       utils.Duration(10 * time.Second),

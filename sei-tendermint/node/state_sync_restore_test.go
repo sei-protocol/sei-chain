@@ -19,8 +19,15 @@ import (
 // value at key of module.
 func checkpointWithRow(t *testing.T, module string, key, value []byte) string {
 	t.Helper()
+	return commitRow(t, filepath.Join(t.TempDir(), "flatkv"), module, key, value)
+}
+
+// commitRow commits block 1, which writes value at key of module, to a FlatKV store in dataDir.
+// It returns the FlatKV checkpoint of that block.
+func commitRow(t *testing.T, dataDir string, module string, key, value []byte) string {
+	t.Helper()
 	cfg := flatkvconfig.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(t.TempDir(), "flatkv")
+	cfg.DataDir = dataDir
 	cfg.SnapshotInterval = 1
 	wal, err := flatkv.OpenStateWAL(cfg)
 	require.NoError(t, err)
@@ -62,6 +69,15 @@ func TestVerifyRestoreProofRejectsARoadOutsideTheRegistry(t *testing.T) {
 
 	_, err := VerifyRestoreProof(checkpoint, 4, fixture.Proof)
 	require.Error(t, err)
+}
+
+func TestVerifyRestoreProofRejectsACheckpointWithoutTheNextEpoch(t *testing.T) {
+	fixture := utils.OrPanic1(GenStateSyncProofFixture(utils.TestRng(), 5))
+	short := withoutNextEpoch(t, fixture)
+	checkpoint := checkpointWithRow(t, short.Module, short.Key, short.Value)
+
+	_, err := VerifyRestoreProof(checkpoint, 5, fixture.Proof)
+	require.ErrorIs(t, err, errRestoreNeedsNextEpoch)
 }
 
 func TestVerifyRestoreProofRejectsACheckpointWithoutARegistry(t *testing.T) {

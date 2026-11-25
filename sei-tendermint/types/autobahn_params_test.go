@@ -28,7 +28,9 @@ func TestAutobahnParamsValidate(t *testing.T) {
 		{"just too long", time.Second, time.Second + time.Nanosecond, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			params := AutobahnParams{ViewTimeout: tc.timeout, MinRoadBlockInterval: tc.interval, EpochLength: DefaultAutobahnParams().EpochLength}
+			params := DefaultAutobahnParams()
+			params.ViewTimeout = tc.timeout
+			params.MinRoadBlockInterval = tc.interval
 			doc := &GenesisDoc{ChainID: "test-chain", Autobahn: utils.Some(params)}
 			if !tc.valid {
 				require.Error(t, params.Validate())
@@ -59,14 +61,35 @@ func TestAutobahnParamsIntervalJSON(t *testing.T) {
 	require.NoError(t, DefaultAutobahnParams().Validate())
 }
 
+func TestAutobahnParamsLaneBlockInterval(t *testing.T) {
+	// An absent lane_block_interval is filled with the default during validation.
+	doc, err := GenesisDocFromJSON([]byte(`{"chain_id":"test-chain","autobahn":{"view_timeout":"1500000000"}}`))
+	require.NoError(t, err)
+	require.Equal(t, 150*time.Millisecond, doc.Autobahn.OrPanic("expected Autobahn params").LaneBlockInterval)
+
+	// An explicit value is kept.
+	doc, err = GenesisDocFromJSON([]byte(`{"chain_id":"test-chain","autobahn":{"view_timeout":"1500000000","lane_block_interval":"50000000"}}`))
+	require.NoError(t, err)
+	require.Equal(t, 50*time.Millisecond, doc.Autobahn.OrPanic("expected Autobahn params").LaneBlockInterval)
+
+	// A negative value is rejected.
+	_, err = GenesisDocFromJSON([]byte(`{"chain_id":"test-chain","autobahn":{"view_timeout":"1500000000","lane_block_interval":"-1"}}`))
+	require.Error(t, err)
+
+	// Validate rejects a zero interval, since only ValidateAndComplete fills it.
+	unfilled := DefaultAutobahnParams()
+	unfilled.LaneBlockInterval = 0
+	require.Error(t, unfilled.Validate())
+}
+
 func TestAutobahnParamsIntervalEncoding(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		interval time.Duration
 		want     string
 	}{
-		{"unlimited includes zero interval", 0, `{"view_timeout":"1500000000","min_road_block_interval":"0","epoch_length":"108000"}`},
-		{"limited includes interval", 500 * time.Millisecond, `{"view_timeout":"1500000000","min_road_block_interval":"500000000","epoch_length":"108000"}`},
+		{"unlimited includes zero interval", 0, `{"view_timeout":"1500000000","min_road_block_interval":"0","epoch_length":"108000","lane_block_interval":"150000000"}`},
+		{"limited includes interval", 500 * time.Millisecond, `{"view_timeout":"1500000000","min_road_block_interval":"500000000","epoch_length":"108000","lane_block_interval":"150000000"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			params := DefaultAutobahnParams()

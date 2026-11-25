@@ -1935,21 +1935,26 @@ func TestAReadOnlyStoreReportsItsHeight(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersionReadOnly(0)
+	opened, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
-	defer func() { _ = ro.Close() }()
+	defer func() { _ = opened.Close() }()
+
+	committed, err := opened.CommittedHash()
+	require.NoError(t, err)
+	require.Equal(t, opened.Version(), committed.BlockNumber,
+		"the committed hash of a read-only store is that of the height it was opened at")
 
 	delivered := make(chan int64, 4)
-	mostRecent, err := ro.RegisterHashListener(
+	mostRecent, err := opened.RegisterHashListener(
 		func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
 			delivered <- blockNumber
 			return nil
 		})
 	require.NoError(t, err)
-	require.Equal(t, ro.Version(), mostRecent.BlockNumber,
+	require.Equal(t, opened.Version(), mostRecent.BlockNumber,
 		"registration must report the height the read-only store was opened at")
 
-	require.NoError(t, ro.FlushHashes())
+	require.NoError(t, opened.FlushHashes())
 	require.Empty(t, delivered, "a read-only store commits nothing, so it delivers nothing")
 }
 

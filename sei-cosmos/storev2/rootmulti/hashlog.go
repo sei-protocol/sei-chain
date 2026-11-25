@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
 
@@ -22,15 +21,6 @@ const (
 	resultHashType      = "resultHash"
 	memIAVLRootHashType = "memIAVL/root"
 )
-
-// hashReportingStore is the subset of the SC store that owns and reports its own hash categories. The
-// composite commit store implements it. Type-asserting keeps these methods out of the broad
-// sctypes.Committer interface. The caller registers the categories returned by HashCategories.
-type hashReportingStore interface {
-	HashCategories() []string
-	RecordHashes(hashlog.HashLogger, uint64) error
-	MemIAVLCommitInfo() *proto.CommitInfo
-}
 
 // SetNextBlockHash stashes the Tendermint block hash for the block currently being committed. baseapp
 // calls it just before Commit; rootmulti records it (under the committed version) inside Commit so every
@@ -73,7 +63,7 @@ func (rs *Store) desiredHashCategories() map[string]struct{} {
 		blockHashType:  {},
 		resultHashType: {},
 	}
-	if h, ok := rs.scStore.(hashReportingStore); ok {
+	if h := rs.scStore; h != nil {
 		for _, category := range h.HashCategories() {
 			categories[category] = struct{}{}
 		}
@@ -181,7 +171,7 @@ func (rs *Store) recordBlockHashes(version int64) {
 	}
 	rs.nextResultHash = nil
 
-	if h, ok := rs.scStore.(hashReportingStore); ok {
+	if h := rs.scStore; h != nil {
 		if memInfo := h.MemIAVLCommitInfo(); memInfo != nil {
 			root := convertCommitInfo(memInfo).Hash()
 			if err := rs.hashLogger.ReportHash(blockNumber, memIAVLRootHashType, root); err != nil {

@@ -30,7 +30,7 @@ type stateChangeSetConverter struct {
 	// The block the changes belong to.
 	blockHeight uint64
 	// The state as of the block before blockHeight.
-	priorState gigatypes.StateView
+	priorState gigatypes.RawStateView
 	// The number of entries one task converts at a time.
 	chunkSize int
 	// The number of tasks that run at once.
@@ -59,7 +59,7 @@ func MutationsFromStateChangeSet(
 	// The block the changes belong to. Every new value is stamped with it.
 	blockHeight uint64,
 	// The state as of the block before blockHeight. Supplies each mutation's previous value.
-	priorState gigatypes.StateView,
+	priorState gigatypes.RawStateView,
 	// Supplies the chunk size and worker count the conversion runs with.
 	cfg *config.Config,
 ) ([]mutation.Mutation, error) {
@@ -81,7 +81,7 @@ func MutationsFromStateChangeSet(
 func newStateChangeSetConverter(
 	changes *gigatypes.StateChangeSet,
 	blockHeight uint64,
-	priorState gigatypes.StateView,
+	priorState gigatypes.RawStateView,
 	cfg *config.Config,
 ) *stateChangeSetConverter {
 	accountOffsets := make([]int, len(changes.Accounts))

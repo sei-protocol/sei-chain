@@ -28,11 +28,19 @@ func TestPrepareVotes_CountsAcceptedNotDuplicates(t *testing.T) {
 	e := newVoteTestEnv(rng)
 	pv := newPrepareVotes()
 	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
-	vote := e.quorum[0].Sign(types.NewPrepareVote(proposal))
-	before := gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{"type": "prepare"})
+	ingested := func(k types.SecretKey) int64 {
+		return gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{
+			"type":      "prepare",
+			"validator": k.Public().ED25519().Address().String(),
+		})
+	}
+	a, b := e.quorum[0], e.quorum[1]
+	beforeA, beforeB := ingested(a), ingested(b)
+	vote := a.Sign(types.NewPrepareVote(proposal))
 	pv.pushVerifiedVote(e.ep.Committee(), vote)
 	pv.pushVerifiedVote(e.ep.Committee(), vote)
-	require.Equal(t, before+1, gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{"type": "prepare"}))
+	require.Equal(t, beforeA+1, ingested(a))
+	require.Equal(t, beforeB, ingested(b))
 }
 
 func TestPrepareVotes_DoesNotReplaceQCAtSameView(t *testing.T) {
