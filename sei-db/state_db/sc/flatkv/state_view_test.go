@@ -61,7 +61,7 @@ func TestOpenViewReadsCommittedBlock(t *testing.T) {
 	addr := addrN(1)
 	commitNonce(t, s, 1, addr, 7)
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	require.Equal(t, int64(1), stateView.GetBlockHeight())
@@ -77,7 +77,7 @@ func TestOpenViewIsIsolatedFromLaterCommits(t *testing.T) {
 	addr := addrN(1)
 	commitNonce(t, s, 1, addr, 7)
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	for version := int64(2); version <= 4; version++ {
@@ -88,7 +88,7 @@ func TestOpenViewIsIsolatedFromLaterCommits(t *testing.T) {
 	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)),
 		"a view must not observe writes committed after it was opened")
 
-	latest := s.OpenView()
+	latest := openStateView(s)
 	defer latest.Close()
 	require.Equal(t, int64(4), latest.GetBlockHeight())
 	require.Equal(t, uint64(14), latest.GetNonce(gigaAddr(addr)))
@@ -104,7 +104,7 @@ func TestOpenViewCloseReturnsReservation(t *testing.T) {
 	commitNonce(t, s, 1, addr, 7)
 
 	for i := 0; i < 50; i++ {
-		stateView := s.OpenView()
+		stateView := openStateView(s)
 		require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)))
 		stateView.Close()
 	}
@@ -137,7 +137,7 @@ func TestOpenViewCloseIsIdempotent(t *testing.T) {
 	addr := addrN(1)
 	commitNonce(t, s, 1, addr, 7)
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)))
 	stateView.Close()
 	stateView.Close()
@@ -146,7 +146,7 @@ func TestOpenViewCloseIsIdempotent(t *testing.T) {
 	commitNonce(t, s, 3, addr, 9)
 	requireFlushedToDisk(t, s)
 
-	latest := s.OpenView()
+	latest := openStateView(s)
 	defer latest.Close()
 	require.Equal(t, uint64(9), latest.GetNonce(gigaAddr(addr)))
 }
@@ -170,7 +170,7 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		noncePair(eoa, 9),
 	)}))
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	t.Run("contract", func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestStateViewReadAccountMatchesFieldGetters(t *testing.T) {
 		noncePair(funded, 9),
 	)}))
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	for _, addr := range []gigatypes.Address{gigaAddr(contract), gigaAddr(funded)} {
@@ -258,7 +258,7 @@ func TestStateViewGetBalance(t *testing.T) {
 		namedCS(balancePair(funded, balance), noncePair(nonceOnly, 7)),
 	}))
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	require.Equal(t, gigatypes.Hash(balance), stateView.GetBalance(gigaAddr(funded)))
@@ -275,7 +275,7 @@ func TestStateViewBalanceCreatesAccount(t *testing.T) {
 	addr := addrN(1)
 	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	require.True(t, stateView.AccountExists(gigaAddr(addr)))
@@ -291,7 +291,7 @@ func TestStateViewBalanceDeletionRemovesAccount(t *testing.T) {
 	require.NoError(t, commitChangeSets(s, 1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
 	require.NoError(t, commitChangeSets(s, 2, []*proto.NamedChangeSet{namedCS(balanceDeletePair(addr))}))
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	require.False(t, stateView.AccountExists(gigaAddr(addr)))
@@ -328,7 +328,7 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 		},
 	}))
 
-	stateView := s.OpenView()
+	stateView := openStateView(s)
 	defer stateView.Close()
 
 	t.Run("nonce", func(t *testing.T) {

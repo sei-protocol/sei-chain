@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 func openRocksDB(_ string, _ config.StateStoreConfig) (types.StateStore, error) {

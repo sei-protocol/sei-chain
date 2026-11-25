@@ -44,9 +44,9 @@ const sortPoolQueueSize = 65536
 
 var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
 
-// ErrVersionUnreachable is gigatypes.ErrVersionUnreachable: FlatKV cannot reconstruct the requested
-// version from its retained snapshots and WAL.
-var ErrVersionUnreachable = gigatypes.ErrVersionUnreachable
+// ErrVersionUnreachable reports that FlatKV cannot reconstruct the requested version from its retained
+// snapshots and WAL.
+var ErrVersionUnreachable = errors.New("version unreachable")
 
 // CommitStore implements gigatypes.LiveStateStore for EVM state.
 //
@@ -204,11 +204,11 @@ type CommitStore struct {
 // It answers with a directory name rather than a database handle so that deciding where a key goes stays
 // separate from holding the thing it goes into.
 func routePhysicalKey(physicalKey []byte) (string, error) {
-	moduleName, innerKey, err := ktype.StripModulePrefix(physicalKey)
+	moduleName, innerKey, err := ktype.SplitModulePrefix(physicalKey)
 	if err != nil {
 		return "", err
 	}
-	if moduleName == "" {
+	if len(moduleName) == 0 {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
 		// and later persist as the per-module meta key "_meta/x:/hash", which
 		// ParseModuleLtHashKey rejects on the very next reopen — permanently
@@ -216,7 +216,7 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 		// and imported key is routed here, so this is where it is rejected.
 		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
-	if moduleName != keys.EVMStoreKey {
+	if string(moduleName) != keys.EVMStoreKey {
 		return miscDBDir, nil
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
@@ -475,7 +475,7 @@ func (s *CommitStore) LoadWorkingCopy() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes.LiveStateStore, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened *CommitStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
@@ -1339,6 +1339,15 @@ func (s *CommitStore) currentHash() *lthash.BlockHash {
 // dispatched, which is the block the listener's first delivery follows.
 func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
 	return s.hashListeners.register(listener, s.currentHash()), nil
+}
+
+// CommittedHash blocks until every block committed so far has been hashed, and returns the hash of the
+// latest.
+func (s *CommitStore) CommittedHash() (lthash.BlockHash, error) {
+	if err := s.FlushHashes(); err != nil {
+		return lthash.BlockHash{}, err
+	}
+	return s.RegisterHashListener(nil)
 }
 
 // Flush returns immediately: Commit writes and flushes the block WAL before it returns, so nothing is

@@ -8,10 +8,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/undolog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -37,12 +37,12 @@ func assembleStateDB(t *testing.T, home undoTestHome, ssCfg config.StateStoreCon
 	if catchUp {
 		require.NoError(t, flatkv.CatchUpToStateWAL(t.Context(), liveStateDB, wal))
 	}
-	var historicalStateDB *undo.Database
+	var historicalStateDB gigatypes.HistoricalStateStore
 	if ssCfg.Enable {
-		historicalStateDB, err = undo.OpenDB(ssCfg.EVMDBDirectory, ssCfg)
+		historicalStateDB, err = undolog.Open(ssCfg.EVMDBDirectory, ssCfg)
 		require.NoError(t, err)
 	}
-	db, err := NewStateDB(home.flatkv, liveStateDB, historicalStateDB, wal, checkpointer, newDiscardingBUDHasher(t))
+	db, err := NewStateDB(liveStateDB, historicalStateDB, wal, checkpointer, newDiscardingBUDHasher(t))
 	if err != nil {
 		if historicalStateDB != nil {
 			require.NoError(t, historicalStateDB.Close())

@@ -36,7 +36,7 @@ func TestIteratorDescendingDefaultComparerAdvancesForward(t *testing.T) {
 	store, err := OpenDB(t.TempDir(), cfg)
 	require.NoError(t, err)
 
-	db := store.(*Database)
+	db := store
 	t.Cleanup(func() { _ = db.Close() })
 	require.True(t, db.descending)
 

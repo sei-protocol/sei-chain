@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"maps"
-	"math/big"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -16,12 +15,11 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var (
@@ -56,8 +54,8 @@ func storageKey(addr common.Address, slot uint64) string {
 
 // word returns n as a 32-byte big-endian EVM word, the encoding of balances, slots and storage values.
 func word(n uint64) []byte {
-	w := make([]byte, wordLen)
-	binary.BigEndian.PutUint64(w[wordLen-8:], n)
+	w := make([]byte, 32)
+	binary.BigEndian.PutUint64(w[24:], n)
 	return w
 }
 
@@ -69,55 +67,24 @@ func nonce(n uint64) []byte {
 // liveState is the state commit store's view of the latest block: each key's current value.
 type liveState map[string][]byte
 
-func (s liveState) Get(_ string, key []byte) ([]byte, bool) {
+func (s liveState) GetRaw(key []byte) ([]byte, bool) {
 	value, found := s[string(key)]
 	return value, found
 }
 
 func (liveState) Close() {}
 
-// priorsOf returns the change set of a block that replaced, for each key of prior, the value prior
-// holds for it, nil for none. A code hash changes only with its code, so it has no entry of its own.
-// The log records only what a block replaced, so an account field's value after the block is just
-// one that differs from its prior.
-func priorsOf(t testing.TB, prior map[string][]byte) *gigatypes.StateChangeSet {
-	t.Helper()
-	changes := &gigatypes.StateChangeSet{}
-	accounts := map[common.Address]*gigatypes.AccountChange{}
-	account := func(addr common.Address) *gigatypes.AccountChange {
-		if accounts[addr] == nil {
-			accounts[addr] = &gigatypes.AccountChange{Address: addr}
-		}
-		return accounts[addr]
+// priorMap is a block's prior values: for each key the block changed, the value it held before, nil
+// for none.
+type priorMap map[string][]byte
+
+// mutations returns the block's mutations, each holding a key and its prior value.
+func (p priorMap) mutations() []mutation.Mutation {
+	out := make([]mutation.Mutation, 0, len(p))
+	for key, prior := range p {
+		out = append(out, mutation.Mutation{Key: []byte(key), PreviousValue: prior})
 	}
-	for key, old := range prior {
-		addr := common.BytesToAddress([]byte(key[1 : 1+addressLen]))
-		switch key[0] {
-		case BalanceKeyPrefix[0]:
-			change := account(addr)
-			change.Prior.Balance = new(big.Int).SetBytes(old)
-			change.Account.Balance = new(big.Int).Add(change.Prior.Balance, big.NewInt(1))
-		case NonceKeyPrefix[0]:
-			var n uint64
-			if old != nil {
-				n = binary.BigEndian.Uint64(old)
-			}
-			change := account(addr)
-			change.Prior.Nonce, change.Account.Nonce = n, n+1
-		case CodeKeyPrefix[0]:
-			change := account(addr)
-			change.Prior.Code, change.Account.Code = old, append(bytes.Clone(old), 0x00)
-		case StateKeyPrefix[0]:
-			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
-				Address: addr, Key: common.BytesToHash([]byte(key[1+addressLen:])), PriorValue: common.BytesToHash(old)})
-		default:
-			t.Fatalf("no change writes key %x on its own", key)
-		}
-	}
-	for _, change := range accounts {
-		changes.Accounts = append(changes.Accounts, *change)
-	}
-	return changes
+	return out
 }
 
 // TestUndoLogByHand spells the store out: the live state after the last block, the value each block
@@ -145,7 +112,7 @@ func TestUndoLogByHand(t *testing.T) {
 	require.NoError(t, db.Resume(100, live))
 	for height := int64(101); height <= 112; height++ {
 		// Every block is handed the final live state: only the last block's is ever read.
-		db.ApplyBlock(height, priorsOf(t, blocks[height]), live)
+		db.ApplyBlock(height, priorMap(blocks[height]).mutations(), live)
 	}
 	db.WaitForPendingWrites()
 
@@ -180,7 +147,7 @@ type mapView struct {
 	closes *atomic.Int64
 }
 
-func (v *mapView) Get(_ string, key []byte) ([]byte, bool) {
+func (v *mapView) GetRaw(key []byte) ([]byte, bool) {
 	value, found := v.values[string(key)]
 	return value, found
 }
@@ -249,36 +216,29 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 }
 
 // apply commits one block setting (or, for a nil value, deleting) each key, and feeds its prior
-// values to the store. As in the state commit store, a zero value is no value, except for code, which
-// is absent only when empty and carries its code hash.
+// values to the store.
 func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Lock()
 	prev := c.states[len(c.states)-1]
 	version := c.base + int64(len(c.states))
 	next := maps.Clone(prev)
 	prior := map[string][]byte{}
-	set := func(key string, value []byte) {
-		if len(value) == 0 || key[0] != CodeKeyPrefix[0] && nonZero(value) == nil {
+	for key, value := range changes {
+		prior[key] = prev[key]
+		if value == nil {
 			delete(next, key)
 		} else {
 			next[key] = value
-		}
-	}
-	for key, value := range changes {
-		prior[key] = prev[key]
-		set(key, value)
-		if key[0] == CodeKeyPrefix[0] {
-			set(string(CodeHashKeyPrefix)+key[1:], crypto.Keccak256(value))
 		}
 	}
 	c.states = append(c.states, next)
 	c.mu.Unlock()
 
 	if async {
-		c.db.ApplyBlock(version, priorsOf(c.t, prior), c.view(next))
+		c.db.ApplyBlock(version, priorMap(prior).mutations(), c.view(next))
 		return
 	}
-	require.NoError(c.t, c.db.applyBlock(version, priorsOf(c.t, prior), c.view(next)))
+	require.NoError(c.t, c.db.applyBlock(version, priorMap(prior).mutations(), c.view(next)))
 }
 
 // read returns key's value after block height through a view of the store.
@@ -327,7 +287,7 @@ func records(t testing.TB, db *Database) []record {
 		body := itr.Key()[:splitKey(itr.Key())]
 		out = append(out, record{
 			bucket: binary.BigEndian.Uint64(body),
-			key:    string(body[bucketLen:]),
+			key:    string(body[bucketLen+keyLenLen:]),
 			height: int64(height), //nolint:gosec // test heights are small
 			value:  value,
 		})
@@ -585,7 +545,7 @@ func TestNewDatabaseUsesDefaultBucketSize(t *testing.T) {
 	require.Equal(t, uint64(defaultBucketSize), db.bucketSize)
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(0, liveState{}))
-	db.ApplyBlock(1, priorsOf(t, map[string][]byte{key: nil}), liveState{key: nonce(1)})
+	db.ApplyBlock(1, priorMap{key: nil}.mutations(), liveState{key: nonce(1)})
 	db.WaitForPendingWrites()
 	require.Nil(t, read(t, db, 0, key))
 	require.Equal(t, nonce(1), read(t, db, 1, key))
@@ -780,8 +740,7 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			for h := uint64(1); h <= 9; h++ {
 				c.apply(map[string][]byte{slot: word(h)}, false)
 			}
-			changes := priorsOf(t, map[string][]byte{slot: word(0xbad)})
-			require.NoError(t, c.db.writeRecords(changes, recordCount(changes), 1, 10))
+			require.NoError(t, c.db.writeRecords(priorMap{slot: word(0xbad)}.mutations(), 1, 10))
 			require.NoError(t, c.db.Close())
 
 			//nolint:gosec // small test heights
@@ -921,7 +880,7 @@ func TestBlocksRequireSuccessfulResume(t *testing.T) {
 
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(5, liveState{key: nonce(1)}))
-	db.ApplyBlock(6, priorsOf(t, map[string][]byte{key: nonce(1)}), liveState{key: nonce(2)})
+	db.ApplyBlock(6, priorMap{key: nonce(1)}.mutations(), liveState{key: nonce(2)})
 	db.WaitForPendingWrites()
 	require.Equal(t, int64(6), db.GetLatestVersion())
 	require.Equal(t, nonce(1), read(t, db, 5, key))
@@ -982,12 +941,12 @@ type blockingGetView struct {
 	once    sync.Once
 }
 
-func (v *blockingGetView) Get(module string, key []byte) ([]byte, bool) {
+func (v *blockingGetView) GetRaw(key []byte) ([]byte, bool) {
 	v.once.Do(func() {
 		close(v.started)
 		<-v.release
 	})
-	return v.LiveStateView.Get(module, key)
+	return v.LiveStateView.GetRaw(key)
 }
 
 // A read in flight keeps its current-state view open after a newer one replaces it, and Close waits
@@ -1178,20 +1137,20 @@ func TestLargeBlocksLandWhole(t *testing.T) {
 	require.Equal(t, slots, atTwo)
 }
 
-func TestEveryFamilyIsRecorded(t *testing.T) {
+func TestEveryKeyIsRecorded(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10)
 	defer func() { require.NoError(t, db.Close()) }()
-	changes := priorsOf(t, map[string][]byte{
+	priors := priorMap{
 		balanceKey(alice):       word(1),
 		nonceKey(alice):         nonce(2),
 		codeKey(contract):       {0x60, 0x00},
 		storageKey(contract, 1): word(3),
-	})
-	height, err := db.writeBlock(1, changes)
+		"bank/supply":           word(4),
+	}
+	height, err := db.writeBlock(1, priors.mutations())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), height)
-	require.Len(t, records(t, db), recordCount(changes))
-	require.Equal(t, 5, recordCount(changes), "code records its code hash too")
+	require.Len(t, records(t, db), len(priors))
 	db.latestHeight.Store(height)
 
 	// An empty block must still advance the committed height.
@@ -1210,30 +1169,16 @@ func TestZeroByteCodeIsPresent(t *testing.T) {
 	c.apply(map[string][]byte{codeKey(contract): {0x00}}, false)
 	c.apply(map[string][]byte{codeKey(contract): {0x60, 0x00}}, false)
 	c.requireRead(1, codeKey(contract))
-	c.requireRead(1, string(CodeHashKeyPrefix)+codeKey(contract)[1:])
 }
 
-func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
+func TestKeysReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	dir := t.TempDir()
 	c := newChain(t, dir, 2, 0)
 	initial, updated, deleted := map[string][]byte{}, map[string][]byte{}, map[string][]byte{}
-	for _, kind := range evmTypes {
-		if kind == CodeHashKeyPrefix[0] {
-			continue // written with its code
-		}
-		_, size := keyLayout([]byte{kind})
-		for _, fill := range []byte{0, 0xff} {
-			key := string(evmKey(kind, fill))
-			initial[key] = make([]byte, max(size, 1))
-			initial[key][len(initial[key])-1] = 1
-			updatedSize := size
-			if updatedSize < 0 {
-				updatedSize = 4096
-			}
-			updated[key] = make([]byte, updatedSize)
-			updated[key][len(updated[key])-1] = 2
-			deleted[key] = nil
-		}
+	for _, key := range testKeys() {
+		initial[string(key)] = []byte{1}
+		updated[string(key)] = bytes.Repeat([]byte{2}, 4096)
+		deleted[string(key)] = nil
 	}
 	c.apply(initial, true)
 	c.apply(updated, true)
@@ -1255,30 +1200,42 @@ func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	require.NoError(t, c.db.Resume(3, c.view(c.states[3])))
 	verify()
 
-	// Query absent addresses and slots in populated SSTables, exercising prefix Bloom filters.
+	// Query absent keys in populated SSTables, exercising prefix Bloom filters. No test key ends in 0x02.
 	v, ok := c.db.OpenView(0)
 	require.True(t, ok)
 	defer v.Close()
-	for _, kind := range evmTypes {
-		value, err := v.Get(evmKey(kind, 2))
+	for _, key := range testKeys() {
+		absent := bytes.Clone(key)
+		absent[len(absent)-1] = 0x02
+		value, err := v.Get(absent)
 		require.NoError(t, err)
 		require.Nil(t, value)
 	}
 }
 
-func TestReadsRejectUnsupportedAndMalformedKeys(t *testing.T) {
+func TestReadsRejectKeysNoRecordCanHold(t *testing.T) {
 	c := newChain(t, t.TempDir(), 2, 0)
 	defer func() { require.NoError(t, c.db.Close()) }()
 	c.apply(nil, false)
 	for _, height := range []int64{0, 1} {
 		v, ok := c.db.OpenView(height)
 		require.True(t, ok)
-		for _, key := range [][]byte{nil, {0xff}, {StateKeyPrefix[0]}, append([]byte{0x09}, make([]byte, addressLen)...)} {
+		for _, key := range [][]byte{nil, make([]byte, maxKeyLen+1)} {
 			_, err := v.Get(key)
-			require.ErrorContains(t, err, "unsupported or malformed")
+			require.ErrorContains(t, err, "outside 1..")
 		}
 		v.Close()
 	}
+}
+
+func TestWritesRejectKeysNoRecordCanHold(t *testing.T) {
+	db := openTestDB(t, t.TempDir(), 10)
+	defer func() { require.NoError(t, db.Close()) }()
+	for _, key := range []string{"", string(make([]byte, maxKeyLen+1))} {
+		_, err := db.writeBlock(1, priorMap{key: word(1)}.mutations())
+		require.ErrorContains(t, err, "outside 1..")
+	}
+	require.Empty(t, records(t, db))
 }
 
 func TestOldComparerIsRefused(t *testing.T) {

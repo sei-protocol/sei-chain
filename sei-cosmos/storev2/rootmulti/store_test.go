@@ -301,7 +301,7 @@ func TestFlushSchedulesSSSnapshotAtABoundary(t *testing.T) {
 
 			store := NewStore(home, scCfg, ssCfg, []string{})
 			defer func() { _ = store.Close() }()
-			require.NotNil(t, store.ssCommitter, "SS commit capability was not resolved")
+			require.NotNil(t, store.ssCommitter, "SS committer was not set")
 
 			key := types.NewKVStoreKey("bank")
 			store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)

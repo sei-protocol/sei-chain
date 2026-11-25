@@ -35,6 +35,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
+	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -48,9 +50,9 @@ var (
 
 type Store struct {
 	mtx            sync.RWMutex
-	scStore        sctypes.Committer
-	ssStore        seidbtypes.StateStore
-	ssCommitter    seidbtypes.BlockCommitter
+	scStore        *composite.CompositeCommitStore
+	ssStore        sstypes.StateStore
+	ssCommitter    *sscomposite.CompositeStateStore
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -92,10 +94,6 @@ type Store struct {
 	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
 	// supplied by baseapp for the block being committed.
 	nextResultHash []byte
-}
-
-type writeModeCompletionReporter interface {
-	IsWriteModeComplete(sctypes.WriteMode) (bool, error)
 }
 
 type VersionedChangesets struct {
@@ -194,13 +192,7 @@ func NewStore(
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
-		committer, ok := ssStore.(seidbtypes.BlockCommitter)
-		if !ok {
-			// Unreachable: ss.NewStateStore pins the capability at compile time. Refused here rather
-			// than tolerated, because a state store the commit path cannot reach receives no blocks.
-			panic(fmt.Sprintf("state store %T cannot commit blocks", ssStore))
-		}
-		store.ssCommitter = committer
+		store.ssCommitter = ssStore
 	}
 	return store
 
@@ -398,7 +390,7 @@ func (rs *Store) GetStoreType() types.StoreType {
 }
 
 // GetStateStore returns the ssStore instance
-func (rs *Store) GetStateStore() seidbtypes.StateStore {
+func (rs *Store) GetStateStore() sstypes.StateStore {
 	return rs.ssStore
 }
 
@@ -475,27 +467,12 @@ func (rs *Store) validateSSReadVersion(version int64) error {
 	return nil
 }
 
-// exportVersionLoader is implemented by SC stores that can open a historical view for state-sync export
-// at heights their generic read-only load refuses.
-type exportVersionLoader interface {
-	LoadVersionReadOnlyForExport(version int64) (sctypes.Committer, error)
-}
-
-var _ exportVersionLoader = (*composite.CompositeCommitStore)(nil)
-
-func (rs *Store) loadSCVersionForExport(version int64) (sctypes.Committer, error) {
-	if loader, ok := rs.scStore.(exportVersionLoader); ok {
-		return loader.LoadVersionReadOnlyForExport(version)
-	}
-	return rs.scStore.LoadVersion(version, true)
-}
-
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
 	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		return rs.CacheMultiStore(), nil
 	}
 	// Open SC stores for wasm snapshot, this op is blocking and could take a long time
-	scStore, err := rs.loadSCVersionForExport(version)
+	scStore, err := rs.scStore.LoadVersionReadOnlyForExport(version)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +498,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 }
 
 // SnapshotSCStore returns an O(1) SC snapshot, or nil when flatkv is engaged.
-func (rs *Store) SnapshotSCStore() sctypes.Committer {
+func (rs *Store) SnapshotSCStore() *composite.CompositeCommitStore {
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
 	if rs.scStore == nil {
@@ -541,7 +518,7 @@ func (rs *Store) SnapshotSCStore() sctypes.Committer {
 
 // CacheMultiStoreFromCommitter builds a CacheMultiStore backed by snap for
 // IAVL stores; non-IAVL stores use their live counterparts.
-func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.CacheMultiStore, error) {
+func (rs *Store) CacheMultiStoreFromCommitter(snap *composite.CompositeCommitStore) (types.CacheMultiStore, error) {
 	if snap == nil {
 		return nil, fmt.Errorf("snap is nil")
 	}
@@ -713,19 +690,24 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	if err := rs.scStore.Initialize(initialStores); err != nil {
 		return err
 	}
-	// A non-zero version yields a read-only view rather than this store, so the result has to be adopted: it is
-	// what serves reads at that version. For version 0 the SC store returns itself and this is a no-op.
-	//
-	// Known limitation, deliberately left: adopting the view drops the only reference to the store that owns the
-	// data directory, so Close never releases its writer lock, WAL or thread pools. Closing it here instead is
-	// wrong, because that lock is what stops another process from deleting the view's working directory, and
-	// holding a second reference purely to close it is deferred to a follow-up. No seid command loads a
-	// non-zero version through here.
-	sc, err := rs.scStore.LoadVersion(version, false)
-	if err != nil {
-		return err
+	if version == 0 {
+		if err := rs.scStore.LoadLatest(); err != nil {
+			return err
+		}
+	} else {
+		// A non-zero version is served by a read-only view rather than this store, so the view has to be adopted.
+		//
+		// Known limitation, deliberately left: adopting the view drops the only reference to the store that owns the
+		// data directory, so Close never releases its writer lock, WAL or thread pools. Closing it here instead is
+		// wrong, because that lock is what stops another process from deleting the view's working directory, and
+		// holding a second reference purely to close it is deferred to a follow-up. No seid command loads a
+		// non-zero version through here.
+		view, err := rs.scStore.LoadVersionReadOnly(version)
+		if err != nil {
+			return err
+		}
+		rs.scStore = view
 	}
-	rs.scStore = sc
 
 	storesKeysForDeletion := make(map[types.StoreKey]struct{})
 	var treeUpgrades []*proto.TreeNameUpgrade
@@ -749,10 +731,11 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 		if _, ok := storesKeysForDeletion[key]; ok {
 			continue
 		}
-		newStores[key], err = rs.loadCommitStoreFromParams(key, rs.storesParams[key])
+		store, err := rs.loadCommitStoreFromParams(key, rs.storesParams[key])
 		if err != nil {
 			return err
 		}
+		newStores[key] = store
 	}
 
 	rs.mtx.Lock()
@@ -884,11 +867,10 @@ func (rs *Store) writeModeAdvanceDue(mode sctypes.WriteMode, allowMigrateCosmos 
 // isMigrationComplete reports whether the SC store's migration for mode has
 // persisted its target migration version.
 func (rs *Store) isMigrationComplete(mode sctypes.WriteMode) (bool, error) {
-	reporter, ok := rs.scStore.(writeModeCompletionReporter)
-	if !ok {
-		return false, fmt.Errorf("SC store %T does not report migration completion", rs.scStore)
+	if rs.scStore == nil {
+		return false, fmt.Errorf("SC store is not open, so it cannot report migration completion")
 	}
-	complete, err := reporter.IsWriteModeComplete(mode)
+	complete, err := rs.scStore.IsWriteModeComplete(mode)
 	if err != nil {
 		return false, fmt.Errorf("failed to check %s migration completion: %w", mode, err)
 	}
@@ -977,35 +959,34 @@ func (rs *Store) shouldLogMigrationSkip(batchSize int) bool {
 }
 
 // GetWriteMode returns the SC store's effective write mode. The bool is
-// false when the underlying SC store does not expose one. Intended for the
-// migration kick-off in SetMigrationBatchSize, observability, and tests.
+// false when no SC store is open. Intended for the migration kick-off in
+// SetMigrationBatchSize, observability, and tests.
 func (rs *Store) GetWriteMode() (sctypes.WriteMode, bool) {
-	if g, ok := rs.scStore.(interface{ GetWriteMode() sctypes.WriteMode }); ok {
-		return g.GetWriteMode(), true
+	if rs.scStore == nil {
+		return "", false
 	}
-	return "", false
+	return rs.scStore.GetWriteMode(), true
 }
 
 // ConfiguredWriteMode returns the SC store's configured (pre-derivation)
 // write mode — types.Auto for an auto store, the pinned mode otherwise. The
-// bool is false when the underlying SC store does not expose one. The
-// migration kick-off uses it to act only on auto stores.
+// bool is false when no SC store is open. The migration kick-off uses it to
+// act only on auto stores.
 func (rs *Store) ConfiguredWriteMode() (sctypes.WriteMode, bool) {
-	if g, ok := rs.scStore.(interface{ ConfiguredWriteMode() sctypes.WriteMode }); ok {
-		return g.ConfiguredWriteMode(), true
+	if rs.scStore == nil {
+		return "", false
 	}
-	return "", false
+	return rs.scStore.ConfiguredWriteMode(), true
 }
 
 // GetMigrationBatchSize returns the governance-controlled migration batch size
 // last pushed into the SC store via SetMigrationBatchSize. The bool is false
-// when the underlying SC store does not track one. Intended for observability
-// and tests.
+// when no SC store is open. Intended for observability and tests.
 func (rs *Store) GetMigrationBatchSize() (int, bool) {
-	if g, ok := rs.scStore.(interface{ GetMigrationBatchSize() int }); ok {
-		return g.GetMigrationBatchSize(), true
+	if rs.scStore == nil {
+		return 0, false
 	}
-	return 0, false
+	return rs.scStore.GetMigrationBatchSize(), true
 }
 
 // Implements interface CommitMultiStore
@@ -1172,7 +1153,7 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		}
 		defer rs.releaseHistProofPermit()
 
-		scStore, err := rs.scStore.LoadVersion(version, true)
+		scStore, err := rs.scStore.LoadVersionReadOnly(version)
 		if err != nil {
 			return sdkerrors.QueryResult(err)
 		}
@@ -1520,7 +1501,7 @@ type stateStoreImport struct {
 	err  error
 }
 
-func startStateStoreImport(ss seidbtypes.StateStore, height int64) *stateStoreImport {
+func startStateStoreImport(ss sstypes.StateStore, height int64) *stateStoreImport {
 	imp := &stateStoreImport{
 		nodes: make(chan seidbtypes.SnapshotNode, 10000),
 		done:  make(chan struct{}),

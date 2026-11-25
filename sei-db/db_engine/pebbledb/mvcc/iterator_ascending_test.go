@@ -44,7 +44,7 @@ func newAscendingIterTestDB(t *testing.T) *Database {
 	cfg.Backend = "pebbledb"
 	store, err := OpenDB(dir, cfg)
 	require.NoError(t, err)
-	db := store.(*Database)
+	db := store
 	t.Cleanup(func() { _ = db.Close() })
 	require.False(t, db.descending, "seeded legacy DB must open in ascending mode")
 	return db

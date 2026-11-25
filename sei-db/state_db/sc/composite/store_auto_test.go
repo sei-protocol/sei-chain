@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
@@ -258,11 +257,6 @@ func TestComposite_PublishWriteModeFailurePublishesNothing(t *testing.T) {
 	require.True(t, router == cs.loadRouter(), "a failed transition must keep the previous router")
 }
 
-func TestMemiavl_SetWriteModeUnsupported(t *testing.T) {
-	cs := memiavl.NewCommitStore(t.TempDir(), config.DefaultStateCommitConfig().MemIAVLConfig)
-	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
-}
-
 // TestComposite_Auto_RestartResume verifies effective-mode derivation
 // across restarts: an in-flight migration resumes in its migration mode,
 // and a completed one comes back up in the following steady state even if
@@ -457,12 +451,7 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	// oldest snapshot is the last step of publishing a new one, so without this wait the writer can
 	// delete the directory the export is part way through copying.
 	//
-	// Reached through the concrete store because quiescing the writer is not part of the gigatypes.LiveStateStore
-	// abstraction: no production caller needs it, and this test only does because it drives commits and
-	// reads from one goroutine and so has a quiet period to establish.
-	flatKVStore, ok := src.loadFlatKV().(*flatkv.CommitStore)
-	require.True(t, ok)
-	require.NoError(t, flatKVStore.FlushSnapshots())
+	require.NoError(t, src.loadFlatKV().FlushSnapshots())
 
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
@@ -509,9 +498,7 @@ func TestComposite_Auto_FlatKVOnlyExportImportRoundTrip(t *testing.T) {
 	h := src.Version()
 	wantCommitInfo := src.LastCommitInfo()
 
-	flatKVStore, ok := src.loadFlatKV().(*flatkv.CommitStore)
-	require.True(t, ok)
-	require.NoError(t, flatKVStore.FlushSnapshots())
+	require.NoError(t, src.loadFlatKV().FlushSnapshots())
 
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
@@ -694,10 +681,8 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runBlocks(t, cs, workload, 2)
 
-	roCommitter, err := cs.LoadVersionReadOnly(0)
+	ro, err := cs.LoadVersionReadOnly(0)
 	require.NoError(t, err)
-	ro, ok := roCommitter.(*CompositeCommitStore)
-	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
 	require.Equal(t, types.MigrateEVM, ro.loadWriteMode())
 	requireOracleMatches(t, ro, workload.snapshotOracle())
@@ -744,10 +729,8 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 	require.Error(t, err, "a pre-flatkv-era height is no longer distinguishable from a load failure")
 
 	// In-era height: unchanged.
-	roCommitter, err := cs.LoadVersionReadOnly(7)
+	ro, err := cs.LoadVersionReadOnly(7)
 	require.NoError(t, err)
-	ro, ok := roCommitter.(*CompositeCommitStore)
-	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
 	require.NotNil(t, ro.loadFlatKV(), "in-era heights must keep loading flatkv")
 }
@@ -923,8 +906,7 @@ func TestComposite_Auto_ExportBeforeKickoffFailsOnceSeedSnapshotPruned(t *testin
 
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runBlocks(t, cs, workload, 6)
-	flatKVStore, ok := cs.loadFlatKV().(*flatkv.CommitStore)
-	require.True(t, ok)
+	flatKVStore := cs.loadFlatKV()
 	require.NoError(t, flatKVStore.FlushSnapshots())
 
 	oldest, ok, err := flatKVStore.OldestSnapshotAbove(pre)

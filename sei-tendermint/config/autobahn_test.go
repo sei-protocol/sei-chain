@@ -57,7 +57,6 @@ func validAutobahnFileConfig() AutobahnFileConfig {
 	return AutobahnFileConfig{
 		Validators:     []AutobahnValidator{{}},
 		MaxTxsPerBlock: 1,
-		BlockInterval:  utils.Duration(time.Second),
 		DialInterval:   utils.Duration(time.Second),
 		EVMChainID:     713700,
 

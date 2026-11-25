@@ -40,8 +40,6 @@ const (
 )
 
 var (
-	_ types.StateStore = (*Database)(nil)
-
 	defaultWriteOpts = grocksdb.NewDefaultWriteOptions()
 	defaultReadOpts  = grocksdb.NewDefaultReadOptions()
 )
