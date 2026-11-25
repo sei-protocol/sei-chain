@@ -95,6 +95,9 @@ type BlockContext struct {
 	// Replay is set when the block runs only to rebuild its state, as for a
 	// trace, rather than to execute it.
 	Replay bool
+	// Epoch is the consensus epoch this block is in, when the app knows it.
+	// Only BeginBlock and EndBlock are given it.
+	Epoch utils.Option[uint64]
 	// ClosingEpoch is the consensus epoch this block is the last block of, if
 	// it is one.
 	ClosingEpoch utils.Option[uint64]

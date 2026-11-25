@@ -122,6 +122,7 @@ func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockCont
 		Coinbase:     block.Coinbase,
 		PrevRandao:   block.PrevRandao,
 		GasLimit:     block.GasLimit,
+		Epoch:        block.Epoch,
 		ClosingEpoch: block.ClosingEpoch,
 	}
 }

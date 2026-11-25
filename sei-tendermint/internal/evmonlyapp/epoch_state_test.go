@@ -107,6 +107,18 @@ func TestChangesFailsWhenStakingCannotBeRead(t *testing.T) {
 	require.Equal(t, before, epochs.Registry(), "the window does not advance")
 }
 
+func TestEpochOfIsTheRetainedEpochARoadIsIn(t *testing.T) {
+	rng := utils.TestRng()
+	const first, length atypes.RoadHeight = 7, 3
+	epochs := testEpochRegistry(map[atypes.PublicKey]uint64{atypes.GenSecretKey(rng).Public(): 1}, first, length)
+	none := utils.None[atypes.EpochIndex]()
+	require.Equal(t, none, epochs.EpochOf(first-1), "a road before the first")
+	require.Equal(t, utils.Some[atypes.EpochIndex](0), epochs.EpochOf(first))
+	require.Equal(t, utils.Some[atypes.EpochIndex](0), epochs.EpochOf(first+length-1))
+	require.Equal(t, utils.Some[atypes.EpochIndex](1), epochs.EpochOf(first+length))
+	require.Equal(t, none, epochs.EpochOf(first+2*length), "epoch 2 is not derived yet")
+}
+
 func TestClosingEpochIsTheLastRoadOfARetainedEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	const first, length atypes.RoadHeight = 7, 3
