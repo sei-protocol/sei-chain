@@ -439,7 +439,7 @@ func TestExecutionReusesAndEvictsInjectedSignerCache(t *testing.T) {
 	raw := block.Txs[0]
 	verified, err := executor.cfg.Signer.ParseTx(raw)
 	require.NoError(t, err)
-	executor.cfg.Signer.Remember(verified)
+	executor.cfg.Signer.Remember(verified.EvmTx())
 	_, err = executor.executeBlock(t.Context(), block)
 	require.NoError(t, err)
 	require.Equal(t, verified.Sender(), app.finalized()[0].Txs[0].Sender())

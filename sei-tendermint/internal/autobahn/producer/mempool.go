@@ -189,7 +189,7 @@ func (s *State) checkTx(ctx context.Context, tx abevm.EvmTx) (abevm.AdmittedTx, 
 
 // InsertTx inserts tx into the mempool, waiting for capacity when full.
 // Concurrent calls waiting for capacity are admitted in arrival order.
-func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTx) (err error) {
+func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTxRaw) (err error) {
 	defer func() {
 		metrics.Global.InsertsAt(insertTxResult(err)).Add(1)
 	}()
@@ -197,14 +197,10 @@ func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTx) (err error) {
 	if !ok {
 		return ErrNotProducing
 	}
-	raw, err := tx.MarshalBinary()
-	if err != nil {
-		return err
-	}
-	if uint64(len(raw)) > types.MaxTxsBytesPerLaneBlock {
+	if tx.Size() > types.MaxTxsBytesPerLaneBlock {
 		return errTooLarge
 	}
-	resp, err := s.checkTx(ctx, tx)
+	resp, err := s.checkTx(ctx, tx.EvmTx())
 	if err != nil {
 		return err
 	}
@@ -268,7 +264,7 @@ func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTx) (err error) {
 		// If any limit would be exceeded, then construct a payload.
 		// Note that we use subtraction in a way avoiding arithmetic overflows.
 		ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
-		ok = ok && types.MaxTxsBytesPerLaneBlock-m.nextBlock.sizeBytes >= uint64(len(raw))
+		ok = ok && types.MaxTxsBytesPerLaneBlock-m.nextBlock.sizeBytes >= tx.Size()
 		ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
 		ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
 		if !ok {
@@ -282,8 +278,8 @@ func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTx) (err error) {
 		b := m.nextBlock
 		b.gasEstimated += gasEstimated
 		b.gasWanted += tx.Gas()
-		b.sizeBytes += uint64(len(raw))
-		b.rawTxs = append(b.rawTxs, raw)
+		b.sizeBytes += tx.Size()
+		b.rawTxs = append(b.rawTxs, tx.Raw())
 		p := &pendingTx{
 			addr:         addr,
 			nonceRangeID: m.evmNonces[addr].id,

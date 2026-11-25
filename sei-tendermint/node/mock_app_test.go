@@ -44,7 +44,7 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	require.Equal(t, uint64(52_000), res.GasUsed)
 
 	decoded := utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(tx2))
-	_, checkErr := app.CheckTx(decoded)
+	_, checkErr := app.CheckTx(decoded.EvmTx())
 	require.NoError(t, checkErr)
 	require.Equal(t, addr, decoded.Sender())
 }
@@ -363,7 +363,7 @@ func TestCheckMockTxEVMTransaction(t *testing.T) {
 	raw, ethTx := buildFastCheckTxBytes(t)
 	app := NewMockApp(mockAppFixture{})
 	decoded := utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw))
-	res, err := checkMockTx(decoded)
+	res, err := checkMockTx(decoded.EvmTx())
 	require.NoError(t, err)
 	require.Equal(t, uint64(123456), res.GasEstimated)
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(ethTx.ChainId()), ethTx)
@@ -387,7 +387,7 @@ func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
 	txBytes, _ := buildFastCheckTxBytes(t)
 
 	wrapped := NewMockApp(app)
-	res, checkErr := wrapped.CheckTx(utils.OrPanic1(newTestSigner(wrapped.EvmChainID(), 0).ParseTx(txBytes)))
+	res, checkErr := wrapped.CheckTx(utils.OrPanic1(newTestSigner(wrapped.EvmChainID(), 0).ParseTx(txBytes)).EvmTx())
 	require.False(t, app.called)
 	require.Equal(t, uint64(123456), res.GasEstimated)
 	require.NoError(t, checkErr)

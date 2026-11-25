@@ -87,7 +87,7 @@ func (r *GigaRouterCommon) InsertTx(ctx context.Context, input abevm.RawTx) (com
 	if err := mempool.InsertTx(ctx, tx); err != nil {
 		return hash, err
 	}
-	r.signer.Remember(tx)
+	r.signer.Remember(tx.EvmTx())
 	return hash, nil
 }
 

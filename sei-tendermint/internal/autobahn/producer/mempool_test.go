@@ -73,7 +73,7 @@ func (tx *txSpec) asResponse() abevm.AdmittedTx {
 	return abevm.AdmittedTx{GasEstimated: tx.GasEstimated}
 }
 
-func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) abevm.EvmTx {
+func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) abevm.EvmTxRaw {
 	return env.parseTx(env.genTxSpec(rng, addr, nonce).encode())
 }
 
@@ -878,6 +878,6 @@ func pendingTxCount(s *State) int {
 	panic("unreachable")
 }
 
-func (env *testEnv) parseTx(raw []byte) abevm.EvmTx {
+func (env *testEnv) parseTx(raw []byte) abevm.EvmTxRaw {
 	return utils.OrPanic1(env.signer.ParseTx(raw))
 }

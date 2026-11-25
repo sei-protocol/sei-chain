@@ -512,7 +512,7 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	tx := new(ethtypes.Transaction)
 	require.NoError(t, tx.UnmarshalBinary(raw))
-	_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)))
+	_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)).EvmTx())
 	require.NoError(t, checkErr)
 	require.Equal(t, uint64(0), app.EvmNonce(sender))
 	gotBalance := app.EvmBalance(sender)
@@ -600,7 +600,7 @@ func TestEVMOnlyApplicationRefusesATxTheExecutorWouldRefuse(t *testing.T) {
 	raw, err := signed.MarshalBinary()
 	require.NoError(t, err)
 
-	_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)))
+	_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)).EvmTx())
 
 	require.Error(t, checkErr)
 }
@@ -627,7 +627,7 @@ func TestEVMOnlyApplicationAdmitsADynamicFeeTxThatClearsTheMinimum(t *testing.T)
 	raw, err := signed.MarshalBinary()
 	require.NoError(t, err)
 
-	_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)))
+	_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)).EvmTx())
 
 	require.NoError(t, checkErr)
 }
@@ -662,7 +662,7 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 		Hash:   common.BytesToHash(crypto.Keccak256([]byte("checked-block"))),
 		Height: 1,
 		Time:   time.Unix(1_700_000_001, 0)}
-	_, checkErr := checkedProxy.CheckTx(utils.OrPanic1(newTestSigner(checkedProxy.EvmChainID(), 0).ParseTx(raw)))
+	_, checkErr := checkedProxy.CheckTx(utils.OrPanic1(newTestSigner(checkedProxy.EvmChainID(), 0).ParseTx(raw)).EvmTx())
 	require.NoError(t, checkErr)
 	checkedResponse, err := checkedProxy.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
@@ -685,7 +685,7 @@ func TestEVMOnlyApplicationChecksATxByItsRememberedSender(t *testing.T) {
 	decoded := utils.OrPanic1(signer.ParseTx(raw))
 	require.Equal(t, sender, decoded.Sender())
 	require.Equal(t, uint64(0), recoverer.Calls.Load())
-	_, err := app.CheckTx(decoded)
+	_, err := app.CheckTx(decoded.EvmTx())
 	require.NoError(t, err)
 }
 
@@ -699,7 +699,7 @@ func TestEVMOnlyApplicationForgetsARememberedSender(t *testing.T) {
 	signer.ForgetTxs([]abevm.EvmTx{remembered})
 
 	decoded := utils.OrPanic1(signer.ParseTx(raw))
-	_, err := app.CheckTx(decoded)
+	_, err := app.CheckTx(decoded.EvmTx())
 	require.NoError(t, err)
 	require.Equal(t, sender, decoded.Sender())
 	require.Equal(t, uint64(1), recoverer.Calls.Load())
@@ -1722,7 +1722,7 @@ func admissionError(app abevm.Application, raw []byte) error {
 	if err != nil {
 		return err
 	}
-	_, err = app.CheckTx(tx)
+	_, err = app.CheckTx(tx.EvmTx())
 	return err
 }
 

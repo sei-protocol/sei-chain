@@ -13,7 +13,7 @@ import (
 // TestEvmTx parses a signed test transaction with the signer for its chain.
 func TestEvmTx(tx *ethtypes.Transaction) EvmTx {
 	signer := NewSigner(ethtypes.LatestSignerForChainID(tx.ChainId()), 0, 1)
-	return utils.OrPanic1(signer.ParseTx(utils.OrPanic1(tx.MarshalBinary())))
+	return utils.OrPanic1(signer.ParseTx(utils.OrPanic1(tx.MarshalBinary()))).EvmTx()
 }
 
 // TestCountingSigner counts sender recovery calls made to an Ethereum signer.

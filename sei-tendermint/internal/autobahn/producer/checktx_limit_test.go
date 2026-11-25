@@ -91,7 +91,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 		}
 
 		const m = 6
-		txs := make([]abevm.EvmTx, 0, m)
+		txs := make([]abevm.EvmTxRaw, 0, m)
 		for range m {
 			addr, nonce := app.NewAccount(rng)
 			txs = append(txs, env.genTx(rng, addr, nonce))
@@ -137,7 +137,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 				return err
 			}
 
-			newTx := func() abevm.EvmTx {
+			newTx := func() abevm.EvmTxRaw {
 				addr, nonce := app.NewAccount(rng)
 				return env.genTx(rng, addr, nonce)
 			}

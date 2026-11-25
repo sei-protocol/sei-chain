@@ -33,21 +33,21 @@ func TestEVMCheckTx(t *testing.T) {
 			return want, nil
 		}})
 		decoded := utils.OrPanic1(newTestSigner(1, 0).ParseTx(utils.OrPanic1(raw.MarshalBinary())))
-		got, err := app.CheckTx(decoded)
+		got, err := app.CheckTx(decoded.EvmTx())
 		require.NoError(t, err)
 		require.Equal(t, want, got)
 	})
 	t.Run("rejected", func(t *testing.T) {
 		cause := errors.New("invalid transaction")
 		app := NewProxy(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { return AdmittedTx{}, cause }})
-		_, err := app.CheckTx(utils.OrPanic1(newTestSigner(1, 0).ParseTx(utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))))
+		_, err := app.CheckTx(utils.OrPanic1(newTestSigner(1, 0).ParseTx(utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))).EvmTx())
 		require.ErrorIs(t, err, ErrTxRejected)
 		require.ErrorIs(t, err, cause)
 	})
 	t.Run("panic propagates", func(t *testing.T) {
 		app := NewProxy(&evmCheckApp{check: func(EvmTx) (AdmittedTx, error) { panic("store failure") }})
 		require.Panics(t, func() {
-			_, _ = app.CheckTx(utils.OrPanic1(newTestSigner(1, 0).ParseTx(utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))))
+			_, _ = app.CheckTx(utils.OrPanic1(newTestSigner(1, 0).ParseTx(utils.OrPanic1(signedProxyTestTx(0).MarshalBinary()))).EvmTx())
 		})
 	})
 }
