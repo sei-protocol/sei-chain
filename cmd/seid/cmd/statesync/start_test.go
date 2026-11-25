@@ -199,7 +199,7 @@ func TestAStartRefusesARestoreAnchorThatTheAppQCDoesNotSign(t *testing.T) {
 	writeAnchor(t, home, h, [32]byte{9})
 
 	_, _, err := startFullnode(home, t)
-	require.ErrorContains(t, err, "but the AppQC of the BlockDB signs")
+	require.ErrorIs(t, err, node.ErrRestoreAnchorNotSigned)
 	require.FileExists(t, home.target.layout.RestoreMarkerFile)
 	require.FileExists(t, home.target.layout.RestoreProofFile)
 

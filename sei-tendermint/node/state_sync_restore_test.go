@@ -71,6 +71,15 @@ func TestVerifyRestoreProofRejectsARoadOutsideTheRegistry(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestVerifyRestoreProofRejectsACheckpointWithoutTheNextEpoch(t *testing.T) {
+	fixture := utils.OrPanic1(GenStateSyncProofFixture(utils.TestRng(), 5))
+	short := withoutNextEpoch(t, fixture)
+	checkpoint := checkpointWithRow(t, short.Module, short.Key, short.Value)
+
+	_, err := VerifyRestoreProof(checkpoint, 5, fixture.Proof)
+	require.ErrorIs(t, err, errRestoreNeedsNextEpoch)
+}
+
 func TestVerifyRestoreProofRejectsACheckpointWithoutARegistry(t *testing.T) {
 	fixture := utils.OrPanic1(GenStateSyncProofFixture(utils.TestRng(), 5))
 	checkpoint := checkpointWithRow(t, "bank", []byte("balance"), []byte{1})

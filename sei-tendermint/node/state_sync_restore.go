@@ -13,19 +13,36 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// errRestoreNeedsNextEpoch is returned for a restore whose checkpoint holds no epoch after the
+// epoch of the restored road.
+var errRestoreNeedsNextEpoch = errors.New("the epoch registry of the FlatKV checkpoint holds no epoch after the epoch of the restored road, so a BlockDB cannot start at it")
+
 // VerifyRestoreProof returns the app hash that the AppQC of the state sync proof file proof signs
-// for road height. It returns an error unless the road block and the AppQC of proof verify against
-// the epoch of height in the epoch registry of the FlatKV checkpoint in checkpointDir.
+// for road height. It returns an error unless the epoch registry of the FlatKV checkpoint in
+// checkpointDir holds the epoch of height and the epoch after it, and proof verifies against the
+// epoch of height.
 func VerifyRestoreProof(checkpointDir string, height int64, proof []byte) ([32]byte, error) {
 	if height < 1 {
 		return [32]byte{}, fmt.Errorf("checkpoint height %d is not positive", height)
 	}
+	_, appHash, err := verifyRestoreProof(checkpointDir, atypes.RoadHeight(height), proof)
+	return appHash, err
+}
+
+// verifyRestoreProof returns the state sync proof file proof of road and the app hash that its
+// AppQC signs. It returns an error unless the epoch registry of the FlatKV checkpoint in
+// checkpointDir holds the epoch of road and the epoch after it, and proof verifies against the
+// epoch of road.
+func verifyRestoreProof(checkpointDir string, road atypes.RoadHeight, proof []byte) (*statesyncproof.Proof, [32]byte, error) {
 	registry, err := evmonlyapp.ReadCheckpointEpochRegistry(checkpointDir)
 	if err != nil {
-		return [32]byte{}, err
+		return nil, [32]byte{}, err
 	}
-	_, appHash, err := statesyncproof.DecodeAndVerify(registry, proof, atypes.RoadHeight(height))
-	return appHash, err
+	// data.NewState anchors a BlockDB that starts at road on these two epochs.
+	if _, ok := registry.ForAnchor(road); !ok {
+		return nil, [32]byte{}, fmt.Errorf("%w; import a checkpoint of another height", errRestoreNeedsNextEpoch)
+	}
+	return statesyncproof.DecodeAndVerify(registry, proof, road)
 }
 
 // ErrBelowGigaActivation is returned for a restore height below the giga activation height, which

@@ -18,11 +18,9 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/statesyncproof"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -35,9 +33,9 @@ var (
 	// errRestoreNeedsFullnode is returned for a home with a pending restore that starts as a
 	// validator.
 	errRestoreNeedsFullnode = errors.New("this home has a pending giga state sync restore, which a validator cannot finish")
-	// errRestoreNeedsNextEpoch is returned for a pending restore whose checkpoint holds no epoch
-	// after the epoch of the restored road.
-	errRestoreNeedsNextEpoch = errors.New("the epoch registry of the FlatKV checkpoint holds no epoch after the epoch of the restored road, so a BlockDB cannot start at it")
+	// ErrRestoreAnchorNotSigned is returned for a restored home whose BlockDB holds an AppQC that
+	// does not sign the restore anchor of the app-hash vault.
+	ErrRestoreAnchorNotSigned = errors.New("the AppQC of the BlockDB does not sign the restore anchor of the app-hash vault")
 )
 
 // stateSyncStart is the giga state sync state of a home at node start.
@@ -142,9 +140,8 @@ func requireStoresAtRoad(storageConfig *seidbconfig.GigaStorageConfig, road atyp
 }
 
 // readRestoreSeed returns the road block and the AppQC of road from the state sync proof file at
-// proofPath, or None when that file does not exist. It returns an error unless the epoch registry
-// of the FlatKV checkpoint in checkpointDir holds the epoch of road and the epoch after it, and
-// the proof verifies against the epoch of road.
+// proofPath, or None when that file does not exist. It returns the error of verifyRestoreProof for
+// a proof that the FlatKV checkpoint in checkpointDir does not accept.
 func readRestoreSeed(proofPath, checkpointDir string, road atypes.RoadHeight) (utils.Option[ablockstore.Seed], error) {
 	none := utils.None[ablockstore.Seed]()
 	proofFile, err := os.ReadFile(proofPath) //nolint:gosec // proofPath is the proof file under the node's own state dir.
@@ -156,15 +153,7 @@ func readRestoreSeed(proofPath, checkpointDir string, road atypes.RoadHeight) (u
 	if err != nil {
 		return none, fmt.Errorf("read the state sync proof file: %w", err)
 	}
-	registry, err := evmonlyapp.ReadCheckpointEpochRegistry(checkpointDir)
-	if err != nil {
-		return none, err
-	}
-	// data.NewState anchors a BlockDB that starts at road on these two epochs.
-	if _, ok := registry.ForAnchor(road); !ok {
-		return none, fmt.Errorf("%w; import a checkpoint of another height", errRestoreNeedsNextEpoch)
-	}
-	proof, _, err := statesyncproof.DecodeAndVerify(registry, proofFile, road)
+	proof, _, err := verifyRestoreProof(checkpointDir, road, proofFile)
 	if err != nil {
 		return none, err
 	}
@@ -226,7 +215,7 @@ func requireSeededBlockStore(
 	}
 	anchor := entry.AppHash()
 	if signed := appQC.Proposal().AppHash(); !bytes.Equal(signed, anchor[:]) {
-		return fmt.Errorf("the app-hash vault holds %x for road %d, but the AppQC of the BlockDB signs %x", anchor, road, signed)
+		return fmt.Errorf("%w: the app-hash vault holds %x for road %d, but the AppQC signs %x", ErrRestoreAnchorNotSigned, anchor, road, signed)
 	}
 	return nil
 }
