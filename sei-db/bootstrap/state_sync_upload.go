@@ -254,12 +254,21 @@ func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// A newer height is from another node, and the next sweep that reads latest.txt records it.
-	if newest == height {
-		u.metrics.recordLatest(ctx, height, u.now())
-	}
 	u.uploaded = max(u.uploaded, newest)
+	if newest > 0 {
+		u.recordLatest(ctx)
+	}
 	return nil
+}
+
+// recordLatest reads latest.txt and records it. A failed read records nothing.
+func (u *stateSyncUploader) recordLatest(ctx context.Context) {
+	// Later sweeps stop at u.uploaded and do not read latest.txt, so this read is the only record of
+	// a height that another node wrote during the upload.
+	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
+	if err == nil {
+		u.metrics.recordLatest(ctx, latest, info.Modified)
+	}
 }
 
 // newestCheckpointWithProof returns the height of the newest retained checkpoint that has a state
