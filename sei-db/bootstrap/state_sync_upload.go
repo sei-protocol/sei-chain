@@ -37,6 +37,33 @@ var errUploadEnded = errors.New("upload ended")
 // removed before the upload staged it.
 var errCheckpointPruned = errors.New("checkpoint pruned")
 
+// stageError is the error of the step stage of a sweep. Its text is the text of err.
+type stageError struct {
+	stage stateSyncUploadStage
+	err   error
+}
+
+func (e *stageError) Error() string { return e.err.Error() }
+
+func (e *stageError) Unwrap() error { return e.err }
+
+// failedAt returns err as an error of the step stage, or nil when err is nil.
+func failedAt(stage stateSyncUploadStage, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &stageError{stage: stage, err: err}
+}
+
+// failedStage returns the step of a sweep that err names, or uploadStageOther when it names none.
+func failedStage(err error) stateSyncUploadStage {
+	var se *stageError
+	if errors.As(err, &se) {
+		return se.stage
+	}
+	return uploadStageOther
+}
+
 // stateSyncUploadStagingDir returns the dir under the FlatKV root flatKVDir that holds the
 // hard-linked checkpoint during an upload.
 func stateSyncUploadStagingDir(flatKVDir string) string {
@@ -212,7 +239,7 @@ func (u *stateSyncUploader) sweepLogged(ctx context.Context, lastErr string) str
 	if err == nil || ctx.Err() != nil {
 		return ""
 	}
-	u.metrics.recordFailure(ctx)
+	u.metrics.recordFailure(ctx, failedStage(err))
 	if err.Error() != lastErr {
 		logger.Error("state sync archive upload failed; retrying on next sweep", "err", err)
 	}
@@ -226,7 +253,7 @@ func (u *stateSyncUploader) sweepLogged(ctx context.Context, lastErr string) str
 func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	height, ok, err := u.newestCheckpointWithProof()
 	if err != nil || !ok {
-		return err
+		return failedAt(uploadStageCheckpoint, err)
 	}
 	u.metrics.recordLocalCheckpoint(ctx, height)
 	if height <= u.uploaded {
@@ -239,7 +266,7 @@ func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	switch {
 	case errors.Is(err, statesync.ErrObjectNotFound):
 	case err != nil:
-		return err
+		return failedAt(uploadStageRead, err)
 	case latest >= height:
 		u.uploaded = latest
 		return nil
@@ -248,7 +275,7 @@ func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	}
 	claimed, err := statesync.ClaimUpload(ctx, u.store, u.chainID, latest, u.owner, u.now(), stateSyncUploadClaimTimeout)
 	if err != nil || !claimed {
-		return err
+		return failedAt(uploadStageClaim, err)
 	}
 	newest, err := u.upload(ctx, height)
 	if err != nil {
@@ -303,16 +330,17 @@ func (u *stateSyncUploader) proofPath(height int64) string {
 func (u *stateSyncUploader) upload(ctx context.Context, height int64) (newest int64, err error) {
 	present, err := u.hasArchive(ctx, height)
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageRead, err)
 	}
 	if present {
 		logger.Info("state sync archive is already in the store", "height", height)
-		return statesync.AdvanceLatest(ctx, u.store, u.chainID, height)
+		newest, err = statesync.AdvanceLatest(ctx, u.store, u.chainID, height)
+		return newest, failedAt(uploadStageAdvance, err)
 	}
 	start := time.Now()
 	defer func() {
 		if rmErr := os.RemoveAll(u.stagingDir); rmErr != nil {
-			err = errors.Join(err, fmt.Errorf("remove upload staging: %w", rmErr))
+			err = errors.Join(err, failedAt(uploadStageStage, fmt.Errorf("remove upload staging: %w", rmErr)))
 		}
 	}()
 	proof, err := u.stage(height)
@@ -320,22 +348,22 @@ func (u *stateSyncUploader) upload(ctx context.Context, height int64) (newest in
 		return 0, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageStage, err)
 	}
 	m, err := statesync.BuildManifest(u.chainID, height, u.stagingDir)
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageStage, err)
 	}
 	size, err := statesync.ArchiveSize(m, int64(len(proof)))
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageStage, err)
 	}
 	if err := u.putArchive(ctx, m, proof, size); err != nil {
-		return 0, err
+		return 0, failedAt(uploadStagePut, err)
 	}
 	newest, err = statesync.AdvanceLatest(ctx, u.store, u.chainID, height)
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageAdvance, err)
 	}
 	duration := time.Since(start)
 	u.metrics.recordUpload(ctx, size, duration)

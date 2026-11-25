@@ -5,12 +5,33 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 const stateSyncUploadMeterName = "seidb_state_sync_upload"
+
+// stateSyncUploadStage is the step of a sweep that failed, as the stage label of the failure count.
+type stateSyncUploadStage string
+
+const (
+	// uploadStageCheckpoint lists the local checkpoints and their state sync proof files.
+	uploadStageCheckpoint stateSyncUploadStage = "checkpoint"
+	// uploadStageRead reads latest.txt or the archive key from the bucket.
+	uploadStageRead stateSyncUploadStage = "read"
+	// uploadStageClaim writes the upload claim of the round.
+	uploadStageClaim stateSyncUploadStage = "claim"
+	// uploadStageStage hard-links the checkpoint, reads its proof file and builds the manifest.
+	uploadStageStage stateSyncUploadStage = "stage"
+	// uploadStagePut streams the archive to the bucket.
+	uploadStagePut stateSyncUploadStage = "put"
+	// uploadStageAdvance writes the new height to latest.txt.
+	uploadStageAdvance stateSyncUploadStage = "advance"
+	// uploadStageOther is the stage of an error that no step tagged.
+	uploadStageOther stateSyncUploadStage = "other"
+)
 
 // stateSyncUploadMetrics are the metrics of the state sync archive upload of one node.
 type stateSyncUploadMetrics struct {
@@ -53,7 +74,7 @@ func newStateSyncUploadMetrics(meter metric.Meter) *stateSyncUploadMetrics {
 		)),
 		failures: must(meter.Int64Counter(
 			"state_sync_upload_failures",
-			metric.WithDescription("Number of state sync upload sweeps that failed and will be retried"),
+			metric.WithDescription("Number of state sync upload sweeps that failed and will be retried, by the stage that failed"),
 			metric.WithUnit("{count}"),
 		)),
 	}
@@ -78,8 +99,8 @@ func (m *stateSyncUploadMetrics) recordUpload(ctx context.Context, size int64, d
 	m.uploadDuration.Record(ctx, duration.Seconds())
 }
 
-func (m *stateSyncUploadMetrics) recordFailure(ctx context.Context) {
-	m.failures.Add(ctx, 1)
+func (m *stateSyncUploadMetrics) recordFailure(ctx context.Context, stage stateSyncUploadStage) {
+	m.failures.Add(ctx, 1, metric.WithAttributes(attribute.String("stage", string(stage))))
 }
 
 func must[V any](v V, err error) V {

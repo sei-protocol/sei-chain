@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/statesync"
 )
 
@@ -48,6 +51,20 @@ func requireUploadGauge(t *testing.T, data map[string]metricdata.Aggregation, na
 	require.True(t, ok, "%s is a %T", name, agg)
 	require.Len(t, g.DataPoints, 1)
 	require.Equal(t, want, g.DataPoints[0].Value, name)
+}
+
+// requireUploadFailures asserts that the failure count in data is want, by stage.
+func requireUploadFailures(t *testing.T, data map[string]metricdata.Aggregation, want map[string]int64) {
+	t.Helper()
+	failures, ok := data["state_sync_upload_failures"].(metricdata.Sum[int64])
+	require.True(t, ok, "no state_sync_upload_failures")
+	got := map[string]int64{}
+	for _, p := range failures.DataPoints {
+		stage, ok := p.Attributes.Value("stage")
+		require.True(t, ok, "a failure has no stage")
+		got[stage.AsString()] = p.Value
+	}
+	require.Equal(t, want, got)
 }
 
 // requireNoUploadMetric asserts that data has no metric name.
@@ -153,7 +170,7 @@ func TestStateSyncUploadMetricsRecordTheArchiveOfAnotherNode(t *testing.T) {
 }
 
 // TestStateSyncUploadMetricsCountEachFailedSweep fails two sweeps with the same error. The node logs
-// the error once and counts both sweeps.
+// the error once and counts both sweeps at the put stage.
 func TestStateSyncUploadMetricsCountEachFailedSweep(t *testing.T) {
 	h := newUploadHome(t)
 	height := h.commit(t)
@@ -173,12 +190,61 @@ func TestStateSyncUploadMetricsCountEachFailedSweep(t *testing.T) {
 	require.Equal(t, lastErr, u.sweepLogged(t.Context(), lastErr))
 
 	data := collectUploadMetrics(t, reader)
-	failures, ok := data["state_sync_upload_failures"].(metricdata.Sum[int64])
-	require.True(t, ok)
-	require.Len(t, failures.DataPoints, 1)
-	require.Equal(t, int64(2), failures.DataPoints[0].Value)
+	requireUploadFailures(t, data, map[string]int64{"put": 2})
 	requireNoUploadMetric(t, data, "state_sync_upload_bucket_height")
 	requireNoUploadMetric(t, data, "state_sync_upload_archive_size")
+}
+
+// TestStateSyncUploadMetricsCountAFailureAtItsStage fails one step of a sweep in each case, and
+// counts the failure at the stage of that step.
+func TestStateSyncUploadMetricsCountAFailureAtItsStage(t *testing.T) {
+	failPut := func(failKey func(height int64) string) func(*testing.T, *uploadHome, *fakeStore, int64) {
+		return func(_ *testing.T, _ *uploadHome, store *fakeStore, height int64) {
+			store.put = func(_ context.Context, key string, _ io.Reader) error {
+				if key == failKey(height) {
+					return errors.New("s3 is down")
+				}
+				return nil
+			}
+		}
+	}
+	for _, tc := range []struct {
+		stage string
+		fail  func(t *testing.T, h *uploadHome, store *fakeStore, height int64)
+	}{
+		{"checkpoint", func(t *testing.T, h *uploadHome, _ *fakeStore, _ int64) {
+			require.NoError(t, os.RemoveAll(h.proofDir))
+			require.NoError(t, os.WriteFile(h.proofDir, nil, 0o600))
+		}},
+		{"read", func(_ *testing.T, _ *uploadHome, store *fakeStore, _ int64) {
+			store.set(statesync.LatestKey(uploadChainID), []byte("not a height"))
+		}},
+		{"claim", failPut(func(int64) string { return statesync.ClaimKey(uploadChainID) })},
+		{"stage", func(t *testing.T, h *uploadHome, _ *fakeStore, height int64) {
+			manifests, err := filepath.Glob(filepath.Join(h.flatKVDir, flatkv.SnapshotDirName(height), "account", "MANIFEST-*"))
+			require.NoError(t, err)
+			require.NotEmpty(t, manifests)
+			for _, m := range manifests {
+				require.NoError(t, os.Remove(m))
+			}
+		}},
+		{"put", failPut(func(height int64) string { return statesync.ArchiveKey(uploadChainID, height) })},
+		{"advance", failPut(func(int64) string { return statesync.LatestKey(uploadChainID) })},
+	} {
+		t.Run(tc.stage, func(t *testing.T) {
+			h := newUploadHome(t)
+			height := h.commit(t)
+			h.writeProof(t, height)
+			store := newFakeStore()
+			tc.fail(t, h, store, height)
+			u := h.uploader(store)
+			reader := uploadMetricsReader(t, u)
+
+			require.NotEmpty(t, u.sweepLogged(t.Context(), ""))
+
+			requireUploadFailures(t, collectUploadMetrics(t, reader), map[string]int64{tc.stage: 1})
+		})
+	}
 }
 
 func TestStateSyncUploadMetricsRecordTheStoreAtStart(t *testing.T) {
