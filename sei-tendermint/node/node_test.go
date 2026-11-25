@@ -601,6 +601,7 @@ func TestNodeNewSeedNode(t *testing.T) {
 	require.NoError(t, err)
 
 	ns, err := makeSeedNode(
+		t.Context(),
 		cfg,
 		config.DefaultDBProvider,
 		nodeKey,
@@ -650,7 +651,7 @@ func TestNodeNewSeedNode_ServesPrometheusMetrics(t *testing.T) {
 	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 
-	ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, genDoc)
+	ns, err := makeSeedNode(t.Context(), cfg, config.DefaultDBProvider, nodeKey, genDoc)
 	require.NoError(t, err)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
@@ -713,7 +714,7 @@ func TestNodeSeedNodeStopCompletes(t *testing.T) {
 		genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
 		require.NoError(t, err)
 
-		ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, genDoc)
+		ns, err := makeSeedNode(t.Context(), cfg, config.DefaultDBProvider, nodeKey, genDoc)
 		require.NoError(t, err)
 		n, ok := ns.(*seedNodeImpl)
 		require.True(t, ok)

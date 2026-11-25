@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Client[API]) error {
+func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Client[API], peer types.PublicKey) error {
 	stream, err := StreamFullCommitQCs.Call(ctx, client)
 	if err != nil {
 		recordFetch(ctx, resFullCommitQC, "open_stream")
@@ -43,6 +43,9 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			recordFetch(ctx, resFullCommitQC, "out_of_order")
 			return fmt.Errorf("qc.Height() = %v, want >= %v: %w", qc.Height(), next, types.ErrUnexpectedHeight)
 		}
+		if qc.Height() > next {
+			s.reportSkippedFullCommitQCs(ctx, peer, qc.Height())
+		}
 		next = qc.Height() + 1
 		if err := s.data.PushPartialBlock(ctx, qc, nil); err != nil {
 			recordFetch(ctx, resFullCommitQC, "process")
@@ -51,6 +54,21 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 		recordFetch(ctx, resFullCommitQC, "ok")
 	}
 	return ctx.Err()
+}
+
+// reportSkippedFullCommitQCs counts and logs a FullCommitQC stream of peer that skips to the
+// FullCommitQC of road sent. A skip of FullCommitQCs that this node already holds is not reported.
+func (s *Service) reportSkippedFullCommitQCs(ctx context.Context, peer types.PublicKey, sent types.RoadHeight) {
+	need := s.data.NextQC()
+	if need >= sent {
+		return
+	}
+	// A peer skips the FullCommitQCs that it pruned. PushPartialBlock then waits for another peer
+	// to send them, with no error, so this report is the only sign of a node that no peer can serve.
+	recordFetch(ctx, resFullCommitQC, "skipped")
+	// The QC is not verified yet, so the line states what the peer sent and gives no instruction.
+	logger.Warn("A peer skipped FullCommitQCs that this node needs, as a peer that no longer keeps them does; the node waits for another peer to send them",
+		"peer", peer, "need", need, "peer_sent", sent)
 }
 
 func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {

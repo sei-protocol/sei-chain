@@ -106,26 +106,34 @@ func BuildDataState(
 	app *abevm.Proxy,
 	genesisTimestamp time.Time,
 ) (*data.State, error) {
-	if cfg.GenDoc.InitialHeight < 1 {
-		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
-	}
-	if cfg.DialInterval <= 0 {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
-	}
-	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
-	}
-	if cfg.PersistentStateDir == "" {
-		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
-	}
-	if cfg.AppHashBuilder == nil {
-		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 	ds, err := data.NewState(&data.Config{App: app, GenesisTimestamp: genesisTimestamp}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
 	return ds, nil
+}
+
+// Validate returns an error when cfg cannot back a data.State.
+func (cfg *GigaRouterCommonConfig) Validate() error {
+	if cfg.GenDoc.InitialHeight < 1 {
+		return fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
+	}
+	if cfg.DialInterval <= 0 {
+		return fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
+	}
+	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
+		return fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
+	}
+	if cfg.PersistentStateDir == "" {
+		return errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
+	}
+	if cfg.AppHashBuilder == nil {
+		return errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
+	}
+	return nil
 }
 
 func (r *gigaRouterCommon) LastCommittedHeight() int64 {
