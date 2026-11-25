@@ -247,8 +247,8 @@ func (c *chain) apply(changes map[string][]byte, async bool) {
 	require.NoError(c.t, c.db.applyBlock(version, prior.mutations(), c.view(next)))
 }
 
-// replay commits one block setting (or, for a nil value, deleting) each key, and replays its prior values into
-// the store.
+// replay adds one block setting (or, for a nil value, deleting) each key to the model, and replays its prior values
+// into the store.
 func (c *chain) replay(changes map[string][]byte) {
 	version, prior, _ := c.advance(changes)
 	require.NoError(c.t, c.db.ReplayBlock(version, prior.mutations()))

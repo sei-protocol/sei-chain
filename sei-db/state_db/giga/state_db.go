@@ -113,8 +113,8 @@ func requireLiveStateDBAtTheWALHead(liveStateDB gigatypes.LiveStateStore, wal st
 }
 
 // catchUpHistoricalStateDB replays the WAL's blocks after historicalStateDB's latest block, up to liveStateDB's
-// version, into historicalStateDB. It leaves alone a historical state DB that is disabled, empty or not behind, and
-// one the WAL no longer reaches, which Resume starts over at the live state DB's version.
+// version, into historicalStateDB. It skips a historical state DB that is disabled, empty, not behind, or behind
+// further than the WAL reaches.
 func catchUpHistoricalStateDB(
 	liveStateDB gigatypes.LiveStateStore,
 	historicalStateDB gigatypes.HistoricalStateStore,
