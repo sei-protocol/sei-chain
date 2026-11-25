@@ -288,8 +288,9 @@ func TestValidatorAddrsRetain(t *testing.T) {
 	require.False(t, hasAddr(addrs, leave.Public()))
 }
 
-// A stream ends with the rate error once a peer sends more announcements than its limit allows.
-func TestValidatorAddrStreamEndsWhenRateExceeded(t *testing.T) {
+// A peer that exceeds its rate limit ends the gossip exchange, but the scope that runs the exchange
+// does not fail: consensus streams on the same connection keep running.
+func TestValidatorAddrExchangeEndsWithoutFailingWhenRateExceeded(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	var anns []*types.Signed[types.ValidatorAddrAnnouncement]
@@ -305,7 +306,47 @@ func TestValidatorAddrStreamEndsWhenRateExceeded(t *testing.T) {
 		})
 		return (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client)
 	})
-	require.True(t, errors.Is(err, errValidatorAddrRateLimited), "err = %v", err)
+	require.NoError(t, err)
+	require.NoError(t, ctx.Err())
+	require.Less(t, len(sink.Watch().Load()), len(anns))
+}
+
+// Pins the Anchor-skew limit. A receiver whose Anchor does not yet admit an announcement's signer refuses
+// it, and the sender does not send it again on that stream once the Anchor admits the signer. The receiver
+// learns it only on a new connection.
+func TestValidatorAddrRefusedSignerIsNotResentOnLiveStream(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	lagging, marker := types.GenSecretKey(rng), types.GenSecretKey(rng)
+	admitted := utils.NewAtomicSend(false)
+	refused := utils.NewAtomicSend(0)
+	sink := newVerified(func(ann *types.Signed[types.ValidatorAddrAnnouncement]) error {
+		if ann.Key() == lagging.Public() && !admitted.Load() {
+			refused.Store(refused.Load() + 1)
+			return errors.New("signer not in Anchor")
+		}
+		return nil
+	})
+	source := newAddrs(signedAddr(lagging, 1))
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		startStream(ctx, s, source, sink)
+		if _, err := refused.Subscribe().Wait(ctx, func(n int) bool { return n > 0 }); err != nil {
+			return err
+		}
+		admitted.Store(true)
+		if err := source.Receive(signedAddr(marker, 1)); err != nil {
+			return err
+		}
+		// The stream is ordered: once the marker is stored, any resend of lagging would already have arrived.
+		if _, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { _, ok := s[marker.Public()]; return ok }); err != nil {
+			return err
+		}
+		require.False(t, hasAddr(sink, lagging.Public()))
+		startStream(ctx, s, source, sink)
+		_, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { _, ok := s[lagging.Public()]; return ok })
+		return err
+	})
+	require.NoError(t, err)
 }
 
 // Announcements flood across every pairing of roles that can connect: a validator dialing a validator,

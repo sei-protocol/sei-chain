@@ -134,8 +134,9 @@ func (a *ValidatorAddrs[A]) AwaitMissing(ctx context.Context, peerHolds func(aty
 // validatorAddrRate is the sustained rate of announcements accepted per stream after the initial burst.
 var validatorAddrRate = rate.Every(100 * time.Millisecond)
 
-// validatorAddrBurst admits a full table on connect: one announcement per possible member of each Anchor epoch.
-const validatorAddrBurst = len(data.Anchor{}.Epochs) * atypes.MaxValidators
+// validatorAddrBurst admits a full table on connect with room for updates that arrive during that push:
+// twice the table's capacity, one announcement per possible member of each Anchor epoch.
+const validatorAddrBurst = 2 * len(data.Anchor{}.Epochs) * atypes.MaxValidators
 
 var errValidatorAddrRateLimited = errors.New("validator address announcement rate exceeded")
 
@@ -176,21 +177,34 @@ func (p *peerVersions) forget(validator atypes.PublicKey, version uint64) {
 	}
 }
 
-// serverStreamValidatorAddrs exchanges announcements with a dialing peer.
+// serverStreamValidatorAddrs exchanges announcements with a dialing peer. Its failure ends only this
+// exchange; see endValidatorAddrExchange.
 func (x *Service) serverStreamValidatorAddrs(ctx context.Context, server rpc.Server[API]) error {
-	return StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
+	err := StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
 		return x.exchangeValidatorAddrs(ctx, stream)
 	})
+	return endValidatorAddrExchange(ctx, err)
 }
 
-// clientStreamValidatorAddrs exchanges announcements with the peer that was dialed.
+// clientStreamValidatorAddrs exchanges announcements with the peer that was dialed. Its failure ends
+// only this exchange; see endValidatorAddrExchange.
 func (x *Service) clientStreamValidatorAddrs(ctx context.Context, client rpc.Client[API]) error {
 	stream, err := StreamValidatorAddrs.Call(ctx, client)
 	if err != nil {
-		return fmt.Errorf("client.StreamValidatorAddrs(): %w", err)
+		return endValidatorAddrExchange(ctx, fmt.Errorf("client.StreamValidatorAddrs(): %w", err))
 	}
 	defer stream.Close()
-	return x.exchangeValidatorAddrs(ctx, stream)
+	return endValidatorAddrExchange(ctx, x.exchangeValidatorAddrs(ctx, stream))
+}
+
+// endValidatorAddrExchange logs why the gossip exchange ended and returns nil, so the scope that runs
+// the exchange keeps its consensus streams. Gossip is not needed for consensus, and a peer that
+// violates its limit loses gossip on this connection until the next one.
+func endValidatorAddrExchange(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() == nil {
+		logger.Warn("validator address exchange ended", "err", err)
+	}
+	return nil
 }
 
 // exchangeValidatorAddrs sends the held announcements to the peer and hands the peer's announcements

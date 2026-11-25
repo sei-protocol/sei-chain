@@ -107,7 +107,8 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 }
 
 // runPublishValidatorAddr publishes this validator's signed address announcement each time it
-// enters an Anchor epoch. Its entry is dropped from the table once it leaves, by runPerCommitteeMember.
+// enters an Anchor epoch, and again whenever the table holds a higher version of it. Its entry is
+// dropped from the table once it leaves, by runPerCommitteeMember.
 func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error {
 	validatorKey := r.validatorKey.OrPanic("validator key")
 	var version uint64
@@ -117,21 +118,50 @@ func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error
 		}); err != nil {
 			return err
 		}
-		// The version is the wall clock and is not persisted, so a restart publishes a higher
-		// version only if the clock has not gone backwards since the last run. A lower one is
-		// ignored by peers that hold a higher one until the clock passes it.
-		version = max(uint64(time.Now().UnixNano()), version+1)
-		// The error is logged, not returned: the Anchor may have moved since the wait,
-		// and peers drop an announcement the table rejects.
-		if err := r.publishValidatorAddr(version); err != nil {
-			logger.Warn("own validator address announcement rejected", "version", version, "err", err)
-		}
-		if _, err := r.data.Anchor().Wait(ctx, func(a data.Anchor) bool {
-			return !inAnchorEpochs(a, validatorKey)
-		}); err != nil {
-			return err
+		for {
+			// The version is the wall clock and is not persisted, so a restart may publish below the
+			// version of the previous run. Peers hold that one and send it back, and the next
+			// publish goes above it.
+			version = max(uint64(time.Now().UnixNano()), version+1)
+			// The error is logged, not returned: the Anchor may have moved since the wait,
+			// and peers drop an announcement the table rejects.
+			if err := r.publishValidatorAddr(version); err != nil {
+				logger.Warn("own validator address announcement rejected", "version", version, "err", err)
+			}
+			superseding, err := r.awaitOwnAddrSuperseded(ctx, version)
+			if err != nil {
+				return err
+			}
+			if superseding == 0 {
+				break
+			}
+			version = superseding
 		}
 	}
+}
+
+// awaitOwnAddrSuperseded blocks until this validator leaves the Anchor, which returns 0, or until
+// the table holds a version of its own announcement above published, which returns that version.
+func (r *gigaValidatorRouter) awaitOwnAddrSuperseded(ctx context.Context, published uint64) (uint64, error) {
+	addrs := r.validatorAddrs.Watch()
+	validatorKey := r.validatorKey.OrPanic("validator key")
+	inAnchor := func() bool { return inAnchorEpochs(r.data.Anchor().Load(), validatorKey) }
+	ownVersion := func() uint64 {
+		entry, ok := addrs.Load()[validatorKey]
+		if !ok {
+			return 0
+		}
+		return entry.Ann.Msg().Version
+	}
+	if err := utils.WaitAny(ctx, func() bool {
+		return !inAnchor() || ownVersion() > published
+	}, r.data.Anchor(), addrs); err != nil {
+		return 0, err
+	}
+	if !inAnchor() {
+		return 0, nil
+	}
+	return ownVersion(), nil
 }
 
 // publishValidatorAddr signs this validator's address announcement at version and offers it

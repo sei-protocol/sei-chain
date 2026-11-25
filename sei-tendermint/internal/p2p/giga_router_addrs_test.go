@@ -291,6 +291,37 @@ func TestGigaValidatorRouter_RunPublishValidatorAddrWaitsForAnchorMembership(t *
 }
 
 // A validator that leaves an Anchor and enters again publishes a higher version the second time.
+// A peer that sends back a higher version of this validator's own announcement, as after a restart,
+// makes the validator publish again above it.
+func TestGigaValidatorRouter_RepublishesAboveHigherOwnVersion(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		key := atypes.GenSecretKey(rng)
+		epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{key.Public(): 1}))
+		table := testValidatorAddrs(epochs.state)
+		router := testPublishingRouter(t, epochs.state, table, key, makeKey(rng), tcp.HostPort{Hostname: "self.example", Port: 26656})
+		const stale = uint64(1) << 62
+		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })
+			synctest.Wait()
+			if err := table.Receive(testAddrAnnouncement(rng, key, stale, "old.example:26656")); err != nil {
+				return err
+			}
+			synctest.Wait()
+			entry, ok := table.Watch().Load()[key.Public()]
+			if !ok || entry.Ann.Msg().Version <= stale {
+				return fmt.Errorf("own version after republish = %d, %v; want above %d", entry.Ann.Msg().Version, ok, stale)
+			}
+			addr, ok := table.Get(key.Public())
+			if !ok || addr.HostPort.Hostname != "self.example" {
+				return fmt.Errorf("own address after republish = %v, %v; want self.example", addr.HostPort, ok)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
 func TestGigaValidatorRouter_RunPublishValidatorAddrVersionRisesOnReentry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rng := utils.TestRng()
