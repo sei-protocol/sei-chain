@@ -56,7 +56,6 @@ func newFullnodeHome(t *testing.T) fullnodeHome {
 		Validators:         []tmcfg.AutobahnValidator{validator},
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
-		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		PersistentStateDir: filepath.Join("data", "autobahn"),
 		DialInterval:       utils.Duration(10 * time.Second),
 		EVMChainID:         testEVMChainID,
