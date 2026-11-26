@@ -556,6 +556,99 @@ func TestInsertTx_ResubmissionAlreadyKnown(t *testing.T) {
 	}))
 }
 
+// waitUntilPruned waits until the mempool no longer holds the transaction with the given hash.
+func waitUntilPruned(ctx context.Context, mp *mempool, hash common.Hash) error {
+	for inner, ctrl := range mp.inner.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool {
+			_, ok := inner.evmTxs[hash]
+			return !ok
+		})
+	}
+	panic("unreachable")
+}
+
+// executingCfg returns a config that seals every transaction into its own lane block right away,
+// so it executes and is pruned without further inserts.
+func executingCfg(app *testApp) *Config {
+	cfg := app.Cfg()
+	cfg.BlockInterval = time.Millisecond
+	cfg.MaxTxsPerBlock = 1
+	return cfg
+}
+
+func TestInsertTx_ResendAfterPruneBadNonce(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(t, rng, executingCfg(app), app)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		mp, err := env.waitForMempool(ctx)
+		if err != nil {
+			return err
+		}
+
+		addr, nonce := app.NewAccount(rng)
+		tx := env.genTx(rng, addr, nonce)
+		if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
+			return err
+		}
+		if err := waitUntilPruned(ctx, mp, tx.transaction().Hash()); err != nil {
+			return err
+		}
+		// Once executed and pruned, the transaction's nonce is spent.
+		if _, err := env.state.InsertTx(ctx, tx.encode()); !errors.Is(err, errBadNonce) {
+			return fmt.Errorf("InsertTx() after pruning: got %v, want %v", err, errBadNonce)
+		}
+		return nil
+	}))
+}
+
+func TestInsertTx_ResendAfterNonceGapAccepted(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(t, rng, executingCfg(app), app)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return env.Run(ctx) })
+		mp, err := env.waitForMempool(ctx)
+		if err != nil {
+			return err
+		}
+
+		addr, nonce := app.NewAccount(rng)
+		failing := env.genTx(rng, addr, nonce)
+		failing.ShouldFail = true
+		next := env.genTx(rng, addr, nonce+1)
+		// Hold execution so both transactions are admitted before the failing one executes.
+		env.pauseExecution()
+		for _, tx := range []*txSpec{failing, next} {
+			if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
+				return err
+			}
+		}
+		env.resumeExecution()
+		if err := waitUntilPruned(ctx, mp, failing.transaction().Hash()); err != nil {
+			return err
+		}
+		// The failed transaction left a nonce gap, which resets the expected nonce.
+		if got, want := env.state.EvmNextPendingNonce(addr), nonce; got != want {
+			return fmt.Errorf("EvmNextPendingNonce() = %v, want %v", got, want)
+		}
+		// Until the gap is filled, the transaction after it is a bad nonce, not already known.
+		if _, err := env.state.InsertTx(ctx, next.encode()); !errors.Is(err, errBadNonce) {
+			return fmt.Errorf("InsertTx() before filling the gap: got %v, want %v", err, errBadNonce)
+		}
+		if _, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode()); err != nil {
+			return fmt.Errorf("InsertTx() filling the gap: %w", err)
+		}
+		if _, err := env.state.InsertTx(ctx, next.encode()); err != nil {
+			return fmt.Errorf("InsertTx() after filling the gap: %w", err)
+		}
+		return nil
+	}))
+}
+
 type blockStats struct {
 	count        uint64
 	sizeBytes    uint64
