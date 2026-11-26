@@ -16,8 +16,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -58,17 +58,17 @@ func TestBlockGasRPCsCountReceiptsAtMatchingHeight(t *testing.T) {
 				trailing = raw1
 			}
 			blockHash := common.HexToHash("0x9")
-			block := &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-				Block: &tmtypes.Block{
-					Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
-					Data:   tmtypes.Data{Txs: tmtypes.Txs{raw1, raw2, trailing}},
-				},
+			block := &abevm.EvmBlock{
+				Hash:   blockHash,
+				Height: 9,
+				Time:   time.Unix(1_700_000_000, 0),
+				Txs:    []abevm.RawTx{raw1, raw2, trailing},
 			}
-			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+
+			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				return block, nil
 			})
-			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 				return block, nil
 			}
 			backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
@@ -111,11 +111,13 @@ func TestBlockGasRPCsPropagateReceiptReadErrors(t *testing.T) {
 	memory := evmonly.NewMemoryReceiptStore()
 	require.NoError(t, memory.SetLatestVersion(9))
 	store := failingGasReceiptStore{ReceiptStore: hashOnlyReceiptStore{ReceiptStore: memory}, hash: tx.Hash(), err: readErr}
-	block := &coretypes.ResultBlock{Block: &tmtypes.Block{
-		Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
-		Data:   tmtypes.Data{Txs: tmtypes.Txs{raw, trailing}},
-	}}
-	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	block := &abevm.EvmBlock{
+		Height: 9,
+		Time:   time.Unix(1_700_000_000, 0),
+		Txs:    []abevm.RawTx{raw, trailing},
+	}
+
+	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return block, nil
 	})
 	backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
@@ -140,14 +142,16 @@ func TestBlockGasRPCsSkipUnavailableReceiptHeights(t *testing.T) {
 			require.NoError(t, memory.SetEarliestVersion(tc.earliest))
 			store := &countingReceiptStore{ReceiptStore: memory}
 			_, raw := testSignedTransaction(t)
-			block := &coretypes.ResultBlock{Block: &tmtypes.Block{
-				Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: make(tmtypes.Txs, 100)},
-			}}
-			for i := range block.Block.Txs {
-				block.Block.Txs[i] = raw
+			block := &abevm.EvmBlock{
+				Height: 9,
+				Time:   time.Unix(1_700_000_000, 0),
+				Txs:    make([]abevm.RawTx, 100),
 			}
-			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+
+			for i := range block.Txs {
+				block.Txs[i] = raw
+			}
+			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				return block, nil
 			})
 			backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
@@ -156,10 +160,8 @@ func TestBlockGasRPCsSkipUnavailableReceiptHeights(t *testing.T) {
 			require.Equal(t, hexutil.Uint64(0), got["gasUsed"])
 			require.Zero(t, store.reads)
 			// Gas lookup also skips decoding transactions for unavailable heights.
-			block.Block.Txs[99] = []byte("invalid transaction")
-			native, err := nativeTestBlock(block, nil)
-			require.NoError(t, err)
-			gas, err := blockGasUsed(t.Context(), store, native)
+			block.Txs[99] = abevm.RawTx("invalid transaction")
+			gas, err := blockGasUsed(t.Context(), store, block)
 			require.NoError(t, err)
 			require.Zero(t, gas)
 		})

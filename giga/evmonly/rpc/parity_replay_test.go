@@ -22,8 +22,6 @@ import (
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -41,8 +39,8 @@ type replayBackend struct {
 	executor    *evmonly.Executor
 	store       *evmonly.MemoryStore
 	receipts    *evmonly.MemoryReceiptStore
-	blocks      []*coretypes.ResultBlock
-	byHash      map[common.Hash]*coretypes.ResultBlock
+	blocks      []*abevm.EvmBlock
+	byHash      map[common.Hash]*abevm.EvmBlock
 	tip         evmonly.BlockContext
 }
 
@@ -84,18 +82,18 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 		executor:    executor,
 		store:       store,
 		receipts:    receipts,
-		byHash:      map[common.Hash]*coretypes.ResultBlock{},
+		byHash:      map[common.Hash]*abevm.EvmBlock{},
 	}
 	for _, block := range fixture.Blocks {
+		resultBlock := fixtureBlock(block)
 		blockCtx := replayBlockContext(chainID, block)
 		result, err := executor.ExecuteBlock(t.Context(), evmonly.BlockRequest{
 			Context:    blockCtx,
-			Txs:        rawTxs(block),
+			Txs:        resultBlock.Txs,
 			TxsOrdered: true,
 		})
 		require.NoError(t, err, "execute block %d", block.Header.Number)
 		result.Release()
-		resultBlock := consensusBlock(block)
 		backend.blocks = append(backend.blocks, resultBlock)
 		backend.byHash[block.Header.Hash] = resultBlock
 		backend.tip = blockCtx
@@ -135,56 +133,18 @@ func replayBlockContext(chainID uint64, block parity.Block) evmonly.BlockContext
 	}
 }
 
-func rawTxs(block parity.Block) []abevm.RawTx {
+// fixtureBlock returns the fixture's native EVM block.
+func fixtureBlock(block parity.Block) *abevm.EvmBlock {
 	txs := make([]abevm.RawTx, len(block.Txs))
 	for i, tx := range block.Txs {
 		txs[i] = abevm.RawTx(tx)
 	}
-	return txs
-}
-
-// consensusBlock returns the block fields supplied by Autobahn to the EVM-only RPC.
-func consensusBlock(block parity.Block) *coretypes.ResultBlock {
-	header := block.Header
-	txs := make(tmtypes.Txs, len(block.Txs))
-	for i, tx := range block.Txs {
-		txs[i] = tmtypes.Tx(tx)
+	return &abevm.EvmBlock{
+		Hash:   block.Header.Hash,
+		Height: atypes.RoadHeight(block.Header.Number),
+		Time:   block.Header.Time,
+		Txs:    txs,
 	}
-	return &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: header.Hash.Bytes()},
-		Block: &tmtypes.Block{
-			Header: tmtypes.Header{
-				Height: int64(header.Number), //nolint:gosec // fixture heights fit int64.
-				Time:   header.Time,
-			},
-			Data:       tmtypes.Data{Txs: txs},
-			LastCommit: &tmtypes.Commit{Height: int64(header.Number) - 1}, //nolint:gosec // fixture heights fit int64.
-		},
-	}
-}
-
-func (b *replayBackend) rpcBlock(req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-	if req.Height == nil {
-		return b.blocks[len(b.blocks)-1], nil
-	}
-	height := int64(*req.Height)
-	first, tip := b.blocks[0].Block.Height, b.blocks[len(b.blocks)-1].Block.Height
-	switch {
-	case height <= 0:
-		return nil, abevm.ErrPruned
-	case height > tip:
-		return nil, nil
-	case height < first:
-		return nil, abevm.ErrPruned
-	}
-	return b.blocks[height-first], nil
-}
-
-func (b *replayBackend) rpcBlockByHash(req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-	if block, ok := b.byHash[common.BytesToHash(req.Hash)]; ok {
-		return block, nil
-	}
-	return &coretypes.ResultBlock{}, nil
 }
 
 func (*replayBackend) InsertTx(context.Context, abevm.RawTx) (common.Hash, error) {
@@ -192,18 +152,24 @@ func (*replayBackend) InsertTx(context.Context, abevm.RawTx) (common.Hash, error
 }
 
 func (b *replayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error) {
-	req := &coretypes.RequestBlockInfo{}
-	if h, ok := height.Get(); ok {
-		value := coretypes.Int64(h)
-		req.Height = &value
+	first, tip := b.blocks[0].Height, b.blocks[len(b.blocks)-1].Height
+	resolved := height.Or(int64(tip)) //nolint:gosec // fixture heights fit int64.
+	n, ok := utils.SafeCast[atypes.RoadHeight](resolved)
+	if !ok || n == 0 || n < first {
+		return utils.None[*abevm.EvmBlock](), abevm.ErrPruned
 	}
-	result, err := b.rpcBlock(req)
-	return optionalTestBlock(result, err)
+	if n > tip {
+		return utils.None[*abevm.EvmBlock](), nil
+	}
+	return utils.Some(b.blocks[n-first]), nil
 }
 
 func (b *replayBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {
-	result, err := b.rpcBlockByHash(&coretypes.RequestBlockByHash{Hash: hash.Bytes()})
-	return optionalTestBlock(result, err)
+	block, ok := b.byHash[hash]
+	if !ok {
+		return utils.None[*abevm.EvmBlock](), nil
+	}
+	return utils.Some(block), nil
 }
 
 func (b *replayBackend) EvmBalance(address common.Address) uint256.Int {

@@ -16,6 +16,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -79,7 +80,7 @@ func TestMethodDeadlineEndsBlockedCall(t *testing.T) {
 
 func TestDefaultDeadlineBoundsUnlistedMethod(t *testing.T) {
 	backend := &testBackend{
-		block: func(ctx context.Context, _ *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(ctx context.Context, _ *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},

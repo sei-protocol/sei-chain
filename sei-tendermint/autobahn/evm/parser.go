@@ -58,6 +58,7 @@ func (s *Signer) ForgetTxs(txs []EvmTx) {
 
 // ParseTx parses a replay-protected transaction and returns its verified sender.
 func (s *Signer) ParseTx(raw RawTx) (EvmTxRaw, error) {
+	raw = append(RawTx(nil), raw...)
 	tx := new(ethtypes.Transaction)
 	if err := tx.UnmarshalBinary(raw); err != nil {
 		return EvmTxRaw{}, err
@@ -69,7 +70,7 @@ func (s *Signer) ParseTx(raw RawTx) (EvmTxRaw, error) {
 	if cached, ok := s.cache.Get(); ok {
 		for senders := range cached.Lock() {
 			if sender, ok := senders.get(hash).Get(); ok {
-				return EvmTxRaw{evmTx: EvmTx{tx: tx, sender: sender}, raw: append(RawTx(nil), raw...)}, nil
+				return EvmTxRaw{tx: tx, sender: sender, raw: raw}, nil
 			}
 		}
 	}
@@ -77,7 +78,7 @@ func (s *Signer) ParseTx(raw RawTx) (EvmTxRaw, error) {
 	if err != nil {
 		return EvmTxRaw{}, err
 	}
-	return EvmTxRaw{evmTx: EvmTx{tx: tx, sender: sender}, raw: raw}, nil
+	return EvmTxRaw{tx: tx, sender: sender, raw: raw}, nil
 }
 
 // ParseTxs parses replay-protected transactions, reusing cached senders or recovering them.

@@ -22,8 +22,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -151,13 +151,10 @@ func TestGetTransactionReceipt(t *testing.T) {
 	}}))
 
 	backend := &testBackend{
-		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			require.NotNil(t, req.Height)
 			require.Equal(t, coretypes.Int64(7), *req.Height)
-			return &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-				Block:   &tmtypes.Block{},
-			}, nil
+			return &abevm.EvmBlock{Hash: blockHash}, nil
 		},
 	}
 	handler, err := newHandler(backend, store, noRPCLimits)
@@ -226,7 +223,7 @@ func TestGetTransactionReceiptReturnsNullBeforeBlockCommit(t *testing.T) {
 		},
 	}}))
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			return nil, nil
 		},
 	}
@@ -281,15 +278,13 @@ func TestGetTransactionByHash(t *testing.T) {
 
 	chainConfig := testChainConfig(chainID)
 	backend := &testBackend{
-		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			require.NotNil(t, req.Height)
 			require.Equal(t, coretypes.Int64(9), *req.Height)
-			return &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-				Block: &tmtypes.Block{
-					Header: tmtypes.Header{Time: blockTime},
-					Data:   tmtypes.Data{Txs: tmtypes.Txs{[]byte("some other transaction"), raw}},
-				},
+			return &abevm.EvmBlock{
+				Hash: blockHash,
+				Time: blockTime,
+				Txs:  []abevm.RawTx{abevm.RawTx("some other transaction"), raw},
 			}, nil
 		},
 		chainConfig: func() *params.ChainConfig { return chainConfig },
@@ -350,13 +345,11 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 	}}))
 	chainConfig := testChainConfig(big.NewInt(713700))
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-			return &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-				Block: &tmtypes.Block{
-					Header: tmtypes.Header{Time: time.Unix(1_700_000_000, 0)},
-					Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-				},
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+			return &abevm.EvmBlock{
+				Hash: common.HexToHash("0xabcd"),
+				Time: time.Unix(1_700_000_000, 0),
+				Txs:  []abevm.RawTx{raw},
 			}, nil
 		},
 		chainConfig: func() *params.ChainConfig { return chainConfig },
@@ -372,7 +365,7 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 
 func TestGetTransactionByHashReturnsNullForUnknownHash(t *testing.T) {
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			t.Fatal("block lookup reached for an unknown hash")
 			return nil, nil
 		},
@@ -393,7 +386,7 @@ func TestGetTransactionByHashReturnsNullBeforeBlockCommit(t *testing.T) {
 		},
 	}}))
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			return nil, nil
 		},
 	}
@@ -421,13 +414,11 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 	}}))
 	chainConfig := testChainConfig(big.NewInt(713700))
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-			return &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-				Block: &tmtypes.Block{
-					Header: tmtypes.Header{Time: time.Unix(1_700_000_000, 0)},
-					Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-				},
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+			return &abevm.EvmBlock{
+				Hash: blockHash,
+				Time: time.Unix(1_700_000_000, 0),
+				Txs:  []abevm.RawTx{raw},
 			}, nil
 		},
 		chainConfig: func() *params.ChainConfig { return chainConfig },
@@ -542,7 +533,7 @@ func TestLookupFinalizedTxSurfacesStoreAndBlockErrors(t *testing.T) {
 		want := errors.New("block store unavailable")
 		api := &txAPI{
 			backend: &testBackend{
-				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 					return nil, want
 				},
 			},
@@ -561,7 +552,7 @@ func TestLookupFinalizedTxSurfacesStoreAndBlockErrors(t *testing.T) {
 	t.Run("nil block", func(t *testing.T) {
 		api := &txAPI{
 			backend: &testBackend{
-				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 					return nil, nil
 				},
 			},
@@ -593,10 +584,8 @@ func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T
 	t.Run("index exceeds block txs", func(t *testing.T) {
 		api := &txAPI{
 			backend: &testBackend{
-				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-					return &coretypes.ResultBlock{
-						Block: &tmtypes.Block{Data: tmtypes.Data{Txs: tmtypes.Txs{raw}}},
-					}, nil
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+					return &abevm.EvmBlock{Txs: []abevm.RawTx{raw}}, nil
 				},
 			},
 			store: store,
@@ -613,12 +602,10 @@ func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T
 	t.Run("undecodable tx bytes", func(t *testing.T) {
 		api := &txAPI{
 			backend: &testBackend{
-				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-					return &coretypes.ResultBlock{
-						Block: &tmtypes.Block{
-							Header: tmtypes.Header{Height: 4},
-							Data:   tmtypes.Data{Txs: tmtypes.Txs{[]byte("not-an-rlp-tx"), []byte("x"), []byte("y"), []byte("z")}},
-						},
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+					return &abevm.EvmBlock{
+						Height: 4,
+						Txs:    []abevm.RawTx{abevm.RawTx("not-an-rlp-tx"), abevm.RawTx("x"), abevm.RawTx("y"), abevm.RawTx("z")},
 					}, nil
 				},
 			},
@@ -649,13 +636,8 @@ func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
 	t.Run("negative block time", func(t *testing.T) {
 		api := &txAPI{
 			backend: &testBackend{
-				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-					return &coretypes.ResultBlock{
-						Block: &tmtypes.Block{
-							Header: tmtypes.Header{Time: time.Unix(-1, 0)},
-							Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-						},
-					}, nil
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+					return &abevm.EvmBlock{Time: time.Unix(-1, 0), Txs: []abevm.RawTx{raw}}, nil
 				},
 				chainConfig: func() *params.ChainConfig { return testChainConfig(big.NewInt(713700)) },
 			},
@@ -689,11 +671,8 @@ func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.
 	}}))
 	api := &txAPI{
 		backend: &testBackend{
-			block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-				return &coretypes.ResultBlock{
-					BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-					Block:   &tmtypes.Block{},
-				}, nil
+			block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+				return &abevm.EvmBlock{Hash: blockHash}, nil
 			},
 		},
 		store: store,
@@ -717,11 +696,11 @@ func TestTransactionErrorMethods(t *testing.T) {
 		{TxHash: unfinalized, Receipt: &evmtypes.Receipt{TxHashHex: unfinalized.Hex(), BlockNumber: 8}},
 	}))
 	backend := &testBackend{
-		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			if *req.Height > 7 {
 				return nil, nil
 			}
-			return &coretypes.ResultBlock{Block: &tmtypes.Block{}}, nil
+			return &abevm.EvmBlock{}, nil
 		},
 	}
 	handler, err := newHandler(backend, store, noRPCLimits)

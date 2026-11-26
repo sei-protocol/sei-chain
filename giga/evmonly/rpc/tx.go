@@ -158,7 +158,7 @@ func replaceFrom(tx *export.RPCTransaction, stored *evmtypes.Receipt) {
 
 // decodeBlockTx decodes the raw transaction bytes stored at index in block
 // blockNumber, identifying the failing position in the returned error.
-func decodeBlockTx(raw []byte, blockNumber int64, index int) (*ethtypes.Transaction, error) {
+func decodeBlockTx(raw abevm.RawTx, blockNumber int64, index int) (*ethtypes.Transaction, error) {
 	ethtx := new(ethtypes.Transaction)
 	if err := ethtx.UnmarshalBinary(raw); err != nil {
 		return nil, fmt.Errorf("decode transaction at block %d index %d: %w", blockNumber, index, err)

@@ -19,8 +19,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -77,21 +78,15 @@ func filterFixtureBackend(t *testing.T, head uint64) *testBackend {
 	t.Helper()
 	return &testBackend{
 		blockNumber: func() uint64 { return head },
-		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			require.NotNil(t, req.Height)
 			height := uint64(*req.Height)
-			return &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: filterBlockHash(height).Bytes()},
-				Block:   &tmtypes.Block{Header: tmtypes.Header{Height: int64(height)}},
-			}, nil
+			return &abevm.EvmBlock{Hash: filterBlockHash(height), Height: atypes.RoadHeight(height)}, nil
 		},
-		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 			for height := uint64(1); height <= head; height++ {
 				if common.BytesToHash(req.Hash) == filterBlockHash(height) {
-					return &coretypes.ResultBlock{
-						BlockID: tmtypes.BlockID{Hash: req.Hash},
-						Block:   &tmtypes.Block{Header: tmtypes.Header{Height: int64(height)}},
-					}, nil
+					return &abevm.EvmBlock{Hash: common.BytesToHash(req.Hash), Height: atypes.RoadHeight(height)}, nil
 				}
 			}
 			return nil, nil
@@ -334,7 +329,7 @@ func TestGetLogsEnforcesLogBudget(t *testing.T) {
 func TestGetLogsSurfacesStoreAndBlockErrors(t *testing.T) {
 	boom := errors.New("boom")
 	backend := filterFixtureBackend(t, 9)
-	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return nil, boom
 	}
 	api := &filterAPI{backend: backend, store: filterFixtureStore(t)}

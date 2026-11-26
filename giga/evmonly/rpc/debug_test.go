@@ -31,8 +31,8 @@ import (
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -53,7 +53,7 @@ var (
 // which stored no receipt, and one with a new hash, which stored a receipt that used no gas.
 type traceChain struct {
 	sender   common.Address
-	blocks   map[int64]*coretypes.ResultBlock
+	blocks   map[int64]*abevm.EvmBlock
 	executed []*ethtypes.Transaction // block 2's transactions that executed, in order
 	rejected *ethtypes.Transaction   // block 2's rejected transaction that stored a receipt
 	backend  *testBackend
@@ -72,9 +72,9 @@ func newTraceChain(t *testing.T) *traceChain {
 	require.NoError(t, err)
 	chain := &traceChain{
 		sender: sender,
-		blocks: map[int64]*coretypes.ResultBlock{
+		blocks: map[int64]*abevm.EvmBlock{
 			1: traceResultBlock(1, nil),
-			2: traceResultBlock(2, tmtypes.Txs{rawFirst, rawDuplicate, rawStale, rawSecond}),
+			2: traceResultBlock(2, []abevm.RawTx{rawFirst, rawDuplicate, rawStale, rawSecond}),
 		},
 		executed: []*ethtypes.Transaction{first, second},
 		rejected: stale,
@@ -119,7 +119,7 @@ func newTraceChain(t *testing.T) *traceChain {
 		return stateDB, view.Close, err
 	}
 	chain.backend = &testBackend{
-		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			height := int64(2)
 			if req.Height != nil {
 				height = int64(*req.Height)
@@ -133,9 +133,9 @@ func newTraceChain(t *testing.T) *traceChain {
 			}
 			return block, nil
 		},
-		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 			for _, block := range chain.blocks {
-				if common.BytesToHash(block.BlockID.Hash) == common.BytesToHash(req.Hash) {
+				if block.Hash == common.BytesToHash(req.Hash) {
 					return block, nil
 				}
 			}
@@ -159,11 +159,7 @@ func newTraceChain(t *testing.T) *traceChain {
 				// Block 1 is empty, so it left the state block 0 did.
 				return replay(ctx, header, nil)
 			case 2:
-				raw := make([]abevm.RawTx, len(chain.blocks[2].Block.Txs))
-				for i, tx := range chain.blocks[2].Block.Txs {
-					raw[i] = abevm.RawTx(tx)
-				}
-				return replay(ctx, header, raw)
+				return replay(ctx, header, chain.blocks[2].Txs)
 			}
 			return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 		},
@@ -174,7 +170,7 @@ func newTraceChain(t *testing.T) *traceChain {
 
 // dynamicFeeTransfer signs, with testSignedTransaction's key, a dynamic-fee transfer of 1 wei to
 // traceRecipient whose fee cap is above its tip, so it pays its tip only at a zero base fee.
-func dynamicFeeTransfer(t *testing.T, nonce uint64) (*ethtypes.Transaction, []byte) {
+func dynamicFeeTransfer(t *testing.T, nonce uint64) (*ethtypes.Transaction, abevm.RawTx) {
 	t.Helper()
 	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)
@@ -194,13 +190,12 @@ func dynamicFeeTransfer(t *testing.T, nonce uint64) (*ethtypes.Transaction, []by
 }
 
 // traceResultBlock returns the stored block at height, whose hash is its height.
-func traceResultBlock(height int64, txs tmtypes.Txs) *coretypes.ResultBlock {
-	return &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: traceBlockHash(height).Bytes()},
-		Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: height, Time: traceBlockTime.Add(time.Duration(height) * time.Second)},
-			Data:   tmtypes.Data{Txs: txs},
-		},
+func traceResultBlock(height int64, txs []abevm.RawTx) *abevm.EvmBlock {
+	return &abevm.EvmBlock{
+		Hash:   traceBlockHash(height),
+		Height: atypes.RoadHeight(height), //nolint:gosec // fixture heights are positive.
+		Time:   traceBlockTime.Add(time.Duration(height) * time.Second),
+		Txs:    txs,
 	}
 }
 
@@ -687,7 +682,7 @@ func TestDebugTraceTransactionSurfacesBlockReadError(t *testing.T) {
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), []receipttypes.ReceiptRecord{
 		{TxHash: hash, Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: 9, GasUsed: 21_000, CumulativeGasUsed: 21_000}},
 	}))
-	backend := &testBackend{block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := &testBackend{block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return nil, errBlockDown
 	}}
 	api := newDebugAPI(backend, store, gigaconfig.RPCConfig{})

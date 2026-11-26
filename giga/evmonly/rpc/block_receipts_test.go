@@ -18,7 +18,6 @@ import (
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -49,14 +48,10 @@ func receiptTxHashes(receipts []map[string]any) []common.Hash {
 func TestGetBlockReceipts(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	twoTxBlock, tx1, tx2, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
-	emptyBlock := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-		Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
-	}
-	unindexedBlock := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-		Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 10, Time: time.Unix(1_700_000_000, 0)}},
-	}
+	emptyBlock := &abevm.EvmBlock{Hash: blockHash, Height: 4, Time: time.Unix(1_700_000_000, 0)}
+
+	unindexedBlock := &abevm.EvmBlock{Hash: blockHash, Height: 10, Time: time.Unix(1_700_000_000, 0)}
+
 	backendErr := errors.New("block store unavailable")
 	byNumber := ethrpc.BlockNumberOrHashWithNumber
 	byHash := ethrpc.BlockNumberOrHashWithHash(blockHash, false)
@@ -72,7 +67,7 @@ func TestGetBlockReceipts(t *testing.T) {
 		head       uint64
 		floors     []int64
 		wantHeight *coretypes.Int64
-		block      *coretypes.ResultBlock
+		block      *abevm.EvmBlock
 		blockErr   error
 		want       []common.Hash
 		wantErr    error
@@ -94,8 +89,7 @@ func TestGetBlockReceipts(t *testing.T) {
 		{name: "earliest", arg: byNumber(ethrpc.EarliestBlockNumber), floors: []int64{9}, wantHeight: heightOf(9), block: twoTxBlock, want: both},
 		{name: "0x0", arg: byNumber(0), floors: []int64{9}, wantHeight: heightOf(9), block: twoTxBlock, want: both},
 		{name: "nil block", arg: byNumber(9), wantHeight: heightOf(9)},
-		{name: "unknown hash, empty result", arg: byHash, block: &coretypes.ResultBlock{}},
-		{name: "unknown hash, nil result", arg: byHash},
+		{name: "unknown hash", arg: byHash},
 		// A pruned height or receipts, a missing block selector, and any other backend failure are errors.
 		{name: "pruned height", arg: byNumber(1), wantHeight: heightOf(1), blockErr: abevm.ErrPruned, wantErr: abevm.ErrPruned},
 		{name: "pruned receipts", arg: byNumber(9), floors: []int64{10}, wantHeight: heightOf(9), block: twoTxBlock, wantErr: errBlockReceiptsPruned},
@@ -109,11 +103,11 @@ func TestGetBlockReceipts(t *testing.T) {
 				head = 9
 			}
 			backend := &testBackend{
-				block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 					require.Equal(t, tc.wantHeight, req.Height)
 					return tc.block, tc.blockErr
 				},
-				blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+				blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 					require.Equal(t, blockHash.Bytes(), []byte(req.Hash))
 					return tc.block, tc.blockErr
 				},
@@ -155,12 +149,11 @@ func TestGetBlockReceiptsMatchesGetTransactionReceipt(t *testing.T) {
 		}}
 	}
 	blockHash := common.HexToHash("0x9")
-	block := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-		Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
-			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw1, raw2}},
-		},
+	block := &abevm.EvmBlock{
+		Hash:   blockHash,
+		Height: 9,
+		Time:   time.Unix(1_700_000_000, 0),
+		Txs:    []abevm.RawTx{raw1, raw2},
 	}
 
 	for _, tc := range []struct {
@@ -192,7 +185,7 @@ func TestGetBlockReceiptsMatchesGetTransactionReceipt(t *testing.T) {
 			memory := evmonly.NewMemoryReceiptStore()
 			require.NoError(t, memory.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), tc.records))
 			backend := &testBackend{
-				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 					return block, nil
 				},
 				blockNumber: func() uint64 { return 9 },
@@ -215,7 +208,7 @@ func TestGetBlockReceiptsMatchesGetTransactionReceipt(t *testing.T) {
 func TestGetBlockReceiptsSurfacesStoreErrors(t *testing.T) {
 	block, tx1, _, memory := multiTxBlock(t, 9, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			return block, nil
 		},
 		blockNumber: func() uint64 { return 9 },
@@ -258,12 +251,12 @@ func TestGetBlockReceiptsEndToEnd(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, tx1, tx2, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			return block, nil
 		},
-		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 			if common.BytesToHash(req.Hash) != blockHash {
-				return &coretypes.ResultBlock{}, nil
+				return nil, nil
 			}
 			return block, nil
 		},

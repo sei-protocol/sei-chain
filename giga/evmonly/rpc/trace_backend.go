@@ -111,7 +111,7 @@ func (b *traceBackend) BlockWithTraceMetadataByNumber(ctx context.Context, numbe
 	if err != nil {
 		return nil, nil, err
 	}
-	block, err := b.blocks.blockAt(ctx, height)
+	block, err := b.blocks.fetchBlock(ctx, utils.Some(height))
 	if err != nil || block == nil {
 		return nil, nil, err
 	}
@@ -242,7 +242,7 @@ func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, 
 // block context and state it executed against. Index 0 of an empty block returns no transaction
 // and the state the block started from.
 func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int) (*ethtypes.Transaction, vm.BlockContext, vm.SeiStateDB, tracers.StateReleaseFunc, error) {
-	stored, err := b.blocks.blockAt(ctx, block.Number().Int64())
+	stored, err := b.blocks.fetchBlock(ctx, utils.Some(block.Number().Int64()))
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
@@ -260,11 +260,7 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
-	txs := make([]abevm.RawTx, txIndex)
-	for i, tx := range stored.Txs[:txIndex] {
-		txs[i] = tx
-	}
-	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, txs)
+	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, stored.Txs[:txIndex])
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}

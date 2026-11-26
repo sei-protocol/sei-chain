@@ -205,7 +205,7 @@ func TestCallRunsAtTheFirstBlockOfALaterChain(t *testing.T) {
 			backend := pastBlocksBackend(5)
 			backend.initialHeight = 3
 			stored := backend.block
-			backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				if req.Height != nil && *req.Height < 3 {
 					return nil, abevm.ErrPruned
 				}
@@ -241,7 +241,7 @@ func TestCallRefusesAnUnresolvableBlock(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := pastBlocksBackend(5)
 			stored := backend.block
-			backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				if req.Height != nil && *req.Height == 1 {
 					return nil, pruned
 				}

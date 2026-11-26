@@ -88,7 +88,7 @@ func TestGigaBlocksUseExecutedTransactions(t *testing.T) {
 	found, err := env.BlockByNumber(t.Context(), utils.Some[int64](1))
 	require.NoError(t, err)
 	byNumber := found.OrPanic("finalized block")
-	require.Equal(t, [][]byte{raw[2], raw[1]}, byNumber.Txs)
+	require.Equal(t, []abevm.RawTx{raw[2], raw[1]}, byNumber.Txs)
 	require.Equal(t, int64(1), app.gotHeight)
 	require.Equal(t, common.Hash(qc.Header().Hash()), byNumber.Hash)
 	require.Equal(t, qc.Header().Timestamp(), byNumber.Time)

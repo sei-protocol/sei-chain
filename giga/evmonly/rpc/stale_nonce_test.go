@@ -16,8 +16,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -42,14 +42,17 @@ func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
 		},
 	}}))
 	blockHash := common.HexToHash("0x9")
-	block := &coretypes.ResultBlock{BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()}, Block: &tmtypes.Block{
-		Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
-		Data:   tmtypes.Data{Txs: make(tmtypes.Txs, index+1)},
-	}}
-	for i := range block.Block.Txs {
-		block.Block.Txs[i] = raw
+	block := &abevm.EvmBlock{
+		Hash:   blockHash,
+		Height: 9,
+		Time:   time.Unix(1_700_000_000, 0),
+		Txs:    make([]abevm.RawTx, index+1),
 	}
-	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+
+	for i := range block.Txs {
+		block.Txs[i] = raw
+	}
+	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return block, nil
 	})
 	backend.minGasPrice = func() *big.Int { return big.NewInt(1_000_000_000) }
@@ -109,11 +112,14 @@ func TestFeeHistoryRecomputeSkipsReceiptsKeptFromOtherBlocks(t *testing.T) {
 			return nil, receiptdb.ErrRangeQueryNotSupported
 		},
 	}
-	block := &coretypes.ResultBlock{BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xa").Bytes()}, Block: &tmtypes.Block{
-		Header: tmtypes.Header{Height: 10, Time: time.Unix(1_700_000_000, 0)},
-		Data:   tmtypes.Data{Txs: tmtypes.Txs{raw, raw}},
-	}}
-	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	block := &abevm.EvmBlock{
+		Hash:   common.HexToHash("0xa"),
+		Height: 10,
+		Time:   time.Unix(1_700_000_000, 0),
+		Txs:    []abevm.RawTx{raw, raw},
+	}
+
+	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return block, nil
 	})
 	backend.minGasPrice = func() *big.Int { return big.NewInt(1) }

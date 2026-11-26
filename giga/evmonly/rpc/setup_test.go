@@ -35,8 +35,8 @@ var noRPCLimits = gigaconfig.RPCConfig{
 type testBackend struct {
 	balance          func(common.Address) uint256.Int
 	baseFee          func() *big.Int
-	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
-	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
+	block            func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error)
+	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error)
 	blockNumber      func() uint64
 	insertTx         func(context.Context, abevm.RawTx) (common.Hash, error)
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
@@ -108,25 +108,7 @@ func (b *testBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.
 	return optionalTestBlock(result, err)
 }
 
-func nativeTestBlock(result *coretypes.ResultBlock, err error) (*abevm.EvmBlock, error) {
-	if result == nil || result.Block == nil {
-		return nil, err
-	}
-	txs := make([][]byte, len(result.Block.Txs))
-	for i, tx := range result.Block.Txs {
-		txs[i] = tx
-	}
-	return &abevm.EvmBlock{
-		Hash:    common.BytesToHash(result.BlockID.Hash),
-		Height:  utils.Clamp[atypes.RoadHeight](result.Block.Height),
-		Time:    result.Block.Time,
-		Txs:     txs,
-		ChainID: result.Block.ChainID,
-	}, err
-}
-
-func optionalTestBlock(result *coretypes.ResultBlock, err error) (utils.Option[*abevm.EvmBlock], error) {
-	block, err := nativeTestBlock(result, err)
+func optionalTestBlock(block *abevm.EvmBlock, err error) (utils.Option[*abevm.EvmBlock], error) {
 	if err != nil || block == nil {
 		return utils.None[*abevm.EvmBlock](), err
 	}

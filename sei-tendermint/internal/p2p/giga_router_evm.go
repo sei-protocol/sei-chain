@@ -65,13 +65,13 @@ func (r *GigaRouterCommon) evmBlock(block *atypes.RoadBlock) (utils.Option[*abev
 	if !ok {
 		return utils.None[*abevm.EvmBlock](), nil
 	}
-	byHash := make(map[common.Hash][]byte, len(hashes))
+	byHash := make(map[common.Hash]abevm.RawTx, len(hashes))
 	for _, lane := range block.LaneBlocks() {
 		for _, raw := range lane.Payload().Txs() {
 			byHash[abevm.RawTx(raw).Hash()] = raw
 		}
 	}
-	txs := make([][]byte, len(hashes))
+	txs := make([]abevm.RawTx, len(hashes))
 	for i, hash := range hashes {
 		raw, ok := byHash[hash]
 		if !ok {

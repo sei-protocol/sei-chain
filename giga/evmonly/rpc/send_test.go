@@ -26,10 +26,10 @@ import (
 func TestSendRawTransaction(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	returnedHash := common.HexToHash("0x1234")
-	var broadcastRaw []byte
+	var broadcastRaw abevm.RawTx
 	backend := &testBackend{
 		insertTx: func(_ context.Context, req abevm.RawTx) (common.Hash, error) {
-			broadcastRaw = append([]byte(nil), req...)
+			broadcastRaw = append(abevm.RawTx(nil), req...)
 			return returnedHash, nil
 		},
 	}
@@ -61,7 +61,7 @@ func TestReturnsCheckTxRejection(t *testing.T) {
 			return common.Hash{}, errors.New("bad nonce")
 		},
 	}
-	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
+	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), hexutil.Bytes(raw))
 	require.EqualError(t, err, "bad nonce")
 }
 
@@ -114,19 +114,19 @@ func TestSendRawTransactionBroadcastError(t *testing.T) {
 	}
 
 	// Test: InsertTx fails.
-	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
+	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), hexutil.Bytes(raw))
 
 	// Verify: that error is returned as-is.
 	require.ErrorIs(t, err, want)
 }
 
-func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
+func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, abevm.RawTx) {
 	t.Helper()
 	return testSignedTransactionWithNonce(t, 0)
 }
 
 // testSignedTransactionWithNonce varies the nonce so callers can get several distinct hashes.
-func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Transaction, []byte) {
+func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Transaction, abevm.RawTx) {
 	t.Helper()
 	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)
@@ -225,7 +225,7 @@ func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
 			callCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			s.Spawn(func() error {
-				_, callErr = api.SendRawTransaction(callCtx, raw)
+				_, callErr = api.SendRawTransaction(callCtx, hexutil.Bytes(raw))
 				return nil
 			})
 			synctest.Wait()
@@ -235,7 +235,7 @@ func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
 		require.ErrorIs(t, callErr, context.Canceled)
 		block = false
 		for range 2 {
-			_, err = api.SendRawTransaction(t.Context(), raw)
+			_, err = api.SendRawTransaction(t.Context(), hexutil.Bytes(raw))
 			require.ErrorIs(t, err, want)
 		}
 	})
@@ -266,7 +266,7 @@ func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {
 	require.NoError(t, err)
 	defer wsClient.Close()
 	for _, client := range []*ethrpc.Client{httpClient, wsClient} {
-		for _, input := range []hexutil.Bytes{raw, {1}} {
+		for _, input := range []hexutil.Bytes{hexutil.Bytes(raw), {1}} {
 			var hash common.Hash
 			err := client.CallContext(t.Context(), &hash, "eth_sendRawTransaction", input)
 			var rpcErr ethrpc.Error

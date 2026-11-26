@@ -16,8 +16,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -143,8 +143,8 @@ func (s uncachedMedianBlockStatsStore) GetBlockStats(sdk.Context, uint64) (recei
 // with no recorded BlockStats actually has (its receipts, if any, are just as retrievable).
 func emptyBlockBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	backend := testInfoBackend(gasLimit, minGasPrice)
-	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{Block: &tmtypes.Block{}}, nil
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{}, nil
 	}
 	return backend
 }
@@ -465,15 +465,14 @@ func TestFeeHistoryRecomputesATrailingUnstatedHeight(t *testing.T) {
 	require.Equal(t, []float64{0.01, 0.02, 0, 0}, result.GasUsedRatio)
 }
 
-// TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone verifies a nil block or block.Block
-// during recompute returns an error, not a panic.
+// TestFeeHistoryErrorsWhenTheBlockIsAboveLatest verifies recomputation reports a missing block.
 func TestFeeHistoryErrorsWhenTheBlockIsAboveLatest(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	setBlockReceipt(t, store, 2, 20, 100) // pushes LatestVersion to 2; block 1 has no BlockStats
 
 	backend := testInfoBackend(1000, 1)
-	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{Block: nil}, nil
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return nil, nil
 	}
 	api := &infoAPI{backend: backend, store: stubIteratingReceiptStore{
 		ReceiptStore: store,
@@ -555,8 +554,8 @@ func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {
 		Reward:  big.NewInt(999),
 	}}))
 	backend := testInfoBackend(1000, 1_000_000_000)
-	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{Block: &tmtypes.Block{Data: tmtypes.Data{Txs: tmtypes.Txs{tmtypes.Tx(raw)}}}}, nil
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{Txs: []abevm.RawTx{raw}}, nil
 	}
 	api := &infoAPI{backend: backend, store: store}
 
@@ -578,8 +577,8 @@ func TestFeeHistoryRecomputesWholeRowWhenOnePercentileIsUncached(t *testing.T) {
 		{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{TxHashHex: tx2.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 300}, Reward: big.NewInt(300)},
 	}))
 	backend := testInfoBackend(1000, 1_000_000_000)
-	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{Block: &tmtypes.Block{Data: tmtypes.Data{Txs: tmtypes.Txs{tmtypes.Tx(raw1), tmtypes.Tx(raw2)}}}}, nil
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{Txs: []abevm.RawTx{raw1, raw2}}, nil
 	}
 	api := &infoAPI{backend: backend, store: store}
 

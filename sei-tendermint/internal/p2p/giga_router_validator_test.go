@@ -250,7 +250,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
 			rb := found.OrPanic("retained block")
-			if err := utils.TestDiff(gb.Txs(), rb.Txs); err != nil {
+			txs := make([]abevm.RawTx, len(gb.Txs()))
+			for i, raw := range gb.Txs() {
+				txs[i] = raw
+			}
+			if err := utils.TestDiff(txs, rb.Txs); err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v).Txs differs from data.RoadBlock(%v).Txs: %w", h, h, err)
 			}
 		}

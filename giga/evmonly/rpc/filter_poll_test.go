@@ -20,6 +20,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -37,7 +38,7 @@ func newPollFixture(t *testing.T) *pollFixture {
 	fx.head.Store(9)
 	backend := filterFixtureBackend(t, 0)
 	backend.blockNumber = fx.head.Load
-	backend.blockByHash = func(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+	backend.blockByHash = func(ctx context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 		return filterFixtureBackend(t, fx.head.Load()).blockByHash(ctx, req)
 	}
 	fx.api = &filterAPI{
@@ -328,7 +329,7 @@ func TestGetFilterChangesKeepsBlockHashesAfterAFailedLookup(t *testing.T) {
 	backend := fx.api.backend.(*testBackend)
 	serve := backend.block
 	failAt := uint64(11)
-	backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		if uint64(*req.Height) == failAt {
 			return nil, errors.New("block store unavailable")
 		}
@@ -354,7 +355,7 @@ func TestGetFilterChangesWaitsForAFutureBlock(t *testing.T) {
 	backend := fx.api.backend.(*testBackend)
 	serve := backend.block
 	futureHeight := int64(11)
-	backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		if int64(*req.Height) == futureHeight {
 			return nil, nil
 		}

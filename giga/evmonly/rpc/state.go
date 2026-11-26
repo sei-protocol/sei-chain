@@ -120,13 +120,17 @@ func stateHeight(ctx context.Context, backend Backend, store receiptdb.ReceiptSt
 func blockHeightByHash(ctx context.Context, backend Backend, hash common.Hash) (int64, error) {
 	block, err := backend.BlockByHash(ctx, hash)
 	if err != nil {
-		return 0, err
+		return 0, translateBlockError(err, utils.None[int64]())
 	}
 	value, ok := block.Get()
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", errBlockNotFound, hash)
 	}
-	return utils.Clamp[int64](value.Height), nil
+	height, ok := utils.SafeCast[int64](value.Height)
+	if !ok {
+		return 0, fmt.Errorf("block height %d exceeds int64 range", value.Height)
+	}
+	return height, nil
 }
 
 // GetStorageAt returns the 32-byte value at hexKey in address's storage in the

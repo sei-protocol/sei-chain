@@ -22,6 +22,38 @@ import (
 
 var errZeroOrNegativeHeight = errors.New("height must be greater than zero")
 
+type prunedBlockError struct {
+	error
+	height int64
+	base   utils.Option[int64]
+}
+
+func (e *prunedBlockError) Error() string {
+	if base, ok := e.base.Get(); ok {
+		return fmt.Sprintf("height is not available (requested height: %d, base height: %d)", e.height, base)
+	}
+	return fmt.Sprintf("height is not available (requested height: %d)", e.height)
+}
+
+func (e *prunedBlockError) Unwrap() error { return e.error }
+
+// translateBlockError returns the RPC error for a backend block lookup failure.
+func translateBlockError(err error, height utils.Option[int64]) error {
+	if !errors.Is(err, abevm.ErrPruned) {
+		return err
+	}
+	base := utils.None[int64]()
+	var pruned *abevm.PrunedError
+	if errors.As(err, &pruned) {
+		height = utils.Some(pruned.Height)
+		base = pruned.Base
+	}
+	if h, ok := height.Get(); ok {
+		return &prunedBlockError{error: err, height: h, base: base}
+	}
+	return err
+}
+
 type blockAPI struct {
 	backend Backend
 	store   receiptdb.ReceiptStore
@@ -117,7 +149,15 @@ func transactionCount(block *abevm.EvmBlock) *hexutil.Uint {
 // resolveBlockByHash returns the block with the given hash, or a nil block if
 // hash is unknown.
 func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*abevm.EvmBlock, error) {
-	return loadBackendBlockByHash(ctx, api.backend, hash)
+	found, err := api.backend.BlockByHash(ctx, hash)
+	if err != nil {
+		return nil, translateBlockError(err, utils.None[int64]())
+	}
+	block, ok := found.Get()
+	if !ok {
+		return nil, nil
+	}
+	return block, nil
 }
 
 // resolveBlockByNumber returns the block number names, with earliest and 0x0 naming the earliest
@@ -131,26 +171,20 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	switch kind {
 	case headBlock:
 		if head, ok := pinnedHead(ctx).Get(); ok {
-			return api.blockAt(ctx, head)
+			return api.fetchBlock(ctx, utils.Some(head))
 		}
 		return api.fetchBlock(ctx, utils.None[int64]())
 	case earliestBlock:
-		return api.blockAt(ctx, earliestRetainedHeight(api.backend, api.store))
+		return api.fetchBlock(ctx, utils.Some(earliestRetainedHeight(api.backend, api.store)))
 	}
-	return api.blockAt(ctx, number.Int64())
-}
-
-// blockAt returns the block at a positive height, or nil for a future height.
-// Non-positive heights are invalid parameters; pruned heights return abevm.ErrPruned.
-func (api *blockAPI) blockAt(ctx context.Context, height int64) (*abevm.EvmBlock, error) {
-	return api.fetchBlock(ctx, utils.Some(height))
+	return api.fetchBlock(ctx, utils.Some(number.Int64()))
 }
 
 // fetchBlock returns the block at height, or the latest committed block when height is omitted.
 // It returns nil for an unknown height.
 func (api *blockAPI) fetchBlock(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
 	block, err := loadBackendBlock(ctx, api.backend, height)
-	if errors.Is(err, errBlockAboveHead) {
+	if errors.Is(err, errBlockAboveHead) || errors.Is(err, errZeroOrNegativeHeight) {
 		return nil, nil
 	}
 	if err != nil {
@@ -165,7 +199,7 @@ func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*etht
 	if height == 0 {
 		return preChainBlock(0).Header(), nil
 	}
-	block, err := api.blockAt(ctx, height)
+	block, err := api.fetchBlock(ctx, utils.Some(height))
 	if err != nil {
 		return nil, err
 	}
@@ -177,11 +211,15 @@ func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*etht
 
 // executionHeader returns block's header with the fields its execution context reads.
 func (api *blockAPI) executionHeader(ctx context.Context, block *abevm.EvmBlock) (*ethtypes.Header, error) {
+	height, ok := utils.SafeCast[int64](block.Height)
+	if !ok {
+		return nil, fmt.Errorf("block height %d exceeds int64 range", block.Height)
+	}
 	blockUnix, ok := utils.SafeCast[uint64](block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Height, block.Time)
 	}
-	parentHash, err := api.parentHash(ctx, utils.Clamp[int64](block.Height))
+	parentHash, err := api.parentHash(ctx, height)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +227,7 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *abevm.EvmBlock)
 	baseFee := api.backend.EvmBaseFee()
 	return &ethtypes.Header{
 		ParentHash: parentHash,
-		Number:     big.NewInt(utils.Clamp[int64](block.Height)),
+		Number:     new(big.Int).SetUint64(uint64(block.Height)),
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
@@ -204,7 +242,7 @@ func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash,
 	if height <= firstBlockHeight(api.backend) {
 		return common.Hash{}, nil
 	}
-	parent, err := api.blockAt(ctx, height-1)
+	parent, err := api.fetchBlock(ctx, utils.Some(height-1))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
 	}
@@ -219,7 +257,10 @@ func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash,
 // their zero value; unlike evmrpc's v2 encoder, mixHash does not report PREVRANDAO.
 // logsBloom is always zero; receipt blooms are not aggregated here.
 func (api *blockAPI) encodeBlock(ctx context.Context, block *abevm.EvmBlock, fullTx bool) (map[string]any, error) {
-	number := utils.Clamp[int64](block.Height)
+	number, ok := utils.SafeCast[int64](block.Height)
+	if !ok {
+		return nil, fmt.Errorf("block height %d exceeds int64 range", block.Height)
+	}
 	blockUnix, ok := utils.SafeCast[uint64](block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Time)
@@ -228,10 +269,6 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *abevm.EvmBlock, ful
 	baseFee := api.backend.EvmBaseFee()
 
 	txs := block.Txs
-	var size uint64
-	for _, raw := range txs {
-		size += uint64(len(raw)) //nolint:gosec // G115: transaction lengths are non-negative.
-	}
 	transactions := make([]any, len(txs))
 	if fullTx {
 		chainConfig := api.backend.EvmChainConfig()
@@ -259,6 +296,10 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *abevm.EvmBlock, ful
 	}
 
 	result := headerFields(block, blockUnix, gasLimit, baseFee, gasUsed)
+	var size uint64
+	for _, raw := range txs {
+		size += uint64(len(raw)) //nolint:gosec // G115: transaction lengths are non-negative.
+	}
 	result["size"] = hexutil.Uint64(size)
 	result["uncles"] = []common.Hash{} // inapplicable to Sei
 	result["transactions"] = transactions
@@ -272,7 +313,10 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *abevm.EvmBlock, ful
 // eth_getBlockBy* transaction entry, taking its sender from the stored receipt
 // when the signature does not resolve one.
 func (api *blockAPI) rpcTransaction(ctx context.Context, block *abevm.EvmBlock, index int, blockUnix uint64, baseFee *big.Int, chainConfig *params.ChainConfig) (*export.RPCTransaction, error) {
-	number := utils.Clamp[int64](block.Height)
+	number, ok := utils.SafeCast[int64](block.Height)
+	if !ok {
+		return nil, fmt.Errorf("block height %d exceeds int64 range", block.Height)
+	}
 	ethtx, err := decodeBlockTx(block.Txs[index], number, index)
 	if err != nil {
 		return nil, err
@@ -304,7 +348,7 @@ func encodeHeader(backend Backend, block *abevm.EvmBlock, gasUsed uint64) (map[s
 // headerFields returns the Ethereum JSON header fields of block.
 func headerFields(block *abevm.EvmBlock, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
 	return map[string]any{
-		"number":           (*hexutil.Big)(big.NewInt(utils.Clamp[int64](block.Height))),
+		"number":           (*hexutil.Big)(new(big.Int).SetUint64(uint64(block.Height))),
 		"hash":             block.Hash,
 		"parentHash":       common.Hash{},
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
@@ -343,7 +387,10 @@ func receiptFor(ctx context.Context, store receiptdb.ReceiptStore, hash common.H
 func blockGasUsed(ctx context.Context, store receiptdb.ReceiptStore, block *abevm.EvmBlock) (uint64, error) {
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
-	height := utils.Clamp[int64](block.Height)
+	height, ok := utils.SafeCast[int64](block.Height)
+	if !ok {
+		return 0, fmt.Errorf("block height %d exceeds int64 range", block.Height)
+	}
 	if store == nil || height > store.LatestVersion() || height < store.EarliestVersion() {
 		return 0, nil
 	}
@@ -365,16 +412,6 @@ func blockGasUsed(ctx context.Context, store receiptdb.ReceiptStore, block *abev
 	return receiptmetrics.ComputeBlockStats(records, nil).TotalGasUsed, nil
 }
 
-// loadBackendBlockByHash returns the backend's EVM block, or nil when hash is unknown.
-func loadBackendBlockByHash(ctx context.Context, backend Backend, hash common.Hash) (*abevm.EvmBlock, error) {
-	block, err := backend.BlockByHash(ctx, hash)
-	if err != nil {
-		return nil, err
-	}
-	value, _ := block.Get()
-	return value, nil
-}
-
 // loadBackendBlock returns a block or an error identifying an invalid, future, or pruned height.
 func loadBackendBlock(ctx context.Context, backend Backend, height utils.Option[int64]) (*abevm.EvmBlock, error) {
 	if h, ok := height.Get(); ok && h <= 0 {
@@ -382,7 +419,10 @@ func loadBackendBlock(ctx context.Context, backend Backend, height utils.Option[
 	}
 	found, err := backend.BlockByNumber(ctx, height)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, abevm.ErrPruned) && !height.IsPresent() {
+			height = utils.Some(backend.EvmBlockNumber())
+		}
+		return nil, translateBlockError(err, height)
 	}
 	block, ok := found.Get()
 	if !ok {

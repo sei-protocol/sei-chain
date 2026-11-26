@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -31,7 +32,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	block, _, _, _ := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
 	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 6}))
 	subscribed := make(chan struct{}, 1)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
 	})
@@ -76,7 +77,7 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 	block8, _, _, _ := multiTxBlock(t, 8, common.HexToHash("0xabce"), time.Unix(1_700_000_001, 0))
 	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 6}))
 	subscribed := make(chan struct{}, 1)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		switch *req.Height {
 		case 7:
 			return block7, nil

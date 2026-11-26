@@ -354,7 +354,7 @@ func (a *evmOnlyApplication) BlockTxsHashes(height int64) (result utils.Option[[
 		return utils.None[[]common.Hash](), receiptdb.ErrNotConfigured
 	}
 	if earliest := store.EarliestVersion(); height < earliest {
-		return utils.None[[]common.Hash](), abevm.ErrPruned
+		return utils.None[[]common.Hash](), &abevm.PrunedError{Height: height, Base: utils.Some(earliest)}
 	}
 	if height > a.EvmBlockNumber() {
 		return utils.None[[]common.Hash](), nil

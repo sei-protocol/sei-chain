@@ -24,9 +24,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/parity"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -308,7 +307,7 @@ func rawParams(t *testing.T, params ...any) []json.RawMessage {
 type traceReplayBackend struct {
 	*replayBackend
 	contexts map[uint64]evmonly.BlockContext
-	parent   *coretypes.ResultBlock
+	parent   *abevm.EvmBlock
 }
 
 // replayForTrace executes an empty block and then fixture's blocks from its prestate, as an EVM-only
@@ -340,15 +339,13 @@ func replayForTrace(t *testing.T, fixture *parity.Fixture) *traceReplayBackend {
 			executor:    executor,
 			store:       store,
 			receipts:    receipts,
-			byHash:      map[common.Hash]*coretypes.ResultBlock{},
+			byHash:      map[common.Hash]*abevm.EvmBlock{},
 		},
 		contexts: map[uint64]evmonly.BlockContext{parentCtx.Number: parentCtx},
-		parent: &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: first.Header.ParentHash.Bytes()},
-			Block: &tmtypes.Block{Header: tmtypes.Header{
-				Height: int64(parentCtx.Number),                   //nolint:gosec // fixture heights fit int64.
-				Time:   first.Header.Time.Add(-time.Second).UTC(), // one second before the first block, as parentCtx
-			}},
+		parent: &abevm.EvmBlock{
+			Hash:   first.Header.ParentHash,
+			Height: atypes.RoadHeight(parentCtx.Number),
+			Time:   first.Header.Time.Add(-time.Second).UTC(), // one second before the first block, as parentCtx
 		},
 	}
 	execute := func(blockCtx evmonly.BlockContext, txs []abevm.RawTx) {
@@ -359,8 +356,8 @@ func replayForTrace(t *testing.T, fixture *parity.Fixture) *traceReplayBackend {
 	execute(parentCtx, nil)
 	for _, block := range fixture.Blocks {
 		blockCtx := evmOnlyReplayContext(chainID, block)
-		execute(blockCtx, rawTxs(block))
-		resultBlock := consensusBlock(block)
+		resultBlock := fixtureBlock(block)
+		execute(blockCtx, resultBlock.Txs)
 		backend.blocks = append(backend.blocks, resultBlock)
 		backend.byHash[block.Header.Hash] = resultBlock
 		backend.contexts[blockCtx.Number] = blockCtx
@@ -393,7 +390,7 @@ func (b *traceReplayBackend) client(t *testing.T) *ethrpc.Client {
 }
 
 func (b *traceReplayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error) {
-	if h, ok := height.Get(); ok && h == b.parent.Block.Height {
+	if h, ok := height.Get(); ok && h == int64(b.parent.Height) {
 		return optionalTestBlock(b.parent, nil)
 	}
 	return b.replayBackend.BlockByNumber(ctx, height)

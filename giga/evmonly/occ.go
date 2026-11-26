@@ -299,7 +299,7 @@ func (e *Executor) executeTxSpeculative(
 		baseFee,
 	)
 	readSet, writeSet := stateDB.takeAccessSets()
-	gasLimit := p.Transaction().Gas()
+	gasLimit := p.Gas()
 	if txResult.Rejected {
 		// A rejected transaction occupies no block gas, so validation must not charge its declared limit.
 		gasLimit = 0
@@ -314,7 +314,7 @@ func (e *Executor) executeTxSpeculative(
 		commutativeBalanceDeltas: stateDB.commutativeBalanceDeltasBig(),
 	}
 	if err != nil {
-		return result, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Transaction().Hash(), err)
+		return result, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Hash(), err)
 	}
 	stateDB.ChangeSetInto(&result.changeSet)
 	return result, nil

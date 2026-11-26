@@ -13,8 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestWebsocketEndToEnd(t *testing.T) {
@@ -62,14 +63,14 @@ func TestWebsocketRejectsPlainHTTP(t *testing.T) {
 func TestHTTPBatchResolvesCurrentStateTagsToOneHead(t *testing.T) {
 	var head atomic.Int64
 	head.Store(10)
-	backend := fixedGasLimitBackend(t, 100_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 100_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		height := head.Load()
 		if req.Height != nil {
 			height = int64(*req.Height)
 		}
 		// A block commits after every read, so each batch call sees a newer head.
 		head.Add(1)
-		return &coretypes.ResultBlock{Block: &tmtypes.Block{Header: tmtypes.Header{Height: height, Time: time.Unix(1_700_000_000, 0)}}}, nil
+		return &abevm.EvmBlock{Height: atypes.RoadHeight(height), Time: time.Unix(1_700_000_000, 0)}, nil
 	})
 	backend.blockNumber = func() uint64 { return uint64(head.Load()) } //nolint:gosec // G115: the test head is positive.
 	store := evmonly.NewMemoryReceiptStore()

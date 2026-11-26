@@ -74,7 +74,7 @@ func TestGetBalanceReadsNumberedBlocksFromHistory(t *testing.T) {
 // executed yet, each hashed by traceBlockHash.
 func pastBlocksBackend(head int64) *testBackend {
 	return &testBackend{
-		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			height := head
 			if req.Height != nil {
 				height = int64(*req.Height)
@@ -87,7 +87,7 @@ func pastBlocksBackend(head int64) *testBackend {
 			}
 			return traceResultBlock(height, nil), nil
 		},
-		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 			for height := int64(1); height <= head+1; height++ {
 				if traceBlockHash(height) == common.BytesToHash(req.Hash) {
 					return traceResultBlock(height, nil), nil
@@ -145,7 +145,7 @@ func TestStateHeight(t *testing.T) {
 			require.NoError(t, store.SetLatestVersion(5))
 			require.NoError(t, store.PruneHistory(tc.pruneTo))
 			if tc.byHashErr != nil {
-				backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+				backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 					return nil, tc.byHashErr
 				}
 			}

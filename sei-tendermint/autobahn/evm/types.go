@@ -11,6 +11,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // RawTx is an encoded Ethereum transaction.
@@ -27,6 +28,18 @@ var ErrPendingNonceUnavailable = errors.New("pending nonce unavailable: no local
 
 // ErrPruned indicates that requested data is outside retained history.
 var ErrPruned = types.ErrPruned
+
+// PrunedError identifies a pruned block height and its retention floor when known.
+type PrunedError struct {
+	Height int64
+	Base   utils.Option[int64]
+}
+
+// Error returns the pruning sentinel's message.
+func (e *PrunedError) Error() string { return ErrPruned.Error() }
+
+// Unwrap returns ErrPruned.
+func (e *PrunedError) Unwrap() error { return ErrPruned }
 
 // ResponseInfo describes the application's committed state.
 type ResponseInfo struct {
@@ -100,7 +113,7 @@ type EvmBlock struct {
 	Hash    common.Hash
 	Height  types.RoadHeight
 	Time    time.Time
-	Txs     [][]byte
+	Txs     []RawTx
 	ChainID string
 }
 

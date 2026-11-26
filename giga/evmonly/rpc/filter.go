@@ -102,11 +102,12 @@ func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria
 // range within the heights the receipt store has indexed.
 func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCriteria) (uint64, uint64, error) {
 	if crit.BlockHash != nil {
-		block, err := loadBackendBlockByHash(ctx, api.backend, *crit.BlockHash)
+		found, err := api.backend.BlockByHash(ctx, *crit.BlockHash)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, translateBlockError(err, utils.None[int64]())
 		}
-		if block == nil {
+		block, ok := found.Get()
+		if !ok {
 			return 0, 0, errUnknownBlock
 		}
 		height := uint64(block.Height)

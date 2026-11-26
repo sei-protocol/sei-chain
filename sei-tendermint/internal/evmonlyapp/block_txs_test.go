@@ -1,6 +1,7 @@
 package evmonlyapp
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -53,6 +54,10 @@ func TestBlockTxsHashes(t *testing.T) {
 	require.NoError(t, store.PruneHistory(3))
 	_, err = proxy.BlockTxsHashes(2)
 	require.ErrorIs(t, err, abevm.ErrPruned)
+	var pruned *abevm.PrunedError
+	require.True(t, errors.As(err, &pruned))
+	require.Equal(t, int64(2), pruned.Height)
+	require.Equal(t, utils.Some[int64](3), pruned.Base)
 }
 
 func TestFinalizeBlockPreservesOrderedTransactions(t *testing.T) {
@@ -173,7 +178,7 @@ func TestGigaBlocksReconstructReorderedAndFilteredTransactions(t *testing.T) {
 			found, err := router.Common().BlockByNumber(t.Context(), utils.Some(utils.Clamp[int64](header.Height())))
 			require.NoError(t, err)
 			byNumber := found.OrPanic("finalized block")
-			require.Equal(t, [][]byte{first, second}, byNumber.Txs)
+			require.Equal(t, []abevm.RawTx{first, second}, byNumber.Txs)
 			require.Equal(t, common.Hash(header.Hash()), byNumber.Hash)
 			byHash, err := router.Common().BlockByHash(t.Context(), byNumber.Hash)
 			require.NoError(t, err)

@@ -8,6 +8,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 var (
@@ -62,7 +63,7 @@ func (api *blockAPI) resolveReceiptsBlock(ctx context.Context, blockNrOrHash eth
 	}
 	if kind == headBlock {
 		_, latest := indexedRange(ctx, api.backend, api.store)
-		return api.blockAt(ctx, int64(latest)) //nolint:gosec // G115: an indexed height fits in int64.
+		return api.fetchBlock(ctx, utils.Some(int64(latest))) //nolint:gosec // G115: an indexed height fits in int64.
 	}
 	return api.resolveBlockByNumber(ctx, number)
 }

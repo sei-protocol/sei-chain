@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"math"
 	"math/big"
 	"net/http/httptest"
 	"testing"
@@ -22,16 +23,16 @@ import (
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // secondSignedTransaction returns a transaction distinct from
 // testSignedTransaction's: a different sender and a legacy tx with a
 // different nonce/recipient, so multi-tx block tests can tell the two apart.
-func secondSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
+func secondSignedTransaction(t *testing.T) (*ethtypes.Transaction, abevm.RawTx) {
 	t.Helper()
 	key, err := crypto.HexToECDSA("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func secondSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 
 // fixedGasLimitBackend returns a testBackend with a fixed EvmGasLimit and
 // EvmChainConfig, wired with block as its Block lookup.
-func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)) *testBackend {
+func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error)) *testBackend {
 	t.Helper()
 	return &testBackend{
 		block:       block,
@@ -68,12 +69,9 @@ func TestGetBlockByNumberCurrentStateTagsPassNilHeight(t *testing.T) {
 	for _, tag := range []ethrpc.BlockNumber{
 		ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber,
 	} {
-		backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			require.Nil(t, req.Height)
-			return &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-				Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 9, Time: blockTime}},
-			}, nil
+			return &abevm.EvmBlock{Hash: blockHash, Height: 9, Time: blockTime}, nil
 		})
 		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), tag, false)
 		require.NoError(t, err)
@@ -84,13 +82,10 @@ func TestGetBlockByNumberCurrentStateTagsPassNilHeight(t *testing.T) {
 
 func TestGetBlockByNumberAcceptsAnExplicitHistoricalHeight(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		require.NotNil(t, req.Height)
 		require.Equal(t, coretypes.Int64(3), *req.Height)
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 3, Time: time.Unix(1_700_000_000, 0)}},
-		}, nil
+		return &abevm.EvmBlock{Hash: blockHash, Height: 3, Time: time.Unix(1_700_000_000, 0)}, nil
 	})
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(3), false)
@@ -98,6 +93,33 @@ func TestGetBlockByNumberAcceptsAnExplicitHistoricalHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Equal(t, (*hexutil.Big)(big.NewInt(3)), got["number"])
+}
+
+func TestBlockHeightOverflow(t *testing.T) {
+	api := &blockAPI{backend: &testBackend{}}
+	block := &abevm.EvmBlock{
+		Height: math.MaxInt64 + 1,
+		Time:   time.Unix(1, 0),
+	}
+	wantErr := "block height 9223372036854775808 exceeds int64 range"
+	header, err := api.executionHeader(t.Context(), block)
+	require.Nil(t, header)
+	require.EqualError(t, err, wantErr)
+
+	encoded, err := api.encodeBlock(t.Context(), block, false)
+	require.Nil(t, encoded)
+	require.EqualError(t, err, wantErr)
+
+	tx, err := api.rpcTransaction(t.Context(), block, 0, 1, nil, nil)
+	require.Nil(t, tx)
+	require.EqualError(t, err, wantErr)
+
+	gasUsed, err := blockGasUsed(t.Context(), nil, block)
+	require.Zero(t, gasUsed)
+	require.EqualError(t, err, wantErr)
+
+	fields := headerFields(block, 1, 0, nil, 0)
+	require.Equal(t, (*hexutil.Big)(new(big.Int).SetUint64(math.MaxInt64+1)), fields["number"])
 }
 
 func TestLoadBackendBlockRejectsNonPositiveHeights(t *testing.T) {
@@ -112,7 +134,7 @@ func TestLoadBackendBlockRejectsNonPositiveHeights(t *testing.T) {
 }
 
 func TestGetBlockByNumberReturnsNullForAFutureHeight(t *testing.T) {
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return nil, nil
 	})
 
@@ -137,7 +159,7 @@ func TestGetBlockByNumberEarliestNamesTheEarliestRetainedBlock(t *testing.T) {
 		{name: "on a chain starting later", number: ethrpc.EarliestBlockNumber, initialHeight: 4, wantHeight: 4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				require.NotNil(t, req.Height)
 				require.Equal(t, tc.wantHeight, *req.Height)
 				return nil, nil
@@ -166,7 +188,7 @@ func TestGetBlockByNumberRejectsAnUnknownTag(t *testing.T) {
 }
 
 func TestGetBlockByNumberReturnsErrorForAPrunedHeight(t *testing.T) {
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return nil, abevm.ErrPruned
 	})
 
@@ -178,8 +200,8 @@ func TestGetBlockByNumberReturnsErrorForAPrunedHeight(t *testing.T) {
 
 func TestGetBlockByHashReturnsNullForUnknownHash(t *testing.T) {
 	backend := &testBackend{
-		blockByHash: func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-			return &coretypes.ResultBlock{}, nil
+		blockByHash: func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
+			return nil, nil
 		},
 	}
 
@@ -193,12 +215,9 @@ func TestGetBlockByHashReturnsTheMatchingBlock(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	var gotHash []byte
 	backend := fixedGasLimitBackend(t, 35_000_000, nil)
-	backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+	backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 		gotHash = req.Hash
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 5, Time: time.Unix(1_700_000_000, 0)}},
-		}, nil
+		return &abevm.EvmBlock{Hash: blockHash, Height: 5, Time: time.Unix(1_700_000_000, 0)}, nil
 	}
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByHash(t.Context(), blockHash, false)
@@ -212,11 +231,8 @@ func TestGetBlockByHashReturnsTheMatchingBlock(t *testing.T) {
 
 func TestEncodeBlockEmptyBlockHasZeroGasUsedAndNoTransactions(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
-		}, nil
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{Hash: blockHash, Height: 4, Time: time.Unix(1_700_000_000, 0)}, nil
 	})
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
@@ -227,10 +243,10 @@ func TestEncodeBlockEmptyBlockHasZeroGasUsedAndNoTransactions(t *testing.T) {
 	require.Equal(t, hexutil.Uint64(35_000_000), got["gasLimit"])
 }
 
-// multiTxBlock builds a two-transaction ResultBlock and the matching receipt
+// multiTxBlock builds a two-transaction EvmBlock and the matching receipt
 // store entries, returning the block, its two decoded transactions in order,
 // and the store.
-func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime time.Time) (*coretypes.ResultBlock, *ethtypes.Transaction, *ethtypes.Transaction, receiptdb.ReceiptStore) {
+func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime time.Time) (*abevm.EvmBlock, *ethtypes.Transaction, *ethtypes.Transaction, receiptdb.ReceiptStore) {
 	t.Helper()
 	tx1, raw1 := testSignedTransaction(t)
 	sender1, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx1)
@@ -265,13 +281,13 @@ func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime t
 		},
 	}))
 
-	block := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-		Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: height, Time: blockTime},
-			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw1, raw2}},
-		},
+	block := &abevm.EvmBlock{
+		Hash:   blockHash,
+		Height: atypes.RoadHeight(height),
+		Time:   blockTime,
+		Txs:    []abevm.RawTx{raw1, raw2},
 	}
+
 	return block, tx1, tx2, store
 }
 
@@ -279,7 +295,7 @@ func TestEncodeBlockHashOnlyListMatchesGetTransactionByHash(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	block, tx1, tx2, store := multiTxBlock(t, 9, blockHash, blockTime)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		require.NotNil(t, req.Height)
 		require.Equal(t, coretypes.Int64(9), *req.Height)
 		return block, nil
@@ -306,7 +322,7 @@ func TestEncodeBlockFullTxIncludesDecodedTransactionsInOrder(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	block, tx1, tx2, store := multiTxBlock(t, 9, blockHash, blockTime)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return block, nil
 	})
 
@@ -331,13 +347,12 @@ func TestEncodeBlockFullTxIncludesDecodedTransactionsInOrder(t *testing.T) {
 // TestEncodeBlockDocumentedHeaderGaps pins zero-valued header fields absent from EvmBlock.
 func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-			Block: &tmtypes.Block{
-				Header:     tmtypes.Header{ChainID: "evmonly-test", Height: 4, Time: time.Unix(1_700_000_000, 0)},
-				LastCommit: &tmtypes.Commit{},
-			},
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{
+			Hash:    blockHash,
+			Height:  4,
+			Time:    time.Unix(1_700_000_000, 0),
+			ChainID: "evmonly-test",
 		}, nil
 	})
 
@@ -356,10 +371,10 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	block, tx1, _, store := multiTxBlock(t, 9, blockHash, blockTime)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return block, nil
 	})
-	backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+	backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 		return block, nil
 	}
 	handler, err := newHandler(backend, store, noRPCLimits)
@@ -383,8 +398,8 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 	require.Equal(t, "0x9", byHash["number"])
 
 	var missing map[string]any
-	backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{}, nil
+	backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
+		return nil, nil
 	}
 	require.NoError(t, client.CallContext(t.Context(), &missing, "eth_getBlockByHash", common.Hash{9}, false))
 	require.Nil(t, missing)
@@ -392,7 +407,7 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 
 func TestGetBlockByNumberPropagatesUnexpectedBackendError(t *testing.T) {
 	want := errors.New("block store unavailable")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return nil, want
 	})
 
@@ -405,7 +420,7 @@ func TestGetBlockByNumberPropagatesUnexpectedBackendError(t *testing.T) {
 }
 
 func TestGetBlockByNumberReturnsNullForANilBlock(t *testing.T) {
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return nil, nil
 	})
 
@@ -420,7 +435,7 @@ func TestGetBlockByNumberReturnsNullForANilBlock(t *testing.T) {
 func TestGetBlockByHashPropagatesBackendError(t *testing.T) {
 	want := errors.New("hash index unavailable")
 	backend := &testBackend{
-		blockByHash: func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+		blockByHash: func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 			return nil, want
 		},
 	}
@@ -434,10 +449,8 @@ func TestGetBlockByHashPropagatesBackendError(t *testing.T) {
 }
 
 func TestEncodeBlockRejectsNegativeTime(t *testing.T) {
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			Block: &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(-1, 0)}},
-		}, nil
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{Height: 4, Time: time.Unix(-1, 0)}, nil
 	})
 
 	// Test: block timestamp cannot be a uint64.
@@ -449,13 +462,12 @@ func TestEncodeBlockRejectsNegativeTime(t *testing.T) {
 }
 
 func TestEncodeBlockRejectsUndecodableTransactions(t *testing.T) {
-	garbage := []byte("not-an-rlp-tx")
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: tmtypes.Txs{garbage}},
-			},
+	garbage := abevm.RawTx("not-an-rlp-tx")
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{
+			Height: 4,
+			Time:   time.Unix(1_700_000_000, 0),
+			Txs:    []abevm.RawTx{garbage},
 		}, nil
 	})
 	api := &blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}
@@ -490,13 +502,8 @@ func TestEncodeBlockReceiptReadError(t *testing.T) {
 			return nil, want
 		},
 	}
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-			},
-		}, nil
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{Height: 4, Time: time.Unix(1_700_000_000, 0), Txs: []abevm.RawTx{raw}}, nil
 	})
 	api := &blockAPI{backend: backend, store: store}
 
@@ -523,13 +530,8 @@ func TestEncodeBlockReceiptReadError(t *testing.T) {
 
 func TestEncodeBlockMissingReceiptLeavesGasUsedZero(t *testing.T) {
 	_, raw := testSignedTransaction(t)
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return &coretypes.ResultBlock{
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
-				Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-			},
-		}, nil
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
+		return &abevm.EvmBlock{Height: 4, Time: time.Unix(1_700_000_000, 0), Txs: []abevm.RawTx{raw}}, nil
 	})
 
 	// Test: the last tx has no stored receipt.
@@ -543,10 +545,12 @@ func TestEncodeBlockMissingReceiptLeavesGasUsedZero(t *testing.T) {
 
 func TestGetBlockTransactionCountByNumber(t *testing.T) {
 	twoTxBlock, _, _, _ := multiTxBlock(t, 9, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
-	emptyBlock := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-		Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
+	emptyBlock := &abevm.EvmBlock{
+		Hash:   common.HexToHash("0xabcd"),
+		Height: 4,
+		Time:   time.Unix(1_700_000_000, 0),
 	}
+
 	backendErr := errors.New("block store unavailable")
 	heightOf := func(h int64) *coretypes.Int64 {
 		height := coretypes.Int64(h)
@@ -561,7 +565,7 @@ func TestGetBlockTransactionCountByNumber(t *testing.T) {
 		name       string
 		number     ethrpc.BlockNumber
 		wantHeight *coretypes.Int64
-		block      *coretypes.ResultBlock
+		block      *abevm.EvmBlock
 		blockErr   error
 		want       *hexutil.Uint
 		wantErr    error
@@ -585,7 +589,7 @@ func TestGetBlockTransactionCountByNumber(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &testBackend{
-				block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 					require.Equal(t, tc.wantHeight, req.Height)
 					return tc.block, tc.blockErr
 				},
@@ -611,20 +615,19 @@ func TestGetBlockTransactionCountByHash(t *testing.T) {
 
 	for _, tc := range []struct {
 		name     string
-		block    *coretypes.ResultBlock
+		block    *abevm.EvmBlock
 		blockErr error
 		want     *hexutil.Uint
 		wantErr  error
 	}{
 		{name: "known hash", block: twoTxBlock, want: &two},
-		// An unknown hash answers null, whether the backend returns an empty or a nil result.
-		{name: "unknown hash, empty result", block: &coretypes.ResultBlock{}},
-		{name: "unknown hash, nil result"},
+		// An unknown hash answers null.
+		{name: "unknown hash"},
 		{name: "backend error", blockErr: backendErr, wantErr: backendErr},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &testBackend{
-				blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+				blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 					require.Equal(t, blockHash.Bytes(), []byte(req.Hash))
 					return tc.block, tc.blockErr
 				},
@@ -650,17 +653,16 @@ func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	twoTxBlock, _, _, twoTxStore := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
 	_, raw := testSignedTransaction(t)
-	noReceiptBlock := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-		Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
-			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-		},
+	noReceiptBlock := &abevm.EvmBlock{
+		Hash:   blockHash,
+		Height: 4,
+		Time:   time.Unix(1_700_000_000, 0),
+		Txs:    []abevm.RawTx{raw},
 	}
 
 	for _, tc := range []struct {
 		name  string
-		block *coretypes.ResultBlock
+		block *abevm.EvmBlock
 		store receiptdb.ReceiptStore
 		want  hexutil.Uint
 	}{
@@ -668,10 +670,10 @@ func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 		{name: "transaction without a receipt", block: noReceiptBlock, store: evmonly.NewMemoryReceiptStore(), want: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				return tc.block, nil
 			})
-			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 				return tc.block, nil
 			}
 			api := &blockAPI{backend: backend, store: tc.store}
@@ -696,12 +698,12 @@ func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, _, _, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
 	backend := &testBackend{
-		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 			return block, nil
 		},
-		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 			if common.BytesToHash(req.Hash) != blockHash {
-				return &coretypes.ResultBlock{}, nil
+				return nil, nil
 			}
 			return block, nil
 		},
@@ -731,10 +733,8 @@ func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
 func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	twoTxBlock, tx1, tx2, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
-	emptyBlock := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-		Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
-	}
+	emptyBlock := &abevm.EvmBlock{Hash: blockHash, Height: 4, Time: time.Unix(1_700_000_000, 0)}
+
 	backendErr := errors.New("block store unavailable")
 	heightOf := func(h int64) *coretypes.Int64 {
 		height := coretypes.Int64(h)
@@ -746,7 +746,7 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 		number     ethrpc.BlockNumber
 		index      hexutil.Uint
 		wantHeight *coretypes.Int64
-		block      *coretypes.ResultBlock
+		block      *abevm.EvmBlock
 		blockErr   error
 		want       *ethtypes.Transaction
 		wantErr    error
@@ -771,7 +771,7 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 		{name: "unexpected backend error", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), blockErr: backendErr, wantErr: backendErr},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				require.Equal(t, tc.wantHeight, req.Height)
 				return tc.block, tc.blockErr
 			})
@@ -805,7 +805,7 @@ func TestGetTransactionByBlockHashAndIndex(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		index    hexutil.Uint
-		block    *coretypes.ResultBlock
+		block    *abevm.EvmBlock
 		blockErr error
 		want     *ethtypes.Transaction
 		wantErr  error
@@ -813,14 +813,13 @@ func TestGetTransactionByBlockHashAndIndex(t *testing.T) {
 		{name: "first transaction", index: 0, block: twoTxBlock, want: tx1},
 		{name: "second transaction", index: 1, block: twoTxBlock, want: tx2},
 		{name: "index past the end", index: 2, block: twoTxBlock},
-		// An unknown hash answers null, whether the backend returns an empty or a nil result.
-		{name: "unknown hash, empty result", block: &coretypes.ResultBlock{}},
-		{name: "unknown hash, nil result"},
+		// An unknown hash answers null.
+		{name: "unknown hash"},
 		{name: "backend error", blockErr: backendErr, wantErr: backendErr},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 35_000_000, nil)
-			backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+			backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 				require.Equal(t, blockHash.Bytes(), []byte(req.Hash))
 				return tc.block, tc.blockErr
 			}
@@ -857,13 +856,8 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 	tx, raw := testSignedTransaction(t)
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713700)), tx)
 	require.NoError(t, err)
-	oneTxBlock := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-		Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: 9, Time: blockTime},
-			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
-		},
-	}
+	oneTxBlock := &abevm.EvmBlock{Hash: blockHash, Height: 9, Time: blockTime, Txs: []abevm.RawTx{raw}}
+
 	replayStore := evmonly.NewMemoryReceiptStore()
 	require.NoError(t, replayStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{{
 		TxHash:  tx.Hash(),
@@ -872,7 +866,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 
 	for _, tc := range []struct {
 		name  string
-		block *coretypes.ResultBlock
+		block *abevm.EvmBlock
 		store receiptdb.ReceiptStore
 	}{
 		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore},
@@ -880,10 +874,10 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 		{name: "transaction without a receipt", block: oneTxBlock, store: evmonly.NewMemoryReceiptStore()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				return tc.block, nil
 			})
-			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 				return tc.block, nil
 			}
 			api := &blockAPI{backend: backend, store: tc.store}
@@ -891,7 +885,7 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 			require.NoError(t, err)
 			fullTxs, ok := encoded["transactions"].([]any)
 			require.True(t, ok)
-			require.Len(t, fullTxs, len(tc.block.Block.Txs))
+			require.Len(t, fullTxs, len(tc.block.Txs))
 
 			for i, want := range fullTxs {
 				byNumber, err := api.GetTransactionByBlockNumberAndIndex(t.Context(), ethrpc.LatestBlockNumber, hexutil.Uint(i))
@@ -911,14 +905,14 @@ func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing
 
 func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 	_, raw := testSignedTransaction(t)
-	blockWith := func(txs tmtypes.Txs, blockTime time.Time) *coretypes.ResultBlock {
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
-			Block: &tmtypes.Block{
-				Header: tmtypes.Header{Height: 4, Time: blockTime},
-				Data:   tmtypes.Data{Txs: txs},
-			},
+	blockWith := func(txs []abevm.RawTx, blockTime time.Time) *abevm.EvmBlock {
+		return &abevm.EvmBlock{
+			Hash:   common.HexToHash("0xabcd"),
+			Height: 4,
+			Time:   blockTime,
+			Txs:    txs,
 		}
+
 	}
 	validTime := time.Unix(1_700_000_000, 0)
 	receiptErr := errors.New("receipt db closed")
@@ -931,17 +925,17 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 
 	for _, tc := range []struct {
 		name            string
-		block           *coretypes.ResultBlock
+		block           *abevm.EvmBlock
 		store           receiptdb.ReceiptStore
 		wantErr         error
 		wantErrContains string
 	}{
-		{name: "negative block time", block: blockWith(tmtypes.Txs{raw}, time.Unix(-1, 0)), wantErrContains: "block 4 time is negative"},
-		{name: "undecodable transaction", block: blockWith(tmtypes.Txs{[]byte("not-an-rlp-tx")}, validTime), wantErrContains: "decode transaction at block 4 index 0"},
-		{name: "receipt read error", block: blockWith(tmtypes.Txs{raw}, validTime), store: failingReceipts, wantErr: receiptErr, wantErrContains: "read transaction receipt at block 4 index 0"},
+		{name: "negative block time", block: blockWith([]abevm.RawTx{raw}, time.Unix(-1, 0)), wantErrContains: "block 4 time is negative"},
+		{name: "undecodable transaction", block: blockWith([]abevm.RawTx{abevm.RawTx("not-an-rlp-tx")}, validTime), wantErrContains: "decode transaction at block 4 index 0"},
+		{name: "receipt read error", block: blockWith([]abevm.RawTx{raw}, validTime), store: failingReceipts, wantErr: receiptErr, wantErrContains: "read transaction receipt at block 4 index 0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 				return tc.block, nil
 			})
 			store := tc.store
@@ -966,12 +960,12 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 func TestGetTransactionByBlockAndIndexEndToEnd(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, tx1, tx2, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
-	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*abevm.EvmBlock, error) {
 		return block, nil
 	})
-	backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+	backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*abevm.EvmBlock, error) {
 		if common.BytesToHash(req.Hash) != blockHash {
-			return &coretypes.ResultBlock{}, nil
+			return nil, nil
 		}
 		return block, nil
 	}
