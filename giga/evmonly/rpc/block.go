@@ -116,12 +116,15 @@ func transactionCount(block *coretypes.ResultBlock) *hexutil.Uint {
 
 // resolveBlockByHash returns the block with the given hash, served as its height is by
 // resolveBlockByNumber: a nil block if hash is unknown or names a block above the executed head,
-// and coretypes.ErrHeightNotAvailable for a pruned one.
+// and coretypes.ErrHeightNotAvailable for a pruned one whose hash is still indexed. A hash pruned
+// from the index is indistinguishable from an unknown one and returns a nil block.
 func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
 	block, err := api.backend.BlockByHash(ctx, &coretypes.RequestBlockByHash{Hash: tmbytes.HexBytes(hash.Bytes())})
 	if err != nil {
 		return nil, err
 	}
+	// A number can be compared with the retained range, but a hash carries no height once its
+	// index entry is gone, so a pruned block cannot be told apart from one that never existed.
 	if block == nil || block.Block == nil {
 		return nil, nil
 	}
