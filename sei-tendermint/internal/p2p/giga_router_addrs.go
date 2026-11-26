@@ -28,11 +28,11 @@ func newValidatorAddrs(state *data.State) *giga.ValidatorAddrs[GigaNodeAddr] {
 // verifyValidatorAddr returns the dial address that ann announces, after checking that ann is
 // signed by a member of an Anchor epoch.
 func verifyValidatorAddr(anchor data.Anchor, ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) (GigaNodeAddr, error) {
-	if err := ann.VerifySig(); err != nil {
-		return GigaNodeAddr{}, fmt.Errorf("%w: %w", errAddrBadSignature, err)
-	}
 	if !inAnchorEpochs(anchor, ann.Key()) {
 		return GigaNodeAddr{}, fmt.Errorf("%w: %v", errAddrSignerNotInAnchor, ann.Key())
+	}
+	if err := ann.VerifySig(); err != nil {
+		return GigaNodeAddr{}, fmt.Errorf("%w: %w", errAddrBadSignature, err)
 	}
 	return parseValidatorAddr(ann.Msg())
 }

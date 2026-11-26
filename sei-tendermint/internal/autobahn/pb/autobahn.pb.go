@@ -3056,6 +3056,143 @@ func (x *SignedValidatorAddrAnnouncement) GetSig() *Signature {
 	return nil
 }
 
+// ValidatorAddrAck tells the peer that the sender holds validator's announcement at version. It is
+// unsigned: the peer only stops resending that announcement on this stream.
+type ValidatorAddrAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Validator     *PublicKey             `protobuf:"bytes,1,opt,name=validator,proto3,oneof" json:"validator,omitempty"` // required
+	Version       *uint64                `protobuf:"varint,2,opt,name=version,proto3,oneof" json:"version,omitempty"`    // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidatorAddrAck) Reset() {
+	*x = ValidatorAddrAck{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatorAddrAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatorAddrAck) ProtoMessage() {}
+
+func (x *ValidatorAddrAck) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatorAddrAck.ProtoReflect.Descriptor instead.
+func (*ValidatorAddrAck) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *ValidatorAddrAck) GetValidator() *PublicKey {
+	if x != nil {
+		return x.Validator
+	}
+	return nil
+}
+
+func (x *ValidatorAddrAck) GetVersion() uint64 {
+	if x != nil && x.Version != nil {
+		return *x.Version
+	}
+	return 0
+}
+
+// ValidatorAddrMsg is one message on the validator address stream.
+type ValidatorAddrMsg struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to T:
+	//
+	//	*ValidatorAddrMsg_Announcement
+	//	*ValidatorAddrMsg_Ack
+	T             isValidatorAddrMsg_T `protobuf_oneof:"t"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidatorAddrMsg) Reset() {
+	*x = ValidatorAddrMsg{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatorAddrMsg) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatorAddrMsg) ProtoMessage() {}
+
+func (x *ValidatorAddrMsg) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatorAddrMsg.ProtoReflect.Descriptor instead.
+func (*ValidatorAddrMsg) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *ValidatorAddrMsg) GetT() isValidatorAddrMsg_T {
+	if x != nil {
+		return x.T
+	}
+	return nil
+}
+
+func (x *ValidatorAddrMsg) GetAnnouncement() *SignedValidatorAddrAnnouncement {
+	if x != nil {
+		if x, ok := x.T.(*ValidatorAddrMsg_Announcement); ok {
+			return x.Announcement
+		}
+	}
+	return nil
+}
+
+func (x *ValidatorAddrMsg) GetAck() *ValidatorAddrAck {
+	if x != nil {
+		if x, ok := x.T.(*ValidatorAddrMsg_Ack); ok {
+			return x.Ack
+		}
+	}
+	return nil
+}
+
+type isValidatorAddrMsg_T interface {
+	isValidatorAddrMsg_T()
+}
+
+type ValidatorAddrMsg_Announcement struct {
+	Announcement *SignedValidatorAddrAnnouncement `protobuf:"bytes,1,opt,name=announcement,proto3,oneof"`
+}
+
+type ValidatorAddrMsg_Ack struct {
+	Ack *ValidatorAddrAck `protobuf:"bytes,2,opt,name=ack,proto3,oneof"`
+}
+
+func (*ValidatorAddrMsg_Announcement) isValidatorAddrMsg_T() {}
+
+func (*ValidatorAddrMsg_Ack) isValidatorAddrMsg_T() {}
+
 var File_autobahn_autobahn_proto protoreflect.FileDescriptor
 
 const file_autobahn_autobahn_proto_rawDesc = "" +
@@ -3367,7 +3504,18 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x03msg\x18\x01 \x01(\v2#.autobahn.ValidatorAddrAnnouncementH\x00R\x03msg\x88\x01\x01\x12*\n" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureH\x01R\x03sig\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x06\n" +
 	"\x04_msgB\x06\n" +
-	"\x04_sigBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
+	"\x04_sig\"\x8b\x01\n" +
+	"\x10ValidatorAddrAck\x126\n" +
+	"\tvalidator\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\tvalidator\x88\x01\x01\x12\x1d\n" +
+	"\aversion\x18\x02 \x01(\x04H\x01R\aversion\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\n" +
+	"_validatorB\n" +
+	"\n" +
+	"\b_version\"\xa0\x01\n" +
+	"\x10ValidatorAddrMsg\x12O\n" +
+	"\fannouncement\x18\x01 \x01(\v2).autobahn.SignedValidatorAddrAnnouncementH\x00R\fannouncement\x12.\n" +
+	"\x03ack\x18\x02 \x01(\v2\x1a.autobahn.ValidatorAddrAckH\x00R\x03ack:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
+	"\x01tBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once
@@ -3381,7 +3529,7 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_autobahn_autobahn_proto_goTypes = []any{
 	(*Timestamp)(nil),                       // 0: autobahn.Timestamp
 	(*Duration)(nil),                        // 1: autobahn.Duration
@@ -3433,10 +3581,12 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*SignedChallenge)(nil),                 // 47: autobahn.SignedChallenge
 	(*ValidatorAddrAnnouncement)(nil),       // 48: autobahn.ValidatorAddrAnnouncement
 	(*SignedValidatorAddrAnnouncement)(nil), // 49: autobahn.SignedValidatorAddrAnnouncement
-	nil,                                     // 50: autobahn.TransactionHeader.PropertiesEntry
+	(*ValidatorAddrAck)(nil),                // 50: autobahn.ValidatorAddrAck
+	(*ValidatorAddrMsg)(nil),                // 51: autobahn.ValidatorAddrMsg
+	nil,                                     // 52: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	50, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	52, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.LaneID.validator:type_name -> autobahn.PublicKey
@@ -3517,11 +3667,14 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	8,  // 78: autobahn.SignedChallenge.sig:type_name -> autobahn.Signature
 	48, // 79: autobahn.SignedValidatorAddrAnnouncement.msg:type_name -> autobahn.ValidatorAddrAnnouncement
 	8,  // 80: autobahn.SignedValidatorAddrAnnouncement.sig:type_name -> autobahn.Signature
-	81, // [81:81] is the sub-list for method output_type
-	81, // [81:81] is the sub-list for method input_type
-	81, // [81:81] is the sub-list for extension type_name
-	81, // [81:81] is the sub-list for extension extendee
-	0,  // [0:81] is the sub-list for field type_name
+	6,  // 81: autobahn.ValidatorAddrAck.validator:type_name -> autobahn.PublicKey
+	49, // 82: autobahn.ValidatorAddrMsg.announcement:type_name -> autobahn.SignedValidatorAddrAnnouncement
+	50, // 83: autobahn.ValidatorAddrMsg.ack:type_name -> autobahn.ValidatorAddrAck
+	84, // [84:84] is the sub-list for method output_type
+	84, // [84:84] is the sub-list for method input_type
+	84, // [84:84] is the sub-list for extension type_name
+	84, // [84:84] is the sub-list for extension extendee
+	0,  // [0:84] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -3576,13 +3729,18 @@ func file_autobahn_autobahn_proto_init() {
 	file_autobahn_autobahn_proto_msgTypes[47].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[48].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[49].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[50].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[51].OneofWrappers = []any{
+		(*ValidatorAddrMsg_Announcement)(nil),
+		(*ValidatorAddrMsg_Ack)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   51,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

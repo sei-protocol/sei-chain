@@ -65,3 +65,29 @@ var SignedValidatorAddrAnnouncementConv = protoutils.Conv[*Signed[ValidatorAddrA
 		return newSigned(msg, sig), nil
 	},
 }
+
+// ValidatorAddrAck tells a peer that the sender holds Version of Validator's announcement.
+type ValidatorAddrAck struct {
+	Validator PublicKey
+	Version   uint64
+}
+
+// ValidatorAddrAckConv is a protobuf converter for ValidatorAddrAck.
+var ValidatorAddrAckConv = protoutils.Conv[ValidatorAddrAck, *pb.ValidatorAddrAck]{
+	Encode: func(m ValidatorAddrAck) *pb.ValidatorAddrAck {
+		return &pb.ValidatorAddrAck{
+			Validator: PublicKeyConv.Encode(m.Validator),
+			Version:   new(m.Version),
+		}
+	},
+	Decode: func(m *pb.ValidatorAddrAck) (ValidatorAddrAck, error) {
+		validator, err := PublicKeyConv.DecodeReq(m.Validator)
+		if err != nil {
+			return ValidatorAddrAck{}, fmt.Errorf("validator: %w", err)
+		}
+		if m.Version == nil {
+			return ValidatorAddrAck{}, fmt.Errorf("version: missing")
+		}
+		return ValidatorAddrAck{Validator: validator, Version: *m.Version}, nil
+	},
+}

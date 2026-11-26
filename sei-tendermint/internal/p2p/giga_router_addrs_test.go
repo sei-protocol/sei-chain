@@ -77,6 +77,12 @@ func TestValidatorAddrVerification(t *testing.T) {
 		},
 		{name: "signer outside anchor", ann: signed(outsider, nil), wantErr: errAddrSignerNotInAnchor},
 		{
+			// Membership is checked first, so a non-member's forged announcement is refused without a signature check.
+			name:    "forged signature from outside anchor",
+			ann:     tamperedAddr(t, signed(outsider, nil), "evil.example:26656"),
+			wantErr: errAddrSignerNotInAnchor,
+		},
+		{
 			name:    "malformed node key",
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.NodeKey = "not-a-node-key" }),
 			wantErr: errAddrBadNodeKey,

@@ -2,7 +2,6 @@ package giga
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"sync"
@@ -40,28 +39,24 @@ type ValidatorAddrs[A any] struct {
 	// writes serializes Receive and Retain, which publish modified copies of held. verify runs under it.
 	writes sync.Mutex
 	held   utils.AtomicSend[ValidatorAddrSnapshot[A]]
-	// resyncs counts resync requests. Each client stream opened before a request reopens after it.
-	resyncs utils.AtomicSend[uint64]
 }
 
 // ValidatorAddrGossip is what a Service needs of a ValidatorAddrs to run the address stream.
 type ValidatorAddrGossip interface {
 	// Receive stores ann if it is verified and newer than the one held for its validator.
 	Receive(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) error
-	// AwaitMissing waits until some held announcement is one peerHolds rejects, and returns
-	// every such announcement.
-	AwaitMissing(ctx context.Context, peerHolds func(validator atypes.PublicKey, version uint64) bool) ([]*atypes.Signed[atypes.ValidatorAddrAnnouncement], error)
-	// Resyncs changes on every resync request.
-	Resyncs() utils.AtomicRecv[uint64]
+	// Announcements returns every held announcement.
+	Announcements() []*atypes.Signed[atypes.ValidatorAddrAnnouncement]
+	// HeldVersion returns the version of the announcement held for validator, if one is held.
+	HeldVersion(validator atypes.PublicKey) (uint64, bool)
 }
 
 // NewValidatorAddrs returns an empty ValidatorAddrs that keeps the announcements verify accepts,
 // along with the address it returns for each.
 func NewValidatorAddrs[A any](verify func(*atypes.Signed[atypes.ValidatorAddrAnnouncement]) (A, error)) *ValidatorAddrs[A] {
 	return &ValidatorAddrs[A]{
-		verify:  verify,
-		held:    utils.NewAtomicSend(ValidatorAddrSnapshot[A]{}),
-		resyncs: utils.NewAtomicSend(uint64(0)),
+		verify: verify,
+		held:   utils.NewAtomicSend(ValidatorAddrSnapshot[A]{}),
 	}
 }
 
@@ -70,17 +65,13 @@ func (a *ValidatorAddrs[A]) Watch() utils.AtomicRecv[ValidatorAddrSnapshot[A]] {
 	return a.held.Subscribe()
 }
 
-// RequestResync makes every client stream open again, so each peer sends its full table.
-func (a *ValidatorAddrs[A]) RequestResync() {
-	// writes makes the load and store one step, so concurrent requests cannot lose an increment.
-	a.writes.Lock()
-	defer a.writes.Unlock()
-	a.resyncs.Store(a.resyncs.Load() + 1)
-}
-
-// Resyncs is a watch on the resync count, which RequestResync increments.
-func (a *ValidatorAddrs[A]) Resyncs() utils.AtomicRecv[uint64] {
-	return a.resyncs.Subscribe()
+// HeldVersion returns the version of the announcement held for validator, if one is held.
+func (a *ValidatorAddrs[A]) HeldVersion(validator atypes.PublicKey) (uint64, bool) {
+	entry, ok := a.held.Load()[validator]
+	if !ok {
+		return 0, false
+	}
+	return entry.Ann.Msg().Version, true
 }
 
 // Get returns the address held for validator.
@@ -89,21 +80,33 @@ func (a *ValidatorAddrs[A]) Get(validator atypes.PublicKey) (A, bool) {
 	return entry.Addr, ok
 }
 
+// Announcements returns the held announcements, one per validator, in no particular order.
+func (a *ValidatorAddrs[A]) Announcements() []*atypes.Signed[atypes.ValidatorAddrAnnouncement] {
+	held := a.held.Load()
+	anns := make([]*atypes.Signed[atypes.ValidatorAddrAnnouncement], 0, len(held))
+	for _, entry := range held {
+		anns = append(anns, entry.Ann)
+	}
+	return anns
+}
+
 // Receive stores ann if it passes verification and is newer than the held announcement of its
 // validator. A stale announcement is not an error; a refused one is returned as the error.
 func (a *ValidatorAddrs[A]) Receive(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) error {
 	a.writes.Lock()
 	defer a.writes.Unlock()
+	held := a.held.Load()
+	// A version already held is not verified again: the held entry passed verification when it was
+	// stored, and peers repeat their whole table every interval.
+	if old, ok := held[ann.Key()]; ok && old.Ann.Msg().Version >= ann.Msg().Version {
+		return nil
+	}
 	// Verification runs under the lock so that Retain cannot run between it and the store: an
 	// announcement admitted against an Anchor is then kept or dropped by the next Retain, never
 	// left behind after it.
 	addr, err := a.verify(ann)
 	if err != nil {
 		return err
-	}
-	held := a.held.Load()
-	if old, ok := held[ann.Key()]; ok && old.Ann.Msg().Version >= ann.Msg().Version {
-		return nil
 	}
 	next := maps.Clone(held)
 	next[ann.Key()] = ValidatorAddrEntry[A]{Ann: ann, Addr: addr}
@@ -127,187 +130,235 @@ func (a *ValidatorAddrs[A]) Retain(keep func(atypes.PublicKey) bool) {
 	}
 }
 
-// AwaitMissing implements ValidatorAddrGossip.
-func (a *ValidatorAddrs[A]) AwaitMissing(ctx context.Context, peerHolds func(atypes.PublicKey, uint64) bool) ([]*atypes.Signed[atypes.ValidatorAddrAnnouncement], error) {
-	snapshot, err := a.held.Wait(ctx, func(snapshot ValidatorAddrSnapshot[A]) bool {
-		for validator, entry := range snapshot {
-			if !peerHolds(validator, entry.Ann.Msg().Version) {
-				return true
-			}
-		}
-		return false
-	})
-	if err != nil {
-		return nil, err
-	}
-	var missing []*atypes.Signed[atypes.ValidatorAddrAnnouncement]
-	for validator, entry := range snapshot {
-		if !peerHolds(validator, entry.Ann.Msg().Version) {
-			missing = append(missing, entry.Ann)
-		}
-	}
-	return missing, nil
-}
+// validatorAddrInterval is how often a stream pushes the full table. An announcement a peer refused
+// reaches it within one interval.
+const validatorAddrInterval = 10 * time.Second
 
-// validatorAddrRate is the sustained rate of announcements accepted per stream after the initial burst.
-var validatorAddrRate = rate.Every(100 * time.Millisecond)
+// validatorAddrTableBound is the most announcements a table holds: one for each possible member
+// of each Anchor epoch.
+const validatorAddrTableBound = len(data.Anchor{}.Epochs) * atypes.MaxValidators
 
-// validatorAddrBurst admits a full table on connect with room for updates that arrive during that push:
-// twice the table's capacity, one announcement per possible member of each Anchor epoch.
-const validatorAddrBurst = 2 * len(data.Anchor{}.Epochs) * atypes.MaxValidators
+// validatorAddrRate is the refill rate of a stream's receive budget: two full tables per
+// validatorAddrInterval, one for announcements and one for the acks a peer sends back for them.
+// Messages beyond the budget are dropped.
+//
+// A connection serves one stream at a time and accepts at most one per interval, and each stream
+// starts with a full validatorAddrBurst, so a peer that reopens its stream every interval is admitted
+// about four tables per interval.
+var validatorAddrRate = rate.Every(validatorAddrInterval / time.Duration(2*validatorAddrTableBound))
 
-var errValidatorAddrRateLimited = errors.New("validator address announcement rate exceeded")
-
-// errValidatorAddrResync ends a client stream so that the next one asks the peer for its full table.
-var errValidatorAddrResync = errors.New("validator address stream reopened for resync")
+// validatorAddrBurst is the most messages a stream admits at once: the peer's full table plus the
+// acks for ours, so two full tables with no slack.
+const validatorAddrBurst = 2 * validatorAddrTableBound
 
 // validatorAddrStream is a validator address stream as seen from either end of a connection.
-type validatorAddrStream = rpc.Stream[*apb.SignedValidatorAddrAnnouncement, *apb.SignedValidatorAddrAnnouncement]
+type validatorAddrStream = rpc.Stream[*apb.ValidatorAddrMsg, *apb.ValidatorAddrMsg]
 
-// peerVersions records the newest announcement version of each validator that a peer is known to hold:
-// the versions it sent to us and the versions we sent to it.
-type peerVersions struct {
-	versions utils.Mutex[map[atypes.PublicKey]uint64]
+// serverStreamValidatorAddrs serves each validator address stream a dialing peer opens. A stream that
+// fails ends only itself, so the serve loop keeps accepting the peer's next one.
+func (x *Service) serverStreamValidatorAddrs(ctx context.Context, server rpc.Server[API]) error {
+	err := StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
+		return endValidatorAddrExchange(ctx, x.exchangeValidatorAddrs(ctx, stream))
+	})
+	return endValidatorAddrExchange(ctx, err)
 }
 
-func newPeerVersions() *peerVersions {
-	return &peerVersions{versions: utils.NewMutex(map[atypes.PublicKey]uint64{})}
+// clientStreamValidatorAddrs runs the stream to the peer that was dialed. Once it ends it is not
+// reopened until the next connection.
+func (x *Service) clientStreamValidatorAddrs(ctx context.Context, client rpc.Client[API]) error {
+	stream, err := StreamValidatorAddrs.Call(ctx, client)
+	if err != nil {
+		return endValidatorAddrExchange(ctx, fmt.Errorf("client.StreamValidatorAddrs(): %w", err))
+	}
+	defer stream.Close()
+	return endValidatorAddrExchange(ctx, x.exchangeValidatorAddrs(ctx, stream))
 }
 
-func (p *peerVersions) holds(validator atypes.PublicKey, version uint64) bool {
-	for versions := range p.versions.Lock() {
-		held, ok := versions[validator]
+// endValidatorAddrExchange logs why the gossip exchange ended and returns nil.
+func endValidatorAddrExchange(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() == nil {
+		logger.Warn("validator address exchange ended", "err", err)
+	}
+	// Gossip is not needed for consensus, so the scope running the exchange keeps its consensus streams.
+	return nil
+}
+
+// peerHolds is one stream's record of what the peer holds: the newest version of each validator the
+// peer sent us or acked, and the acks owed to it.
+type peerHolds struct {
+	state utils.Mutex[peerState]
+	// ready holds a signal while acks are queued, so the sender flushes them without waiting for a push.
+	ready chan struct{}
+}
+
+// peerState is guarded by peerHolds.state.
+type peerState struct {
+	// versions are the newest version of each validator the peer sent or acked. Entries stay after
+	// Retain drops their validator, until the stream closes.
+	versions map[atypes.PublicKey]uint64
+	// acks are the versions the peer sent that are owed an ack, until the next flush.
+	acks map[atypes.PublicKey]uint64
+}
+
+func newPeerHolds() *peerHolds {
+	return &peerHolds{
+		state: utils.NewMutex(peerState{
+			versions: map[atypes.PublicKey]uint64{},
+			acks:     map[atypes.PublicKey]uint64{},
+		}),
+		ready: make(chan struct{}, 1),
+	}
+}
+
+// covers reports whether the peer holds a version of validator at least version.
+func (p *peerHolds) covers(validator atypes.PublicKey, version uint64) bool {
+	for s := range p.state.Lock() {
+		held, ok := s.versions[validator]
 		return ok && held >= version
 	}
 	panic("unreachable")
 }
 
-func (p *peerVersions) record(validator atypes.PublicKey, version uint64) {
-	for versions := range p.versions.Lock() {
-		versions[validator] = max(versions[validator], version)
-	}
-}
-
-// forget undoes record for an announcement the table refused, so the record only grows
-// with the validators the table holds.
-func (p *peerVersions) forget(validator atypes.PublicKey, version uint64) {
-	for versions := range p.versions.Lock() {
-		if versions[validator] == version {
-			delete(versions, validator)
+// received notes that the peer sent ann and owes it an ack, including when the peer resends a version
+// it already sent.
+func (p *peerHolds) received(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) {
+	for s := range p.state.Lock() {
+		key, version := ann.Key(), ann.Msg().Version
+		s.versions[key] = max(s.versions[key], version)
+		s.acks[key] = max(s.acks[key], version)
+		select {
+		case p.ready <- struct{}{}:
+		default:
 		}
 	}
 }
 
-// serverStreamValidatorAddrs exchanges announcements with a dialing peer. Its failure ends only this
-// exchange; see endValidatorAddrExchange.
-func (x *Service) serverStreamValidatorAddrs(ctx context.Context, server rpc.Server[API]) error {
-	err := StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
-		// A stream that ends must not end the serve loop: the peer may open the next one, for a resync.
-		return endValidatorAddrExchange(ctx, x.exchangeValidatorAddrs(ctx, stream, nil))
-	})
-	return endValidatorAddrExchange(ctx, err)
+// acked notes that the peer holds version of validator. An ack is not itself acked.
+func (p *peerHolds) acked(validator atypes.PublicKey, version uint64) {
+	for s := range p.state.Lock() {
+		s.versions[validator] = max(s.versions[validator], version)
+	}
 }
 
-// clientStreamValidatorAddrs exchanges announcements with the peer that was dialed. Each resync request
-// opens a new stream, so the peer sends its full table again. Its failure ends only this exchange;
-// see endValidatorAddrExchange.
-func (x *Service) clientStreamValidatorAddrs(ctx context.Context, client rpc.Client[API]) error {
-	resyncs := x.validatorAddrs.Resyncs()
-	for {
-		err := x.callValidatorAddrs(ctx, client, resyncs)
-		if !errors.Is(err, errValidatorAddrResync) || ctx.Err() != nil {
-			return endValidatorAddrExchange(ctx, err)
+// takeAcks returns the acks owed since the last call.
+func (p *peerHolds) takeAcks() []atypes.ValidatorAddrAck {
+	for s := range p.state.Lock() {
+		acks := make([]atypes.ValidatorAddrAck, 0, len(s.acks))
+		for validator, version := range s.acks {
+			acks = append(acks, atypes.ValidatorAddrAck{Validator: validator, Version: version})
 		}
+		clear(s.acks)
+		return acks
 	}
+	panic("unreachable")
 }
 
-// callValidatorAddrs runs one client stream until it fails, or until a resync request is made after
-// it opened, which returns errValidatorAddrResync.
-func (x *Service) callValidatorAddrs(ctx context.Context, client rpc.Client[API], resyncs utils.AtomicRecv[uint64]) error {
-	opened := resyncs.Load()
-	stream, err := StreamValidatorAddrs.Call(ctx, client)
-	if err != nil {
-		return fmt.Errorf("client.StreamValidatorAddrs(): %w", err)
-	}
-	defer stream.Close()
-	return x.exchangeValidatorAddrs(ctx, stream, func(ctx context.Context) error {
-		if _, err := resyncs.Wait(ctx, func(n uint64) bool { return n != opened }); err != nil {
-			return err
-		}
-		return errValidatorAddrResync
-	})
+// encodeAnnouncement wraps ann as a message on the validator address stream.
+func encodeAnnouncement(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) *apb.ValidatorAddrMsg {
+	return &apb.ValidatorAddrMsg{T: &apb.ValidatorAddrMsg_Announcement{Announcement: atypes.SignedValidatorAddrAnnouncementConv.Encode(ann)}}
 }
 
-// endValidatorAddrExchange logs why the gossip exchange ended and returns nil, so the scope that runs
-// the exchange keeps its consensus streams. Gossip is not needed for consensus, and a peer that
-// violates its limit loses gossip on this connection until the next one.
-func endValidatorAddrExchange(ctx context.Context, err error) error {
-	if err != nil && ctx.Err() == nil {
-		logger.Warn("validator address exchange ended", "err", err)
-	}
-	return nil
+// encodeAck wraps ack as a message on the validator address stream.
+func encodeAck(ack atypes.ValidatorAddrAck) *apb.ValidatorAddrMsg {
+	return &apb.ValidatorAddrMsg{T: &apb.ValidatorAddrMsg_Ack{Ack: atypes.ValidatorAddrAckConv.Encode(ack)}}
 }
 
-// exchangeValidatorAddrs sends the held announcements to the peer and hands the peer's announcements
-// to the table. Announcements that fail verification are dropped; the exchange ends when the stream
-// fails, the peer exceeds its rate limit, or until returns, which it does with an error.
-func (x *Service) exchangeValidatorAddrs(ctx context.Context, stream validatorAddrStream, until func(context.Context) error) error {
-	peer := newPeerVersions()
+// exchangeValidatorAddrs runs both directions of the stream until one of them fails.
+func (x *Service) exchangeValidatorAddrs(ctx context.Context, stream validatorAddrStream) error {
+	peer := newPeerHolds()
 	recv := rate.NewLimiter(validatorAddrRate, validatorAddrBurst)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.sendValidatorAddrs(ctx, stream, peer) })
 		s.Spawn(func() error { return x.receiveValidatorAddrs(ctx, stream, peer, recv) })
-		if until != nil {
-			s.Spawn(func() error { return until(ctx) })
-		}
 		return nil
 	})
 }
 
-// sendValidatorAddrs sends the held announcements the peer does not hold, and again whenever
-// the table gains one.
-func (x *Service) sendValidatorAddrs(ctx context.Context, stream validatorAddrStream, peer *peerVersions) error {
-	// Push, not digest: the peer's table is unknown when the stream opens, so the whole table is
-	// sent and nothing is skipped on connect. The table holds at most the members of two Anchor
-	// epochs, so this stays small. A digest exchange (the peer sends the (validator, version)
-	// pairs it holds, and only the missing ones are sent) is the next step if the table grows.
+// sendValidatorAddrs pushes the held announcements the peer has not sent us, on connect and again
+// every validatorAddrInterval, sending acks as they are queued in between.
+func (x *Service) sendValidatorAddrs(ctx context.Context, stream validatorAddrStream, peer *peerHolds) error {
 	for {
-		anns, err := x.validatorAddrs.AwaitMissing(ctx, peer.holds)
-		if err != nil {
+		if err := sendAcks(ctx, stream, peer); err != nil {
 			return err
 		}
-		for _, ann := range anns {
-			if peer.holds(ann.Key(), ann.Msg().Version) {
+		for _, ann := range x.validatorAddrs.Announcements() {
+			if peer.covers(ann.Key(), ann.Msg().Version) {
 				continue
 			}
-			if err := stream.Send(ctx, atypes.SignedValidatorAddrAnnouncementConv.Encode(ann)); err != nil {
+			if err := stream.Send(ctx, encodeAnnouncement(ann)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
-			peer.record(ann.Key(), ann.Msg().Version)
+		}
+		if err := waitForPush(ctx, stream, peer); err != nil {
+			return err
 		}
 	}
 }
 
-// receiveValidatorAddrs hands each announcement from the peer to the table.
-func (x *Service) receiveValidatorAddrs(ctx context.Context, stream validatorAddrStream, peer *peerVersions, limiter *rate.Limiter) error {
+// sendAcks sends every ack owed to the peer.
+func sendAcks(ctx context.Context, stream validatorAddrStream, peer *peerHolds) error {
+	for _, ack := range peer.takeAcks() {
+		if err := stream.Send(ctx, encodeAck(ack)); err != nil {
+			return fmt.Errorf("stream.Send(): %w", err)
+		}
+	}
+	return nil
+}
+
+// waitForPush returns once validatorAddrInterval has elapsed, sending each ack as soon as it is queued.
+func waitForPush(ctx context.Context, stream validatorAddrStream, peer *peerHolds) error {
+	timer := time.NewTimer(validatorAddrInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		case <-peer.ready:
+			if err := sendAcks(ctx, stream, peer); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// receiveValidatorAddrs hands each announcement from the peer to the table and records each ack. A
+// message beyond validatorAddrRate is dropped without ending the stream, since the peer's next push
+// repeats it.
+func (x *Service) receiveValidatorAddrs(ctx context.Context, stream validatorAddrStream, peer *peerHolds, limiter *rate.Limiter) error {
 	for {
 		raw, err := stream.Recv(ctx)
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
 		if !limiter.Allow() {
-			return errValidatorAddrRateLimited
+			continue
 		}
-		ann, err := atypes.SignedValidatorAddrAnnouncementConv.Decode(raw)
-		if err != nil {
-			return fmt.Errorf("SignedValidatorAddrAnnouncementConv.Decode(): %w", err)
-		}
-		// The peer holds what it sent, so it is not sent back. This is recorded before the table sees
-		// the announcement: once stored, the table wakes the sender, which must already know.
-		peer.record(ann.Key(), ann.Msg().Version)
-		if err := x.validatorAddrs.Receive(ann); err != nil {
-			peer.forget(ann.Key(), ann.Msg().Version)
-			logger.Debug("dropped validator address announcement", "validator", ann.Key(), "version", ann.Msg().Version, "err", err)
+		switch t := raw.T.(type) {
+		case *apb.ValidatorAddrMsg_Announcement:
+			ann, err := atypes.SignedValidatorAddrAnnouncementConv.Decode(t.Announcement)
+			if err != nil {
+				return fmt.Errorf("SignedValidatorAddrAnnouncementConv.Decode(): %w", err)
+			}
+			if err := x.validatorAddrs.Receive(ann); err != nil {
+				logger.Debug("dropped validator address announcement", "validator", ann.Key(), "version", ann.Msg().Version, "err", err)
+				continue
+			}
+			// Recorded only after the table accepts the announcement, so the record holds verified entries alone.
+			peer.received(ann)
+		case *apb.ValidatorAddrMsg_Ack:
+			ack, err := atypes.ValidatorAddrAckConv.Decode(t.Ack)
+			if err != nil {
+				return fmt.Errorf("ValidatorAddrAckConv.Decode(): %w", err)
+			}
+			// An ack is honored only for a version this table holds. A peer that acks more than
+			// this node holds would otherwise suppress versions this node could send it.
+			if held, ok := x.validatorAddrs.HeldVersion(ack.Validator); ok && ack.Version <= held {
+				peer.acked(ack.Validator, ack.Version)
+			}
+		default:
+			return fmt.Errorf("validator address message: unknown type %T", t)
 		}
 	}
 }

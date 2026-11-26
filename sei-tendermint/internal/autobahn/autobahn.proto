@@ -447,3 +447,20 @@ message SignedValidatorAddrAnnouncement {
   optional ValidatorAddrAnnouncement msg = 1; // required
   optional Signature sig = 2; // required
 }
+
+// ValidatorAddrAck tells the peer that the sender holds validator's announcement at version. It is
+// unsigned: the peer only stops resending that announcement on this stream.
+message ValidatorAddrAck {
+  option (wireguard.sized) = true;
+  optional PublicKey validator = 1; // required
+  optional uint64 version = 2; // required
+}
+
+// ValidatorAddrMsg is one message on the validator address stream.
+message ValidatorAddrMsg {
+  option (wireguard.sized) = true;
+  oneof t { // required
+    SignedValidatorAddrAnnouncement announcement = 1;
+    ValidatorAddrAck ack = 2;
+  }
+}
