@@ -15,7 +15,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -1732,6 +1734,10 @@ func TestEVMOnlyApplicationRefusesTxsExecutionRejectsBeforeChargingGas(t *testin
 		}
 	}
 
+	create := func(initCodeSize int) ethtypes.TxData {
+		return &ethtypes.DynamicFeeTx{ChainID: chainID, GasTipCap: minPrice, GasFeeCap: feeCap, Gas: 1_000_000, Data: make([]byte, initCodeSize)}
+	}
+
 	for _, tc := range []struct {
 		name    string
 		tx      ethtypes.TxData
@@ -1741,6 +1747,8 @@ func TestEVMOnlyApplicationRefusesTxsExecutionRejectsBeforeChargingGas(t *testin
 		{name: "tip above fee cap", tx: dynamicFee(new(big.Int).Add(feeCap, big.NewInt(1))), wantErr: ethcore.ErrTipAboveFeeCap},
 		{name: "set-code with an authorization", tx: setCode([]ethtypes.SetCodeAuthorization{auth})},
 		{name: "set-code with an empty auth list", tx: setCode(nil), wantErr: ethcore.ErrEmptyAuthList},
+		{name: "create at the init code limit", tx: create(params.MaxInitCodeSize)},
+		{name: "create above the init code limit", tx: create(params.MaxInitCodeSize + 1), wantErr: vm.ErrMaxInitCodeSizeExceeded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			signed, err := ethtypes.SignTx(ethtypes.NewTx(tc.tx), ethtypes.LatestSignerForChainID(chainID), sender)

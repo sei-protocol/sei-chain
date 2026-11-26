@@ -365,7 +365,7 @@ func (a *evmOnlyApplication) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	if tx.Gas() > math.MaxInt64 {
 		return abevm.AdmittedTx{}, errors.New("transaction gas limit exceeds int64")
 	}
-	if err := checkFeeAndAuthFields(tx.Transaction()); err != nil {
+	if err := a.checkStatelessRules(tx); err != nil {
 		return abevm.AdmittedTx{}, err
 	}
 	if err := a.checkGasCoversIntrinsic(tx.Transaction(), tx.Sender()); err != nil {
@@ -377,18 +377,13 @@ func (a *evmOnlyApplication) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	return abevm.AdmittedTx{GasEstimated: tx.Gas()}, nil
 }
 
-// checkFeeAndAuthFields refuses tx when its priority fee exceeds its fee cap, or when it is a set-code
-// transaction with an empty authorization list.
-func checkFeeAndAuthFields(tx *ethtypes.Transaction) error {
-	// Execution refuses these before charging gas or advancing the nonce, so admitting one lets the
-	// same bytes be included repeatedly without payment.
-	if tx.GasTipCapIntCmp(tx.GasFeeCap()) > 0 {
-		return fmt.Errorf("%w: maxPriorityFeePerGas %s, maxFeePerGas %s", ethcore.ErrTipAboveFeeCap, tx.GasTipCap(), tx.GasFeeCap())
-	}
-	if tx.Type() == ethtypes.SetCodeTxType && len(tx.SetCodeAuthorizations()) == 0 {
-		return ethcore.ErrEmptyAuthList
-	}
-	return nil
+// checkStatelessRules refuses tx when execution in the next block would reject it before charging
+// gas or advancing the nonce, judged against the committed state.
+func (a *evmOnlyApplication) checkStatelessRules(tx abevm.EvmTx) error {
+	// Admitting such a tx lets the same bytes be included repeatedly without payment.
+	view := a.storage.StateDB().OpenView()
+	defer view.Close()
+	return evmonly.CheckStatelessRules(view, a.chainConfig, a.nextBlockContext(), evmonly.PreparedTx{Tx: tx.Transaction(), Sender: tx.Sender()})
 }
 
 // checkGasCoversIntrinsic refuses tx when its gas limit is below the intrinsic gas, or the EIP-7623
@@ -422,9 +417,17 @@ func (a *evmOnlyApplication) checkGasCoversIntrinsic(tx *ethtypes.Transaction, s
 // nextBlockRules returns the fork rules of the block after the committed one, at the committed
 // block's time.
 func (a *evmOnlyApplication) nextBlockRules() params.Rules {
+	next := a.nextBlockContext()
+	// Every block's context sets PrevRandao, so the executor always runs post-merge rules.
+	return a.chainConfig.Rules(new(big.Int).SetUint64(next.Number), true, next.Time)
+}
+
+// nextBlockContext returns the context of the block after the committed one, at the committed
+// block's time and gas limit.
+func (a *evmOnlyApplication) nextBlockContext() evmonly.BlockContext {
 	for state := range a.cursor.Lock() {
-		// Every block's context sets PrevRandao, so the executor always runs post-merge rules.
-		return a.chainConfig.Rules(big.NewInt(state.committed.height+1), true, state.lastBlockTime)
+		number := uint64(state.committed.height + 1) //nolint:gosec // G115: committed heights are not negative.
+		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, state.committed.blockHash, common.Hash{})
 	}
 	panic("unreachable")
 }
