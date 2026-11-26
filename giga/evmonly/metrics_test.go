@@ -43,6 +43,7 @@ func bindTestExecutionMetrics(t *testing.T) *sdkmetric.ManualReader {
 	previous := executionMetrics
 	t.Cleanup(func() { executionMetrics = previous })
 	executionMetrics.txsExecuted = must(meter.Int64Counter("giga_evmonly_txs_executed_total"))
+	executionMetrics.txsRejected = must(meter.Int64Counter("giga_evmonly_txs_rejected_total"))
 	return reader
 }
 
