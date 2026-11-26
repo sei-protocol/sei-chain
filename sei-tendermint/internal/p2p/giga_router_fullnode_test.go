@@ -175,7 +175,7 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 				if err != nil {
 					return err
 				}
-				return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, peerScope scope.Scope) error {
+				err = utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, peerScope scope.Scope) error {
 					peerScope.SpawnBg(func() error { return c.Run(ctx) })
 					peerURL := endpoint
 					peerURL.Path = fmt.Sprintf("/%d", i)
@@ -207,6 +207,11 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 					_, _, err = utils.RecvOrClosed(ctx, disconnect[i])
 					return err
 				}))
+				if ctx.Err() != nil {
+					// The router may close the connection before this peer observes the test ending.
+					return nil
+				}
+				return err
 			})
 		}
 		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runCommitteeConnections(ctx)) })
