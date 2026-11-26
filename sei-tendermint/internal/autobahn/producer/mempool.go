@@ -18,8 +18,8 @@ import (
 var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
 
-// errAlreadyKnown rejects a transaction the mempool already holds. Its message matches geth's
-// txpool.ErrAlreadyKnown, which Ethereum clients recognise.
+// errAlreadyKnown rejects a transaction the mempool still holds (see holdsPending). Its message
+// matches geth's txpool.ErrAlreadyKnown, which Ethereum clients recognise.
 var errAlreadyKnown = errors.New("already known")
 var errMempoolFull = errors.New("mempool is full")
 var ErrNotProducing = errors.New("not producing")
@@ -129,7 +129,9 @@ func (m *mempool) pendingNonces(addr common.Address) (nonceRange, bool) {
 }
 
 // holdsPending reports whether the mempool holds the transaction with the given hash in its
-// sender's current pending nonce range.
+// sender's current nonce range. The mempool holds a transaction from admission until its lane block
+// is pruned, after the block's AppHash is pushed, so this includes transactions already sealed,
+// finalized or executed.
 func (m *mempoolInner) holdsPending(hash common.Hash) bool {
 	tx, ok := m.evmTxs[hash]
 	if !ok {
@@ -141,7 +143,7 @@ func (m *mempoolInner) holdsPending(hash common.Hash) bool {
 }
 
 // nonceError returns the error for tx, whose nonce is not want: errAlreadyKnown when the mempool
-// already holds tx as pending, and errBadNonce otherwise.
+// still holds tx (see holdsPending), and errBadNonce otherwise.
 func (m *mempoolInner) nonceError(tx abevm.EvmTx, want uint64) error {
 	if m.holdsPending(tx.Hash()) {
 		return errAlreadyKnown
