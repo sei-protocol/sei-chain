@@ -663,14 +663,15 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
 }
 
-// blockContext returns the context this application executes a block at. Coinbase is zero, and
-// the blob base fee is always zero.
+// blockContext returns the context this application executes a block at. Its coinbase is
+// evmonly.FeeCollectorAddress and its blob base fee is zero.
 func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, baseFee *big.Int, parentHash, blockHash common.Hash) evmonly.BlockContext {
 	return evmonly.BlockContext{
 		Number:      number,
 		Time:        timestamp,
 		GasLimit:    gasLimit,
 		ChainID:     new(big.Int).Set(a.chainID),
+		Coinbase:    evmonly.FeeCollectorAddress,
 		BaseFee:     baseFee,
 		BlobBaseFee: new(big.Int),
 		ParentHash:  parentHash,

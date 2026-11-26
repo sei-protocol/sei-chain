@@ -170,6 +170,24 @@ func TestEVMOnlyApplicationSkipsATxBelowTheBaseFee(t *testing.T) {
 	require.Equal(t, uint64(21_000), response.GasUsed, "only the transaction paying the base fee ran")
 }
 
+// A block pays each transaction's base fee and priority fee to the fee collector, and nothing to
+// the zero address.
+func TestEVMOnlyApplicationPaysFeesToTheFeeCollector(t *testing.T) {
+	app := newEVMOnlyBaseFeeTestApp(t)
+	collected := app.EvmBalance(evmonly.FeeCollectorAddress)
+	zero := app.EvmBalance(common.Address{})
+	price := big.NewInt(2 * evmOnlyGenesisMinFeePerGas) // the genesis base fee and as much again in tip
+
+	response, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(app, 1, signedEVMOnlyTestTxAtPrice(t, price)))
+
+	require.NoError(t, err)
+	require.Equal(t, uint64(21_000), response.GasUsed)
+	paid := new(big.Int).Mul(price, new(big.Int).SetUint64(response.GasUsed))
+	got := app.EvmBalance(evmonly.FeeCollectorAddress)
+	require.Equal(t, new(big.Int).Add(collected.ToBig(), paid), got.ToBig())
+	require.Equal(t, zero, app.EvmBalance(common.Address{}))
+}
+
 // A block executed at a base fee other than the one scheduled for it fails to finalize.
 func TestEVMOnlyApplicationRefusesABlockRunAtAnUnscheduledBaseFee(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
