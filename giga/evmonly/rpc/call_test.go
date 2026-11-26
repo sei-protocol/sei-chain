@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -124,10 +125,10 @@ func TestCallSurfacesRevertReason(t *testing.T) {
 	require.Nil(t, got)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "insufficient balance")
-	var revertErr *revertError
-	require.ErrorAs(t, err, &revertErr)
-	require.Equal(t, 3, revertErr.ErrorCode())
-	require.Equal(t, hexutil.Encode(revert), revertErr.ErrorData())
+	requireErrorCode(t, err, rpcerr.CodeExecutionReverted)
+	var data ethrpc.DataError
+	require.ErrorAs(t, err, &data)
+	require.Equal(t, hexutil.Encode(revert), data.ErrorData())
 }
 
 func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
@@ -348,10 +349,10 @@ func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
 	// Verify: generic revert message, raw data still in ErrorData.
 	require.Nil(t, got)
 	require.EqualError(t, err, "execution reverted")
-	var revertErr *revertError
-	require.ErrorAs(t, err, &revertErr)
-	require.Equal(t, 3, revertErr.ErrorCode())
-	require.Equal(t, hexutil.Encode(revert), revertErr.ErrorData())
+	requireErrorCode(t, err, rpcerr.CodeExecutionReverted)
+	var data ethrpc.DataError
+	require.ErrorAs(t, err, &data)
+	require.Equal(t, hexutil.Encode(revert), data.ErrorData())
 }
 
 // requireSimulationChecksSkipped checks msg skips the nonce, EOA and gas limit cap checks.

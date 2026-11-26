@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -37,21 +38,6 @@ var (
 	errUnknownBlock = errors.New("unknown block")
 )
 
-// invalidParamsError is a JSON-RPC error reporting that the request's
-// parameters are invalid.
-type invalidParamsError struct {
-	error
-}
-
-// ErrorCode returns the JSON-RPC invalid params error code.
-func (*invalidParamsError) ErrorCode() int {
-	return -32602
-}
-
-func (e *invalidParamsError) Unwrap() error {
-	return e.error
-}
-
 type filterAPI struct {
 	backend Backend
 	store   receiptdb.ReceiptStore
@@ -71,7 +57,7 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 		return nil, err
 	}
 	if toBlock-fromBlock+1 > maxBlocksForLogs {
-		return nil, &invalidParamsError{error: errLogRangeTooWide}
+		return nil, rpcerr.InvalidParams(errLogRangeTooWide)
 	}
 	return api.rangeLogs(ctx, crit, fromBlock, toBlock)
 }
@@ -124,7 +110,7 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 		return 0, 0, err
 	}
 	if fromBlock > toBlock {
-		return 0, 0, &invalidParamsError{error: errLogRangeInverted}
+		return 0, 0, rpcerr.InvalidParams(errLogRangeInverted)
 	}
 	return fromBlock, toBlock, checkIndexed(fromBlock, toBlock, earliest, latest)
 }

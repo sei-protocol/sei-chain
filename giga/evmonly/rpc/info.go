@@ -13,7 +13,7 @@ import (
 	gmath "github.com/ethereum/go-ethereum/common/math"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -50,12 +50,12 @@ func (api *infoAPI) ChainId(_ context.Context) *hexutil.Big {
 
 // Syncing implements eth_syncing, matching v2: sync semantics are not exposed on this API.
 func (api *infoAPI) Syncing(_ context.Context) (any, error) {
-	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
+	return nil, rpcerr.ServerError(errors.New("eth_syncing is not supported on Sei EVM RPC"))
 }
 
 // BlobBaseFee implements eth_blobBaseFee, matching v2: Sei supports no blobs.
 func (*infoAPI) BlobBaseFee(context.Context) (*hexutil.Big, error) {
-	return nil, &evmrpc.ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+	return nil, rpcerr.ServerError(errors.New("blobs not supported on this chain"))
 }
 
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the

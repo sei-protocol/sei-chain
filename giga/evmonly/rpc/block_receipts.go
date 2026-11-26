@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -55,7 +56,7 @@ func (api *blockAPI) resolveReceiptsBlock(ctx context.Context, blockNrOrHash eth
 	}
 	number, ok := blockNrOrHash.Number()
 	if !ok {
-		return nil, &invalidParamsError{error: errBlockReceiptsNoBlock}
+		return nil, rpcerr.InvalidParams(errBlockReceiptsNoBlock)
 	}
 	kind, err := classifyBlockNumber(number)
 	if err != nil {

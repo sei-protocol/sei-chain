@@ -23,9 +23,9 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
@@ -298,16 +298,14 @@ func TestDebugTraceTransaction(t *testing.T) {
 		config   *tracers.TraceConfig
 		wantCode int
 	}{
-		{name: "unknown transaction", hash: common.HexToHash("0xdead"), wantCode: -32602},
-		{name: "transaction the block rejected", hash: chain.rejected.Hash(), wantCode: -32602},
-		{name: "JavaScript tracer", hash: second.Hash(), config: tracer("{result: function() { return 1 }}"), wantCode: -32602},
+		{name: "unknown transaction", hash: common.HexToHash("0xdead"), wantCode: rpcerr.CodeInvalidParams},
+		{name: "transaction the block rejected", hash: chain.rejected.Hash(), wantCode: rpcerr.CodeInvalidParams},
+		{name: "JavaScript tracer", hash: second.Hash(), config: tracer("{result: function() { return 1 }}"), wantCode: rpcerr.CodeInvalidParams},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got json.RawMessage
 			err := client.CallContext(t.Context(), &got, "debug_traceTransaction", tc.hash, tc.config)
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, err, &rpcErr)
-			require.Equal(t, tc.wantCode, rpcErr.ErrorCode())
+			requireErrorCode(t, err, tc.wantCode)
 		})
 	}
 }
@@ -522,9 +520,7 @@ func TestDebugTraceCall(t *testing.T) {
 		var got json.RawMessage
 		err := limited.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", config)
 		require.ErrorContains(t, err, errStateOverrideTooManyAccounts.Error())
-		var rpcErr ethrpc.Error
-		require.ErrorAs(t, err, &rpcErr)
-		require.Equal(t, -32602, rpcErr.ErrorCode())
+		requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 	})
 }
 
@@ -674,9 +670,7 @@ func TestDebugRawDataIsNotSupported(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			var got any
 			err := client.CallContext(t.Context(), &got, tc.method, tc.param)
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, err, &rpcErr)
-			require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+			requireErrorCode(t, err, rpcerr.CodeServerError)
 			require.Equal(t, tc.method+" is not supported on Sei EVM RPC", err.Error())
 		})
 	}

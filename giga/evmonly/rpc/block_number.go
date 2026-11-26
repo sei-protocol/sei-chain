@@ -6,6 +6,7 @@ import (
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 )
@@ -31,7 +32,7 @@ func classifyBlockNumber(number ethrpc.BlockNumber) (blockNumberKind, error) {
 		return earliestBlock, nil
 	}
 	if number < 0 {
-		return 0, &invalidParamsError{error: fmt.Errorf("%w: %d", errBlockTagUnsupported, number)}
+		return 0, rpcerr.InvalidParams(fmt.Errorf("%w: %d", errBlockTagUnsupported, number))
 	}
 	return heightBlock, nil
 }
@@ -43,7 +44,7 @@ func classifyFilterBound(bound *big.Int) (blockNumberKind, error) {
 		return headBlock, nil
 	}
 	if !bound.IsInt64() {
-		return 0, &invalidParamsError{error: fmt.Errorf("filter block number %s exceeds int64", bound)}
+		return 0, rpcerr.InvalidParams(fmt.Errorf("filter block number %s exceeds int64", bound))
 	}
 	return classifyBlockNumber(ethrpc.BlockNumber(bound.Int64()))
 }

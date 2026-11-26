@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 )
 
 func latestBlockSelector() *ethrpc.BlockNumberOrHash {
@@ -129,10 +130,10 @@ func TestEstimateGasSurfacesRevertReason(t *testing.T) {
 	require.Zero(t, got)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "insufficient balance")
-	var revertErr *revertError
-	require.ErrorAs(t, err, &revertErr)
-	require.Equal(t, 3, revertErr.ErrorCode())
-	require.Equal(t, hexutil.Encode(revert), revertErr.ErrorData())
+	requireErrorCode(t, err, rpcerr.CodeExecutionReverted)
+	var data ethrpc.DataError
+	require.ErrorAs(t, err, &data)
+	require.Equal(t, hexutil.Encode(revert), data.ErrorData())
 }
 
 func TestEstimateGasPassesThroughNonRevertError(t *testing.T) {
@@ -186,9 +187,10 @@ func TestEstimateGasRunsAgainstAPastBlock(t *testing.T) {
 
 		_, err := (&estimateAPI{backend: backend, blocks: &blockAPI{backend: backend}}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, &block, nil, nil)
 
-		var revert *revertError
-		require.ErrorAs(t, err, &revert)
-		require.Equal(t, hexutil.Encode(revertData("too early")), revert.ErrorData())
+		requireErrorCode(t, err, rpcerr.CodeExecutionReverted)
+		var data ethrpc.DataError
+		require.ErrorAs(t, err, &data)
+		require.Equal(t, hexutil.Encode(revertData("too early")), data.ErrorData())
 	})
 
 	t.Run("unknown hash", func(t *testing.T) {

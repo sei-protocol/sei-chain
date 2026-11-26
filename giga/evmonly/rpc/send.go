@@ -13,17 +13,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-// limitExceededError reports a request exceeding an RPC resource limit.
-type limitExceededError struct{}
-
-func (limitExceededError) ErrorCode() int { return -32005 }
-func (limitExceededError) Error() string  { return "server busy" }
 
 type sendAPI struct {
 	backend        Backend
@@ -42,13 +37,15 @@ var (
 	errUnprotectedTx = errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
 	// errInvalidChainID rejects a transaction signed for another chain.
 	errInvalidChainID = errors.New("invalid chain-id")
+	// errSendBusy refuses a transaction while every send slot is taken.
+	errSendBusy = errors.New(rpcerr.MsgServerBusy)
 )
 
 // SendRawTransaction submits a signed raw Ethereum transaction to Autobahn and
 // returns its Ethereum transaction hash.
 func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (common.Hash, error) {
 	if !api.requestLimiter.TryAcquire(1) {
-		return common.Hash{}, limitExceededError{}
+		return common.Hash{}, rpcerr.LimitExceeded(errSendBusy)
 	}
 	defer api.requestLimiter.Release(1)
 	tx := new(ethtypes.Transaction)

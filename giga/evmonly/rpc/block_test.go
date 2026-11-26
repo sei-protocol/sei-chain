@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
@@ -148,8 +149,7 @@ func TestGetBlockByNumberEarliestNamesTheEarliestRetainedBlock(t *testing.T) {
 func TestGetBlockByNumberRejectsAnUnknownTag(t *testing.T) {
 	got, err := (&blockAPI{backend: &testBackend{}, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(-6), false)
 
-	var invalid *invalidParamsError
-	require.ErrorAs(t, err, &invalid)
+	requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 	require.ErrorIs(t, err, errBlockTagUnsupported)
 	require.Nil(t, got)
 }

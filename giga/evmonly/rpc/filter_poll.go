@@ -11,8 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
-
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -36,7 +35,7 @@ func (api *filterAPI) NewBlockFilter(ctx context.Context) (ethrpc.ID, error) {
 
 // NewPendingTransactionFilter returns the regular RPC's not-supported error.
 func (api *filterAPI) NewPendingTransactionFilter(context.Context, *bool) (ethrpc.ID, error) {
-	return "", &evmrpc.ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
+	return "", rpcerr.ServerError(errors.New("eth_newPendingTransactionFilter is not supported on Sei EVM RPC"))
 }
 
 // GetFilterChanges returns what filter id matched since its previous poll: block hashes for a
@@ -121,7 +120,7 @@ func (api *filterAPI) pollStart(ctx context.Context, crit filters.FilterCriteria
 		crit.ToBlock = new(big.Int).SetUint64(earliest)
 	}
 	if to := crit.ToBlock.Uint64(); to < start {
-		return crit, 0, &invalidParamsError{error: fmt.Errorf("toBlock %d is before the filter's start block %d", to, start)}
+		return crit, 0, rpcerr.InvalidParams(fmt.Errorf("toBlock %d is before the filter's start block %d", to, start))
 	}
 	return crit, start, nil
 }

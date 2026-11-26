@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
@@ -92,7 +93,7 @@ func (api *estimateAPI) estimateAfterCalls(
 	estimate, revert, err := api.estimate(ctx, callMsgs, msg, height, latest, overrides)
 	if err != nil {
 		if errors.Is(err, vm.ErrExecutionReverted) {
-			return 0, newRevertError(revert)
+			return 0, rpcerr.ExecutionReverted(revert)
 		}
 		return 0, err
 	}
