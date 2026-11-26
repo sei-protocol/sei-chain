@@ -129,6 +129,51 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.Nil(t, rb.Block)
 }
 
+// TestGigaFullnode_EvmProxyRelaysThroughConnectedValidator checks that a fullnode
+// connected to only part of the committee still proxies every sender: to the shard
+// owner when connected to it, and otherwise to a connected validator that is the same
+// for every call by that sender.
+func TestGigaFullnode_EvmProxyRelaysThroughConnectedValidator(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := atypes.GenCommittee(rng, 5)
+	state, _ := testDataState(t, committee)
+	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+		DialInterval: time.Second,
+		App:          abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
+	}, makeKey(rng), state, newTestSigner(1, 0))
+	require.NoError(t, err)
+
+	sender := func() common.Address { return common.BytesToAddress(utils.GenBytes(rng, common.AddressLength)) }
+	require.False(t, router.EvmProxy(sender()).IsPresent())
+
+	connected := map[atypes.PublicKey]*ethrpc.Client{}
+	relays := map[*ethrpc.Client]struct{}{}
+	for i, key := range keys[:2] {
+		rpcURL := *utils.OrPanic1(url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i)))
+		client := registerEvmProxyForTest(t, router.gigaRouterCommon, key.Public(), rpcURL)
+		connected[key.Public()] = client
+		relays[client] = struct{}{}
+	}
+
+	usedRelays := map[*ethrpc.Client]struct{}{}
+	for range 200 {
+		sender := sender()
+		client, ok := router.EvmProxy(sender).Get()
+		require.True(t, ok)
+		require.Equal(t, client, router.EvmProxy(sender).OrPanic("EvmProxy"))
+		owner := committee.EvmShard(sender)
+		if ownerClient, ok := connected[owner]; ok {
+			require.Equal(t, ownerClient, client)
+			continue
+		}
+		_, isRelay := relays[client]
+		require.True(t, isRelay)
+		usedRelays[client] = struct{}{}
+	}
+	// Senders of unconnected owners are spread across the connected validators.
+	require.Equal(t, relays, usedRelays)
+}
+
 func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := atypes.GenCommittee(rng, 2)

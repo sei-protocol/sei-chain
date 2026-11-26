@@ -2,6 +2,9 @@ package p2p
 
 import (
 	"context"
+	"encoding/binary"
+	"maps"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -59,10 +62,33 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 // every transaction.
 func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
 
-// EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
-// EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
+// EvmProxy on the fullnode returns the shard owner's EVM RPC client or, when the
+// owner is not connected, a relay validator's client. It returns None only when no
+// validator is connected. EnableEvmProxy is a no-op here because fullnodes do not
+// have a local mempool.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender))
+	if client, ok := r.evmProxy(r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)).Get(); ok {
+		return utils.Some(client)
+	}
+	return r.relayEvmProxy(sender)
+}
+
+// relayEvmProxy returns the EVM RPC client of a connected validator chosen by
+// sender, or None if no validator is connected.
+func (r *gigaFullnodeRouter) relayEvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
+	for proxies := range r.proxies.RLock() {
+		if len(proxies) == 0 {
+			return utils.None[*ethrpc.Client]()
+		}
+		// The relay forwards to the shard owner when connected to it, and otherwise
+		// keeps the tx in its own mempool. Choosing the relay by sender keeps a sender's
+		// sends and pending-nonce queries on the same relay while the connection set
+		// is unchanged, and spreads senders across relays.
+		validators := slices.SortedFunc(maps.Keys(proxies), atypes.PublicKey.Compare)
+		relay := validators[binary.BigEndian.Uint64(sender[:8])%uint64(len(validators))]
+		return utils.Some(proxies[relay])
+	}
+	panic("unreachable")
 }
 
 // runCommitteeConnections maintains block-sync and EVM RPC connections to every committee member.
