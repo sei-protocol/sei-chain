@@ -382,7 +382,8 @@ func ProposalAt(ep *Epoch, view View) *Proposal {
 	return p
 }
 
-// ProposalWithParent is ProposalAt with a lane range that continues from parent, and the given parent hash.
+// ProposalWithParent is ProposalAt(ep, view) with lane ranges that continue from parent and a
+// header that names parentHash as its parent hash.
 func ProposalWithParent(ep *Epoch, view View, parent utils.Option[*CommitQC], parentHash utils.Option[RoadBlockHeaderHash]) *Proposal {
 	p, _ := proposalAtBlocks(ep, view, 1, parent, parentHash)
 	return p
@@ -393,8 +394,9 @@ func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*LaneBlock) {
 	return proposalAtBlocks(ep, view, n, utils.None[*CommitQC](), utils.None[RoadBlockHeaderHash]())
 }
 
-// proposalAtBlocks returns a Proposal at view with parentHash and a lane range of n blocks, n >= 1,
-// together with those blocks. Each lane range continues from parent.
+// proposalAtBlocks returns a Proposal of ep at view, together with n >= 1 new lane blocks on the
+// first lane of the committee of ep. The header of the Proposal names parentHash as its parent hash,
+// and each of its lane ranges continues from parent.
 func proposalAtBlocks(ep *Epoch, view View, n int, parent utils.Option[*CommitQC], parentHash utils.Option[RoadBlockHeaderHash]) (*Proposal, []*LaneBlock) {
 	view.EpochIndex = ep.EpochIndex()
 	lanes := ep.Committee().Lanes()

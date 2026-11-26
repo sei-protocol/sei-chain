@@ -290,8 +290,8 @@ func TestRoadBlockHeaderVerifyWithParent(t *testing.T) {
 	first := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
 	second := BuildCommitQC(ep, keys, utils.Some(first), nil)
 	lane := committee.Lanes().At(0)
-	// secondWith is the header of second with the height, the parent hash, and the ranges of lane replaced.
-	// A call with no range omits lane.
+	// secondWith returns the header of second with height, parentHash, and rs as the ranges of lane.
+	// With no rs, the header omits lane.
 	secondWith := func(height RoadHeight, parentHash utils.Option[RoadBlockHeaderHash], rs ...*LaneRange) *RoadBlockHeader {
 		laneRanges := slices.Clone(rs)
 		for l := range committee.Lanes().All() {

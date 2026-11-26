@@ -43,8 +43,9 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 	return m.Header().LaneRange(lane)
 }
 
-// Verify checks the CommitQC against the epoch and against parent, the CommitQC of the road
-// block before it. A None parent means the QC finalizes the first road block of the chain.
+// Verify checks that the header of the CommitQC is valid in ep and follows parent, and that a
+// commit quorum of the committee of ep signed the CommitQC. parent is the CommitQC of the previous
+// road block, or None when the CommitQC finalizes the first road block of the chain.
 func (m *CommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	if err := m.Header().VerifyWithParent(ep, parent); err != nil {
 		return err
@@ -53,7 +54,8 @@ func (m *CommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	return m.vote.verifyQC(c, c.CommitQuorum(), m.sigs)
 }
 
-// verifyWithoutParent checks the CommitQC against the epoch only.
+// verifyWithoutParent checks that the header of the CommitQC is valid in ep and that a commit
+// quorum of the committee of ep signed the CommitQC. It does not check the previous road block.
 func (m *CommitQC) verifyWithoutParent(ep *Epoch) error {
 	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
@@ -92,8 +94,8 @@ func (m *FullCommitQC) Height() RoadHeight {
 	return m.qc.Height()
 }
 
-// Verify checks the FullCommitQC against the epoch and against parent, the CommitQC of the
-// road block before it.
+// Verify checks the CommitQC of the FullCommitQC with CommitQC.Verify(ep, parent), and checks
+// that the lane block headers of the FullCommitQC are the ones that the CommitQC finalizes.
 func (m *FullCommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	if err := m.qc.Verify(ep, parent); err != nil {
 		return fmt.Errorf("qC: %w", err)
@@ -101,7 +103,8 @@ func (m *FullCommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	return m.verifyHeaders(ep)
 }
 
-// verifyWithoutParent checks the FullCommitQC against the epoch only.
+// verifyWithoutParent checks the CommitQC of the FullCommitQC against ep without a parent, and
+// checks that the lane block headers of the FullCommitQC are the ones that the CommitQC finalizes.
 func (m *FullCommitQC) verifyWithoutParent(ep *Epoch) error {
 	if err := m.qc.verifyWithoutParent(ep); err != nil {
 		return fmt.Errorf("qC: %w", err)
@@ -109,7 +112,8 @@ func (m *FullCommitQC) verifyWithoutParent(ep *Epoch) error {
 	return m.verifyHeaders(ep)
 }
 
-// verifyHeaders checks that the lane block headers are the ones the lane ranges of the QC finalize.
+// verifyHeaders checks that the lane block headers of the FullCommitQC are the ones that the lane
+// ranges of its CommitQC finalize, for each lane of the committee of ep.
 func (m *FullCommitQC) verifyHeaders(ep *Epoch) error {
 	n := uint64(0)
 	if want, got := int(m.Header().NumBlocks()), len(m.headers); want != got { //nolint:gosec // lane block count is bounded by the committee size and per-lane limit

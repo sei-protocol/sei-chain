@@ -80,8 +80,8 @@ type inner struct {
 	anchor utils.AtomicSend[Anchor]
 }
 
-// lastCommitQC returns the CommitQC of the road block before nextPartialBlock, or None when no road
-// block is retained before it.
+// lastCommitQC returns the CommitQC of the road block at height i.nextPartialBlock - 1, or None
+// when i holds no road block below i.nextPartialBlock.
 func (i *inner) lastCommitQC() utils.Option[*types.CommitQC] {
 	if i.nextPartialBlock > i.first {
 		return utils.Some(i.blocks[i.nextPartialBlock-1].qc.QC())

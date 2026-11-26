@@ -113,8 +113,8 @@ func (m *RoadBlockHeader) Height() RoadHeight { return m.height }
 // It is None only for the first road block of the chain.
 func (m *RoadBlockHeader) ParentHash() utils.Option[RoadBlockHeaderHash] { return m.parentHash }
 
-// nextRoadHeight returns the height of the road block after parent, or the first road height
-// of ep when parent is None.
+// nextRoadHeight returns the height after the road block that parent finalizes, or the first road
+// height of ep when parent is None.
 func nextRoadHeight(ep *Epoch, parent utils.Option[*CommitQC]) RoadHeight {
 	if qc, ok := parent.Get(); ok {
 		return qc.Height() + 1
@@ -122,11 +122,11 @@ func nextRoadHeight(ep *Epoch, parent utils.Option[*CommitQC]) RoadHeight {
 	return ep.RoadRange().First
 }
 
-// VerifyWithParent checks that the header is valid in ep and directly follows parent, the
-// CommitQC of the road block before it. The header must name the hash of the parent header,
-// sit at the next road height, and start each committee lane where parent stopped. A None
-// parent means the header is the first road block of the chain. The signatures of parent are
-// not checked, so the caller verifies parent.
+// VerifyWithParent checks that the RoadBlockHeader is valid in ep and directly follows parent, the
+// CommitQC of the previous road block. The RoadBlockHeader must name the hash of the header of
+// parent, sit at the height after parent, and start each lane of the committee of ep where parent
+// stopped. When parent is None, the RoadBlockHeader must name no parent hash, sit at the first road
+// height of ep, and start each lane at 0. VerifyWithParent does not check the signatures of parent.
 func (m *RoadBlockHeader) VerifyWithParent(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	if err := m.Verify(ep); err != nil {
 		return err
@@ -237,8 +237,9 @@ func (b *RoadBlock) SuperBlock() *SuperBlock {
 	return superBlock
 }
 
-// Verify checks the QC against the epoch and against parent, the CommitQC of the road block
-// before it, and checks the lane blocks in header order.
+// Verify checks the FullCommitQC of the RoadBlock with FullCommitQC.Verify(ep, parent), and checks
+// that the lane blocks of the RoadBlock are the ones that the FullCommitQC finalizes, in header
+// order. parent is the CommitQC of the previous road block, or None for the first road block.
 func (b *RoadBlock) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	if err := b.qc.Verify(ep, parent); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
@@ -246,8 +247,9 @@ func (b *RoadBlock) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
 	return b.verifyBlocks()
 }
 
-// VerifyWithoutParent checks the QC against the epoch and the lane blocks in header order, but
-// not the link to the road block before it.
+// VerifyWithoutParent checks the FullCommitQC of the RoadBlock against ep without a parent, and
+// checks that the lane blocks of the RoadBlock are the ones that the FullCommitQC finalizes, in
+// header order. It does not check that the RoadBlock follows the previous road block.
 func (b *RoadBlock) VerifyWithoutParent(ep *Epoch) error {
 	if err := b.qc.verifyWithoutParent(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
@@ -255,7 +257,8 @@ func (b *RoadBlock) VerifyWithoutParent(ep *Epoch) error {
 	return b.verifyBlocks()
 }
 
-// verifyBlocks checks that the lane blocks are the ones the QC finalizes, in header order.
+// verifyBlocks checks that each lane block of the RoadBlock is valid and is the one that the
+// FullCommitQC of the RoadBlock finalizes, in header order.
 func (b *RoadBlock) verifyBlocks() error {
 	if len(b.blocks) != len(b.qc.Headers()) {
 		return ErrQCBlocksMismatch
