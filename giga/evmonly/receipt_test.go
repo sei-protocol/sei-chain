@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
@@ -173,7 +174,7 @@ func TestExecutorSubmitsTheReceiptsOfNonceConsumingTransactions(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs: [][]byte{
+		Txs: []abevm.RawTx{
 			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(5), nil),
 			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(9), nil),
 			signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(6), nil),

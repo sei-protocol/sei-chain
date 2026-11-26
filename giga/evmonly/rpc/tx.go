@@ -17,7 +17,6 @@ import (
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -135,8 +134,8 @@ func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evm
 	}
 
 	height := int64(stored.BlockNumber)
-	block, err := api.backend.BlockByNumber(ctx, utils.Some(height))
-	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) {
+	block, err := loadBackendBlock(ctx, api.backend, utils.Some(height))
+	if errors.Is(err, errBlockAboveHead) {
 		return nil, nil, nil
 	}
 	if err != nil {

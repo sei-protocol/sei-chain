@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"fmt"
 	"math/big"
 	"testing"
@@ -42,7 +44,7 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			block.GasLimit = 42_000
 			result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 				Context: block,
-				Txs:     [][]byte{stale, first, first, next, next},
+				Txs:     []abevm.RawTx{stale, first, first, next, next},
 			})
 			require.NoError(t, err)
 			defer result.Release()
@@ -82,7 +84,7 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 
 			// A replay must preserve the receipt of the original execution.
 			block.Number = 2
-			replayed, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{first}})
+			replayed, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: []abevm.RawTx{first}})
 			require.NoError(t, err)
 			defer replayed.Release()
 			require.True(t, replayed.ChangeSet.IsEmpty())

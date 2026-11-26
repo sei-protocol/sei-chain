@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"math/big"
 	"testing"
 
@@ -24,7 +26,7 @@ func TestExecutorRejectsSpentNonceWithoutFailingBlock(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 
-		txs := [][]byte{
+		txs := []abevm.RawTx{
 			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(5), nil),
 			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(9), nil),
 			signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(6), nil),
@@ -83,7 +85,7 @@ func TestExecutorRejectsTxOverBlockGasWithoutFailingBlock(t *testing.T) {
 		executor := NewExecutor(cfg, withTestState(state))
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockCtx,
-			Txs: [][]byte{
+			Txs: []abevm.RawTx{
 				signLegacyTxWithGas(t, key0, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
 				signLegacyTxWithGas(t, key1, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
 			},
@@ -125,7 +127,7 @@ func TestExecutorRejectionRestoresBlockGasPool(t *testing.T) {
 	executor := NewExecutor(Config{RejectUnappliableTxs: true}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockCtx,
-		Txs: [][]byte{
+		Txs: []abevm.RawTx{
 			signLegacyTxWithGas(t, key0, chainID, 0, &recipient, big.NewInt(1), data, 21_000),
 			signLegacyTxWithGas(t, key1, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
 			signLegacyTxWithGas(t, key2, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
@@ -161,7 +163,7 @@ func TestExecutorRejectsUnderfundedTxWithoutFailingBlock(t *testing.T) {
 	executor := NewExecutor(Config{RejectUnappliableTxs: true}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs: [][]byte{
+		Txs: []abevm.RawTx{
 			signLegacyTx(t, poorKey, chainID, 0, &recipient, big.NewInt(1), nil),
 			signLegacyTx(t, richKey, chainID, 0, &recipient, big.NewInt(4), nil),
 		},
@@ -210,7 +212,7 @@ func TestExecutorDefaultStillAbortsOnUnappliableTx(t *testing.T) {
 	executor := NewExecutor(Config{}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)},
+		Txs:     []abevm.RawTx{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)},
 	})
 
 	require.Error(t, err)

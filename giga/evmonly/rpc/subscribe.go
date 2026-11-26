@@ -222,7 +222,7 @@ func (api *subscribeAPI) streamHeads(
 // commit recorded while window still holds height; for an older height the
 // receipt store is read instead, yielding zero until its receipts land.
 func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadHeight, window atypes.ExecutedBlocks) (map[string]any, error) {
-	block, err := api.backend.BlockByNumber(ctx, utils.Some(utils.Clamp[int64](height)))
+	block, err := loadBackendBlock(ctx, api.backend, utils.Some(utils.Clamp[int64](height)))
 	if err != nil {
 		return nil, err
 	}

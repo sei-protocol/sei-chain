@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"net/http/httptest"
 	"testing"
@@ -22,6 +21,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -100,9 +100,20 @@ func TestGetBlockByNumberAcceptsAnExplicitHistoricalHeight(t *testing.T) {
 	require.Equal(t, (*hexutil.Big)(big.NewInt(3)), got["number"])
 }
 
+func TestLoadBackendBlockRejectsNonPositiveHeights(t *testing.T) {
+	for _, height := range []int64{-1, 0} {
+		// No block callback is installed: invalid heights must not reach the backend.
+		block, err := loadBackendBlock(t.Context(), &testBackend{}, utils.Some(height))
+		require.Nil(t, block)
+		require.ErrorIs(t, err, errZeroOrNegativeHeight)
+		var invalid *invalidParamsError
+		require.ErrorAs(t, err, &invalid)
+	}
+}
+
 func TestGetBlockByNumberReturnsNullForAFutureHeight(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return nil, fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)
+		return nil, nil
 	})
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(100), false)
@@ -129,7 +140,7 @@ func TestGetBlockByNumberEarliestNamesTheEarliestRetainedBlock(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 				require.NotNil(t, req.Height)
 				require.Equal(t, tc.wantHeight, *req.Height)
-				return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, *req.Height)
+				return nil, nil
 			})
 			backend.initialHeight = tc.initialHeight
 			store := evmonly.NewMemoryReceiptStore()
@@ -156,12 +167,12 @@ func TestGetBlockByNumberRejectsAnUnknownTag(t *testing.T) {
 
 func TestGetBlockByNumberReturnsErrorForAPrunedHeight(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		return nil, coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]())
+		return nil, abevm.ErrPruned
 	})
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(1), false)
 
-	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
+	require.ErrorIs(t, err, abevm.ErrPruned)
 	require.Nil(t, got)
 }
 
@@ -563,13 +574,13 @@ func TestGetBlockTransactionCountByNumber(t *testing.T) {
 		{name: "explicit historical height", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), block: twoTxBlock, want: countOf(2)},
 		{name: "empty block is zero, not null", number: ethrpc.LatestBlockNumber, block: emptyBlock, want: countOf(0)},
 		// Heights with no block answer null, not an error.
-		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
+		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100)},
 		{name: "nil block", number: ethrpc.LatestBlockNumber},
 		// earliest and 0x0 name the chain's first block in an unpruned store.
 		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(1), block: twoTxBlock, want: countOf(2)},
 		{name: "0x0", number: ethrpc.BlockNumber(0), wantHeight: heightOf(1), block: twoTxBlock, want: countOf(2)},
 		// A pruned height and any other backend failure are errors.
-		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
+		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: abevm.ErrPruned, wantErr: abevm.ErrPruned},
 		{name: "unexpected backend error", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), blockErr: backendErr, wantErr: backendErr},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -751,12 +762,12 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 		{name: "index beyond int range", number: ethrpc.LatestBlockNumber, index: hexutil.Uint(^uint(0)), block: twoTxBlock},
 		{name: "empty block", number: ethrpc.LatestBlockNumber, index: 0, block: emptyBlock},
 		// Heights with no block answer null, not an error.
-		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
+		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100)},
 		{name: "earliest", number: ethrpc.EarliestBlockNumber, index: 0, wantHeight: heightOf(1), block: twoTxBlock, want: tx1},
 		{name: "0x0", number: ethrpc.BlockNumber(0), index: 1, wantHeight: heightOf(1), block: twoTxBlock, want: tx2},
 		{name: "nil block", number: ethrpc.LatestBlockNumber},
 		// A pruned height and any other backend failure are errors.
-		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
+		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: abevm.ErrPruned, wantErr: abevm.ErrPruned},
 		{name: "unexpected backend error", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), blockErr: backendErr, wantErr: backendErr},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

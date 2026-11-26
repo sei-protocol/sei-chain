@@ -260,7 +260,11 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
-	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, stored.Txs[:txIndex])
+	txs := make([]abevm.RawTx, txIndex)
+	for i, tx := range stored.Txs[:txIndex] {
+		txs[i] = tx
+	}
+	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, txs)
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}

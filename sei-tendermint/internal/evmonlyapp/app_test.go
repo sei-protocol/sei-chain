@@ -75,13 +75,9 @@ func signedEVMOnlyTestTxFrom(t *testing.T, key *ecdsa.PrivateKey, chainID uint64
 	return raw
 }
 
-func evmOnlyTestBlock(app abevm.Application, height int64, txs ...[]byte) abevm.FinalizeBlockReq {
-	raw := make([]abevm.RawTx, len(txs))
-	for i, tx := range txs {
-		raw[i] = tx
-	}
+func evmOnlyTestBlock(app abevm.Application, height int64, txs ...abevm.RawTx) abevm.FinalizeBlockReq {
 	return abevm.FinalizeBlockReq{
-		Txs:  utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs(raw)),
+		Txs:  utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs(txs)),
 		Hash: common.BytesToHash(crypto.Keccak256(binary.BigEndian.AppendUint64([]byte("block-"), uint64(height)))), //nolint:gosec // G115: test heights are positive.
 
 		Height: atypes.RoadHeight(height),

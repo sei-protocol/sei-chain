@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -207,7 +207,7 @@ func TestCallRunsAtTheFirstBlockOfALaterChain(t *testing.T) {
 			stored := backend.block
 			backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 				if req.Height != nil && *req.Height < 3 {
-					return nil, coretypes.WrapErrHeightNotAvailable(int64(*req.Height), utils.Some(int64(3)))
+					return nil, abevm.ErrPruned
 				}
 				return stored(ctx, req)
 			}

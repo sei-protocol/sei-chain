@@ -70,7 +70,7 @@ type testBackend struct {
 
 	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
 	stateAt       func(context.Context, int64) (vm.SeiStateDB, func(), error)
-	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error)
+	stateBeforeTx func(context.Context, *ethtypes.Header, []abevm.RawTx) (vm.SeiStateDB, func(), error)
 }
 
 func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
@@ -81,7 +81,7 @@ func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.SeiState
 	return b.stateAt(ctx, height)
 }
 
-func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs []abevm.RawTx) (vm.SeiStateDB, func(), error) {
 	return b.stateBeforeTx(ctx, header, txs)
 }
 
@@ -93,14 +93,14 @@ func (b *testBackend) InsertTx(ctx context.Context, tx abevm.RawTx) (common.Hash
 	return b.insertTx(ctx, tx)
 }
 
-func (b *testBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+func (b *testBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error) {
 	req := &coretypes.RequestBlockInfo{}
 	if h, ok := height.Get(); ok {
 		value := coretypes.Int64(h)
 		req.Height = &value
 	}
 	result, err := b.block(ctx, req)
-	return nativeTestBlock(result, err)
+	return optionalTestBlock(result, err)
 }
 
 func (b *testBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {

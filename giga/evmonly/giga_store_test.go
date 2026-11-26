@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 
@@ -240,7 +241,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	)
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockCtx,
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.NoError(t, err)
@@ -264,7 +265,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	snapshot := newMemoryGigaSnapshot(8)
-	rawTxs := make([][]byte, 0, 2)
+	rawTxs := make([]abevm.RawTx, 0, 2)
 	recipients := make([]common.Address, 0, 2)
 	for i := range 2 {
 		key, err := crypto.GenerateKey()
@@ -392,7 +393,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -446,7 +447,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.ErrorIs(t, err, commitErr)

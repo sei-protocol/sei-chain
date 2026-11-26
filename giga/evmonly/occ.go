@@ -16,6 +16,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -51,27 +52,25 @@ type occTxRange struct {
 }
 
 type occSpeculativeRunner struct {
-	executor      *Executor
-	req           PreparedBlock
-	chainConfig   *params.ChainConfig
-	blockCtx      vm.BlockContext
-	baseFee       *big.Int
-	blockGasLimit uint64
+	executor    *Executor
+	context     BlockContext
+	txs         []abevm.EvmTx
+	chainConfig *params.ChainConfig
+	blockCtx    vm.BlockContext
 }
 
-func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunner {
+func newOCCSpeculativeRunner(e *Executor, context BlockContext, txs []abevm.EvmTx) occSpeculativeRunner {
 	return occSpeculativeRunner{
-		executor:      e,
-		req:           req,
-		chainConfig:   e.chainConfig(req.Context),
-		blockCtx:      EVMBlockContext(req.Context),
-		baseFee:       cloneOptionalBig(req.Context.BaseFee),
-		blockGasLimit: req.Context.GasLimit,
+		executor:    e,
+		context:     context,
+		txs:         txs,
+		chainConfig: e.chainConfig(context),
+		blockCtx:    EVMBlockContext(context),
 	}
 }
 
-func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
-	runner := newOCCSpeculativeRunner(e, req)
+func (e *Executor) executeBlockOCC(ctx context.Context, req OrderedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
+	runner := newOCCSpeculativeRunner(e, req.Context, req.Txs)
 	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 
@@ -113,7 +112,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	return result, nil
 }
 
-func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, source StateReader, validation occValidationResult, reason string) (*BlockResult, error) {
+func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req OrderedBlock, source StateReader, validation occValidationResult, reason string) (*BlockResult, error) {
 	if reason != "" {
 		validation.fallbackReason = reason
 	}
@@ -130,7 +129,6 @@ func (r occSpeculativeRunner) runRanges(
 	pool *occWorkerPool,
 	ranges []occTxRange,
 	source StateReader,
-	gasLimit uint64,
 	results []occTxExecution,
 ) error {
 	if len(ranges) == 0 {
@@ -159,7 +157,7 @@ func (r occSpeculativeRunner) runRanges(
 					incarnation:  0,
 					sourcePrefix: 0,
 					source:       source,
-					gasLimit:     gasLimit,
+					gasLimit:     r.blockCtx.GasLimit,
 				}
 				if err := r.executeTaskInto(workerCtx, evm, stateDB, task, results); err != nil {
 					return err
@@ -179,7 +177,7 @@ func (r occSpeculativeRunner) speculate(
 	filled []bool,
 ) error {
 	if filled == nil {
-		return r.runRanges(ctx, pool, occRanges(len(results), occChunkSize(len(results), workers)), source, r.blockGasLimit, results)
+		return r.runRanges(ctx, pool, occRanges(len(results), occChunkSize(len(results), workers)), source, results)
 	}
 	tasks := make([]occExecutionTask, 0, len(results))
 	for i, done := range filled {
@@ -188,7 +186,7 @@ func (r occSpeculativeRunner) speculate(
 				txIndex:     i,
 				txIndexUint: uint(i), //nolint:gosec // i is a non-negative transaction index.
 				source:      source,
-				gasLimit:    r.blockGasLimit,
+				gasLimit:    r.blockCtx.GasLimit,
 			})
 		}
 	}
@@ -225,10 +223,11 @@ func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, evm *vm.EVM, 
 	result, err := r.executor.executeTxSpeculative(
 		ctx,
 		task.source,
-		r.req,
+		r.context,
+		r.txs[task.txIndex],
 		task.txIndex,
 		task.txIndexUint,
-		r.baseFee,
+		r.blockCtx.BaseFee,
 		task.gasLimit,
 		evm,
 		stateDB,
@@ -272,7 +271,8 @@ func occChunkSize(txCount int, workers int) int {
 func (e *Executor) executeTxSpeculative(
 	ctx context.Context,
 	source StateReader,
-	req PreparedBlock,
+	block BlockContext,
+	p abevm.EvmTx,
 	txIndex int,
 	txIndexUint uint,
 	baseFee *big.Int,
@@ -283,7 +283,6 @@ func (e *Executor) executeTxSpeculative(
 	if err := ctx.Err(); err != nil {
 		return occTxExecution{}, err
 	}
-	p := req.Txs[txIndex]
 	stateDB.reset(source)
 	stateDB.enableAccessTracking()
 	evm.StateDB = stateDB
@@ -293,7 +292,7 @@ func (e *Executor) executeTxSpeculative(
 		evm,
 		stateDB,
 		gasPool,
-		req.Context,
+		block,
 		p,
 		txIndex,
 		txIndexUint,
@@ -439,7 +438,7 @@ func validateBlockSTMFrontier(
 			state.writes,
 			result,
 			state.cumulativeGasUsed,
-			runner.blockGasLimit,
+			runner.blockCtx.GasLimit,
 			result.sourcePrefix,
 			txIndex,
 			txIndex,
@@ -454,7 +453,7 @@ func validateBlockSTMFrontier(
 				txIndex,
 				txIndexUint,
 				state.prefix,
-				availableGas(runner.blockGasLimit, state.cumulativeGasUsed),
+				availableGas(runner.blockCtx.GasLimit, state.cumulativeGasUsed),
 			)
 			if err != nil {
 				return nil, err
@@ -731,7 +730,9 @@ func fillMergedRange(blockResult *BlockResult, results []occTxExecution, start i
 		result.txResult.CumulativeGasUsed = gasUsed
 		if result.receipt != nil {
 			result.receipt.CumulativeGasUsed = gasUsed
+			result.receipt.TransactionIndex = uint(i) //nolint:gosec // i is a non-negative transaction index.
 			for _, log := range result.receipt.Logs {
+				log.TxIndex = result.receipt.TransactionIndex
 				log.Index = logIndex
 				logIndex++
 			}

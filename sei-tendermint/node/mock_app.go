@@ -124,8 +124,11 @@ func (app *MockApp) InitChain(req abevm.InitConfig) error {
 func (app *MockApp) RestoreBlockTime(time.Time) {}
 
 // BlockTxsHashes returns an empty transaction list.
-func (app *MockApp) BlockTxsHashes(int64) ([]common.Hash, error) {
-	return []common.Hash{}, nil
+func (app *MockApp) BlockTxsHashes(height int64) (utils.Option[[]common.Hash], error) {
+	if height > app.EvmBlockNumber() {
+		return utils.None[[]common.Hash](), nil
+	}
+	return utils.Some([]common.Hash{}), nil
 }
 
 // EvmBlockNumber returns the latest height available for EVM block queries.
@@ -273,7 +276,7 @@ func (app *MockApp) EvmStateAt(context.Context, int64) (*abevm.StateHandle, erro
 }
 
 // EvmStateBeforeTx always errors: the mock app keeps no EVM state to trace against.
-func (app *MockApp) EvmStateBeforeTx(context.Context, abevm.BlockRef, [][]byte) (*abevm.StateHandle, error) {
+func (app *MockApp) EvmStateBeforeTx(context.Context, abevm.BlockRef, []abevm.RawTx) (*abevm.StateHandle, error) {
 	return nil, errMockAppNoExecution
 }
 

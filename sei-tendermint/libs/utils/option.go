@@ -40,6 +40,14 @@ func (o Option[T]) Or(def T) T {
 	return def
 }
 
+// OrWith returns the value if present, otherwise calls fallback and returns its result.
+func (o Option[T]) OrWith(fallback func() T) T {
+	if o.isPresent {
+		return o.value
+	}
+	return fallback()
+}
+
 func (o Option[T]) OrPanic(msg string) T {
 	if o.isPresent {
 		return o.value

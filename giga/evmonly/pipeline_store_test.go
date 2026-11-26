@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"errors"
 	"math/big"
 	"testing"
@@ -212,7 +214,7 @@ func TestCloseWaitsForTheCommitOfABlockInFlight(t *testing.T) {
 	blockCtx.Number = 41
 	prepared, err := executor.PrepareBlock(BlockRequest{
 		Context: blockCtx,
-		Txs:     [][]byte{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)},
+		Txs:     []abevm.RawTx{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)},
 	})
 	require.NoError(t, err)
 	blockErr := make(chan error, 1)
@@ -269,7 +271,7 @@ func TestLargeBlockWithAClosedPoolStoresItsReceipts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			chainID := big.NewInt(testChainID)
 			state := NewMemoryState()
-			txs := make([][]byte, 0, occParallelReceiptThreshold)
+			txs := make([]abevm.RawTx, 0, occParallelReceiptThreshold)
 			for i := range occParallelReceiptThreshold {
 				key, err := crypto.GenerateKey()
 				require.NoError(t, err)
@@ -297,7 +299,7 @@ func TestLargeBlockWithAClosedPoolStoresItsReceipts(t *testing.T) {
 
 // executePipelinedBlock runs one block through the pipelined path, which returns before the block's
 // commit has landed.
-func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, number uint64, txs ...[]byte) *BlockResult {
+func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, number uint64, txs ...abevm.RawTx) *BlockResult {
 	t.Helper()
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = number

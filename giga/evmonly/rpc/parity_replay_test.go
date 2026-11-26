@@ -89,8 +89,9 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 	for _, block := range fixture.Blocks {
 		blockCtx := replayBlockContext(chainID, block)
 		result, err := executor.ExecuteBlock(t.Context(), evmonly.BlockRequest{
-			Context: blockCtx,
-			Txs:     rawTxs(block),
+			Context:    blockCtx,
+			Txs:        rawTxs(block),
+			TxsOrdered: true,
 		})
 		require.NoError(t, err, "execute block %d", block.Header.Number)
 		result.Release()
@@ -134,10 +135,10 @@ func replayBlockContext(chainID uint64, block parity.Block) evmonly.BlockContext
 	}
 }
 
-func rawTxs(block parity.Block) [][]byte {
-	txs := make([][]byte, len(block.Txs))
+func rawTxs(block parity.Block) []abevm.RawTx {
+	txs := make([]abevm.RawTx, len(block.Txs))
 	for i, tx := range block.Txs {
-		txs[i] = tx
+		txs[i] = abevm.RawTx(tx)
 	}
 	return txs
 }
@@ -170,11 +171,11 @@ func (b *replayBackend) rpcBlock(req *coretypes.RequestBlockInfo) (*coretypes.Re
 	first, tip := b.blocks[0].Block.Height, b.blocks[len(b.blocks)-1].Block.Height
 	switch {
 	case height <= 0:
-		return nil, coretypes.ErrZeroOrNegativeHeight
+		return nil, abevm.ErrPruned
 	case height > tip:
-		return nil, coretypes.ErrHeightExceedsChainHead
+		return nil, nil
 	case height < first:
-		return nil, coretypes.WrapErrHeightNotAvailable(height, utils.Some(first))
+		return nil, abevm.ErrPruned
 	}
 	return b.blocks[height-first], nil
 }
@@ -190,14 +191,14 @@ func (*replayBackend) InsertTx(context.Context, abevm.RawTx) (common.Hash, error
 	return common.Hash{}, errNotReplayed
 }
 
-func (b *replayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+func (b *replayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error) {
 	req := &coretypes.RequestBlockInfo{}
 	if h, ok := height.Get(); ok {
 		value := coretypes.Int64(h)
 		req.Height = &value
 	}
 	result, err := b.rpcBlock(req)
-	return nativeTestBlock(result, err)
+	return optionalTestBlock(result, err)
 }
 
 func (b *replayBackend) BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error) {
@@ -325,7 +326,7 @@ func (*replayBackend) EvmStateAt(context.Context, int64) (vm.SeiStateDB, func(),
 	return nil, nil, errNotReplayed
 }
 
-func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error) {
+func (*replayBackend) EvmStateBeforeTx(context.Context, *ethtypes.Header, []abevm.RawTx) (vm.SeiStateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }
 

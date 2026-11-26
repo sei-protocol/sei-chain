@@ -141,7 +141,7 @@ func (e *Executor) acceptValidatedPrefix(
 	end := min(len(results), from+state.passLookahead)
 	cumulative, to := cumulativeGasFrom(state.passCumulative, results[:end], from, state.cumulativeGasUsed)
 	state.passCumulative = cumulative
-	stop, err := firstUnacceptedResult(ctx, pool, results, state.writes, runner.blockGasLimit, from, to, cumulative)
+	stop, err := firstUnacceptedResult(ctx, pool, results, state.writes, runner.blockCtx.GasLimit, from, to, cumulative)
 	if err != nil {
 		return 0, err
 	}

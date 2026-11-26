@@ -2,12 +2,10 @@ package core
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -23,21 +21,10 @@ type GigaEnvironment struct {
 	GenDoc   *types.GenesisDoc
 }
 
-// BlockByNumber returns the finalized EVM block at height, or the latest servable block when omitted.
-func (env *GigaEnvironment) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
-	var heightPtr *int64
-	if h, ok := height.Get(); ok {
-		heightPtr = &h
-	}
-	resolved, err := resolveHeight(env.EvmBlockNumber(), heightPtr)
-	if err != nil {
-		return nil, err
-	}
-	roadHeight, ok := utils.SafeCast[atypes.RoadHeight](resolved)
-	if !ok {
-		return nil, fmt.Errorf("invalid height %d", resolved)
-	}
-	return env.Router.BlockByNumber(ctx, roadHeight)
+// BlockByNumber returns a finalized EVM block at height, or the latest servable height when omitted.
+// Future heights return None; pruned or unrepresentable heights return a pruning error.
+func (env *GigaEnvironment) BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error) {
+	return env.Router.BlockByNumber(ctx, height)
 }
 
 // BlockByHash returns the finalized EVM block with hash, or None when unknown.

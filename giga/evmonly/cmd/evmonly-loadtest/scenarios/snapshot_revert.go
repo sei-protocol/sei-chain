@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 type SnapshotRevertWorkload struct {
@@ -39,7 +40,7 @@ func NewSnapshotRevertWorkload(cfg Config, state State) *SnapshotRevertWorkload 
 }
 
 func (w *SnapshotRevertWorkload) BuildBlock(ctx context.Context, number uint64) (evmonly.BlockRequest, error) {
-	txs := make([][]byte, w.cfg.TxsPerBlock)
+	txs := make([]abevm.RawTx, w.cfg.TxsPerBlock)
 	for i := 0; i < w.cfg.TxsPerBlock; i++ {
 		select {
 		case <-ctx.Done():

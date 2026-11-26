@@ -192,10 +192,9 @@ func (e *Executor) MarkWaitingForBlock() {
 	e.blockPhases.SetPhase(phaseWaitingForBlock)
 }
 
-// WarmAccounts reads the account of every sender and recipient in b from the committed state, so that
-// executing b finds them cached rather than waiting on the database.
-func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
-	if e.stateStore == nil || len(b.Txs) == 0 {
+// WarmAccounts reads the committed accounts of the senders and recipients in txs.
+func (e *Executor) WarmAccounts(ctx context.Context, txs []abevm.EvmTx) {
+	if e.stateStore == nil || len(txs) == 0 {
 		return
 	}
 	view := e.stateStore.OpenView()
@@ -203,17 +202,17 @@ func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
 		return
 	}
 	defer view.Close()
-	workers := min(len(b.Txs), max(1, e.cfg.ParseWorkers))
-	chunk := (len(b.Txs) + workers - 1) / workers
+	workers := min(len(txs), max(1, e.cfg.ParseWorkers))
+	chunk := (len(txs) + workers - 1) / workers
 	var wg sync.WaitGroup
-	for start := 0; start < len(b.Txs); start += chunk {
+	for start := 0; start < len(txs); start += chunk {
 		wg.Go(func() {
-			for _, tx := range b.Txs[start:min(start+chunk, len(b.Txs))] {
+			for _, tx := range txs[start:min(start+chunk, len(txs))] {
 				if ctx.Err() != nil {
 					return
 				}
 				view.ReadAccount(tx.Sender())
-				if to := tx.Transaction().To(); to != nil {
+				if to := tx.To(); to != nil {
 					view.ReadAccount(*to)
 				}
 			}
@@ -249,15 +248,11 @@ func (e *Executor) PrepareBlock(req BlockRequest) (PreparedBlock, error) {
 		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(e.chainConfig(req.Context), new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	raw := make([]abevm.RawTx, len(req.Txs))
-	for i, tx := range req.Txs {
-		raw[i] = tx
-	}
-	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(raw)
+	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(req.Txs)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
-	return PreparedBlock{Context: req.Context, Txs: resolved}, nil
+	return PreparedBlock{Context: req.Context, Txs: resolved, TxsOrdered: req.TxsOrdered}, nil
 }
 
 // PrepareDecodedBlock validates transactions with verified senders for block and prepares them for execution.
@@ -277,6 +272,18 @@ func (e *Executor) PrepareDecodedBlock(ctx context.Context, block BlockContext, 
 	return PreparedBlock{Context: block, Txs: txs}, nil
 }
 
+func (b PreparedBlock) orderTxs(source StateReader) OrderedBlock {
+	txs := b.Txs
+	if !b.TxsOrdered {
+		txs = abevm.CanonicalOrder{
+			BaseFee:  b.Context.BaseFee,
+			GetNonce: source.GetNonce,
+			Txs:      txs,
+		}.Run()
+	}
+	return OrderedBlock{Context: b.Context, Txs: txs}
+}
+
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return nil, err
@@ -294,7 +301,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	return result, nil
 }
 
-func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+func (e *Executor) executeOrderedBlock(ctx context.Context, req OrderedBlock, source StateReader) (*BlockResult, error) {
 	begin, err := e.runBeginBlockers(req.Context, source, false)
 	if err != nil {
 		return nil, err
@@ -313,7 +320,7 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, 
 
 // executeBlockTxs executes req's transactions against source, which already holds begin, the
 // writes the block's begin blockers made.
-func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
+func (e *Executor) executeBlockTxs(ctx context.Context, req OrderedBlock, source StateReader, begin *StateChangeSet) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
@@ -368,7 +375,7 @@ func (e *Executor) releaseStateDB(stateDB *nativeStateDB) {
 	e.stateDBPool.Put(stateDB)
 }
 
-func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+func (e *Executor) executeBlockSequential(ctx context.Context, req OrderedBlock, source StateReader) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 
 	stateDB := e.acquireStateDB(source)

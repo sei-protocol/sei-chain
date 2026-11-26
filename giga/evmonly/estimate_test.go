@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"context"
 	"math/big"
 	"testing"
@@ -51,7 +53,7 @@ func TestExecutorEstimateGasSurfacesRevertReason(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -82,7 +84,7 @@ func TestExecutorEstimateGasDoesNotMutateCommittedState(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -110,7 +112,7 @@ func TestExecutorEstimateGasUsesBlockGasLimitAsUpperBound(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -141,7 +143,7 @@ func TestExecutorEstimateGasHonorsGasCap(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -168,7 +170,7 @@ func TestExecutorEstimateGasStopsAtContextDeadline(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -197,7 +199,7 @@ func TestExecutorEstimateGasReportsCancellationDistinctFromTimeout(t *testing.T)
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -283,7 +285,7 @@ func TestExecutorEstimateGasContextOpcodesDoNotPanic(t *testing.T) {
 			deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(tc.runtime), 300_000)
 			_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 				Context: blockContext(chainID),
-				Txs:     [][]byte{deploy},
+				Txs:     []abevm.RawTx{deploy},
 			})
 			require.NoError(t, err)
 
@@ -344,7 +346,7 @@ func TestExecutorEstimateGasHonorsCoinbaseAndBlobBaseFee(t *testing.T) {
 			deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(pushReverts(tc.op)), 300_000)
 			_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 				Context: blockContext(chainID),
-				Txs:     [][]byte{deploy},
+				Txs:     []abevm.RawTx{deploy},
 			})
 			require.NoError(t, err)
 

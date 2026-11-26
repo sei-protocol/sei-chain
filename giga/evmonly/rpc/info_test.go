@@ -467,7 +467,7 @@ func TestFeeHistoryRecomputesATrailingUnstatedHeight(t *testing.T) {
 
 // TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone verifies a nil block or block.Block
 // during recompute returns an error, not a panic.
-func TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone(t *testing.T) {
+func TestFeeHistoryErrorsWhenTheBlockIsAboveLatest(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	setBlockReceipt(t, store, 2, 20, 100) // pushes LatestVersion to 2; block 1 has no BlockStats
 
@@ -483,7 +483,7 @@ func TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone(t *testing.T) {
 	}}
 
 	_, err := api.FeeHistory(t.Context(), 1, ethrpc.BlockNumber(1), nil)
-	require.ErrorContains(t, err, "not available")
+	require.ErrorIs(t, err, errBlockAboveHead)
 }
 
 // TestFeeHistoryRecomputesAnInteriorUnstatedHeight verifies an interior unstated height

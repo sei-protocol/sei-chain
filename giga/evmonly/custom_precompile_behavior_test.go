@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var behaviorCustomPrecompile = common.HexToAddress("0x0000000000000000000000000000000000001001")
@@ -46,7 +47,7 @@ func TestEVMOnlyCustomPrecompileCallOpcodes_Behavior(t *testing.T) {
 				CustomPrecompiles: staticPrecompileRegistry{addr: behaviorCustomPrecompile},
 			}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: blockContext(chainID),
-				Txs:     [][]byte{raw},
+				Txs:     []abevm.RawTx{raw},
 			})
 			require.NoError(t, err)
 			state.ApplyChangeSet(result.ChangeSet)
@@ -70,7 +71,7 @@ func TestEVMOnlyCustomPrecompileCallOpcodes_Behavior(t *testing.T) {
 			CustomPrecompiles: staticPrecompileRegistry{addr: behaviorCustomPrecompile},
 		}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{raw},
+			Txs:     []abevm.RawTx{raw},
 		})
 		require.NoError(t, err)
 		require.Equal(t, uint64(0), result.Txs[0].Status)
@@ -110,7 +111,7 @@ func TestEVMOnlyEstimateGasCustomPrecompile_Behavior(t *testing.T) {
 		raw := signLegacyTxWithGasPrice(t, key, chainID, 0, &caller, big.NewInt(0), nil, estimate, big.NewInt(1))
 		result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{raw},
+			Txs:     []abevm.RawTx{raw},
 		})
 		require.NoError(t, err)
 		require.Equal(t, uint64(1), result.Txs[0].Status)

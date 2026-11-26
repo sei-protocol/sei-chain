@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"math/big"
 	"testing"
 
@@ -107,7 +109,7 @@ func conflictingTransferBlock(t *testing.T, recipient common.Address, txCount in
 	t.Helper()
 	chainID := big.NewInt(testChainID)
 	state := NewMemoryState()
-	rawTxs := make([][]byte, 0, txCount)
+	rawTxs := make([]abevm.RawTx, 0, txCount)
 	for range txCount {
 		key, err := crypto.GenerateKey()
 		require.NoError(t, err)

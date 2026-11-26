@@ -38,7 +38,6 @@ import (
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
@@ -348,35 +347,32 @@ func (a *evmOnlyApplication) EvmBlockNumber() int64 {
 	return max(0, min(a.LastBlockHeight(), store.LatestVersion()))
 }
 
-// BlockTxsHashes returns the receipt-backed transaction hashes at height, in execution order.
-func (a *evmOnlyApplication) BlockTxsHashes(height int64) (hashes []common.Hash, err error) {
+// BlockTxsHashes returns receipt-backed transaction hashes in execution order, or None for a future height.
+func (a *evmOnlyApplication) BlockTxsHashes(height int64) (result utils.Option[[]common.Hash], err error) {
 	store := a.storage.ReceiptDB()
 	if store == nil {
-		return nil, receiptdb.ErrNotConfigured
-	}
-	if height <= 0 {
-		return nil, fmt.Errorf("invalid block height %d", height)
+		return utils.None[[]common.Hash](), receiptdb.ErrNotConfigured
 	}
 	if earliest := store.EarliestVersion(); height < earliest {
-		return nil, coretypes.WrapErrHeightNotAvailable(height, utils.Some(earliest))
+		return utils.None[[]common.Hash](), abevm.ErrPruned
 	}
-	if latest := a.EvmBlockNumber(); height > latest {
-		return nil, fmt.Errorf("%w (requested height: %d, receipt-backed height: %d)", coretypes.ErrHeightExceedsChainHead, height, latest)
+	if height > a.EvmBlockNumber() {
+		return utils.None[[]common.Hash](), nil
 	}
 	blockNumber := uint64(height) //nolint:gosec // G115: height is positive.
 	it, err := store.IterateReceipts(blockNumber)
 	if err != nil {
-		return nil, err
+		return utils.None[[]common.Hash](), err
 	}
 	defer func() { err = errors.Join(err, it.Close()) }()
-	hashes = []common.Hash{}
+	hashes := []common.Hash{}
 	for {
 		next, err := it.Next()
 		if err != nil {
-			return nil, err
+			return utils.None[[]common.Hash](), err
 		}
 		if !next || it.BlockNumber() != blockNumber {
-			return hashes, nil
+			return utils.Some(hashes), nil
 		}
 		hashes = append(hashes, it.TxHash())
 	}
@@ -872,12 +868,13 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 	}
 	// Prepared before this block's turn, so it overlaps the previous block's execution.
 	parentHash, parentKnown := a.startBlock(height, blockHash)
+	executor.WarmAccounts(ctx, req.Txs)
 	prepared, err := executor.PrepareDecodedBlock(ctx,
 		a.blockContext(number, timestamp, a.EvmGasLimit(), parentHash, blockHash), req.Txs)
 	if err != nil {
 		return abevm.FinalizeBlockResp{}, err
 	}
-	executor.WarmAccounts(ctx, prepared)
+	prepared.TxsOrdered = req.TxsOrdered
 	if parentKnown {
 		executor.SpeculateEarly(ctx, prepared)
 	}

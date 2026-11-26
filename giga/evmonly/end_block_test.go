@@ -13,6 +13,7 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var (
@@ -97,7 +98,7 @@ func TestEndBlockerSeesTheBlockAndCommitsItsWrites(t *testing.T) {
 	)}
 	block := blockContext(big.NewInt(testChainID))
 	block.Time = 77
-	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{tx0, tx1}})
+	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: []abevm.RawTx{tx0, tx1}})
 	require.NoError(t, err)
 	for _, tx := range result.Txs {
 		require.Equal(t, uint64(1), tx.Status)
@@ -166,7 +167,7 @@ func TestPrecompileWriteGivesAnEmptyAccountARow(t *testing.T) {
 	}, firstEndBlocker)
 
 	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(state)).
-		ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}})
+		ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: []abevm.RawTx{tx}})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), result.Txs[0].Status)
 
@@ -192,7 +193,7 @@ func TestFailedCallKeepsStorageAPrecompileWrote(t *testing.T) {
 		tx := signLegacyTxWithGasPrice(t, key, big.NewInt(testChainID), uint64(nonce), &to, big.NewInt(0), nil, 100_000, big.NewInt(1))
 		block.Number = uint64(nonce) + 1
 		result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(state)).
-			ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{tx}})
+			ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: []abevm.RawTx{tx}})
 		require.NoError(t, err)
 		state.ApplyChangeSet(result.ChangeSet)
 	}
@@ -240,7 +241,7 @@ func TestEndBlockersRunInListedOrder(t *testing.T) {
 	)
 	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: registry}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(big.NewInt(testChainID)),
-		Txs:     [][]byte{tx},
+		Txs:     []abevm.RawTx{tx},
 	})
 	require.NoError(t, err)
 	state.ApplyChangeSet(result.ChangeSet)

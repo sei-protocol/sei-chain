@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"maps"
 	"math/big"
 	"slices"
@@ -41,6 +43,74 @@ func setRecentChanges(e *Executor, number uint64, changes *pendingIndex) {
 func newEarlyExecutor(store *MemoryStore) *Executor {
 	return NewExecutor(Config{OCCWorkers: 4, EarlySpeculationWorkers: 3},
 		withTestStores(store, NewMemoryReceiptStore()))
+}
+
+func TestEarlySpeculationReusesTransactionsByHash(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		order  []int
+		filled []bool
+	}{
+		{name: "reordered", order: []int{2, 0, 1}, filled: []bool{true, true, true}},
+		{name: "filtered", order: []int{0, 2}, filled: []bool{true, true}},
+		{name: "reordered and filtered", order: []int{2, 0}, filled: []bool{true, true}},
+		{name: "new transaction", order: []int{2, 3, 0, 1}, filled: []bool{true, false, true, true}},
+		{name: "duplicate transaction", order: []int{2, 0, 0, 1}, filled: []bool{true, true, false, true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chainID := big.NewInt(testChainID)
+			genesis := NewMemoryState()
+			raw := make([]abevm.RawTx, 4)
+			for i := range raw {
+				key, err := crypto.GenerateKey()
+				require.NoError(t, err)
+				genesis.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(testFundedBalanceWei))
+				contract := common.BigToAddress(big.NewInt(int64(1000 + i)))
+				genesis.SetCode(contract, log0Code())
+				raw[i] = signLegacyTxWithGas(t, key, chainID, 0, &contract, big.NewInt(0), nil, 50_000)
+			}
+			cfg := Config{OCCWorkers: 4, EarlySpeculationWorkers: 3, RejectUnappliableTxs: true}
+			executor := NewExecutor(cfg, withTestStores(NewMemoryStore(genesis), NewMemoryReceiptStore()))
+			defer executor.Close()
+			original, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: raw[:3]})
+			require.NoError(t, err)
+			finalRaw := make([]abevm.RawTx, len(tc.order))
+			for i, j := range tc.order {
+				finalRaw[i] = raw[j]
+			}
+			request := BlockRequest{Context: blockContext(chainID), Txs: finalRaw, TxsOrdered: true}
+			final, err := executor.PrepareBlock(request)
+			require.NoError(t, err)
+			executor.SpeculateEarly(t.Context(), original)
+			waitEarlySpeculation(executor, 1)
+			results := make([]occTxExecution, len(final.Txs))
+			filled := executor.reuseEarlySpeculation(t.Context(), OrderedBlock{Context: final.Context, Txs: final.Txs}, nil, results)
+			require.Equal(t, tc.filled, filled)
+			for i, reused := range filled {
+				if reused {
+					require.Equal(t, final.Txs[i].Hash(), results[i].txResult.Hash)
+				}
+			}
+
+			// Exercise validation and merging with the same reordered results.
+			executor.SpeculateEarly(t.Context(), original)
+			waitEarlySpeculation(executor, 1)
+			got, err := executor.ExecutePreparedBlock(t.Context(), final)
+			require.NoError(t, err)
+			defer got.Release()
+			require.NoError(t, executor.AwaitCommits())
+			reference := NewExecutor(Config{OCCWorkers: 1, RejectUnappliableTxs: true},
+				withTestStores(NewMemoryStore(genesis), NewMemoryReceiptStore()))
+			defer reference.Close()
+			want, err := reference.ExecuteBlock(t.Context(), request)
+			require.NoError(t, err)
+			defer want.Release()
+			require.Equal(t, want.Txs, got.Txs)
+			require.Equal(t, want.Receipts, got.Receipts)
+			require.Equal(t, want.ChangeSet, got.ChangeSet)
+			require.Equal(t, want.GasUsed, got.GasUsed)
+		})
+	}
 }
 
 // Blocks speculated early against state several blocks old must still execute to exactly what
@@ -107,7 +177,7 @@ func TestEarlySpeculationReusesOnlyResultsNoExecutedBlockChanged(t *testing.T) {
 	untouched := testAddress(0x77)
 	ringSender := scenario.ring[1]
 	ringRecipient := crypto.PubkeyToAddress(scenario.ring[2].PublicKey)
-	block2, err := executor.PrepareBlock(BlockRequest{Context: second, Txs: [][]byte{
+	block2, err := executor.PrepareBlock(BlockRequest{Context: second, Txs: []abevm.RawTx{
 		// The idle account appears in no block-1 transaction, so its speculation stays valid.
 		signLegacyTx(t, idle, scenario.chainID, 0, &untouched, big.NewInt(5), nil),
 		// This sender's nonce moves in block 1, so its speculation against genesis is stale.
@@ -122,7 +192,7 @@ func TestEarlySpeculationReusesOnlyResultsNoExecutedBlockChanged(t *testing.T) {
 	result.Release()
 
 	results := make([]occTxExecution, len(block2.Txs))
-	filled := executor.reuseEarlySpeculation(t.Context(), block2, nil, results)
+	filled := executor.reuseEarlySpeculation(t.Context(), OrderedBlock{Context: block2.Context, Txs: block2.Txs}, nil, results)
 	require.Equal(t, []bool{true, false}, filled)
 	require.NoError(t, executor.AwaitCommits())
 }
@@ -153,7 +223,7 @@ func TestEarlySpeculationCreditsTheBalanceBlocksInBetweenLeft(t *testing.T) {
 	untouched := testAddress(0x77)
 	requests := []BlockRequest{
 		{Context: first, Txs: scenario.block(t, 1)},
-		{Context: second, Txs: [][]byte{
+		{Context: second, Txs: []abevm.RawTx{
 			signLegacyTx(t, idle, scenario.chainID, 0, &untouched, big.NewInt(5), nil),
 			signLegacyTx(t, idle2, scenario.chainID, 0, &untouched, big.NewInt(6), nil),
 		}},
@@ -196,7 +266,7 @@ func TestEarlySpeculationIsDiscardedForAnotherBlockContext(t *testing.T) {
 
 	block.Context.Time++
 	results := make([]occTxExecution, len(block.Txs))
-	require.Nil(t, executor.reuseEarlySpeculation(t.Context(), block, nil, results))
+	require.Nil(t, executor.reuseEarlySpeculation(t.Context(), OrderedBlock{Context: block.Context, Txs: block.Txs}, nil, results))
 }
 
 // Taking over a speculation releases its workers still waiting for an early slot.
@@ -224,7 +294,7 @@ func TestEarlySpeculationStopsWorkersWaitingForASlot(t *testing.T) {
 	require.Eventually(t, func() bool { return s.claimed.Load() >= claimedByAll }, time.Second, time.Millisecond)
 
 	results := make([]occTxExecution, len(block.Txs))
-	require.Equal(t, make([]bool, len(block.Txs)), executor.reuseEarlySpeculation(t.Context(), block, nil, results))
+	require.Equal(t, make([]bool, len(block.Txs)), executor.reuseEarlySpeculation(t.Context(), OrderedBlock{Context: block.Context, Txs: block.Txs}, nil, results))
 }
 
 // An early result that wrote, even without reading, state a block executed since changed is stale.
@@ -255,7 +325,7 @@ func TestEarlySpeculationTreatsAWriteToChangedStateAsStale(t *testing.T) {
 	}))
 
 	results := make([]occTxExecution, 2)
-	require.Equal(t, []bool{false, true}, executor.reuseEarlySpeculation(t.Context(), block, nil, results))
+	require.Equal(t, []bool{false, true}, executor.reuseEarlySpeculation(t.Context(), OrderedBlock{Context: block.Context, Txs: block.Txs}, nil, results))
 }
 
 // An early result that read state the block's own begin blockers wrote is stale: the speculation ran
@@ -286,7 +356,7 @@ func TestEarlySpeculationTreatsABeginBlockerWriteAsAChange(t *testing.T) {
 
 	begin := &StateChangeSet{Storage: []StorageChange{{Address: written, Key: slot, Value: common.HexToHash("0x02")}}}
 	results := make([]occTxExecution, 2)
-	require.Equal(t, []bool{false, true}, executor.reuseEarlySpeculation(t.Context(), block, begin, results))
+	require.Equal(t, []bool{false, true}, executor.reuseEarlySpeculation(t.Context(), OrderedBlock{Context: block.Context, Txs: block.Txs}, begin, results))
 }
 
 // A block that touched an account without writing its balance records whatever balance it read,

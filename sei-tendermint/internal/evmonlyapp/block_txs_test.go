@@ -2,6 +2,7 @@ package evmonlyapp
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -19,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -38,25 +38,55 @@ func TestBlockTxsHashes(t *testing.T) {
 	require.NoError(t, store.Flush())
 	proxy := abevm.NewProxy(app)
 	require.Equal(t, int64(3), proxy.EvmBlockNumber())
-	for _, height := range []int64{-1, 0} {
-		_, err := proxy.BlockTxsHashes(height)
-		require.Error(t, err)
-	}
-
 	hashes, err := proxy.BlockTxsHashes(1)
 	require.NoError(t, err)
-	require.Equal(t, []common.Hash{crypto.Keccak256Hash(first)}, hashes)
+	require.Equal(t, []common.Hash{crypto.Keccak256Hash(first)}, hashes.OrPanic("executed block"))
 	hashes, err = proxy.BlockTxsHashes(2)
 	require.NoError(t, err)
-	require.Equal(t, []common.Hash{crypto.Keccak256Hash(second), crypto.Keccak256Hash(third)}, hashes)
+	require.Equal(t, []common.Hash{crypto.Keccak256Hash(second), crypto.Keccak256Hash(third)}, hashes.OrPanic("executed block"))
 	hashes, err = proxy.BlockTxsHashes(3)
 	require.NoError(t, err)
-	require.Empty(t, hashes)
-	_, err = proxy.BlockTxsHashes(4)
-	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
+	require.Empty(t, hashes.OrPanic("empty block"))
+	hashes, err = proxy.BlockTxsHashes(4)
+	require.NoError(t, err)
+	require.False(t, hashes.IsPresent())
 	require.NoError(t, store.PruneHistory(3))
 	_, err = proxy.BlockTxsHashes(2)
-	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
+	require.ErrorIs(t, err, abevm.ErrPruned)
+}
+
+func TestFinalizeBlockPreservesOrderedTransactions(t *testing.T) {
+	for _, workers := range []int{1, 4} {
+		for _, ordered := range []bool{false, true} {
+			t.Run(fmt.Sprintf("workers=%d/ordered=%t", workers, ordered), func(t *testing.T) {
+				execution := gigaconfig.DefaultConfig.Execution
+				execution.OCCWorkers = workers
+				app := newEVMOnlyTestAppWithExecution(t, nil, execution)
+				require.NoError(t, app.InitChain(evmOnlyTestInitChain()))
+				raw := make([]abevm.RawTx, 2)
+				for i := range raw {
+					key, err := crypto.GenerateKey()
+					require.NoError(t, err)
+					raw[i] = signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
+				}
+				slices.SortFunc(raw, func(a, b abevm.RawTx) int {
+					return b.Hash().Cmp(a.Hash())
+				})
+				want := []common.Hash{raw[0].Hash(), raw[1].Hash()}
+				if !ordered {
+					slices.Reverse(want)
+				}
+				req := evmOnlyTestBlock(app, 1, raw...)
+				req.TxsOrdered = ordered
+				finalizeEVMOnlyTestBlock(t, app, req)
+				require.NoError(t, app.AwaitCommits())
+				require.NoError(t, app.(*evmOnlyApplication).storage.ReceiptDB().Flush())
+				hashes, err := app.BlockTxsHashes(1)
+				require.NoError(t, err)
+				require.Equal(t, want, hashes.OrPanic("executed block"))
+			})
+		}
+	}
 }
 
 func TestBlockTxsHashesWithoutReceipts(t *testing.T) {
@@ -133,20 +163,29 @@ func TestGigaBlocksReconstructReorderedAndFilteredTransactions(t *testing.T) {
 			require.Equal(t, uint64(2), app.EvmNonce(crypto.PubkeyToAddress(key.PublicKey)))
 			hashes, err := proxy.BlockTxsHashes(1)
 			require.NoError(t, err)
-			require.Equal(t, []common.Hash{abevm.RawTx(first).Hash(), abevm.RawTx(second).Hash()}, hashes)
+			require.Equal(t, []common.Hash{abevm.RawTx(first).Hash(), abevm.RawTx(second).Hash()}, hashes.OrPanic("executed block"))
 
 			router, err := p2p.NewGigaFullnodeRouter(&p2p.GigaRouterCommonConfig{
 				App: proxy, GenDoc: &types.GenesisDoc{ChainID: "reordered-block-test", InitialHeight: 1},
 				AppHashBuilder: storage.AppHashBuilder(), PersistentStateDir: t.TempDir(),
 			}, p2p.NodeSecretKey(ed25519.TestSecretKey(utils.GenBytes(rng, 32))), state, signer)
 			require.NoError(t, err)
-			byNumber, err := router.Common().BlockByNumber(t.Context(), header.Height())
+			found, err := router.Common().BlockByNumber(t.Context(), utils.Some(utils.Clamp[int64](header.Height())))
 			require.NoError(t, err)
+			byNumber := found.OrPanic("finalized block")
 			require.Equal(t, [][]byte{first, second}, byNumber.Txs)
 			require.Equal(t, common.Hash(header.Hash()), byNumber.Hash)
 			byHash, err := router.Common().BlockByHash(t.Context(), byNumber.Hash)
 			require.NoError(t, err)
 			require.Equal(t, byNumber, byHash.OrPanic("executed block"))
+
+			finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
+			require.NoError(t, app.AwaitCommits())
+			require.NoError(t, storage.ReceiptDB().Flush())
+			require.NoError(t, storage.ReceiptDB().PruneHistory(2))
+			pruned, err := router.Common().BlockByNumber(t.Context(), utils.Some(utils.Clamp[int64](header.Height())))
+			require.ErrorIs(t, err, abevm.ErrPruned)
+			require.False(t, pruned.IsPresent())
 		})
 	}
 }

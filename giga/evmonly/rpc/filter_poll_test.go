@@ -349,6 +349,31 @@ func TestGetFilterChangesKeepsBlockHashesAfterAFailedLookup(t *testing.T) {
 	require.Equal(t, []common.Hash{filterBlockHash(10), filterBlockHash(11)}, got)
 }
 
+func TestGetFilterChangesWaitsForAFutureBlock(t *testing.T) {
+	fx := newPollFixture(t)
+	backend := fx.api.backend.(*testBackend)
+	serve := backend.block
+	futureHeight := int64(11)
+	backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		if int64(*req.Height) == futureHeight {
+			return nil, nil
+		}
+		return serve(ctx, req)
+	}
+	id, err := fx.api.NewBlockFilter(t.Context())
+	require.NoError(t, err)
+	fx.head.Add(2)
+
+	got, err := fx.api.GetFilterChanges(t.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, []common.Hash{filterBlockHash(10)}, got)
+
+	futureHeight = 0
+	got, err = fx.api.GetFilterChanges(t.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, []common.Hash{filterBlockHash(11)}, got)
+}
+
 func TestFilterRegistryLifecycle(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var (
@@ -80,7 +81,7 @@ func TestBeginBlockerRunsBeforeTheBlocksTransactions(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
 	cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: beginBlockRegistry(beginBlockRecorder{})}
 
-	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}})
+	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: []abevm.RawTx{tx}})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), result.Txs[0].Status)
 
@@ -111,7 +112,7 @@ func TestBeginBlockerErrorFailsTheBlock(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
 	cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: beginBlockRegistry(beginBlockRecorder{fail: true})}
 
-	_, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}})
+	_, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: []abevm.RawTx{tx}})
 	require.ErrorIs(t, err, errRefused)
 	require.Equal(t, common.Hash{}, state.GetState(beginBlockerAddress, sawSlot), "no transaction ran")
 	require.Equal(t, uint64(0), state.GetNonce(sender))

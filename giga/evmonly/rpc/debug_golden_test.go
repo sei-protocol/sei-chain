@@ -351,8 +351,8 @@ func replayForTrace(t *testing.T, fixture *parity.Fixture) *traceReplayBackend {
 			}},
 		},
 	}
-	execute := func(blockCtx evmonly.BlockContext, txs [][]byte) {
-		result, err := executor.ExecuteBlock(t.Context(), evmonly.BlockRequest{Context: blockCtx, Txs: txs})
+	execute := func(blockCtx evmonly.BlockContext, txs []abevm.RawTx) {
+		result, err := executor.ExecuteBlock(t.Context(), evmonly.BlockRequest{Context: blockCtx, Txs: txs, TxsOrdered: true})
 		require.NoError(t, err, "execute block %d", blockCtx.Number)
 		result.Release()
 	}
@@ -392,9 +392,9 @@ func (b *traceReplayBackend) client(t *testing.T) *ethrpc.Client {
 	return client
 }
 
-func (b *traceReplayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+func (b *traceReplayBackend) BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error) {
 	if h, ok := height.Get(); ok && h == b.parent.Block.Height {
-		return nativeTestBlock(b.parent, nil)
+		return optionalTestBlock(b.parent, nil)
 	}
 	return b.replayBackend.BlockByNumber(ctx, height)
 }
@@ -418,12 +418,12 @@ func (b *traceReplayBackend) EvmStateAt(ctx context.Context, height int64) (vm.S
 	return b.executor.ViewState(view), view.Close, nil
 }
 
-func (b *traceReplayBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+func (b *traceReplayBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs []abevm.RawTx) (vm.SeiStateDB, func(), error) {
 	blockCtx, err := b.contextFor(header)
 	if err != nil {
 		return nil, nil, err
 	}
-	return b.replayState(ctx, header.Number.Int64()-1, evmonly.BlockRequest{Context: blockCtx, Txs: txs})
+	return b.replayState(ctx, header.Number.Int64()-1, evmonly.BlockRequest{Context: blockCtx, Txs: txs, TxsOrdered: true})
 }
 
 // contextFor returns the context header's block executed with. It refuses a header whose fields an

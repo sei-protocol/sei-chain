@@ -25,6 +25,9 @@ func (tx RawTx) Hash() common.Hash {
 // a local mempool can serve the pending nonce.
 var ErrPendingNonceUnavailable = errors.New("pending nonce unavailable: no local mempool and the sender's lane is not connected")
 
+// ErrPruned indicates that requested data is outside retained history.
+var ErrPruned = types.ErrPruned
+
 // ResponseInfo describes the application's committed state.
 type ResponseInfo struct {
 	LastBlockHeight  int64
@@ -46,6 +49,9 @@ type FinalizeBlockReq struct {
 	Time   time.Time
 	Hash   common.Hash
 	Txs    []EvmTx
+	// true if transactions have been already ordered,
+	// false if canonical ordering needs to be applied.
+	TxsOrdered bool
 }
 
 // FinalizeBlockResp contains the gas consumed by a finalized block.

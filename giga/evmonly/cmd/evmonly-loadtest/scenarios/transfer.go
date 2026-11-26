@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	loadoffline "github.com/sei-protocol/sei-load/generator/offline"
 )
 
@@ -37,7 +38,7 @@ func NewTransferWorkload(cfg Config, state State) (*TransferWorkload, error) {
 }
 
 func (w *TransferWorkload) BuildBlock(ctx context.Context, number uint64) (evmonly.BlockRequest, error) {
-	txs := make([][]byte, w.cfg.TxsPerBlock)
+	txs := make([]abevm.RawTx, w.cfg.TxsPerBlock)
 	base := senderRangeBase(w.cfg, number, &w.accountCursor)
 	for i := 0; i < w.cfg.TxsPerBlock; i++ {
 		select {

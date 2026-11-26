@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -90,7 +89,7 @@ func TestGetBlockReceipts(t *testing.T) {
 		// Requests with no block, or with receipts not yet indexed, answer null, not an error.
 		{name: "height not yet indexed", arg: byNumber(10), wantHeight: heightOf(10), block: unindexedBlock},
 		{name: "hash not yet indexed", arg: byHash, block: unindexedBlock},
-		{name: "future height", arg: byNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
+		{name: "future height", arg: byNumber(100), wantHeight: heightOf(100)},
 		// earliest and 0x0 resolve to the earliest block the receipt store retains.
 		{name: "earliest", arg: byNumber(ethrpc.EarliestBlockNumber), floors: []int64{9}, wantHeight: heightOf(9), block: twoTxBlock, want: both},
 		{name: "0x0", arg: byNumber(0), floors: []int64{9}, wantHeight: heightOf(9), block: twoTxBlock, want: both},
@@ -98,7 +97,7 @@ func TestGetBlockReceipts(t *testing.T) {
 		{name: "unknown hash, empty result", arg: byHash, block: &coretypes.ResultBlock{}},
 		{name: "unknown hash, nil result", arg: byHash},
 		// A pruned height or receipts, a missing block selector, and any other backend failure are errors.
-		{name: "pruned height", arg: byNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
+		{name: "pruned height", arg: byNumber(1), wantHeight: heightOf(1), blockErr: abevm.ErrPruned, wantErr: abevm.ErrPruned},
 		{name: "pruned receipts", arg: byNumber(9), floors: []int64{10}, wantHeight: heightOf(9), block: twoTxBlock, wantErr: errBlockReceiptsPruned},
 		{name: "neither number nor hash", wantErr: errBlockReceiptsNoBlock},
 		{name: "unexpected backend error by number", arg: byNumber(9), wantHeight: heightOf(9), blockErr: backendErr, wantErr: backendErr},

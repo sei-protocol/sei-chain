@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/staking"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var (
@@ -73,7 +74,7 @@ func TestStakingPrecompileThroughExecutor(t *testing.T) {
 	redelegate, err := staking.ABI.Pack(staking.RedelegateMethod, stakingVal2, stakingVal1, seiWei(1))
 	require.NoError(t, err)
 	to := staking.Address
-	txs := [][]byte{
+	txs := []abevm.RawTx{
 		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, seiWei(10), delegate, 2_000_000, big.NewInt(0)),
 		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), undelegate, 2_000_000, big.NewInt(0)),
 		signLegacyTxWithGasPrice(t, key, chainID, 2, &to, big.NewInt(0), redelegate, 2_000_000, big.NewInt(0)),
@@ -113,7 +114,7 @@ func TestStakingPrecompileOCCMatchesSequential(t *testing.T) {
 		keys[i] = key
 	}
 	to := staking.Address
-	var txs [][]byte
+	var txs []abevm.RawTx
 	send := func(i int, value *big.Int, method string, args ...interface{}) {
 		data, err := staking.ABI.Pack(method, args...)
 		require.NoError(t, err)

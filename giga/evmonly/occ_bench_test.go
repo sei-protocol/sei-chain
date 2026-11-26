@@ -65,10 +65,10 @@ func BenchmarkOCCValidateAndMerge(b *testing.B) {
 			b.Cleanup(executor.Close)
 			prepared, err := executor.PrepareBlock(scenario.block(b, 1))
 			require.NoError(b, err)
-			runner := newOCCSpeculativeRunner(executor, prepared)
+			runner := newOCCSpeculativeRunner(executor, prepared.Context, prepared.Txs)
 			speculative := make([]occTxExecution, len(prepared.Txs))
 			ranges := occRanges(len(prepared.Txs), occChunkSize(len(prepared.Txs), workers))
-			require.NoError(b, runner.runRanges(ctx, executor.occPool, ranges, source, runner.blockGasLimit, speculative))
+			require.NoError(b, runner.runRanges(ctx, executor.occPool, ranges, source, speculative))
 			results := make([]occTxExecution, len(speculative))
 
 			b.ReportAllocs()

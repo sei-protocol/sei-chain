@@ -108,7 +108,7 @@ func TestExecutorCallReturnsViewFunctionResult(t *testing.T) {
 	deployRead := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(readRuntime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deployRead},
+		Txs:     []abevm.RawTx{deployRead},
 	})
 	require.NoError(t, err)
 	// Seed the slot directly, standing in for a prior committed transaction's
@@ -138,7 +138,7 @@ func TestExecutorCallSurfacesRevertReason(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -188,7 +188,7 @@ func TestExecutorCallDoesNotMutateCommittedState(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 
@@ -228,7 +228,7 @@ func TestExecutorCallStopsAtContextDeadline(t *testing.T) {
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{deploy},
+		Txs:     []abevm.RawTx{deploy},
 	})
 	require.NoError(t, err)
 

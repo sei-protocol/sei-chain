@@ -30,6 +30,7 @@ import (
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -111,7 +112,7 @@ func newTraceChain(t *testing.T) *traceChain {
 			ParentHash:  header.ParentHash,
 		}
 	}
-	replay := func(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+	replay := func(ctx context.Context, header *ethtypes.Header, txs []abevm.RawTx) (vm.SeiStateDB, func(), error) {
 		view := &failingReadView{StateView: evmonly.NewMemoryStore(base).OpenView()}
 		stateDB, err := executor.ReplayState(ctx, view, evmonly.BlockRequest{Context: blockContext(header), Txs: txs})
 		view.failing = chain.failReads
@@ -124,11 +125,11 @@ func newTraceChain(t *testing.T) *traceChain {
 				height = int64(*req.Height)
 			}
 			if height <= 0 {
-				return nil, fmt.Errorf("%w: %d", coretypes.ErrZeroOrNegativeHeight, height)
+				return nil, abevm.ErrPruned
 			}
 			block, ok := chain.blocks[height]
 			if !ok {
-				return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, height)
+				return nil, nil
 			}
 			return block, nil
 		},
@@ -158,7 +159,11 @@ func newTraceChain(t *testing.T) *traceChain {
 				// Block 1 is empty, so it left the state block 0 did.
 				return replay(ctx, header, nil)
 			case 2:
-				return replay(ctx, header, chain.blocks[2].Block.Txs.ToSliceOfBytes())
+				raw := make([]abevm.RawTx, len(chain.blocks[2].Block.Txs))
+				for i, tx := range chain.blocks[2].Block.Txs {
+					raw[i] = abevm.RawTx(tx)
+				}
+				return replay(ctx, header, raw)
 			}
 			return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 		},

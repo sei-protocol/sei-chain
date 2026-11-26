@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"math/big"
 	"testing"
 
@@ -21,7 +23,7 @@ func TestExecutorPrepareBlockResolvesSender(t *testing.T) {
 	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
 	prepared, err := executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 	require.NoError(t, err)
 	require.Len(t, prepared.Txs, 1)
@@ -30,13 +32,13 @@ func TestExecutorPrepareBlockResolvesSender(t *testing.T) {
 	wrongChain := signLegacyTx(t, key, big.NewInt(testChainID+1), 0, &recipient, big.NewInt(1), nil)
 	_, err = executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{wrongChain},
+		Txs:     []abevm.RawTx{wrongChain},
 	})
 	require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 
 	prepared, err = executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 	require.NoError(t, err)
 	require.Equal(t, sender, prepared.Txs[0].Sender())
@@ -46,7 +48,7 @@ func TestExecutorPrepareDecodedBlockPreservesSenders(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	recipient := testAddress(0xc7)
 	const n = 40
-	raws := make([][]byte, n)
+	raws := make([]abevm.RawTx, n)
 	senders := make([]common.Address, n)
 	for i := range n {
 		key, err := crypto.GenerateKey()
@@ -73,6 +75,6 @@ func TestExecutorPrepareDecodedBlockPreservesSenders(t *testing.T) {
 		require.Equal(t, prepared.Txs[i].Transaction().Hash(), recovered.Txs[i].Transaction().Hash())
 	}
 
-	_, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{{0x01}}})
+	_, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{{0x01}}})
 	require.Error(t, err)
 }

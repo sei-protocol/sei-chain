@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -59,7 +60,7 @@ func TestGovPrecompileThroughExecutor(t *testing.T) {
 	vote, err := govABI.Pack(gov.VoteMethod, uint64(1), gov.OptionYes)
 	require.NoError(t, err)
 	to := gov.Address
-	txs := [][]byte{
+	txs := []abevm.RawTx{
 		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, usei(10), submit, 1_000_000, big.NewInt(1)),
 		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), vote, 1_000_000, big.NewInt(1)),
 	}
@@ -141,7 +142,7 @@ func TestGovPrecompileOCCMatchesSequential(t *testing.T) {
 		keys[i] = key
 	}
 	to := gov.Address
-	var txs [][]byte
+	var txs []abevm.RawTx
 	send := func(i int, value *big.Int, method string, args ...interface{}) {
 		data, err := gov.ABI.Pack(method, args...)
 		require.NoError(t, err)
@@ -206,7 +207,7 @@ func TestRetiredGovMethodRefundsGasAndValue(t *testing.T) {
 		MinGasPrice:       big.NewInt(0),
 		CustomPrecompiles: precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address),
 	}
-	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{tx}})
+	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{tx}})
 	require.NoError(t, err)
 	got := result.Txs[0]
 	require.Equal(t, uint64(0), got.Status)
@@ -270,7 +271,7 @@ func TestCallcodeDepositIsRejected(t *testing.T) {
 	submit, err := gov.ABI.Pack(gov.SubmitTextProposalMethod, "t", "d", false)
 	require.NoError(t, err)
 	to := gov.Address
-	txs := [][]byte{
+	txs := []abevm.RawTx{
 		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, usei(1), submit, 1_000_000, big.NewInt(1)),
 		signLegacyTxWithGasPrice(t, key, chainID, 1, &caller, big.NewInt(0), nil, 1_000_000, big.NewInt(1)),
 	}
@@ -315,14 +316,14 @@ func TestGovDropsAFullBlockOfProposalsInOneEndBlock(t *testing.T) {
 
 	block := blockContext(chainID)
 	block.GasLimit = uint64(tmtypes.DefaultBlockParams().MaxGas) //nolint:gosec // MaxGas is positive
-	probe, err := NewExecutor(cfg, withTestState(newState())).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{submit(0, 2_000_000)}})
+	probe, err := NewExecutor(cfg, withTestState(newState())).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: []abevm.RawTx{submit(0, 2_000_000)}})
 	require.NoError(t, err)
 	// The pool must hold each tx's declared gas before it runs, so declaring
 	// the probe's cost lets all n fit whatever each one uses.
 	gas := probe.Txs[0].GasUsed
 	n := block.GasLimit / gas
 	state := newState()
-	txs := make([][]byte, n)
+	txs := make([]abevm.RawTx, n)
 	for i := range txs {
 		txs[i] = submit(uint64(i), gas)
 	}

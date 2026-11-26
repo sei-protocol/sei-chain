@@ -43,10 +43,12 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
 // Backend submits transactions, reads EVM state and finalized blocks, and publishes new block heights.
 type Backend interface {
-	BlockByNumber(context.Context, utils.Option[int64]) (*abevm.EvmBlock, error)
-	BlockByHash(context.Context, common.Hash) (utils.Option[*abevm.EvmBlock], error)
-	InsertTx(context.Context, abevm.RawTx) (common.Hash, error)
-	EvmBalance(common.Address) uint256.Int
+	// BlockByNumber returns a finalized block, using the latest servable height when omitted.
+	// Future heights return None; non-positive and pruned heights return abevm.ErrPruned.
+	BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error)
+	BlockByHash(ctx context.Context, hash common.Hash) (utils.Option[*abevm.EvmBlock], error)
+	InsertTx(ctx context.Context, input abevm.RawTx) (common.Hash, error)
+	EvmBalance(address common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int
 	// EvmBlockContext returns the block context header's block executed at.
@@ -62,7 +64,7 @@ type Backend interface {
 	EvmCallAt(ctx context.Context, msg *core.Message, header *ethtypes.Header, overrides abevm.CallOverrides) (*core.ExecutionResult, error)
 	EvmChainConfig() *params.ChainConfig
 	EvmChainID() uint64
-	EvmCode(common.Address) ([]byte, error)
+	EvmCode(address common.Address) ([]byte, error)
 	EvmCodeAt(address common.Address, height int64) ([]byte, error)
 	// EvmEstimateGas returns the lowest gas limit that lets msg succeed with overrides applied,
 	// and any revert data if it still fails at gasCap.
@@ -88,18 +90,18 @@ type Backend interface {
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
 	EvmMinGasPrice() *big.Int
-	EvmStorage(common.Address, common.Hash) (common.Hash, error)
+	EvmStorage(address common.Address, key common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest committed state when
 	// height is ethrpc.LatestBlockNumber, and the function that releases it.
 	EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
 	// executed against, and the function that releases it.
-	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
-	EvmTransactionCount(common.Address) uint64
+	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs []abevm.RawTx) (vm.SeiStateDB, func(), error)
+	EvmTransactionCount(address common.Address) uint64
 	EvmNonceAt(address common.Address, height int64) (uint64, error)
 	// EvmPendingNonce returns the next nonce admitted by the sender's shard.
-	EvmPendingNonce(context.Context, common.Address) (uint64, error)
+	EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error)
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

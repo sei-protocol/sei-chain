@@ -116,7 +116,7 @@ func (a *testApp) EvmBlockNumber() int64 {
 	return max(0, a.LastBlockHeight())
 }
 
-func (a *testApp) BlockTxsHashes(height int64) ([]common.Hash, error) {
+func (a *testApp) BlockTxsHashes(height int64) (utils.Option[[]common.Hash], error) {
 	for state := range a.state.Lock() {
 		for _, block := range state.Blocks {
 			if utils.Clamp[int64](block.Height) != height {
@@ -126,9 +126,9 @@ func (a *testApp) BlockTxsHashes(height int64) ([]common.Hash, error) {
 			for i, raw := range block.Txs {
 				hashes[i] = crypto.Keccak256Hash(raw)
 			}
-			return hashes, nil
+			return utils.Some(hashes), nil
 		}
-		return nil, fmt.Errorf("block %d has not executed", height)
+		return utils.None[[]common.Hash](), nil
 	}
 	panic("unreachable")
 }

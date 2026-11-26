@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -79,10 +80,10 @@ func pastBlocksBackend(head int64) *testBackend {
 				height = int64(*req.Height)
 			}
 			if height <= 0 {
-				return nil, coretypes.ErrZeroOrNegativeHeight
+				return nil, abevm.ErrPruned
 			}
 			if height > head+1 {
-				return nil, coretypes.ErrHeightExceedsChainHead
+				return nil, nil
 			}
 			return traceResultBlock(height, nil), nil
 		},

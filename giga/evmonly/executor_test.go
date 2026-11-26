@@ -84,7 +84,7 @@ func TestExecutorTransferTx(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestExecutorStoresReceipts(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.NoError(t, err)
@@ -203,7 +203,7 @@ func TestExecutorPooledResultRelease(t *testing.T) {
 	sink := &recordingResultSink{}
 	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestState(state), WithResultSink(sink))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
-	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
+	req := BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{rawTx}}
 
 	first, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -233,7 +233,7 @@ func TestExecutorPooledResultLeavesAReleasedChangeSetIntact(t *testing.T) {
 	transfer := func(recipient byte, value int64) BlockRequest {
 		to := common.BytesToAddress([]byte{recipient})
 		rawTx := signLegacyTx(t, key, chainID, 0, &to, big.NewInt(value), nil)
-		return BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
+		return BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{rawTx}}
 	}
 
 	first, err := executor.ExecuteBlock(t.Context(), transfer(0xa8, 7))
@@ -261,7 +261,7 @@ func TestExecutorPooledResultReleaseIsConcurrentIdempotent(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestState(state))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
-	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
+	req := BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{rawTx}}
 
 	result, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -293,7 +293,7 @@ func TestExecutorPooledResultExhaustionAllocatesWithoutBlocking(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestState(state))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
-	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
+	req := BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{rawTx}}
 
 	pooled, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -318,7 +318,7 @@ func TestExecutorPooledResultExhaustionAllocatesWithoutBlocking(t *testing.T) {
 
 func TestExecutorCloseDisablesOCC(t *testing.T) {
 	chainID := big.NewInt(testChainID)
-	rawTxs := make([][]byte, 0, 2)
+	rawTxs := make([]abevm.RawTx, 0, 2)
 	state := NewMemoryState()
 	for i := range 2 {
 		key, err := crypto.GenerateKey()
@@ -342,7 +342,7 @@ func TestExecutorCloseDisablesOCC(t *testing.T) {
 
 func TestExecutorOCCFallsBackWhenSharedWorkerPoolClosesAfterOCCSelection(t *testing.T) {
 	chainID := big.NewInt(testChainID)
-	rawTxs := make([][]byte, 0, 2)
+	rawTxs := make([]abevm.RawTx, 0, 2)
 	recipients := make([]common.Address, 0, 2)
 	seqState := NewMemoryState()
 	occState := NewMemoryState()
@@ -489,7 +489,7 @@ func TestOCCChunkSizeSplitsSmallBlocks(t *testing.T) {
 
 func TestPrepareBlockParallelParsePreservesOrderAndReturnsIndexedError(t *testing.T) {
 	chainID := big.NewInt(testChainID)
-	validRaw := make([][]byte, 4)
+	validRaw := make([]abevm.RawTx, 4)
 	expectedSenders := make([]common.Address, 4)
 	for i := range validRaw {
 		key, err := crypto.GenerateKey()
@@ -509,7 +509,7 @@ func TestPrepareBlockParallelParsePreservesOrderAndReturnsIndexedError(t *testin
 		require.Equal(t, expectedSenders[i], prepared.Txs[i].Sender())
 	}
 
-	malformed := append([][]byte(nil), validRaw...)
+	malformed := append([]abevm.RawTx(nil), validRaw...)
 	malformed[1] = []byte{0x01}
 	_, err = executor.PrepareBlock(BlockRequest{
 		Context: blockContext(chainID),
@@ -533,7 +533,7 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.NoError(t, err)
@@ -576,7 +576,7 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
@@ -611,7 +611,7 @@ func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
 
 	result, err := NewExecutor(Config{}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.ErrorIs(t, err, errMissingBaseFee)
@@ -647,7 +647,7 @@ func TestExecutorRequiresBlobBaseFeeAfterCancun(t *testing.T) {
 
 	result, err := NewExecutor(Config{}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.ErrorIs(t, err, errMissingBlobBaseFee)
@@ -673,7 +673,7 @@ func TestExecutorRejectsPreCancunBlocks(t *testing.T) {
 func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	txCount := 12
-	rawTxs := make([][]byte, 0, txCount)
+	rawTxs := make([]abevm.RawTx, 0, txCount)
 	senders := make([]common.Address, 0, txCount)
 	recipients := make([]common.Address, 0, txCount)
 	seqState := NewMemoryState()
@@ -726,7 +726,7 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	txCount := 8
 	recipient := testAddress(0xdd)
-	rawTxs := make([][]byte, 0, txCount)
+	rawTxs := make([]abevm.RawTx, 0, txCount)
 	seqState := NewMemoryState()
 	occState := NewMemoryState()
 
@@ -774,7 +774,7 @@ func TestExecutorOCCLargeMixedBlockMatchesSequential(t *testing.T) {
 	hot := testAddress(0xaa)
 	seqState := NewMemoryState()
 	occState := NewMemoryState()
-	var rawTxs [][]byte
+	var rawTxs []abevm.RawTx
 	sign := func(key *ecdsa.PrivateKey, nonce uint64, to common.Address, value int64) {
 		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, nonce, &to, big.NewInt(value), nil, 100_000, big.NewInt(1)))
 	}
@@ -827,7 +827,7 @@ func TestExecutorOCCLargeMixedBlockMatchesSequential(t *testing.T) {
 func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	txCount := 4
-	rawTxs := make([][]byte, 0, txCount)
+	rawTxs := make([]abevm.RawTx, 0, txCount)
 	senders := make([]common.Address, 0, txCount)
 	recipients := make([]common.Address, 0, txCount)
 	seqState := NewMemoryState()
@@ -887,7 +887,7 @@ func TestExecutorOCCRerunsWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
 
 	feeTx := signLegacyTxWithGasPrice(t, feePayerKey, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(1))
 	readCoinbaseTx := signLegacyTxWithGasPrice(t, readerKey, chainID, 0, &contract, big.NewInt(0), nil, 100_000, big.NewInt(0))
-	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{feeTx, readCoinbaseTx}}
+	req := BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{feeTx, readCoinbaseTx}}
 	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
@@ -933,7 +933,7 @@ func TestExecutorOCCRerunsWhenLaterTxWritesFeeCreditedCoinbase(t *testing.T) {
 	transferToCoinbaseTx := signLegacyTxWithGasPrice(t, transferKey, chainID, 0, &coinbase, big.NewInt(5), nil, 100_000, big.NewInt(0))
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
-	req := BlockRequest{Context: ctx, Txs: [][]byte{feeTx, transferToCoinbaseTx}}
+	req := BlockRequest{Context: ctx, Txs: []abevm.RawTx{feeTx, transferToCoinbaseTx}}
 
 	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -978,7 +978,7 @@ func TestExecutorOCCRerunsCoinbaseSpendFundedByPriorFeeCredit(t *testing.T) {
 	spendFeeCreditTx := signLegacyTxWithGasPrice(t, coinbaseKey, chainID, 0, &spendRecipient, big.NewInt(21_000), nil, 100_000, big.NewInt(0))
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
-	req := BlockRequest{Context: ctx, Txs: [][]byte{feeTx, spendFeeCreditTx}}
+	req := BlockRequest{Context: ctx, Txs: []abevm.RawTx{feeTx, spendFeeCreditTx}}
 
 	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -1021,7 +1021,7 @@ func TestExecutorOCCRerunsCoinbaseReadAfterNormalAndCommutativeWrite(t *testing.
 	readCoinbaseTx := signLegacyTxWithGasPrice(t, readerKey, chainID, 0, &contract, big.NewInt(0), nil, 100_000, big.NewInt(0))
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
-	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTransferTx, readCoinbaseTx}}
+	req := BlockRequest{Context: ctx, Txs: []abevm.RawTx{coinbaseTransferTx, readCoinbaseTx}}
 
 	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -1063,7 +1063,7 @@ func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
 	otherTx := signLegacyTxWithGasPrice(t, otherKey, chainID, 0, &otherRecipient, big.NewInt(0), nil, 100_000, big.NewInt(1))
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
-	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTx, otherTx}}
+	req := BlockRequest{Context: ctx, Txs: []abevm.RawTx{coinbaseTx, otherTx}}
 	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
@@ -1104,7 +1104,7 @@ func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.
 	otherTx := signLegacyTxWithGasPrice(t, otherKey, chainID, 0, &otherRecipient, big.NewInt(1), nil, 100_000, big.NewInt(0))
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
-	req := BlockRequest{Context: ctx, Txs: [][]byte{selfDestructTx, otherTx}}
+	req := BlockRequest{Context: ctx, Txs: []abevm.RawTx{selfDestructTx, otherTx}}
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 
 	seqResult, err := NewExecutor(cfg, withTestState(seqState)).ExecuteBlock(t.Context(), req)
@@ -1140,7 +1140,7 @@ func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{firstTx, secondTx},
+		Txs:     []abevm.RawTx{firstTx, secondTx},
 	})
 
 	require.NoError(t, err)
@@ -1156,7 +1156,7 @@ func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 
 func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 	chainID := big.NewInt(testChainID)
-	rawTxs := make([][]byte, 0, 2)
+	rawTxs := make([]abevm.RawTx, 0, 2)
 	state := NewMemoryState()
 
 	for i := 0; i < 2; i++ {
@@ -1184,7 +1184,7 @@ func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 
 func TestExecutorOCCAllowsDeclaredGasSumAboveBlockLimitWhenUsedGasFits(t *testing.T) {
 	chainID := big.NewInt(testChainID)
-	rawTxs := make([][]byte, 0, 2)
+	rawTxs := make([]abevm.RawTx, 0, 2)
 	state := NewMemoryState()
 
 	for i := 0; i < 2; i++ {
@@ -1229,7 +1229,7 @@ func TestExecutorOCCCreateThenCallRerunsDependentTx(t *testing.T) {
 
 	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	callContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
-	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{createContract, callContract}}
+	req := BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{createContract, callContract}}
 
 	seqResult, err := NewExecutor(Config{}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -1271,7 +1271,7 @@ func TestExecutorReceiptAndLogMetadata(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
-		Txs:     [][]byte{transfer, emitLog},
+		Txs:     []abevm.RawTx{transfer, emitLog},
 	})
 
 	require.NoError(t, err)
@@ -1321,7 +1321,7 @@ func TestExecutorEVMFailureProducesReceiptAndContinues(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{oogCall, laterTransfer},
+		Txs:     []abevm.RawTx{oogCall, laterTransfer},
 	})
 
 	require.NoError(t, err)
@@ -1354,7 +1354,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1376,7 +1376,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1400,7 +1400,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1437,7 +1437,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: ctx,
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1459,7 +1459,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1484,7 +1484,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: ctx,
-			Txs:     [][]byte{firstTransfer, secondTransfer},
+			Txs:     []abevm.RawTx{firstTransfer, secondTransfer},
 		})
 
 		require.Error(t, err)
@@ -1512,7 +1512,7 @@ func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1540,7 +1540,7 @@ func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1569,7 +1569,7 @@ func TestExecutorCreatesContractThenUpdatesStorage(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{createContract, callContract},
+		Txs:     []abevm.RawTx{createContract, callContract},
 	})
 
 	require.NoError(t, err)
@@ -1603,7 +1603,7 @@ func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{createContract, selfDestructAfterCreateTx},
+		Txs:     []abevm.RawTx{createContract, selfDestructAfterCreateTx},
 	})
 
 	require.NoError(t, err)
@@ -1665,7 +1665,7 @@ func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
 	state.SetState(clearer, slot, testHash(0x09))
 	executor := NewExecutor(Config{}, withTestState(state))
 	defer executor.Close()
-	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{
 		signLegacyTx(t, key, chainID, 0, &counter, big.NewInt(10), nil),
 		signLegacyTx(t, key, chainID, 1, &counter, big.NewInt(10), nil),
 		signLegacyTx(t, key, chainID, 2, nil, big.NewInt(0), initCode(runtime)),
@@ -1731,7 +1731,7 @@ func TestExecuteBlockOCCChangeSetCarriesPriorValues(t *testing.T) {
 	state.SetState(clearer, slot, testHash(0x09))
 	executor := NewExecutor(Config{OCCWorkers: 4}, withTestState(state))
 	defer executor.Close()
-	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{
 		signLegacyTx(t, key, chainID, 0, &counter, big.NewInt(10), nil),
 		signLegacyTx(t, key, chainID, 1, &counter, big.NewInt(10), nil),
 		signLegacyTx(t, key, chainID, 2, nil, big.NewInt(0), initCode(runtime)),
@@ -2479,7 +2479,7 @@ func TestExecutorOCCHotRecipientChainDoesNotExhaustIncarnations(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	txCount := occMaxTxIncarnations + 1
 	recipient := testAddress(0xce)
-	rawTxs := make([][]byte, 0, txCount)
+	rawTxs := make([]abevm.RawTx, 0, txCount)
 	state := NewMemoryState()
 
 	for i := 0; i < txCount; i++ {
@@ -2513,7 +2513,7 @@ func TestExecutorOCCSameSenderChainDoesNotExhaustIncarnations(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(1_000_000))
-	rawTxs := make([][]byte, 0, txCount)
+	rawTxs := make([]abevm.RawTx, 0, txCount)
 	for i := range txCount {
 		recipient := common.BigToAddress(big.NewInt(int64(50_000 + i)))
 		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(
@@ -2588,7 +2588,7 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 
 	require.NoError(t, err)

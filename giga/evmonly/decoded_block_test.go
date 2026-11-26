@@ -9,6 +9,7 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -21,7 +22,7 @@ func TestPrepareDecodedBlock(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	executor := NewExecutor(Config{ParseWorkers: 2})
 	defer executor.Close()
-	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{raw}})
 	require.NoError(t, err)
 	require.Equal(t, sender, block.Txs[0].Sender())
 	prepared, err := executor.PrepareDecodedBlock(t.Context(), blockContext(chainID), block.Txs)
@@ -29,12 +30,12 @@ func TestPrepareDecodedBlock(t *testing.T) {
 	require.Len(t, prepared.Txs, 1)
 	require.Same(t, block.Txs[0].Transaction(), prepared.Txs[0].Transaction())
 	require.Equal(t, sender, prepared.Txs[0].Sender())
-	block, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	block, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{raw}})
 	require.NoError(t, err)
 	_, err = executor.PrepareDecodedBlock(t.Context(), blockContext(big.NewInt(testChainID+1)), block.Txs)
 	require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 	blob := utils.OrPanic1(ethtypes.NewTx(&ethtypes.BlobTx{}).MarshalBinary())
-	_, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{blob}})
+	_, err = executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{blob}})
 	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
 }
 
@@ -47,7 +48,7 @@ func TestPrepareBlockRejectsUnprotectedTransactions(t *testing.T) {
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	executor := NewExecutor(Config{})
 	defer executor.Close()
-	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{raw}})
 	require.Error(t, err)
 	require.Empty(t, block.Txs)
 }
@@ -61,7 +62,7 @@ func TestPrepareDecodedBlockChecksFork(t *testing.T) {
 	raw := utils.OrPanic1(tx.MarshalBinary())
 	executor := NewExecutor(Config{})
 	defer executor.Close()
-	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}})
+	block, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: []abevm.RawTx{raw}})
 	require.NoError(t, err)
 	cfg := DefaultChainConfig()
 	cfg.PragueTime = nil

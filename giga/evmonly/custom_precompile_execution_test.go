@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 var registeredPrecompileAddress = common.HexToAddress("0x0000000000000000000000000000000000001006")
@@ -50,7 +51,7 @@ func TestRegisteredCustomPrecompileRuns(t *testing.T) {
 		CustomPrecompiles: registry,
 	}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
-		Txs:     [][]byte{raw},
+		Txs:     []abevm.RawTx{raw},
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), result.Txs[0].Status)
@@ -88,7 +89,7 @@ func TestRegisteredCustomPrecompileMetersStorageReads(t *testing.T) {
 			CustomPrecompiles: registry,
 		}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
-			Txs:     [][]byte{raw},
+			Txs:     []abevm.RawTx{raw},
 		})
 		require.NoError(t, err)
 		return &result.Txs[0]
@@ -169,7 +170,7 @@ func TestRegisteredCustomPrecompileOCCMatchesSequential(t *testing.T) {
 	const senders = 8
 	chainID := big.NewInt(testChainID)
 	keys := make([]*ecdsa.PrivateKey, senders)
-	var txs [][]byte
+	var txs []abevm.RawTx
 	for i := range keys {
 		key, err := crypto.GenerateKey()
 		require.NoError(t, err)

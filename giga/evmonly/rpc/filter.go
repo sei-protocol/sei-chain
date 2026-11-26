@@ -216,7 +216,7 @@ func (api *filterAPI) blockHash(ctx context.Context, blockNumber uint64) (common
 		return common.Hash{}, fmt.Errorf("log block number %d exceeds int64", blockNumber)
 	}
 	height := int64(blockNumber)
-	block, err := api.backend.BlockByNumber(ctx, utils.Some(height))
+	block, err := loadBackendBlock(ctx, api.backend, utils.Some(height))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read log block %d: %w", blockNumber, err)
 	}

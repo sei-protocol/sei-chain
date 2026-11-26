@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
-	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
@@ -70,14 +69,10 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		missingState: e.missingState,
 	})
 
-	req.Txs = abevm.CanonicalOrder{
-		BaseFee:  req.Context.BaseFee,
-		GetNonce: source.GetNonce,
-		Txs:      req.Txs,
-	}.Run()
+	ordered := req.orderTxs(source)
 
 	e.blockPhases.SetPhase(phaseExecute)
-	result, err := e.executePreparedBlock(ctx, req, source)
+	result, err := e.executeOrderedBlock(ctx, ordered, source)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +139,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	// A restart replays blocks the archive may already hold.
 	if store := e.archive; store != nil && req.Context.Number > store.LatestBlock() {
-		block, err := archiveBlock(req, result)
+		block, err := archiveBlock(ordered, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode archive block %d: %w", req.Context.Number, err)
 		}

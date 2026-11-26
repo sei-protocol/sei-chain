@@ -26,7 +26,7 @@ type testEVMApp struct {
 	gotGasCap    uint64
 	gotHeader    abevm.BlockRef
 	gotHeight    int64
-	gotTxs       [][]byte
+	gotTxs       []abevm.RawTx
 	gotOverrides abevm.CallOverrides
 }
 
@@ -105,7 +105,7 @@ func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (*abevm.State
 	return abevm.NewStateHandle(&testStateDB{}, func() {}), nil
 }
 
-func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header abevm.BlockRef, txs [][]byte) (*abevm.StateHandle, error) {
+func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header abevm.BlockRef, txs []abevm.RawTx) (*abevm.StateHandle, error) {
 	app.gotHeader, app.gotTxs = header, txs
 	return abevm.NewStateHandle(&testStateDB{}, func() {}), nil
 }
@@ -247,7 +247,7 @@ func TestGigaEnvironmentServesTheApplication(t *testing.T) {
 
 	t.Run("trace reads", func(t *testing.T) {
 		header := &ethtypes.Header{Number: big.NewInt(5)}
-		txs := [][]byte{{1}, {2}}
+		txs := []abevm.RawTx{{1}, {2}}
 
 		// Test: the block context, the state after a block, and the state before a transaction.
 		blockCtx, blockCtxErr := env.EvmBlockContext(header)

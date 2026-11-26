@@ -36,7 +36,7 @@ func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (*abe
 
 // EvmStateBeforeTx returns the state before transaction len(txs) in block, after replaying txs.
 // The caller must close the returned handle.
-func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block abevm.BlockRef, txs [][]byte) (*abevm.StateHandle, error) {
+func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block abevm.BlockRef, txs []abevm.RawTx) (*abevm.StateHandle, error) {
 	number, err := blockNumber(block)
 	if err != nil {
 		return nil, err

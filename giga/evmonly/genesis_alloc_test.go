@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"math/big"
 	"testing"
 
@@ -49,7 +51,7 @@ func TestGenesisAllocFundsItsBlocksTransactions(t *testing.T) {
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(NewMemoryState()),
 		WithGenesisAlloc(1, map[common.Address]GenesisAccount{sender: {Balance: uint256.NewInt(behaviorSenderFunds)}}))
 
-	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}})
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: []abevm.RawTx{tx}})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), result.Txs[0].Status, result.Txs[0].Err)
 }

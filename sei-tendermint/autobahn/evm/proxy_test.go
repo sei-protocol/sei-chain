@@ -25,7 +25,7 @@ type testEVMApp struct {
 	gotGasCap    uint64
 	gotHeader    BlockRef
 	gotHeight    int64
-	gotTxs       [][]byte
+	gotTxs       []RawTx
 	gotOverrides CallOverrides
 	released     int
 }
@@ -105,7 +105,7 @@ func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (*StateHandle
 	return NewStateHandle(&testStateDB{}, func() { app.released++ }), nil
 }
 
-func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header BlockRef, txs [][]byte) (*StateHandle, error) {
+func (app *testEVMApp) EvmStateBeforeTx(_ context.Context, header BlockRef, txs []RawTx) (*StateHandle, error) {
 	app.gotHeader, app.gotTxs = header, txs
 	return NewStateHandle(&testStateDB{}, func() { app.released++ }), nil
 }
@@ -245,7 +245,7 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 
 	t.Run("trace reads", func(t *testing.T) {
 		header := &ethtypes.Header{Number: big.NewInt(5), Time: 123, ParentHash: common.Hash{9}}
-		txs := [][]byte{{1}, {2}}
+		txs := []RawTx{{1}, {2}}
 
 		// Test: the block context, the state after a block, and the state before a transaction.
 		blockCtx, err := evm.EvmBlockContext(header)

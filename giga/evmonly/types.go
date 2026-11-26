@@ -43,12 +43,21 @@ type ResultSink interface {
 // BlockRequest contains raw transactions and their execution context.
 type BlockRequest struct {
 	Context BlockContext
-	Txs     [][]byte
+	Txs     []abevm.RawTx
+	// TxsOrdered preserves the supplied transaction order when true.
+	TxsOrdered bool
 }
 
-// PreparedBlock contains transactions and verified senders ready for execution.
-// ExecutePreparedBlock trusts it unchanged and does not recover senders again.
+// PreparedBlock contains decoded transactions with verified senders and their ordering policy.
 type PreparedBlock struct {
+	Context BlockContext
+	Txs     []abevm.EvmTx
+	// TxsOrdered preserves the supplied transaction order when true.
+	TxsOrdered bool
+}
+
+// OrderedBlock contains transactions with verified senders in execution order.
+type OrderedBlock struct {
 	Context BlockContext
 	Txs     []abevm.EvmTx
 }

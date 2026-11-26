@@ -17,9 +17,10 @@ import (
 	receiptmetrics "github.com/sei-protocol/sei-chain/sei-db/receipt_db/metrics"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+var errZeroOrNegativeHeight = errors.New("height must be greater than zero")
 
 type blockAPI struct {
 	backend Backend
@@ -120,7 +121,7 @@ func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (
 }
 
 // resolveBlockByNumber returns the block number names, with earliest and 0x0 naming the earliest
-// block the receipt store retains. It returns a nil block for a future height, and coretypes.ErrHeightNotAvailable
+// block the receipt store retains. It returns a nil block for a future height, and abevm.ErrPruned
 // for a pruned height.
 func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*abevm.EvmBlock, error) {
 	kind, err := classifyBlockNumber(number)
@@ -139,8 +140,8 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	return api.blockAt(ctx, number.Int64())
 }
 
-// blockAt returns the block at height, or a nil block for a height below 1 or above the head. It
-// returns coretypes.ErrHeightNotAvailable for a pruned height.
+// blockAt returns the block at a positive height, or nil for a future height.
+// Non-positive heights are invalid parameters; pruned heights return abevm.ErrPruned.
 func (api *blockAPI) blockAt(ctx context.Context, height int64) (*abevm.EvmBlock, error) {
 	return api.fetchBlock(ctx, utils.Some(height))
 }
@@ -148,9 +149,8 @@ func (api *blockAPI) blockAt(ctx context.Context, height int64) (*abevm.EvmBlock
 // fetchBlock returns the block at height, or the latest committed block when height is omitted.
 // It returns nil for an unknown height.
 func (api *blockAPI) fetchBlock(ctx context.Context, height utils.Option[int64]) (*abevm.EvmBlock, error) {
-	block, err := api.backend.BlockByNumber(ctx, height)
-	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
-		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
+	block, err := loadBackendBlock(ctx, api.backend, height)
+	if errors.Is(err, errBlockAboveHead) {
 		return nil, nil
 	}
 	if err != nil {
@@ -373,4 +373,20 @@ func loadBackendBlockByHash(ctx context.Context, backend Backend, hash common.Ha
 	}
 	value, _ := block.Get()
 	return value, nil
+}
+
+// loadBackendBlock returns a block or an error identifying an invalid, future, or pruned height.
+func loadBackendBlock(ctx context.Context, backend Backend, height utils.Option[int64]) (*abevm.EvmBlock, error) {
+	if h, ok := height.Get(); ok && h <= 0 {
+		return nil, &invalidParamsError{error: fmt.Errorf("%w (requested height: %d)", errZeroOrNegativeHeight, h)}
+	}
+	found, err := backend.BlockByNumber(ctx, height)
+	if err != nil {
+		return nil, err
+	}
+	block, ok := found.Get()
+	if !ok {
+		return nil, errBlockAboveHead
+	}
+	return block, nil
 }

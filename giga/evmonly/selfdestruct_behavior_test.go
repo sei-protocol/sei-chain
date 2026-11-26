@@ -3,6 +3,8 @@ package evmonly
 // Pins nativeStateDB SELFDESTRUCT semantics against the geth reference executor.
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"math/big"
 	"testing"
 
@@ -29,11 +31,11 @@ func runSelfDestructBehavior(t *testing.T, state *MemoryState, rawTx []byte) sdB
 	t.Helper()
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 	ctx := blockContext(big.NewInt(testChainID))
-	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 	require.NoError(t, err)
 	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Txs:     []abevm.RawTx{rawTx},
 	})
 	require.NoError(t, err)
 	state.ApplyChangeSet(result.ChangeSet)

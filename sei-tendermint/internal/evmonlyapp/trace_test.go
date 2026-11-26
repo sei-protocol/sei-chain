@@ -40,7 +40,7 @@ func TestEVMOnlyApplicationReplaysTheStateBeforeEachTransaction(t *testing.T) {
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	first := evmOnlyTestBlock(app, 1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0))
 	finalizeEVMOnlyTestBlock(t, app, first)
-	block := [][]byte{
+	block := []abevm.RawTx{
 		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1),
 		// A spent nonce: the block rejects it, so it changes nothing.
 		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1),

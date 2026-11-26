@@ -34,10 +34,10 @@ func TestWarmAccountsReadsEverySenderAndRecipient(t *testing.T) {
 
 	recipient := testAddress(0xc1)
 	transferSender, creationSender := testAddress(0xa1), testAddress(0xa2)
-	executor.WarmAccounts(t.Context(), PreparedBlock{Txs: []abevm.EvmTx{
+	executor.WarmAccounts(t.Context(), []abevm.EvmTx{
 		abevm.TestEvmTx(ethtypes.NewTx(&ethtypes.LegacyTx{To: &recipient}), transferSender),
 		abevm.TestEvmTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), creationSender),
-	}})
+	})
 
 	require.ElementsMatch(t, []common.Address{transferSender, recipient, creationSender}, snapshot.reads)
 }
@@ -47,7 +47,7 @@ func TestWarmAccountsSkipsANilView(t *testing.T) {
 	defer executor.Close()
 
 	recipient := testAddress(0xc1)
-	executor.WarmAccounts(t.Context(), PreparedBlock{Txs: []abevm.EvmTx{
+	executor.WarmAccounts(t.Context(), []abevm.EvmTx{
 		abevm.TestEvmTx(ethtypes.NewTx(&ethtypes.LegacyTx{To: &recipient}), testAddress(0xa1)),
-	}})
+	})
 }

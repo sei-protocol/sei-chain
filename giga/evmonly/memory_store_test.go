@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
@@ -203,7 +204,7 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 		rawTx := signLegacyTx(t, key, chainID, nonce, &recipient, big.NewInt(1), nil)
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: ctx,
-			Txs:     [][]byte{rawTx},
+			Txs:     []abevm.RawTx{rawTx},
 		})
 		require.NoError(t, err)
 		result.Release()

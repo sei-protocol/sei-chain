@@ -20,11 +20,9 @@ func (e *Executor) ViewState(view gigatypes.EVMStateView) vm.SeiStateDB {
 	return &replayedStateDB{nativeStateDB: newNativeStateDB(source), reads: reads}
 }
 
-// ReplayState returns the state view holds after req's block runs its begin blockers and then req's
-// transactions, in order as the block applies them: a transaction the block rejected changes
-// nothing. The result is in memory only, reads through view, and belongs to the caller; it must not
-// be used once view is closed. Its Error reports the first read of view that failed, even after a
-// reverted snapshot.
+// ReplayState returns the in-memory state after req's begin blockers and transactions,
+// applying canonical ordering unless TxsOrdered is true. The caller owns the result and
+// must keep view open while using it; Error reports the first failed read, even after a revert.
 func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.SeiStateDB, error) {
 	source, reads := e.recordingReader(view)
 	begin, err := e.runBeginBlockers(req.Context, source, true)
@@ -40,19 +38,20 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 	if err != nil {
 		return nil, err
 	}
-	chainConfig := e.chainConfig(prepared.Context)
-	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
+	ordered := prepared.orderTxs(source)
+	chainConfig := e.chainConfig(ordered.Context)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(ordered.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	// executeTx does not watch ctx, so the EVM is stopped mid-transaction once ctx ends.
 	stop := context.AfterFunc(ctx, evm.Cancel)
 	defer stop()
-	gasPool := core.NewGasPool(prepared.Context.GasLimit)
-	baseFee := cloneOptionalBig(prepared.Context.BaseFee)
-	for txIndex, p := range prepared.Txs {
+	gasPool := core.NewGasPool(ordered.Context.GasLimit)
+	baseFee := cloneOptionalBig(ordered.Context.BaseFee)
+	for txIndex, p := range ordered.Txs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if _, _, err := e.executeTx(evm, stateDB, gasPool, prepared.Context, p, txIndex, uint(txIndex), baseFee); err != nil { //nolint:gosec // G115: txIndex is non-negative.
+		if _, _, err := e.executeTx(evm, stateDB, gasPool, ordered.Context, p, txIndex, uint(txIndex), baseFee); err != nil { //nolint:gosec // G115: txIndex is non-negative.
 			return nil, fmt.Errorf("replay tx %d %s: %w", txIndex, p.Transaction().Hash(), err)
 		}
 	}

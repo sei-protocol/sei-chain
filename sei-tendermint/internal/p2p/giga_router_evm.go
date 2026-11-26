@@ -12,19 +12,27 @@ import (
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-// BlockByNumber returns the finalized EVM block at road n.
-func (r *GigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*abevm.EvmBlock, error) {
+// BlockByNumber returns a finalized EVM block at height, or the latest servable height when omitted.
+// Future heights return None; pruned or unrepresentable heights return ErrPruned.
+func (r *GigaRouterCommon) BlockByNumber(ctx context.Context, height utils.Option[int64]) (utils.Option[*abevm.EvmBlock], error) {
+	latest := r.cfg.App.EvmBlockNumber()
+	resolved := height.Or(latest)
+	if resolved > latest {
+		return utils.None[*abevm.EvmBlock](), nil
+	}
+	n, ok := utils.SafeCast[atypes.RoadHeight](resolved)
+	if !ok {
+		return utils.None[*abevm.EvmBlock](), abevm.ErrPruned
+	}
 	block, err := r.data.RoadBlock(ctx, n)
 	if err != nil {
-		// Keep the RPC pruning sentinel for callers that distinguish pruned heights.
 		// The active lower bound lives in the block store's prune watermark.
 		if errors.Is(err, atypes.ErrPruned) {
-			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
+			return utils.None[*abevm.EvmBlock](), abevm.ErrPruned
 		}
-		return nil, fmt.Errorf("data.RoadBlock(%v): %w", n, err)
+		return utils.None[*abevm.EvmBlock](), fmt.Errorf("data.RoadBlock(%v): %w", n, err)
 	}
 	return r.evmBlock(block)
 }
@@ -39,23 +47,23 @@ func (r *GigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (u
 	if !ok {
 		return utils.None[*abevm.EvmBlock](), nil
 	}
-	executed, err := r.evmBlock(b)
-	if err != nil {
-		return utils.None[*abevm.EvmBlock](), err
-	}
-	return utils.Some(executed), nil
+	return r.evmBlock(b)
 }
 
 // evmBlock returns block with its receipt-backed transactions in execution order.
-func (r *GigaRouterCommon) evmBlock(block *atypes.RoadBlock) (*abevm.EvmBlock, error) {
+func (r *GigaRouterCommon) evmBlock(block *atypes.RoadBlock) (utils.Option[*abevm.EvmBlock], error) {
 	header := block.Header()
 	height, ok := utils.SafeCast[int64](header.Height())
 	if !ok {
-		return nil, fmt.Errorf("invalid block height %d", header.Height())
+		return utils.None[*abevm.EvmBlock](), fmt.Errorf("invalid block height %d", header.Height())
 	}
-	hashes, err := r.cfg.App.BlockTxsHashes(height)
+	found, err := r.cfg.App.BlockTxsHashes(height)
 	if err != nil {
-		return nil, err
+		return utils.None[*abevm.EvmBlock](), err
+	}
+	hashes, ok := found.Get()
+	if !ok {
+		return utils.None[*abevm.EvmBlock](), nil
 	}
 	byHash := make(map[common.Hash][]byte, len(hashes))
 	for _, lane := range block.LaneBlocks() {
@@ -67,17 +75,17 @@ func (r *GigaRouterCommon) evmBlock(block *atypes.RoadBlock) (*abevm.EvmBlock, e
 	for i, hash := range hashes {
 		raw, ok := byHash[hash]
 		if !ok {
-			return nil, fmt.Errorf("receipt transaction %s is missing from road block %d", hash, header.Height())
+			return utils.None[*abevm.EvmBlock](), fmt.Errorf("receipt transaction %s is missing from road block %d", hash, header.Height())
 		}
 		txs[i] = raw
 	}
-	return &abevm.EvmBlock{
+	return utils.Some(&abevm.EvmBlock{
 		Hash:    common.Hash(header.Hash()),
 		Height:  header.Height(),
 		Time:    header.Timestamp(),
 		Txs:     txs,
 		ChainID: r.cfg.GenDoc.ChainID,
-	}, nil
+	}), nil
 }
 
 // evmProxy returns the connected shard owner's client, or None for local admission.

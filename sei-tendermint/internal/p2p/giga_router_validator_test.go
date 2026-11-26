@@ -198,16 +198,17 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("executor[%v].ExecutedBlocks().Wait(): %w", i, err)
 			}
-			_, err = giga.BlockByNumber(ctx, executed.Latest().Height)
+			_, err = giga.BlockByNumber(ctx, utils.Some(utils.Clamp[int64](executed.Latest().Height)))
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(executed=%v): %w", i, executed.Latest().Height, err)
 			}
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// EVM-only RPC backend. Fetch the last committed block and verify its height and hash.
-			rb, err := giga.BlockByNumber(ctx, atypes.RoadHeight(committed)) //nolint:gosec // committed is positive.
+			found, err := giga.BlockByNumber(ctx, utils.Some(committed))
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
 			}
+			rb := found.OrPanic("committed block")
 			if err := utils.TestDiff(atypes.RoadHeight(committed), rb.Height); err != nil { //nolint:gosec // committed is positive.
 				return fmt.Errorf("router[%v].BlockByNumber(%v) height: %w", i, committed, err)
 			}
@@ -244,10 +245,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if err != nil {
 				continue // pruned out of the retain window
 			}
-			rb, err := giga0.BlockByNumber(ctx, gbn)
+			found, err := giga0.BlockByNumber(ctx, utils.Some(h))
 			if err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
+			rb := found.OrPanic("retained block")
 			if err := utils.TestDiff(gb.Txs(), rb.Txs); err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v).Txs differs from data.RoadBlock(%v).Txs: %w", h, h, err)
 			}

@@ -16,7 +16,7 @@ import (
 )
 
 func TestArchiveBlock(t *testing.T) {
-	block := PreparedBlock{
+	block := OrderedBlock{
 		Context: BlockContext{Number: 7, Time: 70, GasLimit: 1_000, BaseFee: big.NewInt(3),
 			BlockHash: common.Hash{0xb7}, ParentHash: common.Hash{0xb6}},
 	}

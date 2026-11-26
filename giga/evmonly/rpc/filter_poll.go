@@ -15,7 +15,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // NewFilter installs a log filter for crit and returns its ID. Its polls start at a fromBlock
@@ -187,7 +186,7 @@ func (api *filterAPI) pollBlockHashes(ctx context.Context, cursor uint64) ([]com
 	hashes := make([]common.Hash, 0, latest-cursor+1)
 	for height := cursor; height <= latest; height++ {
 		hash, err := api.blockHash(ctx, height)
-		if errors.Is(err, coretypes.ErrHeightExceedsChainHead) {
+		if errors.Is(err, errBlockAboveHead) {
 			return hashes, height, nil
 		}
 		if err != nil {

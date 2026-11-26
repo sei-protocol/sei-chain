@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"crypto/ecdsa"
 	"math/big"
 	"sync"
@@ -71,8 +73,8 @@ func (s *pipelineScenario) genesis() *MemoryState {
 }
 
 // block returns the transactions of block number, counted from 1.
-func (s *pipelineScenario) block(t *testing.T, number uint64) [][]byte {
-	txs := make([][]byte, 0, len(s.ring)+2)
+func (s *pipelineScenario) block(t *testing.T, number uint64) []abevm.RawTx {
+	txs := make([]abevm.RawTx, 0, len(s.ring)+2)
 	for i, key := range s.ring {
 		nonce := number - 1
 		if i == 0 && number > 1 {

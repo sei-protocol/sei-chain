@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -208,7 +209,7 @@ func TestReleaseOCCFragmentsClearsBlockData(t *testing.T) {
 func TestParallelPassLooksAheadTwiceWhatItLastAccepted(t *testing.T) {
 	pool := newOCCWorkerPool(4)
 	defer pool.Close()
-	runner := occSpeculativeRunner{blockGasLimit: math.MaxUint64}
+	runner := occSpeculativeRunner{blockCtx: vm.BlockContext{GasLimit: math.MaxUint64}}
 	results := make([]occTxExecution, 3*occMinPassLookahead)
 	for i := range results {
 		results[i] = occTxExecution{gasLimit: 1, gasUsed: 1}

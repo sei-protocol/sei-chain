@@ -306,7 +306,7 @@ func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) (
 	if !errors.Is(err, receiptdb.ErrRangeQueryNotSupported) {
 		return records, err
 	}
-	block, err := api.backend.BlockByNumber(ctx, utils.Some(height))
+	block, err := loadBackendBlock(ctx, api.backend, utils.Some(height))
 	if err != nil {
 		return nil, fmt.Errorf("read block %d to recompute stats: %w", height, err)
 	}

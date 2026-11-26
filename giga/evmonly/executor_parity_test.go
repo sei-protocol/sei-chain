@@ -1,6 +1,8 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
@@ -50,11 +52,12 @@ func TestExecutorNativeTransferFeeAccountingMatchesGeth(t *testing.T) {
 	ctx.Coinbase = testAddress(0xd2)
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 
-	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 	require.NoError(t, err)
 	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Context:    ctx,
+		Txs:        []abevm.RawTx{rawTx},
+		TxsOrdered: true,
 	})
 	require.NoError(t, err)
 	state.ApplyChangeSet(execResult.ChangeSet)
@@ -155,11 +158,12 @@ func TestExecutorNativeTransferEdgeCasesMatchGeth(t *testing.T) {
 			rawTx := tc.sign(t, key, ctx, recipient)
 			cfg := Config{MinGasPrice: big.NewInt(0)}
 
-			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 			require.NoError(t, err)
 			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-				Context: ctx,
-				Txs:     [][]byte{rawTx},
+				Context:    ctx,
+				Txs:        []abevm.RawTx{rawTx},
+				TxsOrdered: true,
 			})
 			require.NoError(t, err)
 			state.ApplyChangeSet(execResult.ChangeSet)
@@ -196,11 +200,12 @@ func TestExecutorERC20StyleTransferMatchesGeth(t *testing.T) {
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 	ctx := blockContext(chainID)
 
-	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 	require.NoError(t, err)
 	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Context:    ctx,
+		Txs:        []abevm.RawTx{rawTx},
+		TxsOrdered: true,
 	})
 	require.NoError(t, err)
 	state.ApplyChangeSet(execResult.ChangeSet)
@@ -240,11 +245,12 @@ func TestExecutorSelfDestructCreatedInSameTxMatchesGeth(t *testing.T) {
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 	ctx := blockContext(chainID)
 
-	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 	require.NoError(t, err)
 	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Context:    ctx,
+		Txs:        []abevm.RawTx{rawTx},
+		TxsOrdered: true,
 	})
 	require.NoError(t, err)
 	state.ApplyChangeSet(execResult.ChangeSet)
@@ -309,11 +315,12 @@ func TestExecutorPragueSelfDestructEdgeCasesMatchGeth(t *testing.T) {
 			cfg := Config{MinGasPrice: big.NewInt(0)}
 			ctx := blockContext(chainID)
 
-			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 			require.NoError(t, err)
 			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-				Context: ctx,
-				Txs:     [][]byte{rawTx},
+				Context:    ctx,
+				Txs:        []abevm.RawTx{rawTx},
+				TxsOrdered: true,
 			})
 			require.NoError(t, err)
 			state.ApplyChangeSet(execResult.ChangeSet)
@@ -351,11 +358,12 @@ func TestExecutorAccessListGasAccountingMatchesGeth(t *testing.T) {
 		state.SetState(contract, slot, testHash(0x45))
 		rawTx := signAccessListTx(t, key, chainID, 0, &contract, big.NewInt(0), nil, 120_000, big.NewInt(1), accessList)
 
-		gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+		gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 		require.NoError(t, err)
 		execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-			Context: ctx,
-			Txs:     [][]byte{rawTx},
+			Context:    ctx,
+			Txs:        []abevm.RawTx{rawTx},
+			TxsOrdered: true,
 		})
 		require.NoError(t, err)
 		requireExecutionParity(t, execResult, gethResult)
@@ -436,11 +444,12 @@ func TestExecutorLogOpcodeCorpusMatchesGeth(t *testing.T) {
 			state.SetCode(contract, logRuntime(data, topics))
 			rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &contract, big.NewInt(0), nil, 200_000, big.NewInt(1))
 
-			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 			require.NoError(t, err)
 			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-				Context: ctx,
-				Txs:     [][]byte{rawTx},
+				Context:    ctx,
+				Txs:        []abevm.RawTx{rawTx},
+				TxsOrdered: true,
 			})
 			require.NoError(t, err)
 			state.ApplyChangeSet(execResult.ChangeSet)
@@ -513,11 +522,12 @@ func TestExecutorCallOpcodeCorpusMatchesGeth(t *testing.T) {
 			state.SetCode(target, storeCode(targetSlot, targetValue))
 			rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &caller, big.NewInt(0), nil, 500_000, big.NewInt(1))
 
-			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 			require.NoError(t, err)
 			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-				Context: ctx,
-				Txs:     [][]byte{rawTx},
+				Context:    ctx,
+				Txs:        []abevm.RawTx{rawTx},
+				TxsOrdered: true,
 			})
 			require.NoError(t, err)
 			state.ApplyChangeSet(execResult.ChangeSet)
@@ -561,11 +571,12 @@ func TestExecutorEnvironmentOpcodeCorpusMatchesGeth(t *testing.T) {
 	rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &contract, big.NewInt(0), nil, 500_000, big.NewInt(20))
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 
-	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 	require.NoError(t, err)
 	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Context:    ctx,
+		Txs:        []abevm.RawTx{rawTx},
+		TxsOrdered: true,
 	})
 	require.NoError(t, err)
 	state.ApplyChangeSet(execResult.ChangeSet)
@@ -639,11 +650,12 @@ func TestExecutorVMFailureReceiptsAndFeesMatchGeth(t *testing.T) {
 			ctx := blockContext(chainID)
 			ctx.Coinbase = coinbase
 
-			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
+			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, []abevm.RawTx{rawTx})
 			require.NoError(t, err)
 			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-				Context: ctx,
-				Txs:     [][]byte{rawTx},
+				Context:    ctx,
+				Txs:        []abevm.RawTx{rawTx},
+				TxsOrdered: true,
 			})
 			require.NoError(t, err)
 			state.ApplyChangeSet(execResult.ChangeSet)
@@ -805,10 +817,11 @@ func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
 				cfg.MinGasPrice = big.NewInt(0)
 			}
 
-			gethResult, gethErr := executeGethReferenceBlock(t, state, cfg, testCtx, [][]byte{rawTx})
+			gethResult, gethErr := executeGethReferenceBlock(t, state, cfg, testCtx, []abevm.RawTx{rawTx})
 			execResult, execErr := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-				Context: testCtx,
-				Txs:     [][]byte{rawTx},
+				Context:    testCtx,
+				Txs:        []abevm.RawTx{rawTx},
+				TxsOrdered: true,
 			})
 
 			require.ErrorIs(t, gethErr, tc.want)
@@ -843,8 +856,9 @@ func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
 	ctx.BlobBaseFee = big.NewInt(1)
 
 	prepared, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}).PrepareBlock(BlockRequest{
-		Context: ctx,
-		Txs:     [][]byte{rawTx},
+		Context:    ctx,
+		Txs:        []abevm.RawTx{rawTx},
+		TxsOrdered: true,
 	})
 
 	require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
@@ -854,7 +868,7 @@ func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
 func TestExecutorOCCDeterministicAcrossRuns(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	txCount := 24
-	rawTxs := make([][]byte, 0, txCount)
+	rawTxs := make([]abevm.RawTx, 0, txCount)
 	senders := make([]common.Address, 0, txCount)
 	recipients := make([]common.Address, 0, txCount)
 
@@ -909,7 +923,7 @@ func TestExecutorOCCDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
-func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, ctx BlockContext, rawTxs [][]byte) (*gethReferenceResult, error) {
+func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, ctx BlockContext, rawTxs []abevm.RawTx) (*gethReferenceResult, error) {
 	t.Helper()
 	chainConfig := chainConfigForTest(cfg, ctx)
 	if err := validateBlockContext(chainConfig, ctx); err != nil {

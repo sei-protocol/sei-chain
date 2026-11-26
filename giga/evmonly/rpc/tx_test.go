@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"math/big"
 	"net/http/httptest"
@@ -228,7 +227,7 @@ func TestGetTransactionReceiptReturnsNullBeforeBlockCommit(t *testing.T) {
 	}}))
 	backend := &testBackend{
 		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-			return nil, fmt.Errorf("%w: 7", coretypes.ErrHeightExceedsChainHead)
+			return nil, nil
 		},
 	}
 
@@ -395,7 +394,7 @@ func TestGetTransactionByHashReturnsNullBeforeBlockCommit(t *testing.T) {
 	}}))
 	backend := &testBackend{
 		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-			return nil, fmt.Errorf("%w: 7", coretypes.ErrHeightExceedsChainHead)
+			return nil, nil
 		},
 	}
 
@@ -720,7 +719,7 @@ func TestTransactionErrorMethods(t *testing.T) {
 	backend := &testBackend{
 		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 			if *req.Height > 7 {
-				return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, *req.Height)
+				return nil, nil
 			}
 			return &coretypes.ResultBlock{Block: &tmtypes.Block{}}, nil
 		},

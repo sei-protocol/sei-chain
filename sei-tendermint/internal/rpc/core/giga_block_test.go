@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -27,14 +26,18 @@ type blockTransactionsApp struct {
 	hashes    []common.Hash
 	err       error
 	gotHeight int64
+	missing   bool
 }
 
 func (*blockTransactionsApp) EvmChainID() uint64     { return 1 }
 func (*blockTransactionsApp) LastBlockHeight() int64 { return 2 }
 func (*blockTransactionsApp) EvmBlockNumber() int64  { return 1 }
-func (a *blockTransactionsApp) BlockTxsHashes(height int64) ([]common.Hash, error) {
+func (a *blockTransactionsApp) BlockTxsHashes(height int64) (utils.Option[[]common.Hash], error) {
 	a.gotHeight = height
-	return a.hashes, a.err
+	if a.missing {
+		return utils.None[[]common.Hash](), nil
+	}
+	return utils.Some(a.hashes), a.err
 }
 
 func TestGigaBlocksUseExecutedTransactions(t *testing.T) {
@@ -64,11 +67,27 @@ func TestGigaBlocksUseExecutedTransactions(t *testing.T) {
 	env := &GigaEnvironment{Proxy: proxy, Router: router.Common(), GenDoc: genDoc}
 	require.Equal(t, int64(1), env.EvmBlockNumber())
 	require.Equal(t, int64(2), env.LastBlockHeight())
-	_, err = env.BlockByNumber(t.Context(), utils.Some[int64](2))
-	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
-
-	byNumber, err := env.BlockByNumber(t.Context(), utils.Some[int64](1))
+	for _, height := range []int64{-1, 0} {
+		found, err := env.BlockByNumber(t.Context(), utils.Some(height))
+		require.ErrorIs(t, err, abevm.ErrPruned)
+		require.False(t, found.IsPresent())
+	}
+	future, err := env.BlockByNumber(t.Context(), utils.Some[int64](2))
 	require.NoError(t, err)
+	require.False(t, future.IsPresent())
+	for _, height := range []int64{0, 2} {
+		found, err := router.Common().BlockByNumber(t.Context(), utils.Some(height))
+		if height == 0 {
+			require.ErrorIs(t, err, abevm.ErrPruned)
+		} else {
+			require.NoError(t, err)
+		}
+		require.False(t, found.IsPresent())
+	}
+
+	found, err := env.BlockByNumber(t.Context(), utils.Some[int64](1))
+	require.NoError(t, err)
+	byNumber := found.OrPanic("finalized block")
 	require.Equal(t, [][]byte{raw[2], raw[1]}, byNumber.Txs)
 	require.Equal(t, int64(1), app.gotHeight)
 	require.Equal(t, common.Hash(qc.Header().Hash()), byNumber.Hash)
@@ -76,7 +95,7 @@ func TestGigaBlocksUseExecutedTransactions(t *testing.T) {
 	require.Equal(t, genDoc.ChainID, byNumber.ChainID)
 	latest, err := env.BlockByNumber(t.Context(), utils.None[int64]())
 	require.NoError(t, err)
-	require.Equal(t, byNumber, latest)
+	require.Equal(t, byNumber, latest.OrPanic("latest block"))
 	byHash, err := env.BlockByHash(t.Context(), byNumber.Hash)
 	require.NoError(t, err)
 	require.Equal(t, byNumber, byHash.OrPanic("known block"))
@@ -84,10 +103,18 @@ func TestGigaBlocksUseExecutedTransactions(t *testing.T) {
 	app.hashes = []common.Hash{}
 	empty, err := env.BlockByNumber(t.Context(), utils.Some[int64](1))
 	require.NoError(t, err)
-	require.Empty(t, empty.Txs)
+	require.Empty(t, empty.OrPanic("empty block").Txs)
 	app.hashes = []common.Hash{{0xff}}
 	_, err = env.BlockByNumber(t.Context(), utils.Some[int64](1))
 	require.Error(t, err)
+	app.missing = true
+	missing, err := env.BlockByNumber(t.Context(), utils.Some[int64](1))
+	require.NoError(t, err)
+	require.False(t, missing.IsPresent())
+	missing, err = env.BlockByHash(t.Context(), byNumber.Hash)
+	require.NoError(t, err)
+	require.False(t, missing.IsPresent())
+	app.missing = false
 	app.err = errors.New("receipt store failure")
 	_, err = env.BlockByNumber(t.Context(), utils.Some[int64](1))
 	require.ErrorIs(t, err, app.err)

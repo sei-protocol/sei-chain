@@ -5,6 +5,8 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -24,8 +26,8 @@ type Application interface {
 	LastBlockHeight() int64
 	// EvmBlockNumber returns the latest height available for EVM block queries.
 	EvmBlockNumber() int64
-	// BlockTxsHashes returns the receipt-backed transaction hashes at height, in execution order.
-	BlockTxsHashes(height int64) ([]common.Hash, error)
+	// BlockTxsHashes returns receipt-backed transaction hashes in execution order, or None for a future height.
+	BlockTxsHashes(height int64) (utils.Option[[]common.Hash], error)
 	InitChain(InitConfig) error
 	RestoreBlockTime(time.Time)
 
@@ -102,5 +104,5 @@ type Application interface {
 	EvmStateAt(ctx context.Context, height int64) (*StateHandle, error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs)
 	// of block executed against, held until the returned handle is closed.
-	EvmStateBeforeTx(ctx context.Context, block BlockRef, txs [][]byte) (*StateHandle, error)
+	EvmStateBeforeTx(ctx context.Context, block BlockRef, txs []RawTx) (*StateHandle, error)
 }

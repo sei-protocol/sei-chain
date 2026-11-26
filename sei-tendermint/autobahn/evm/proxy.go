@@ -16,6 +16,7 @@ import (
 
 	proxymetrics "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // ErrTxRejected identifies a transaction rejected during decoding or admission.
@@ -48,8 +49,8 @@ func (app *Proxy) EvmBlockNumber() int64 {
 	return app.app.EvmBlockNumber()
 }
 
-// BlockTxsHashes returns the receipt-backed transaction hashes at height, in execution order.
-func (app *Proxy) BlockTxsHashes(height int64) ([]common.Hash, error) {
+// BlockTxsHashes returns receipt-backed transaction hashes in execution order, or None for a future height.
+func (app *Proxy) BlockTxsHashes(height int64) (utils.Option[[]common.Hash], error) {
 	defer proxymetrics.Observe("block_txs_hashes", "sync")()
 	return app.app.BlockTxsHashes(height)
 }
@@ -190,7 +191,7 @@ func (app *Proxy) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, 
 	return state, state.Close, nil
 }
 
-func (app *Proxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+func (app *Proxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs []RawTx) (vm.SeiStateDB, func(), error) {
 	defer proxymetrics.Observe("evm_state_before_tx", "sync")()
 	block, err := executionBlockRef(header)
 	if err != nil {

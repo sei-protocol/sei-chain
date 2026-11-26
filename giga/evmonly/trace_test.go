@@ -1,7 +1,10 @@
 package evmonly
 
 import (
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+
 	"context"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -22,7 +25,7 @@ func TestReplayStateAppliesEachPrefixAsTheBlockDid(t *testing.T) {
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := testAddress(0xb1)
-	txs := [][]byte{
+	txs := []abevm.RawTx{
 		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(5), nil),
 		// A spent nonce: the block rejects it, so it changes nothing.
 		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(9), nil),
@@ -51,8 +54,9 @@ func TestReplayStateAppliesEachPrefixAsTheBlockDid(t *testing.T) {
 			defer view.Close()
 
 			replayed, err := NewExecutor(cfg).ReplayState(t.Context(), view, BlockRequest{
-				Context: blockContext(chainID),
-				Txs:     txs[:tc.prefix],
+				Context:    blockContext(chainID),
+				Txs:        txs[:tc.prefix],
+				TxsOrdered: true,
 			})
 
 			require.NoError(t, err)
@@ -66,13 +70,55 @@ func TestReplayStateAppliesEachPrefixAsTheBlockDid(t *testing.T) {
 	// Executing the block commits what replaying all of it produces.
 	state := newState()
 	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockContext(chainID),
-		Txs:     txs,
+		Context:    blockContext(chainID),
+		Txs:        txs,
+		TxsOrdered: true,
 	})
 	require.NoError(t, err)
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
 	require.Equal(t, uint64(2), state.GetNonce(sender))
+}
+
+func TestReplayStateHonorsTxsOrdered(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ordered=%t", ordered), func(t *testing.T) {
+			chainID := big.NewInt(testChainID)
+			key, err := crypto.GenerateKey()
+			require.NoError(t, err)
+			sender := crypto.PubkeyToAddress(key.PublicKey)
+			recipient := testAddress(0xb5)
+			state := NewMemoryState()
+			state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+			state.SetNonce(sender, 7)
+			view := NewMemoryStore(state).OpenView()
+			defer view.Close()
+			req := BlockRequest{
+				Context: blockContext(chainID),
+				Txs: []abevm.RawTx{
+					signLegacyTx(t, key, chainID, 8, &recipient, big.NewInt(6), nil),
+					signLegacyTx(t, key, chainID, 7, &recipient, big.NewInt(5), nil),
+				},
+				TxsOrdered: ordered,
+			}
+			cfg := Config{RejectUnappliableTxs: true}
+			replayed, err := NewExecutor(cfg).ReplayState(t.Context(), view, req)
+			require.NoError(t, err)
+			wantBalance, wantNonce := uint64(11), uint64(9)
+			if ordered {
+				wantBalance, wantNonce = 5, 8
+			}
+			require.Equal(t, wantBalance, replayed.GetBalance(recipient).Uint64())
+			require.Equal(t, wantNonce, replayed.GetNonce(sender))
+			require.Equal(t, uint64(7), view.GetNonce(sender))
+			result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), req)
+			require.NoError(t, err)
+			defer result.Release()
+			state.ApplyChangeSet(result.ChangeSet)
+			require.Equal(t, replayed.GetBalance(recipient).ToBig(), state.GetBalance(recipient))
+			require.Equal(t, replayed.GetNonce(sender), state.GetNonce(sender))
+		})
+	}
 }
 
 // TestReplayStateRefusesAnInvalidBlockContext refuses to replay transactions under a block context
@@ -91,7 +137,7 @@ func TestReplayStateRefusesAnInvalidBlockContext(t *testing.T) {
 
 	_, err = NewExecutor(Config{RejectUnappliableTxs: true}).ReplayState(t.Context(), view, BlockRequest{
 		Context: blockCtx,
-		Txs:     [][]byte{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)},
+		Txs:     []abevm.RawTx{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)},
 	})
 
 	require.ErrorIs(t, err, errInvalidBlockGasLimit)
@@ -121,7 +167,7 @@ func TestReplayStateStopsATransactionWhenCanceled(t *testing.T) {
 
 	_, err = NewExecutor(Config{RejectUnappliableTxs: true}).ReplayState(ctx, view, BlockRequest{
 		Context: blockCtx,
-		Txs:     [][]byte{signLegacyTxWithGas(t, key, chainID, 0, &loop, big.NewInt(0), nil, gas)},
+		Txs:     []abevm.RawTx{signLegacyTxWithGas(t, key, chainID, 0, &loop, big.NewInt(0), nil, gas)},
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
@@ -173,7 +219,7 @@ func TestReplayStateRunsBeginBlockersFirst(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
 	cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: beginBlockRegistry(beginBlockRecorder{})}
-	req := BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: [][]byte{tx}}
+	req := BlockRequest{Context: blockContext(big.NewInt(testChainID)), Txs: []abevm.RawTx{tx}}
 
 	view := NewMemoryStore(state).OpenView()
 	defer view.Close()

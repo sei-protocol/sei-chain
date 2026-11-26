@@ -9,6 +9,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 // speculationState is the executor's early-speculation bookkeeping.
@@ -86,7 +88,7 @@ func (e *Executor) SpeculateEarly(ctx context.Context, b PreparedBlock) {
 // run speculates claimed chunks of the block until every transaction is claimed or ctx ends,
 // holding one of the executor's early slots per chunk.
 func (s *earlySpeculation) run(ctx context.Context, e *Executor, source StateReader) {
-	runner := newOCCSpeculativeRunner(e, s.block)
+	runner := newOCCSpeculativeRunner(e, s.block.Context, s.block.Txs)
 	stateDB := e.acquireStateDB(nil)
 	defer e.releaseStateDB(stateDB)
 	evm := vm.NewEVMWithCustomPrecompiles(runner.blockCtx, stateDB, runner.chainConfig, vm.Config{}, e.customContracts)
@@ -107,7 +109,7 @@ func (s *earlySpeculation) run(ctx context.Context, e *Executor, source StateRea
 				txIndex:     i,
 				txIndexUint: uint(i), //nolint:gosec // i is a non-negative transaction index.
 				source:      source,
-				gasLimit:    runner.blockGasLimit,
+				gasLimit:    runner.blockCtx.GasLimit,
 			}
 			if err := runner.executeTaskInto(ctx, evm, stateDB, task, s.results); err != nil {
 				break
@@ -144,7 +146,7 @@ func (e *Executor) recordExecutedChanges(blockNumber uint64, changes *pendingInd
 // executed since nor begin, the block's begin-blocker writes, invalidated, and reports which results it
 // filled. It returns nil when the block was not speculated early, or was speculated for another context
 // or against state too old to check.
-func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock, begin *StateChangeSet, results []occTxExecution) []bool {
+func (e *Executor) reuseEarlySpeculation(ctx context.Context, req OrderedBlock, begin *StateChangeSet, results []occTxExecution) []bool {
 	if e.speculationSlots == nil {
 		return nil
 	}
@@ -175,13 +177,14 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 		between = append(between, newPendingIndex(begin))
 	}
 	s.wg.Wait()
-	if !checkable || len(s.results) != len(results) || !sameBlockContext(s.block.Context, req.Context) {
+	if !checkable || !sameBlockContext(s.block.Context, req.Context) {
 		recordEarlyOutcome(ctx, earlyOutcomeDiscarded, len(results))
 		return nil
 	}
 	for _, changes := range between {
 		<-changes.ready
 	}
+	matched := s.matchResults(req.Txs)
 
 	filled := make([]bool, len(results))
 	var reused, stale, unfinished atomic.Int64
@@ -189,14 +192,15 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 	err := e.occPool.Run(ctx, len(ranges), func(workerCtx context.Context, workerID int, workers int) error {
 		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += workers {
 			for i := ranges[rangeIndex].start; i < ranges[rangeIndex].end; i++ {
+				j := matched[i]
 				switch {
-				case !s.done[i].Load() || s.block.Txs[i].Transaction().Hash() != req.Txs[i].Transaction().Hash():
+				case j < 0:
 					unfinished.Add(1)
 				// A write without a read carries the old value as its prior, so writes are checked too.
-				case touchesAnyChange(s.results[i].readSet, between) || touchesAnyChange(s.results[i].writeSet, between):
+				case touchesAnyChange(s.results[j].readSet, between) || touchesAnyChange(s.results[j].writeSet, between):
 					stale.Add(1)
 				default:
-					results[i] = rebaseCredits(s.results[i], between)
+					results[i] = rebaseCredits(s.results[j], between)
 					filled[i] = true
 					reused.Add(1)
 				}
@@ -212,6 +216,28 @@ func (e *Executor) reuseEarlySpeculation(ctx context.Context, req PreparedBlock,
 	recordEarlyOutcome(ctx, earlyOutcomeStale, int(stale.Load()))
 	recordEarlyOutcome(ctx, earlyOutcomeUnfinished, int(unfinished.Load()))
 	return filled
+}
+
+// matchResults returns a completed speculative result index for each transaction, or -1 when absent.
+func (s *earlySpeculation) matchResults(txs []abevm.EvmTx) []int {
+	byHash := make(map[common.Hash]int, len(s.results))
+	for i := range s.results {
+		if s.done[i].Load() {
+			byHash[s.block.Txs[i].Hash()] = i
+		}
+	}
+	matched := make([]int, len(txs))
+	for i, tx := range txs {
+		hash := tx.Hash()
+		j, ok := byHash[hash]
+		matched[i] = -1
+		if ok {
+			matched[i] = j
+			// Each result owns mutable receipts and logs, so it can only be reused once.
+			delete(byHash, hash)
+		}
+	}
+	return matched
 }
 
 func (s *earlySpeculation) baseOrZero() uint64 {

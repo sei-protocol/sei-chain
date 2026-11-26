@@ -17,6 +17,7 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
 
 const (
@@ -139,14 +140,14 @@ func (s *occScenario) block(t testing.TB, number uint64) BlockRequest {
 	ctx.Time = number
 	// A long block needs more than the default limit to fit its transfers.
 	ctx.GasLimit = max(ctx.GasLimit, uint64(s.profile.blockTxs)*2*params.TxGas) //nolint:gosec // the block size is positive.
-	txs := make([][]byte, 0, s.profile.blockTxs)
+	txs := make([]abevm.RawTx, 0, s.profile.blockTxs)
 	if s.profile.conflictEvery > 0 {
 		for len(txs) < s.profile.blockTxs {
 			txs = s.appendSpacedTx(t, txs)
 		}
 		return BlockRequest{Context: ctx, Txs: txs}
 	}
-	var deferred [][]byte
+	var deferred []abevm.RawTx
 	for len(txs) < s.profile.blockTxs {
 		if len(deferred) > 0 && s.rng.IntN(4) == 0 {
 			txs, deferred = append(txs, deferred[0]), deferred[1:]
@@ -163,7 +164,7 @@ func (s *occScenario) block(t testing.TB, number uint64) BlockRequest {
 
 // appendSpacedTx appends an independent transfer, or a payment to the first hot address when the
 // block's length is a multiple of conflictEvery.
-func (s *occScenario) appendSpacedTx(t testing.TB, txs [][]byte) [][]byte {
+func (s *occScenario) appendSpacedTx(t testing.TB, txs []abevm.RawTx) []abevm.RawTx {
 	sender := s.nextSender
 	s.nextSender = (s.nextSender + 1) % len(s.senders)
 	to := s.address(fmt.Sprintf("fresh-%d", sender), int(s.nonces[sender])) //nolint:gosec // nonce is small.
@@ -177,14 +178,14 @@ func (s *occScenario) appendSpacedTx(t testing.TB, txs [][]byte) [][]byte {
 
 // appendTx appends one drawn transaction, or a short run of them, and returns any transaction that
 // has to land later in the block.
-func (s *occScenario) appendTx(t testing.TB, txs [][]byte, coinbase common.Address) ([][]byte, []byte) {
+func (s *occScenario) appendTx(t testing.TB, txs []abevm.RawTx, coinbase common.Address) ([]abevm.RawTx, []byte) {
 	sender := s.rng.IntN(len(s.senders))
 	independent := s.rng.IntN(100) < s.profile.independentPercent
 	if independent {
 		sender = s.nextSender
 		s.nextSender = (s.nextSender + 1) % len(s.senders)
 	}
-	send := func(to *common.Address, value int64, data []byte) [][]byte {
+	send := func(to *common.Address, value int64, data []byte) []abevm.RawTx {
 		raw := signLegacyTxWithGas(t, s.senders[sender], s.chainID, s.nonces[sender], to, big.NewInt(value), data, occScenarioTxGas)
 		s.nonces[sender]++
 		return append(txs, raw)
@@ -239,7 +240,7 @@ func (s *occScenario) appendTx(t testing.TB, txs [][]byte, coinbase common.Addre
 
 // appendFundedSpend funds a fresh account and returns its spend, which only succeeds once the
 // funding transaction ahead of it has landed.
-func (s *occScenario) appendFundedSpend(t testing.TB, txs [][]byte, sender int) ([][]byte, []byte) {
+func (s *occScenario) appendFundedSpend(t testing.TB, txs []abevm.RawTx, sender int) ([]abevm.RawTx, []byte) {
 	poor := s.key(t, "poor", s.poorCount)
 	s.poorCount++
 	poorAddr := crypto.PubkeyToAddress(poor.PublicKey)
