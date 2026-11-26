@@ -1350,7 +1350,7 @@ func TestGigaRouterCommon_RetainReadsAnchorAtRetain(t *testing.T) {
 	annA1 := testAddrAnnouncement(rng, a, 1, "a1.example:26656")
 	annA2 := testAddrAnnouncement(rng, a, 2, "a2.example:26656")
 	annX := testAddrAnnouncement(rng, x, 1, "x.example:26656")
-	require.NoError(t, validatorAddrs.Receive(annA1))
+	require.True(t, validatorAddrs.Receive(annA1))
 	dialed := make(chan GigaNodeAddr, 4)
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
@@ -1360,8 +1360,8 @@ func TestGigaRouterCommon_RetainReadsAnchorAtRetain(t *testing.T) {
 					// Runs while the pass stops this session, after the pass has read the Anchor.
 					<-ctx.Done()
 					epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{x.Public(): 1}))
-					if err := validatorAddrs.Receive(annX); err != nil {
-						return err
+					if !validatorAddrs.Receive(annX) {
+						return fmt.Errorf("table refused announcement of %v", annX.Key())
 					}
 				}
 				<-ctx.Done()
@@ -1370,7 +1370,7 @@ func TestGigaRouterCommon_RetainReadsAnchorAtRetain(t *testing.T) {
 		})
 		require.Equal(t, "a1.example", (<-dialed).HostPort.Hostname)
 		// The change of address stops a1's session, and the pass that does so admits x.
-		require.NoError(t, validatorAddrs.Receive(annA2))
+		require.True(t, validatorAddrs.Receive(annA2))
 		// a is not dialed at its new address: the Anchor no longer admits it.
 		require.Equal(t, "x.example", (<-dialed).HostPort.Hostname)
 		return nil
@@ -1384,7 +1384,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsGossipedAddress(t *testing.T
 	a, x := atypes.GenSecretKey(rng), atypes.GenSecretKey(rng)
 	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{a.Public(): 1, x.Public(): 1}))
 	validatorAddrs := testValidatorAddrs(epochs.state)
-	require.NoError(t, validatorAddrs.Receive(testAddrAnnouncement(rng, a, 1, "a.example:26656")))
+	require.True(t, validatorAddrs.Receive(testAddrAnnouncement(rng, a, 1, "a.example:26656")))
 	router := &GigaRouterCommon{cfg: &GigaRouterCommonConfig{}, data: epochs.state, validatorAddrs: validatorAddrs}
 	started := make(chan atypes.PublicKey, 8)
 	task := func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
@@ -1397,8 +1397,8 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsGossipedAddress(t *testing.T
 		if got := <-started; got != a.Public() {
 			return fmt.Errorf("first dial = %v, want a", got)
 		}
-		if err := validatorAddrs.Receive(testAddrAnnouncement(rng, x, 1, "x.example:26656")); err != nil {
-			return err
+		if !validatorAddrs.Receive(testAddrAnnouncement(rng, x, 1, "x.example:26656")) {
+			return fmt.Errorf("table refused announcement of %v", x.Public())
 		}
 		if got := <-started; got != x.Public() {
 			return fmt.Errorf("second dial = %v, want x", got)

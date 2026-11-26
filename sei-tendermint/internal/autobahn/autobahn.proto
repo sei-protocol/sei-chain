@@ -301,9 +301,6 @@ message Msg {
 
     // P2P authentication
     Challenge challenge = 13;
-
-    // Validator address discovery
-    ValidatorAddrAnnouncement validator_addr_announcement = 14;
   }
 }
 

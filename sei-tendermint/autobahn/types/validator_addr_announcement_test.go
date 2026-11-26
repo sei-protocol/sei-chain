@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -91,4 +92,54 @@ func TestValidatorAddrAnnouncementConv_RejectsEndpointMissingFields(t *testing.T
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestValidatorAddrMsgConv_RoundTripsEachVariant(t *testing.T) {
+	rng := utils.TestRng()
+	for range 10 {
+		require.NoError(t, ValidatorAddrMsgConv.Test(ValidatorAddrAnnouncementMsg{
+			Ann: GenSecretKey(rng).SignValidatorAddr(testAnnouncement(ValidatorEndpoint{Name: "rpc", HostPort: "10.0.0.1:8545"})),
+		}))
+		require.NoError(t, ValidatorAddrMsgConv.Test(ValidatorAddrAck{
+			Validator: GenPublicKey(rng),
+			Version:   rng.Uint64(),
+		}))
+	}
+}
+
+func TestValidatorAddrMsgConv_RejectsEmptyMessage(t *testing.T) {
+	_, err := ValidatorAddrMsgConv.Decode(&pb.ValidatorAddrMsg{})
+	require.Error(t, err)
+}
+
+func TestValidatorAddrMsgConv_RejectsUndecodableVariants(t *testing.T) {
+	for name, msg := range map[string]*pb.ValidatorAddrMsg{
+		"ack":          {T: &pb.ValidatorAddrMsg_Ack{Ack: &pb.ValidatorAddrAck{}}},
+		"announcement": {T: &pb.ValidatorAddrMsg_Announcement{Announcement: &pb.SignedValidatorAddrAnnouncement{}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidatorAddrMsgConv.Decode(msg)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestSignedValidatorAddrAnnouncement_VerifiesAfterRoundTrip(t *testing.T) {
+	rng := utils.TestRng()
+	key := GenSecretKey(rng)
+	signed := key.SignValidatorAddr(testAnnouncement(ValidatorEndpoint{Name: "rpc", HostPort: "10.0.0.1:8545"}))
+	got, err := SignedValidatorAddrAnnouncementConv.Unmarshal(SignedValidatorAddrAnnouncementConv.Marshal(signed))
+	require.NoError(t, err)
+	require.Equal(t, key.Public(), got.Key())
+	require.NoError(t, got.VerifySig())
+}
+
+func TestSignedValidatorAddrAnnouncement_RejectsChangedVersion(t *testing.T) {
+	rng := utils.TestRng()
+	signed := GenSecretKey(rng).SignValidatorAddr(testAnnouncement())
+	p := SignedValidatorAddrAnnouncementConv.Encode(signed)
+	p.Msg.Version = new(uint64(8))
+	got, err := SignedValidatorAddrAnnouncementConv.Decode(p)
+	require.NoError(t, err)
+	require.Error(t, got.VerifySig())
 }

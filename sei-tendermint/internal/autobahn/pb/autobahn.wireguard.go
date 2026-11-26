@@ -402,7 +402,6 @@ func init() {
 		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutVote]())},
 		7:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
 		13: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
-		14: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ValidatorAddrAnnouncement]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedProposal.

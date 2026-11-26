@@ -18,18 +18,18 @@ import (
 )
 
 // testValidatorAddrs returns an empty address store that reads its Anchor from state.
-func testValidatorAddrs(state *data.State) *giga.ValidatorAddrs[GigaNodeAddr] {
+func testValidatorAddrs(state *data.State) *giga.ValidatorAddrs {
 	return newValidatorAddrs(state, false)
 }
 
 // gossipedAddr returns the dial address of validator that addrs holds, as the dial loop sees it.
-func gossipedAddr(addrs *giga.ValidatorAddrs[GigaNodeAddr], validator atypes.PublicKey) (GigaNodeAddr, bool) {
+func gossipedAddr(addrs *giga.ValidatorAddrs, validator atypes.PublicKey) (GigaNodeAddr, bool) {
 	return (&GigaRouterCommon{cfg: &GigaRouterCommonConfig{}, validatorAddrs: addrs}).validatorAddr(validator)
 }
 
 // testAddrAnnouncement returns a valid announcement of key at version, pointing at host:port.
-func testAddrAnnouncement(rng utils.Rng, key atypes.SecretKey, version uint64, hostPort string) *atypes.Signed[atypes.ValidatorAddrAnnouncement] {
-	return key.Sign(atypes.ValidatorAddrAnnouncement{
+func testAddrAnnouncement(rng utils.Rng, key atypes.SecretKey, version uint64, hostPort string) *atypes.SignedValidatorAddrAnnouncement {
+	return key.SignValidatorAddr(atypes.ValidatorAddrAnnouncement{
 		Version:  version,
 		NodeKey:  makeKey(rng).Public().String(),
 		HostPort: hostPort,
@@ -38,7 +38,7 @@ func testAddrAnnouncement(rng utils.Rng, key atypes.SecretKey, version uint64, h
 
 // tamperedAddr returns ann with HostPort replaced on the wire. The signature still covers the
 // original message, so it no longer verifies against the decoded one.
-func tamperedAddr(t *testing.T, ann *atypes.Signed[atypes.ValidatorAddrAnnouncement], hostPort string) *atypes.Signed[atypes.ValidatorAddrAnnouncement] {
+func tamperedAddr(t *testing.T, ann *atypes.SignedValidatorAddrAnnouncement, hostPort string) *atypes.SignedValidatorAddrAnnouncement {
 	t.Helper()
 	raw := atypes.SignedValidatorAddrAnnouncementConv.Encode(ann)
 	*raw.Msg.HostPort = hostPort
@@ -53,7 +53,7 @@ func TestValidatorAddrVerification(t *testing.T) {
 	outsider := atypes.GenSecretKey(rng)
 	anchor := testAnchor(testEpoch(1, map[atypes.PublicKey]uint64{member.Public(): 1}))
 	// signed returns an announcement by key with the default fields, except the one changed by edit.
-	signed := func(key atypes.SecretKey, edit func(*atypes.ValidatorAddrAnnouncement)) *atypes.Signed[atypes.ValidatorAddrAnnouncement] {
+	signed := func(key atypes.SecretKey, edit func(*atypes.ValidatorAddrAnnouncement)) *atypes.SignedValidatorAddrAnnouncement {
 		msg := atypes.ValidatorAddrAnnouncement{
 			Version:  1,
 			NodeKey:  makeKey(rng).Public().String(),
@@ -62,12 +62,12 @@ func TestValidatorAddrVerification(t *testing.T) {
 		if edit != nil {
 			edit(&msg)
 		}
-		return key.Sign(msg)
+		return key.SignValidatorAddr(msg)
 	}
 	for _, tc := range []struct {
 		name    string
-		ann     *atypes.Signed[atypes.ValidatorAddrAnnouncement]
-		wantErr error
+		ann     *atypes.SignedValidatorAddrAnnouncement
+		refused bool
 		// allowLocal is passed to verifyValidatorAddr.
 		allowLocal bool
 	}{
@@ -75,44 +75,44 @@ func TestValidatorAddrVerification(t *testing.T) {
 		{
 			name:    "bad signature",
 			ann:     tamperedAddr(t, signed(member, nil), "evil.example:26656"),
-			wantErr: errAddrBadSignature,
+			refused: true,
 		},
-		{name: "signer outside anchor", ann: signed(outsider, nil), wantErr: errAddrSignerNotInAnchor},
+		{name: "signer outside anchor", ann: signed(outsider, nil), refused: true},
 		{
 			// Membership is checked first, so a non-member's forged announcement is refused without a signature check.
 			name:    "forged signature from outside anchor",
 			ann:     tamperedAddr(t, signed(outsider, nil), "evil.example:26656"),
-			wantErr: errAddrSignerNotInAnchor,
+			refused: true,
 		},
 		{
 			name:    "malformed node key",
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.NodeKey = "not-a-node-key" }),
-			wantErr: errAddrBadNodeKey,
+			refused: true,
 		},
 		{
 			name:    "malformed host port",
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "no-port" }),
-			wantErr: errAddrBadHostPort,
+			refused: true,
 		},
 		{
 			name:    "loopback host",
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "127.0.0.1:26656" }),
-			wantErr: errAddrLocalHost,
+			refused: true,
 		},
 		{
 			name:    "link-local metadata host",
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "169.254.169.254:80" }),
-			wantErr: errAddrLocalHost,
+			refused: true,
 		},
 		{
 			name:    "localhost name host",
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "localhost:26656" }),
-			wantErr: errAddrLocalHost,
+			refused: true,
 		},
 		{
 			name:    "ipv6 loopback host",
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "[::1]:26656" }),
-			wantErr: errAddrLocalHost,
+			refused: true,
 		},
 		{
 			name:       "loopback host when local addresses are allowed",
@@ -121,12 +121,7 @@ func TestValidatorAddrVerification(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := verifyValidatorAddr(anchor, tc.ann, tc.allowLocal)
-			if tc.wantErr == nil {
-				require.NoError(t, err)
-				return
-			}
-			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, !tc.refused, verifyValidatorAddr(anchor, tc.ann, tc.allowLocal).IsPresent())
 		})
 	}
 }
@@ -142,19 +137,16 @@ func TestValidatorAddrVerificationAcceptsEitherAnchorEpoch(t *testing.T) {
 		testEpoch(1, map[atypes.PublicKey]uint64{current.Public(): 1}),
 		testEpoch(2, map[atypes.PublicKey]uint64{joiner.Public(): 1}),
 	}}
-	signed := func(key atypes.SecretKey) *atypes.Signed[atypes.ValidatorAddrAnnouncement] {
-		return key.Sign(atypes.ValidatorAddrAnnouncement{
+	signed := func(key atypes.SecretKey) *atypes.SignedValidatorAddrAnnouncement {
+		return key.SignValidatorAddr(atypes.ValidatorAddrAnnouncement{
 			Version:  1,
 			NodeKey:  makeKey(rng).Public().String(),
 			HostPort: "member.example:26656",
 		})
 	}
-	_, err := verifyValidatorAddr(anchor, signed(current), false)
-	require.NoError(t, err)
-	_, err = verifyValidatorAddr(anchor, signed(joiner), false)
-	require.NoError(t, err)
-	_, err = verifyValidatorAddr(anchor, signed(outsider), false)
-	require.ErrorIs(t, err, errAddrSignerNotInAnchor)
+	require.True(t, verifyValidatorAddr(anchor, signed(current), false).IsPresent())
+	require.True(t, verifyValidatorAddr(anchor, signed(joiner), false).IsPresent())
+	require.False(t, verifyValidatorAddr(anchor, signed(outsider), false).IsPresent())
 }
 
 func TestValidatorAddrBookTakesPrecedence(t *testing.T) {
@@ -162,7 +154,7 @@ func TestValidatorAddrBookTakesPrecedence(t *testing.T) {
 	member := atypes.GenSecretKey(rng)
 	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{member.Public(): 1}))
 	table := testValidatorAddrs(epochs.state)
-	require.NoError(t, table.Receive(testAddrAnnouncement(rng, member, 1, "gossip.example:26656")))
+	require.True(t, table.Receive(testAddrAnnouncement(rng, member, 1, "gossip.example:26656")))
 	book := GigaNodeAddr{Key: makeKey(rng).Public(), HostPort: tcp.HostPort{Hostname: "book.example", Port: 26656}}
 	router := &GigaRouterCommon{
 		cfg:            &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{member.Public(): book}},
@@ -181,12 +173,12 @@ func TestValidatorAddrRefusedBeforeAnchorAdmissionIsLearnedWhenReceivedAgain(t *
 	epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{stay.Public(): 1}))
 	addrs := testValidatorAddrs(epochs.state)
 	ann := testAddrAnnouncement(rng, joiner, 1, "joiner.example:26656")
-	require.ErrorIs(t, addrs.Receive(ann), errAddrSignerNotInAnchor)
+	require.False(t, addrs.Receive(ann))
 	_, ok := gossipedAddr(addrs, joiner.Public())
 	require.False(t, ok)
 
 	epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{stay.Public(): 1, joiner.Public(): 1}))
-	require.NoError(t, addrs.Receive(ann))
+	require.True(t, addrs.Receive(ann))
 	addr, ok := gossipedAddr(addrs, joiner.Public())
 	require.True(t, ok)
 	require.Equal(t, "joiner.example", addr.HostPort.Hostname)
@@ -215,7 +207,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsGossipedMember(t *testing.T)
 				return ctx.Err()
 			}))
 		})
-		require.NoError(t, validatorAddrs.Receive(testAddrAnnouncement(rng, keyB, 1, "b.example:26656")))
+		require.True(t, validatorAddrs.Receive(testAddrAnnouncement(rng, keyB, 1, "b.example:26656")))
 		addr := <-dialed
 		require.Equal(t, "b.example", addr.HostPort.Hostname)
 		require.Equal(t, uint16(26656), addr.HostPort.Port)
@@ -223,7 +215,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsGossipedMember(t *testing.T)
 		epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
 		<-stopped
 		// The entry is dropped after the session stops.
-		_, err := validatorAddrs.Watch().Wait(ctx, func(held giga.ValidatorAddrSnapshot[GigaNodeAddr]) bool {
+		_, err := validatorAddrs.Watch().Wait(ctx, func(held giga.ValidatorAddrSnapshot) bool {
 			_, ok := held[b]
 			return !ok
 		})
@@ -251,10 +243,10 @@ func TestGigaRouterCommon_RunPerCommitteeMemberRedialsChangedAddress(t *testing.
 				return ctx.Err()
 			}))
 		})
-		require.NoError(t, validatorAddrs.Receive(testAddrAnnouncement(rng, keyB, 1, "b1.example:26656")))
+		require.True(t, validatorAddrs.Receive(testAddrAnnouncement(rng, keyB, 1, "b1.example:26656")))
 		require.Equal(t, "b1.example", (<-dialed).HostPort.Hostname)
 
-		require.NoError(t, validatorAddrs.Receive(testAddrAnnouncement(rng, keyB, 2, "b2.example:26656")))
+		require.True(t, validatorAddrs.Receive(testAddrAnnouncement(rng, keyB, 2, "b2.example:26656")))
 		<-stopped
 		require.Equal(t, "b2.example", (<-dialed).HostPort.Hostname)
 		return nil
@@ -263,7 +255,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberRedialsChangedAddress(t *testing.
 }
 
 // testPublishingRouter returns a validator router that publishes key's announcement of nodeKey at hp into table.
-func testPublishingRouter(t *testing.T, state *data.State, table *giga.ValidatorAddrs[GigaNodeAddr], key atypes.SecretKey, nodeKey NodeSecretKey, hp tcp.HostPort) *gigaValidatorRouter {
+func testPublishingRouter(t *testing.T, state *data.State, table *giga.ValidatorAddrs, key atypes.SecretKey, nodeKey NodeSecretKey, hp tcp.HostPort) *gigaValidatorRouter {
 	t.Helper()
 	return &gigaValidatorRouter{
 		GigaRouterCommon: &GigaRouterCommon{
@@ -287,7 +279,7 @@ func TestGigaValidatorRouter_PublishValidatorAddrIsVerified(t *testing.T) {
 
 	table := testValidatorAddrs(epochs.state)
 	router := testPublishingRouter(t, epochs.state, table, key, nodeKey, hp)
-	require.NoError(t, router.publishValidatorAddr(1))
+	router.publishValidatorAddr(1)
 	addr, ok := gossipedAddr(table, key.Public())
 	require.True(t, ok)
 	require.NoError(t, utils.TestDiff(GigaNodeAddr{Key: nodeKey.Public(), HostPort: hp}, addr))
@@ -296,7 +288,7 @@ func TestGigaValidatorRouter_PublishValidatorAddrIsVerified(t *testing.T) {
 	outsider := atypes.GenSecretKey(rng)
 	table = testValidatorAddrs(epochs.state)
 	router = testPublishingRouter(t, epochs.state, table, outsider, nodeKey, hp)
-	require.ErrorIs(t, router.publishValidatorAddr(1), errAddrSignerNotInAnchor)
+	router.publishValidatorAddr(1)
 	_, ok = gossipedAddr(table, outsider.Public())
 	require.False(t, ok)
 }
@@ -314,7 +306,7 @@ func TestGigaValidatorRouter_RunPublishValidatorAddrWaitsForAnchorMembership(t *
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })
 		epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{other: 1, key.Public(): 1}))
-		_, err := table.Watch().Wait(ctx, func(held giga.ValidatorAddrSnapshot[GigaNodeAddr]) bool { return len(held) > 0 })
+		_, err := table.Watch().Wait(ctx, func(held giga.ValidatorAddrSnapshot) bool { return len(held) > 0 })
 		return err
 	})
 	require.NoError(t, err)
@@ -337,15 +329,15 @@ func TestGigaValidatorRouter_RepublishesAboveHigherOwnVersion(t *testing.T) {
 		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })
 			synctest.Wait()
-			if err := table.Receive(testAddrAnnouncement(rng, key, stale, "old.example:26656")); err != nil {
-				return err
+			if !table.Receive(testAddrAnnouncement(rng, key, stale, "old.example:26656")) {
+				return errors.New("table refused a verified announcement")
 			}
 			synctest.Wait()
-			entry, ok := table.Watch().Load()[key.Public()]
-			if !ok || entry.Ann.Msg().Version <= stale {
-				return fmt.Errorf("own version after republish = %d, %v; want above %d", entry.Ann.Msg().Version, ok, stale)
+			ann, ok := table.Watch().Load()[key.Public()]
+			if !ok || ann.Msg().Version <= stale {
+				return fmt.Errorf("own version after republish = %d, %v; want above %d", ann.Msg().Version, ok, stale)
 			}
-			addr, ok := table.Get(key.Public())
+			addr, ok := gossipedAddr(table, key.Public())
 			if !ok || addr.HostPort.Hostname != "self.example" {
 				return fmt.Errorf("own address after republish = %v, %v; want self.example", addr.HostPort, ok)
 			}
@@ -364,8 +356,8 @@ func TestGigaValidatorRouter_RunPublishValidatorAddrVersionRisesOnReentry(t *tes
 		table := testValidatorAddrs(epochs.state)
 		router := testPublishingRouter(t, epochs.state, table, key, makeKey(rng), tcp.HostPort{Hostname: "self.example", Port: 26656})
 		heldVersion := func() (uint64, bool) {
-			entry, ok := table.Watch().Load()[key.Public()]
-			return entry.Ann.Msg().Version, ok
+			ann, ok := table.Watch().Load()[key.Public()]
+			return ann.Msg().Version, ok
 		}
 		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })

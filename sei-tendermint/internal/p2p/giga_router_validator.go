@@ -125,9 +125,7 @@ func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error
 			version = max(uint64(time.Now().UnixNano()), version+1)
 			// The error is logged, not returned: the Anchor may have moved since the wait,
 			// and peers drop an announcement the table rejects.
-			if err := r.publishValidatorAddr(version); err != nil {
-				logger.Warn("own validator address announcement rejected", "version", version, "err", err)
-			}
+			r.publishValidatorAddr(version)
 			superseding, err := r.awaitOwnAddrSuperseded(ctx, version)
 			if err != nil {
 				return err
@@ -147,11 +145,11 @@ func (r *gigaValidatorRouter) awaitOwnAddrSuperseded(ctx context.Context, publis
 	validatorKey := r.validatorKey.OrPanic("validator key")
 	inAnchor := func() bool { return inAnchorEpochs(r.data.Anchor().Load(), validatorKey) }
 	ownVersion := func() uint64 {
-		entry, ok := addrs.Load()[validatorKey]
+		ann, ok := addrs.Load()[validatorKey]
 		if !ok {
 			return 0
 		}
-		return entry.Ann.Msg().Version
+		return ann.Msg().Version
 	}
 	if err := utils.WaitAny(ctx, func() bool {
 		return !inAnchor() || ownVersion() > published
@@ -166,14 +164,14 @@ func (r *gigaValidatorRouter) awaitOwnAddrSuperseded(ctx context.Context, publis
 
 // publishValidatorAddr signs this validator's address announcement at version and offers it
 // to the table, which verifies it like any announcement from a peer.
-func (r *gigaValidatorRouter) publishValidatorAddr(version uint64) error {
-	return r.validatorAddrs.Receive(r.signValidatorAddr(version))
+func (r *gigaValidatorRouter) publishValidatorAddr(version uint64) {
+	r.validatorAddrs.Receive(r.signValidatorAddr(version))
 }
 
 // signValidatorAddr signs the announcement of this validator's dial address.
-func (r *gigaValidatorRouter) signValidatorAddr(version uint64) *atypes.Signed[atypes.ValidatorAddrAnnouncement] {
+func (r *gigaValidatorRouter) signValidatorAddr(version uint64) *atypes.SignedValidatorAddrAnnouncement {
 	self := r.selfAddr.OrPanic("validator router has no self address")
-	return r.gigaSpec.ValidatorKey.OrPanic("validator router has no validator key").Sign(atypes.ValidatorAddrAnnouncement{
+	return r.gigaSpec.ValidatorKey.OrPanic("validator router has no validator key").SignValidatorAddr(atypes.ValidatorAddrAnnouncement{
 		Version:  version,
 		NodeKey:  r.key.Public().String(),
 		HostPort: tcp.HostPort{Hostname: self.Hostname, Port: self.Port}.String(),

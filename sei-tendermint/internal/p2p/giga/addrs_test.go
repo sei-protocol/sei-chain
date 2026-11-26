@@ -2,7 +2,7 @@ package giga
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"testing/synctest"
@@ -24,23 +24,31 @@ import (
 )
 
 // acceptAll is a verify function that accepts every announcement.
-func acceptAll(*types.Signed[types.ValidatorAddrAnnouncement]) error { return nil }
+func acceptAll(*types.SignedValidatorAddrAnnouncement) bool { return true }
 
-// testAddrs is a ValidatorAddrs whose entries carry no address of their own.
-type testAddrs = ValidatorAddrs[struct{}]
+// receiveOK stores ann in a and returns an error if a refuses it.
+func receiveOK(a *testAddrs, ann *types.SignedValidatorAddrAnnouncement) error {
+	if !a.Receive(ann) {
+		return fmt.Errorf("refused announcement of %v", ann.Key())
+	}
+	return nil
+}
+
+// testAddrs is a ValidatorAddrs.
+type testAddrs = ValidatorAddrs
 
 // testSnapshot is a snapshot of a testAddrs.
-type testSnapshot = ValidatorAddrSnapshot[struct{}]
+type testSnapshot = ValidatorAddrSnapshot
 
 // newVerified returns a testAddrs that keeps the announcements verify accepts.
-func newVerified(verify func(*types.Signed[types.ValidatorAddrAnnouncement]) error) *testAddrs {
-	return NewValidatorAddrs(func(ann *types.Signed[types.ValidatorAddrAnnouncement]) (struct{}, error) {
-		return struct{}{}, verify(ann)
+func newVerified(verify func(*types.SignedValidatorAddrAnnouncement) bool) *testAddrs {
+	return NewValidatorAddrs(func(ann *types.SignedValidatorAddrAnnouncement) bool {
+		return verify(ann)
 	})
 }
 
 // newAddrs returns a ValidatorAddrs that accepts every announcement, already holding anns.
-func newAddrs(anns ...*types.Signed[types.ValidatorAddrAnnouncement]) *testAddrs {
+func newAddrs(anns ...*types.SignedValidatorAddrAnnouncement) *testAddrs {
 	a := newVerified(acceptAll)
 	for _, ann := range anns {
 		_ = a.Receive(ann)
@@ -60,8 +68,8 @@ func waitAddrs(ctx context.Context, a *testAddrs, n int) error {
 	return err
 }
 
-func signedAddr(key types.SecretKey, version uint64) *types.Signed[types.ValidatorAddrAnnouncement] {
-	return key.Sign(types.ValidatorAddrAnnouncement{
+func signedAddr(key types.SecretKey, version uint64) *types.SignedValidatorAddrAnnouncement {
+	return key.SignValidatorAddr(types.ValidatorAddrAnnouncement{
 		Version:  version,
 		NodeKey:  "node:ed25519:public:unused",
 		HostPort: "validator.example:26656",
@@ -94,7 +102,7 @@ func TestValidatorAddrStreamRelaysFullTable(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	const maxTable = len(data.Anchor{}.Epochs) * types.MaxValidators
-	var anns []*types.Signed[types.ValidatorAddrAnnouncement]
+	var anns []*types.SignedValidatorAddrAnnouncement
 	for i := range maxTable {
 		anns = append(anns, signedAddr(types.GenSecretKey(rng), uint64(i+1)))
 	}
@@ -116,25 +124,25 @@ func TestValidatorAddrStreamSurvivesRejectedAnnouncement(t *testing.T) {
 		first, bad, last := types.GenSecretKey(rng), types.GenSecretKey(rng), types.GenSecretKey(rng)
 		source := newAddrs(signedAddr(first, 1))
 		rejections := utils.NewAtomicSend(0)
-		sink := newVerified(func(ann *types.Signed[types.ValidatorAddrAnnouncement]) error {
+		sink := newVerified(func(ann *types.SignedValidatorAddrAnnouncement) bool {
 			if ann.Key() != bad.Public() {
-				return nil
+				return true
 			}
 			rejections.Store(rejections.Load() + 1)
-			return errors.New("rejected")
+			return false
 		})
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			startStream(ctx, s, source, sink)
 			if _, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { return len(s) > 0 }); err != nil {
 				return err
 			}
-			if err := source.Receive(signedAddr(bad, 1)); err != nil {
+			if err := receiveOK(source, signedAddr(bad, 1)); err != nil {
 				return err
 			}
 			if _, err := rejections.Subscribe().Wait(ctx, func(n int) bool { return n > 0 }); err != nil {
 				return err
 			}
-			if err := source.Receive(signedAddr(last, 1)); err != nil {
+			if err := receiveOK(source, signedAddr(last, 1)); err != nil {
 				return err
 			}
 			_, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { return len(s) > 1 })
@@ -151,7 +159,7 @@ func TestValidatorAddrStreamSurvivesRejectedAnnouncement(t *testing.T) {
 func TestValidatorAddrStreamSendsFullTableOnEveryConnection(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	var anns []*types.Signed[types.ValidatorAddrAnnouncement]
+	var anns []*types.SignedValidatorAddrAnnouncement
 	for i := range 3 {
 		anns = append(anns, signedAddr(types.GenSecretKey(rng), uint64(i+1)))
 	}
@@ -187,8 +195,8 @@ func TestValidatorAddrOfflinePeerReceivesMissedUpdatesOnReconnect(t *testing.T) 
 	require.Equal(t, uint64(1), versionOf(sink, known.Public()))
 
 	// The sink is offline here: no stream connects it to the source.
-	require.NoError(t, source.Receive(signedAddr(known, 2)))
-	require.NoError(t, source.Receive(signedAddr(joiner, 1)))
+	require.NoError(t, receiveOK(source, signedAddr(known, 2)))
+	require.NoError(t, receiveOK(source, signedAddr(joiner, 1)))
 
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		startStream(ctx, s, source, sink)
@@ -203,8 +211,8 @@ func TestValidatorAddrOfflinePeerReceivesMissedUpdatesOnReconnect(t *testing.T) 
 
 // versionOf returns the held announcement version of validator in a, or 0 if a holds none.
 func versionOf(a *testAddrs, validator types.PublicKey) uint64 {
-	if entry, ok := a.Watch().Load()[validator]; ok {
-		return entry.Ann.Msg().Version
+	if ann, ok := a.Watch().Load()[validator]; ok {
+		return ann.Msg().Version
 	}
 	return 0
 }
@@ -214,9 +222,9 @@ func TestValidatorAddrsKeepNewestVersion(t *testing.T) {
 	rng := utils.TestRng()
 	key := types.GenSecretKey(rng)
 	addrs := newAddrs()
-	require.NoError(t, addrs.Receive(signedAddr(key, 2)))
+	require.NoError(t, receiveOK(addrs, signedAddr(key, 2)))
 	before := addrs.Watch().Load()
-	require.NoError(t, addrs.Receive(signedAddr(key, 1)))
+	require.NoError(t, receiveOK(addrs, signedAddr(key, 1)))
 	require.True(t, before.Same(addrs.Watch().Load()))
 	require.Equal(t, uint64(2), versionOf(addrs, key.Public()))
 }
@@ -286,16 +294,16 @@ func TestValidatorAddrsReachValidatorsAndFullNodes(t *testing.T) {
 
 // verify runs while writes is held, so Retain cannot run between an announcement's verification and its store.
 func TestValidatorAddrsVerifiesUnderWriteLock(t *testing.T) {
-	var addrs *ValidatorAddrs[struct{}]
+	var addrs *ValidatorAddrs
 	unlocked := false
-	addrs = NewValidatorAddrs(func(*types.Signed[types.ValidatorAddrAnnouncement]) (struct{}, error) {
+	addrs = NewValidatorAddrs(func(*types.SignedValidatorAddrAnnouncement) bool {
 		if addrs.writes.TryLock() {
 			addrs.writes.Unlock()
 			unlocked = true
 		}
-		return struct{}{}, nil
+		return true
 	})
-	require.NoError(t, addrs.Receive(signedAddr(types.GenSecretKey(utils.TestRng()), 1)))
+	require.NoError(t, receiveOK(addrs, signedAddr(types.GenSecretKey(utils.TestRng()), 1)))
 	require.False(t, unlocked, "verify ran without writes held")
 }
 
@@ -303,15 +311,15 @@ func TestValidatorAddrsVerifiesUnderWriteLock(t *testing.T) {
 func TestValidatorAddrsSkipVerifyForHeldVersion(t *testing.T) {
 	key := types.GenSecretKey(utils.TestRng())
 	verified := 0
-	addrs := NewValidatorAddrs(func(*types.Signed[types.ValidatorAddrAnnouncement]) (struct{}, error) {
+	addrs := NewValidatorAddrs(func(*types.SignedValidatorAddrAnnouncement) bool {
 		verified++
-		return struct{}{}, nil
+		return true
 	})
-	require.NoError(t, addrs.Receive(signedAddr(key, 1)))
-	require.NoError(t, addrs.Receive(signedAddr(key, 1)))
-	require.NoError(t, addrs.Receive(signedAddr(key, 1)))
+	require.NoError(t, receiveOK(addrs, signedAddr(key, 1)))
+	require.NoError(t, receiveOK(addrs, signedAddr(key, 1)))
+	require.NoError(t, receiveOK(addrs, signedAddr(key, 1)))
 	require.Equal(t, 1, verified)
-	require.NoError(t, addrs.Receive(signedAddr(key, 2)))
+	require.NoError(t, receiveOK(addrs, signedAddr(key, 2)))
 	require.Equal(t, 2, verified)
 }
 
@@ -321,11 +329,11 @@ func TestValidatorAddrRefusedSignerIsResentOnNextPush(t *testing.T) {
 		ctx := t.Context()
 		lagging := types.GenSecretKey(utils.TestRng())
 		admitted := utils.NewAtomicSend(false)
-		sink := newVerified(func(ann *types.Signed[types.ValidatorAddrAnnouncement]) error {
+		sink := newVerified(func(ann *types.SignedValidatorAddrAnnouncement) bool {
 			if ann.Key() == lagging.Public() && !admitted.Load() {
-				return errors.New("signer not in Anchor")
+				return false
 			}
-			return nil
+			return true
 		})
 		source := newAddrs(signedAddr(lagging, 1))
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -362,13 +370,13 @@ func TestValidatorAddrDroppedAckedEntryReturnsOnReconnect(t *testing.T) {
 			sink.Retain(func(validator types.PublicKey) bool { return validator != dropped.Public() })
 			// Each marker is sent in the next full push, which the stream delivers in order, so the
 			// second marker arriving means the push before it has been fully received.
-			if err := source.Receive(signedAddr(marker, 1)); err != nil {
+			if err := receiveOK(source, signedAddr(marker, 1)); err != nil {
 				return err
 			}
 			if _, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { return hasAddr(sink, marker.Public()) }); err != nil {
 				return err
 			}
-			if err := source.Receive(signedAddr(nextMarker, 1)); err != nil {
+			if err := receiveOK(source, signedAddr(nextMarker, 1)); err != nil {
 				return err
 			}
 			if _, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { return hasAddr(sink, nextMarker.Public()) }); err != nil {
@@ -452,7 +460,7 @@ func TestValidatorAddrTableChangeQueuesOnlyChanges(t *testing.T) {
 			if _, err := received.Wait(ctx, func([]peerMsg) bool { return countMsgs(received, refused.Public(), false) == 1 }); err != nil {
 				return err
 			}
-			require.NoError(t, source.Receive(signedAddr(fresh, 1)))
+			require.NoError(t, receiveOK(source, signedAddr(fresh, 1)))
 			if _, err := received.Wait(ctx, func([]peerMsg) bool { return countMsgs(received, fresh.Public(), false) == 1 }); err != nil {
 				return err
 			}
@@ -469,13 +477,13 @@ func TestValidatorAddrTableChangeQueuesOnlyChanges(t *testing.T) {
 	})
 }
 
-// A peer that pushes beyond validatorAddrRate has its surplus dropped, and the stream stays open, so
-// an announcement sent after the rate has refilled is still received.
-func TestValidatorAddrSurplusIsDroppedWithoutEndingStream(t *testing.T) {
+// A peer that pushes beyond validatorAddrRate is held back, not cut off: its surplus is received as
+// the rate refills, and the stream stays open.
+func TestValidatorAddrSurplusIsPacedWithoutEndingStream(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
-		var flood []*types.Signed[types.ValidatorAddrAnnouncement]
+		var flood []*types.SignedValidatorAddrAnnouncement
 		for range 2 * validatorAddrBurst {
 			flood = append(flood, signedAddr(types.GenSecretKey(rng), 1))
 		}
@@ -504,11 +512,20 @@ func TestValidatorAddrSurplusIsDroppedWithoutEndingStream(t *testing.T) {
 			s.SpawnBg(func() error {
 				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client))
 			})
+			// The burst is admitted at once and the rest at the refill rate, so half an interval in,
+			// the flood is partly held: more than a burst, but not all of it.
+			if err := utils.Sleep(ctx, validatorAddrInterval/2); err != nil {
+				return err
+			}
+			synctest.Wait()
+			if held := len(sink.Watch().Load()); held < validatorAddrBurst || held >= len(flood) {
+				return fmt.Errorf("after half an interval, %d of %d flood entries held; want a burst or more, and not all", held, len(flood))
+			}
 			_, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { _, ok := s[marker.Public()]; return ok })
 			return err
 		})
 		require.NoError(t, err)
-		require.Len(t, sink.Watch().Load(), validatorAddrBurst+1)
+		require.Len(t, sink.Watch().Load(), len(flood)+1)
 	})
 }
 
@@ -522,18 +539,18 @@ type peerMsg struct {
 // recordingPeer serves a stream that sends first, half an interval in, and records every message the
 // other side sends it. With ack set, it acks each announcement it receives for the first time. The
 // half interval lets the other side's connect push go out before the entries arrive.
-func recordingPeer(ctx context.Context, s scope.Scope, ack bool, first ...*types.Signed[types.ValidatorAddrAnnouncement]) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
+func recordingPeer(ctx context.Context, s scope.Scope, ack bool, first ...*types.SignedValidatorAddrAnnouncement) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
 	return recordingPeerWith(ctx, s, ack, first, nil)
 }
 
 // recordingPeerWith is recordingPeer that also sends the messages in extra, in order, after first.
-func recordingPeerWith(ctx context.Context, s scope.Scope, ack bool, first []*types.Signed[types.ValidatorAddrAnnouncement], extra []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
+func recordingPeerWith(ctx context.Context, s scope.Scope, ack bool, first []*types.SignedValidatorAddrAnnouncement, extra []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
 	return recordingPeerAfterAck(ctx, s, ack, first, extra, nil)
 }
 
 // recordingPeerAfterAck is recordingPeerWith that also sends the messages in afterAck once, when the
 // first ack arrives.
-func recordingPeerAfterAck(ctx context.Context, s scope.Scope, ack bool, first []*types.Signed[types.ValidatorAddrAnnouncement], extra, afterAck []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
+func recordingPeerAfterAck(ctx context.Context, s scope.Scope, ack bool, first []*types.SignedValidatorAddrAnnouncement, extra, afterAck []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
 	received := utils.NewAtomicSend([]peerMsg{})
 	server, client := pipe(ctx, s)
 	s.SpawnBg(func() error {
@@ -658,7 +675,7 @@ func TestValidatorAddrAckForUnheldEntryDoesNotSuppressPush(t *testing.T) {
 			if err := waitAddrs(ctx, source, 1); err != nil {
 				return err
 			}
-			if err := source.Receive(signedAddr(unheld, 1)); err != nil {
+			if err := receiveOK(source, signedAddr(unheld, 1)); err != nil {
 				return err
 			}
 			_, err := received.Wait(ctx, func(msgs []peerMsg) bool {
@@ -693,7 +710,7 @@ func TestValidatorAddrAckAboveHeldVersionDoesNotSuppressNewer(t *testing.T) {
 			if err := waitAddrs(ctx, source, 2); err != nil {
 				return err
 			}
-			if err := source.Receive(signedAddr(key, 2)); err != nil {
+			if err := receiveOK(source, signedAddr(key, 2)); err != nil {
 				return err
 			}
 			_, err := received.Wait(ctx, func(msgs []peerMsg) bool {
@@ -779,7 +796,7 @@ func TestValidatorAddrNewerVersionIsSentDespiteRecord(t *testing.T) {
 			if err := waitAddrs(ctx, sink, 1); err != nil {
 				return err
 			}
-			if err := sink.Receive(signedAddr(key, 3)); err != nil {
+			if err := receiveOK(sink, signedAddr(key, 3)); err != nil {
 				return err
 			}
 			return utils.Sleep(ctx, 2*validatorAddrInterval)

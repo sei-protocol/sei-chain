@@ -287,8 +287,6 @@ var MsgConv = protoutils.Conv[Msg, *pb.Msg]{
 			return AppVoteConv.DecodeReq(t.AppVote)
 		case *pb.Msg_Challenge:
 			return ChallengeConv.DecodeReq(t.Challenge)
-		case *pb.Msg_ValidatorAddrAnnouncement:
-			return ValidatorAddrAnnouncementConv.DecodeReq(t.ValidatorAddrAnnouncement)
 		default:
 			return nil, fmt.Errorf("unknown Msg type: %T", t)
 		}

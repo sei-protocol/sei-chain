@@ -23,7 +23,7 @@ type joinTestNode struct {
 	cfg      *testNodeCfg
 	listener *tcp.Listener
 	epochs   *settledEpochs
-	addrs    *giga.ValidatorAddrs[GigaNodeAddr]
+	addrs    *giga.ValidatorAddrs
 	router   *GigaRouterCommon
 }
 
@@ -63,11 +63,15 @@ func newJoinTestNode(t *testing.T, cfg *testNodeCfg, ep *atypes.Epoch, book map[
 
 // announce receives this node's own address announcement, which gossip then carries to its peers.
 func (n *joinTestNode) announce() error {
-	return n.addrs.Receive(n.cfg.validatorKey.Sign(atypes.ValidatorAddrAnnouncement{
+	ann := n.cfg.validatorKey.SignValidatorAddr(atypes.ValidatorAddrAnnouncement{
 		Version:  1,
 		NodeKey:  n.cfg.nodeKey.Public().String(),
 		HostPort: tcp.HostPort{Hostname: n.cfg.addr.Addr().String(), Port: n.cfg.addr.Port()}.String(),
-	}))
+	})
+	if !n.addrs.Receive(ann) {
+		return fmt.Errorf("table refused own announcement %v", ann.Key())
+	}
+	return nil
 }
 
 // run serves inbound connections and dials every committee member it can address, until ctx ends.
@@ -127,7 +131,7 @@ func (n *joinTestNode) dialMember(ctx context.Context, validator atypes.PublicKe
 
 // waitChanged returns once the node's Anchor or address table differs from anchor or snapshot. It
 // checks before waiting, so a change made during the attempt is not missed.
-func (n *joinTestNode) waitChanged(ctx context.Context, anchor data.Anchor, snapshot giga.ValidatorAddrSnapshot[GigaNodeAddr]) error {
+func (n *joinTestNode) waitChanged(ctx context.Context, anchor data.Anchor, snapshot giga.ValidatorAddrSnapshot) error {
 	return utils.WaitAny(ctx, func() bool {
 		return n.epochs.state.Anchor().Load().Epochs != anchor.Epochs || !n.addrs.Watch().Load().Same(snapshot)
 	}, n.epochs.state.Anchor(), n.addrs.Watch())
@@ -135,7 +139,7 @@ func (n *joinTestNode) waitChanged(ctx context.Context, anchor data.Anchor, snap
 
 // waitHeld waits until the node's address table holds validator, or no longer holds it when held is false.
 func (n *joinTestNode) waitHeld(ctx context.Context, validator atypes.PublicKey, held bool) error {
-	_, err := n.addrs.Watch().Wait(ctx, func(s giga.ValidatorAddrSnapshot[GigaNodeAddr]) bool {
+	_, err := n.addrs.Watch().Wait(ctx, func(s giga.ValidatorAddrSnapshot) bool {
 		_, ok := s[validator]
 		return ok == held
 	})

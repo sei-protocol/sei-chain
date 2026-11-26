@@ -18,117 +18,99 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// ValidatorAddrEntry is a verified announcement together with the value verification derived from it.
-type ValidatorAddrEntry[A any] struct {
-	Ann  *atypes.Signed[atypes.ValidatorAddrAnnouncement]
-	Addr A
-}
-
-// ValidatorAddrSnapshot is the entries a ValidatorAddrs held at one moment, by validator.
+// ValidatorAddrSnapshot is the announcements a ValidatorAddrs held at one moment, by validator.
 // It is never modified after it is published.
-type ValidatorAddrSnapshot[A any] map[atypes.PublicKey]ValidatorAddrEntry[A]
+type ValidatorAddrSnapshot map[atypes.PublicKey]*atypes.SignedValidatorAddrAnnouncement
 
 // Same reports whether s and other hold the same announcements.
-func (s ValidatorAddrSnapshot[A]) Same(other ValidatorAddrSnapshot[A]) bool {
-	return maps.EqualFunc(s, other, func(a, b ValidatorAddrEntry[A]) bool { return a.Ann == b.Ann })
+func (s ValidatorAddrSnapshot) Same(other ValidatorAddrSnapshot) bool {
+	return maps.Equal(s, other)
 }
 
-// ValidatorAddrs holds the newest verified address announcement of each validator, with the
-// address of type A that verification derived from it.
-type ValidatorAddrs[A any] struct {
-	verify func(*atypes.Signed[atypes.ValidatorAddrAnnouncement]) (A, error)
+// ValidatorAddrs holds the newest verified address announcement of each validator.
+type ValidatorAddrs struct {
+	verify func(*atypes.SignedValidatorAddrAnnouncement) bool
 	// writes serializes Receive and Retain, which publish modified copies of held. verify runs under it.
 	writes sync.Mutex
-	held   utils.AtomicSend[ValidatorAddrSnapshot[A]]
+	held   utils.AtomicSend[ValidatorAddrSnapshot]
 	// announced is the announcements in held, published with it.
-	announced utils.AtomicSend[[]*atypes.Signed[atypes.ValidatorAddrAnnouncement]]
+	announced utils.AtomicSend[[]*atypes.SignedValidatorAddrAnnouncement]
 }
 
-// ValidatorAddrGossip is what a Service needs of a ValidatorAddrs to run the address stream.
-type ValidatorAddrGossip interface {
-	// Receive stores ann if it is verified and newer than the one held for its validator.
-	Receive(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) error
-	// WatchAnnouncements returns a watch on every held announcement, republished on each change.
-	WatchAnnouncements() utils.AtomicRecv[[]*atypes.Signed[atypes.ValidatorAddrAnnouncement]]
-	// HeldVersion returns the version of the announcement held for validator, if one is held.
-	HeldVersion(validator atypes.PublicKey) (uint64, bool)
-}
-
-// NewValidatorAddrs returns an empty ValidatorAddrs that keeps the announcements verify accepts,
-// along with the address it returns for each.
-func NewValidatorAddrs[A any](verify func(*atypes.Signed[atypes.ValidatorAddrAnnouncement]) (A, error)) *ValidatorAddrs[A] {
-	return &ValidatorAddrs[A]{
+// NewValidatorAddrs returns an empty ValidatorAddrs that keeps the announcements verify accepts.
+func NewValidatorAddrs(verify func(*atypes.SignedValidatorAddrAnnouncement) bool) *ValidatorAddrs {
+	return &ValidatorAddrs{
 		verify:    verify,
-		held:      utils.NewAtomicSend(ValidatorAddrSnapshot[A]{}),
-		announced: utils.NewAtomicSend([]*atypes.Signed[atypes.ValidatorAddrAnnouncement]{}),
+		held:      utils.NewAtomicSend(ValidatorAddrSnapshot{}),
+		announced: utils.NewAtomicSend([]*atypes.SignedValidatorAddrAnnouncement{}),
 	}
 }
 
 // Watch is a watch on the held entries. Every change publishes a new snapshot.
-func (a *ValidatorAddrs[A]) Watch() utils.AtomicRecv[ValidatorAddrSnapshot[A]] {
+func (a *ValidatorAddrs) Watch() utils.AtomicRecv[ValidatorAddrSnapshot] {
 	return a.held.Subscribe()
 }
 
 // HeldVersion returns the version of the announcement held for validator, if one is held.
-func (a *ValidatorAddrs[A]) HeldVersion(validator atypes.PublicKey) (uint64, bool) {
-	entry, ok := a.held.Load()[validator]
+func (a *ValidatorAddrs) HeldVersion(validator atypes.PublicKey) (uint64, bool) {
+	ann, ok := a.held.Load()[validator]
 	if !ok {
 		return 0, false
 	}
-	return entry.Ann.Msg().Version, true
+	return ann.Msg().Version, true
 }
 
-// Get returns the address held for validator.
-func (a *ValidatorAddrs[A]) Get(validator atypes.PublicKey) (A, bool) {
-	entry, ok := a.held.Load()[validator]
-	return entry.Addr, ok
+// Get returns the announcement held for validator.
+func (a *ValidatorAddrs) Get(validator atypes.PublicKey) (*atypes.SignedValidatorAddrAnnouncement, bool) {
+	ann, ok := a.held.Load()[validator]
+	return ann, ok
 }
 
 // WatchAnnouncements is a watch on the held announcements, one per validator, in no particular order.
-func (a *ValidatorAddrs[A]) WatchAnnouncements() utils.AtomicRecv[[]*atypes.Signed[atypes.ValidatorAddrAnnouncement]] {
+func (a *ValidatorAddrs) WatchAnnouncements() utils.AtomicRecv[[]*atypes.SignedValidatorAddrAnnouncement] {
 	return a.announced.Subscribe()
 }
 
 // publish stores next as the held entries and the announcements they carry.
-func (a *ValidatorAddrs[A]) publish(next ValidatorAddrSnapshot[A]) {
-	anns := make([]*atypes.Signed[atypes.ValidatorAddrAnnouncement], 0, len(next))
-	for _, entry := range next {
-		anns = append(anns, entry.Ann)
+func (a *ValidatorAddrs) publish(next ValidatorAddrSnapshot) {
+	anns := make([]*atypes.SignedValidatorAddrAnnouncement, 0, len(next))
+	for _, ann := range next {
+		anns = append(anns, ann)
 	}
 	a.held.Store(next)
 	a.announced.Store(anns)
 }
 
-// Receive stores ann if it passes verification and is newer than the held announcement of its
-// validator. A stale announcement is not an error; a refused one is returned as the error.
-func (a *ValidatorAddrs[A]) Receive(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) error {
+// Receive stores ann if verify accepts it and it is newer than the held announcement of its
+// validator. It reports whether the table holds ann or a newer announcement of its validator
+// afterwards, so false means verify refused ann.
+func (a *ValidatorAddrs) Receive(ann *atypes.SignedValidatorAddrAnnouncement) bool {
 	a.writes.Lock()
 	defer a.writes.Unlock()
 	held := a.held.Load()
 	// A version already held is not verified again: the held entry passed verification when it was
 	// stored, and peers repeat their whole table every interval.
-	if old, ok := held[ann.Key()]; ok && old.Ann.Msg().Version >= ann.Msg().Version {
-		return nil
+	if old, ok := held[ann.Key()]; ok && old.Msg().Version >= ann.Msg().Version {
+		return true
 	}
 	// Verification runs under the lock so that Retain cannot run between it and the store: an
 	// announcement admitted against an Anchor is then kept or dropped by the next Retain, never
 	// left behind after it.
-	addr, err := a.verify(ann)
-	if err != nil {
-		return err
+	if !a.verify(ann) {
+		return false
 	}
 	next := maps.Clone(held)
-	next[ann.Key()] = ValidatorAddrEntry[A]{Ann: ann, Addr: addr}
+	next[ann.Key()] = ann
 	a.publish(next)
-	return nil
+	return true
 }
 
 // Retain drops the entries of the validators keep rejects.
-func (a *ValidatorAddrs[A]) Retain(keep func(atypes.PublicKey) bool) {
+func (a *ValidatorAddrs) Retain(keep func(atypes.PublicKey) bool) {
 	a.writes.Lock()
 	defer a.writes.Unlock()
 	held := a.held.Load()
-	next := make(ValidatorAddrSnapshot[A], len(held))
+	next := make(ValidatorAddrSnapshot, len(held))
 	for validator, entry := range held {
 		if keep(validator) {
 			next[validator] = entry
@@ -153,7 +135,7 @@ const validatorAddrRotationBound = validatorAddrTableBound + atypes.MaxValidator
 
 // validatorAddrRate is the refill rate of a stream's receive budget: two rotation-sized tables per
 // validatorAddrInterval, one for announcements and one for the acks a peer sends back for them.
-// Messages beyond the budget are dropped.
+// Messages beyond the budget are held back, not read: the receiver waits for a token before it reads.
 //
 // A connection serves one stream at a time and accepts at most one per interval, and each stream
 // starts with a full validatorAddrBurst, so a peer that reopens its stream every interval is admitted
@@ -221,7 +203,7 @@ type peerState struct {
 	// acks are the versions the peer sent that are owed an ack, until the next flush.
 	acks map[atypes.PublicKey]uint64
 	// queued are the announcements to send the peer, one per validator, until the next flush.
-	queued map[atypes.PublicKey]*atypes.Signed[atypes.ValidatorAddrAnnouncement]
+	queued map[atypes.PublicKey]*atypes.SignedValidatorAddrAnnouncement
 }
 
 func newPeerHolds() *peerHolds {
@@ -229,14 +211,14 @@ func newPeerHolds() *peerHolds {
 		state: utils.NewWatch(&peerState{
 			versions: map[atypes.PublicKey]uint64{},
 			acks:     map[atypes.PublicKey]uint64{},
-			queued:   map[atypes.PublicKey]*atypes.Signed[atypes.ValidatorAddrAnnouncement]{},
+			queued:   map[atypes.PublicKey]*atypes.SignedValidatorAddrAnnouncement{},
 		}),
 	}
 }
 
 // received notes that the peer sent ann and owes it an ack, including when the peer resends a version
 // it already sent.
-func (p *peerHolds) received(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) {
+func (p *peerHolds) received(ann *atypes.SignedValidatorAddrAnnouncement) {
 	for s, ctrl := range p.state.Lock() {
 		key, version := ann.Key(), ann.Msg().Version
 		s.versions[key] = max(s.versions[key], version)
@@ -247,7 +229,7 @@ func (p *peerHolds) received(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement
 
 // queue queues each announcement in anns that the peer does not hold, replacing any queued announcement
 // of the same validator.
-func (p *peerHolds) queue(anns []*atypes.Signed[atypes.ValidatorAddrAnnouncement]) {
+func (p *peerHolds) queue(anns []*atypes.SignedValidatorAddrAnnouncement) {
 	for s, ctrl := range p.state.Lock() {
 		queued := false
 		for _, ann := range anns {
@@ -265,9 +247,9 @@ func (p *peerHolds) queue(anns []*atypes.Signed[atypes.ValidatorAddrAnnouncement
 }
 
 // takeQueued returns the queued announcements the peer still does not hold, and clears the queue.
-func (p *peerHolds) takeQueued() []*atypes.Signed[atypes.ValidatorAddrAnnouncement] {
+func (p *peerHolds) takeQueued() []*atypes.SignedValidatorAddrAnnouncement {
 	for s := range p.state.Lock() {
-		anns := make([]*atypes.Signed[atypes.ValidatorAddrAnnouncement], 0, len(s.queued))
+		anns := make([]*atypes.SignedValidatorAddrAnnouncement, 0, len(s.queued))
 		for key, ann := range s.queued {
 			if held, ok := s.versions[key]; ok && held >= ann.Msg().Version {
 				continue
@@ -309,13 +291,13 @@ func (p *peerHolds) takeAcks() []atypes.ValidatorAddrAck {
 }
 
 // encodeAnnouncement wraps ann as a message on the validator address stream.
-func encodeAnnouncement(ann *atypes.Signed[atypes.ValidatorAddrAnnouncement]) *apb.ValidatorAddrMsg {
-	return &apb.ValidatorAddrMsg{T: &apb.ValidatorAddrMsg_Announcement{Announcement: atypes.SignedValidatorAddrAnnouncementConv.Encode(ann)}}
+func encodeAnnouncement(ann *atypes.SignedValidatorAddrAnnouncement) *apb.ValidatorAddrMsg {
+	return atypes.ValidatorAddrMsgConv.Encode(atypes.ValidatorAddrAnnouncementMsg{Ann: ann})
 }
 
 // encodeAck wraps ack as a message on the validator address stream.
 func encodeAck(ack atypes.ValidatorAddrAck) *apb.ValidatorAddrMsg {
-	return &apb.ValidatorAddrMsg{T: &apb.ValidatorAddrMsg_Ack{Ack: atypes.ValidatorAddrAckConv.Encode(ack)}}
+	return atypes.ValidatorAddrMsgConv.Encode(ack)
 }
 
 // exchangeValidatorAddrs runs both directions of the stream until one of them fails.
@@ -339,8 +321,8 @@ func (x *Service) queueValidatorAddrs(ctx context.Context, peer *peerHolds) erro
 		intervalCtx, cancel := context.WithTimeout(ctx, validatorAddrInterval)
 		queued := map[atypes.PublicKey]uint64{}
 		// Iter calls the function with the current set, then with each newer set, and returns when intervalCtx ends.
-		_ = watch.Iter(intervalCtx, func(_ context.Context, anns []*atypes.Signed[atypes.ValidatorAddrAnnouncement]) error {
-			changed := make([]*atypes.Signed[atypes.ValidatorAddrAnnouncement], 0, len(anns))
+		_ = watch.Iter(intervalCtx, func(_ context.Context, anns []*atypes.SignedValidatorAddrAnnouncement) error {
+			changed := make([]*atypes.SignedValidatorAddrAnnouncement, 0, len(anns))
 			for _, ann := range anns {
 				key, version := ann.Key(), ann.Msg().Version
 				if v, ok := queued[key]; ok && v >= version {
@@ -386,11 +368,14 @@ func sendAcks(ctx context.Context, stream validatorAddrStream, peer *peerHolds) 
 	return nil
 }
 
-// receiveValidatorAddrs hands each announcement from the peer to the table and records each ack. A
-// message beyond validatorAddrRate is dropped without ending the stream, since the peer's next push
-// repeats it.
+// receiveValidatorAddrs hands each announcement from the peer to the table and records each ack. It
+// waits for a token before each read, so a peer beyond validatorAddrRate is held back by the stream's
+// flow control rather than having messages discarded.
 func (x *Service) receiveValidatorAddrs(ctx context.Context, stream validatorAddrStream, peer *peerHolds, limiter *rate.Limiter) error {
 	for {
+		if err := limiter.Wait(ctx); err != nil {
+			return err
+		}
 		raw, err := stream.Recv(ctx)
 		if errors.Is(err, rpc.ErrMalformedMsg) {
 			return fmt.Errorf("%w: %w", errValidatorAddrViolation, err)
@@ -398,33 +383,25 @@ func (x *Service) receiveValidatorAddrs(ctx context.Context, stream validatorAdd
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		if !limiter.Allow() {
-			continue
+		msg, err := atypes.ValidatorAddrMsgConv.Decode(raw)
+		if err != nil {
+			return fmt.Errorf("%w: %w", errValidatorAddrViolation, err)
 		}
-		switch t := raw.T.(type) {
-		case *apb.ValidatorAddrMsg_Announcement:
-			ann, err := atypes.SignedValidatorAddrAnnouncementConv.Decode(t.Announcement)
-			if err != nil {
-				return fmt.Errorf("%w: SignedValidatorAddrAnnouncementConv.Decode(): %w", errValidatorAddrViolation, err)
-			}
-			if err := x.validatorAddrs.Receive(ann); err != nil {
-				logger.Debug("dropped validator address announcement", "validator", ann.Key(), "version", ann.Msg().Version, "err", err)
+		switch msg := msg.(type) {
+		case atypes.ValidatorAddrAnnouncementMsg:
+			if !x.validatorAddrs.Receive(msg.Ann) {
 				continue
 			}
 			// Recorded only after the table accepts the announcement, so the record holds verified entries alone.
-			peer.received(ann)
-		case *apb.ValidatorAddrMsg_Ack:
-			ack, err := atypes.ValidatorAddrAckConv.Decode(t.Ack)
-			if err != nil {
-				return fmt.Errorf("%w: ValidatorAddrAckConv.Decode(): %w", errValidatorAddrViolation, err)
-			}
+			peer.received(msg.Ann)
+		case atypes.ValidatorAddrAck:
 			// An ack is honored only for a version this table holds. A peer that acks more than
 			// this node holds would otherwise suppress versions this node could send it.
-			if held, ok := x.validatorAddrs.HeldVersion(ack.Validator); ok && ack.Version <= held {
-				peer.acked(ack.Validator, ack.Version)
+			if held, ok := x.validatorAddrs.HeldVersion(msg.Validator); ok && msg.Version <= held {
+				peer.acked(msg.Validator, msg.Version)
 			}
 		default:
-			return fmt.Errorf("%w: unknown message type %T", errValidatorAddrViolation, t)
+			return fmt.Errorf("%w: unknown message type %T", errValidatorAddrViolation, msg)
 		}
 	}
 }

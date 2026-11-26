@@ -48,7 +48,7 @@ type GigaRouterCommon struct {
 	signer          *abevm.Signer
 	gigaSpec        gigaHandshakeSpec
 	selfAddr        utils.Option[NodeAddress]
-	validatorAddrs  *giga.ValidatorAddrs[GigaNodeAddr]
+	validatorAddrs  *giga.ValidatorAddrs
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Persistent and block-sync peers do not consume it.
@@ -253,7 +253,12 @@ func (r *GigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAd
 	if addr, ok := r.cfg.ValidatorAddrs[validator]; ok {
 		return addr, true
 	}
-	return r.validatorAddrs.Get(validator)
+	ann, ok := r.validatorAddrs.Get(validator)
+	if !ok {
+		return GigaNodeAddr{}, false
+	}
+	// The table verified ann on receipt, and verification parses it, so the parse cannot fail here.
+	return utils.OrPanic1(parseValidatorAddr(ann.Msg())), true
 }
 
 // inAnchorEpochs reports whether validator is a member of an epoch Anchor holds.

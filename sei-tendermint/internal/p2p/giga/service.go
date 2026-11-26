@@ -19,7 +19,7 @@ type Service struct {
 	getBlockReqs   chan req
 	data           *data.State
 	state          utils.Option[*consensus.State]
-	validatorAddrs ValidatorAddrGossip
+	validatorAddrs *ValidatorAddrs
 }
 
 type validatorService struct {
@@ -27,7 +27,7 @@ type validatorService struct {
 }
 
 // NewService constructs service with all streams.
-func NewService(state *consensus.State, validatorAddrs ValidatorAddrGossip) *Service {
+func NewService(state *consensus.State, validatorAddrs *ValidatorAddrs) *Service {
 	return &Service{
 		getBlockReqs:   make(chan req),
 		data:           state.Data(),
@@ -38,7 +38,7 @@ func NewService(state *consensus.State, validatorAddrs ValidatorAddrGossip) *Ser
 
 // NewFullNodeService constructs a Service that only serves and consumes
 // fullnode streams (no consensus / avail).
-func NewFullNodeService(d *data.State, validatorAddrs ValidatorAddrGossip) *Service {
+func NewFullNodeService(d *data.State, validatorAddrs *ValidatorAddrs) *Service {
 	return &Service{
 		getBlockReqs:   make(chan req),
 		data:           d,
