@@ -19,7 +19,7 @@ import (
 
 // testValidatorAddrs returns an empty address store that reads its Anchor from state.
 func testValidatorAddrs(state *data.State) *giga.ValidatorAddrs[GigaNodeAddr] {
-	return newValidatorAddrs(state)
+	return newValidatorAddrs(state, false)
 }
 
 // gossipedAddr returns the dial address of validator that addrs holds, as the dial loop sees it.
@@ -68,6 +68,8 @@ func TestValidatorAddrVerification(t *testing.T) {
 		name    string
 		ann     *atypes.Signed[atypes.ValidatorAddrAnnouncement]
 		wantErr error
+		// allowLocal is passed to verifyValidatorAddr.
+		allowLocal bool
 	}{
 		{name: "valid", ann: signed(member, nil)},
 		{
@@ -92,9 +94,34 @@ func TestValidatorAddrVerification(t *testing.T) {
 			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "no-port" }),
 			wantErr: errAddrBadHostPort,
 		},
+		{
+			name:    "loopback host",
+			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "127.0.0.1:26656" }),
+			wantErr: errAddrLocalHost,
+		},
+		{
+			name:    "link-local metadata host",
+			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "169.254.169.254:80" }),
+			wantErr: errAddrLocalHost,
+		},
+		{
+			name:    "localhost name host",
+			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "localhost:26656" }),
+			wantErr: errAddrLocalHost,
+		},
+		{
+			name:    "ipv6 loopback host",
+			ann:     signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "[::1]:26656" }),
+			wantErr: errAddrLocalHost,
+		},
+		{
+			name:       "loopback host when local addresses are allowed",
+			ann:        signed(member, func(m *atypes.ValidatorAddrAnnouncement) { m.HostPort = "127.0.0.1:26656" }),
+			allowLocal: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := verifyValidatorAddr(anchor, tc.ann)
+			_, err := verifyValidatorAddr(anchor, tc.ann, tc.allowLocal)
 			if tc.wantErr == nil {
 				require.NoError(t, err)
 				return
@@ -122,11 +149,11 @@ func TestValidatorAddrVerificationAcceptsEitherAnchorEpoch(t *testing.T) {
 			HostPort: "member.example:26656",
 		})
 	}
-	_, err := verifyValidatorAddr(anchor, signed(current))
+	_, err := verifyValidatorAddr(anchor, signed(current), false)
 	require.NoError(t, err)
-	_, err = verifyValidatorAddr(anchor, signed(joiner))
+	_, err = verifyValidatorAddr(anchor, signed(joiner), false)
 	require.NoError(t, err)
-	_, err = verifyValidatorAddr(anchor, signed(outsider))
+	_, err = verifyValidatorAddr(anchor, signed(outsider), false)
 	require.ErrorIs(t, err, errAddrSignerNotInAnchor)
 }
 

@@ -62,7 +62,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
-	validatorAddrs := newValidatorAddrs(dataState)
+	validatorAddrs := newValidatorAddrs(dataState, cfg.AllowLocalAddrs)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
 		GigaRouterCommon: &GigaRouterCommon{

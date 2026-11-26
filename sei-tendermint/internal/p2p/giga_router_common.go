@@ -306,6 +306,8 @@ func (r *GigaRouterCommon) stopStaleSessions(
 func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCommitteeOnly bool, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		live := map[atypes.PublicKey]*memberSession{}
+		// unaddressed holds the members already reported as having no known address.
+		unaddressed := map[atypes.PublicKey]struct{}{}
 		// End all sessions before the scope waits for them.
 		defer func() {
 			for _, session := range live {
@@ -346,9 +348,13 @@ func (r *GigaRouterCommon) runPerCommitteeMember(ctx context.Context, currentCom
 					}
 					addr, ok := r.validatorAddr(validator)
 					if !ok {
-						logger.Error("committee member has no configured address; not dialing", "validator", validator)
+						if _, reported := unaddressed[validator]; !reported {
+							logger.Warn("committee member has no known address; not dialing yet", "validator", validator)
+							unaddressed[validator] = struct{}{}
+						}
 						continue
 					}
+					delete(unaddressed, validator)
 					taskCtx, cancel := context.WithCancel(ctx)
 					done := make(chan struct{})
 					live[validator] = &memberSession{cancel: cancel, done: done, addr: addr}

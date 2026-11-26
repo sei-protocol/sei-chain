@@ -20,7 +20,7 @@ type gigaFullnodeRouter struct {
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State, signer *abevm.Signer) (*gigaFullnodeRouter, error) {
-	validatorAddrs := newValidatorAddrs(dataState)
+	validatorAddrs := newValidatorAddrs(dataState, cfg.AllowLocalAddrs)
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaFullnodeRouter{
 		GigaRouterCommon: &GigaRouterCommon{
