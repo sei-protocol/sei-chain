@@ -220,7 +220,7 @@ func TestNewInnerRejectsAStoredPrepareQCWithAWrongParent(t *testing.T) {
 	load := func(parentHash utils.Option[types.RoadBlockHeaderHash]) (inner, error) {
 		wal := persistedInner{
 			Height:    spec.Height(),
-			PrepareQC: utils.Some(makePrepareQC(keys, types.ProposalWithParent(spec.Epoch, view, spec.CommitQC, parentHash))),
+			PrepareQC: utils.Some(makePrepareQC(keys, types.ProposalWithParentHash(spec.Epoch, view, spec.CommitQC, parentHash))),
 		}
 		return newInner(utils.Some(encodeWal(utils.None[*types.CommitQC](), &wal)), spec, keys[0].Public())
 	}
@@ -996,7 +996,7 @@ func TestNewInnerCurrentViewPrepareQCOk(t *testing.T) {
 
 	// Create prepareQC at current view (firstRoad+6, 0), naming the tip as its parent
 	currentView := types.View{Height: ep0.RoadRange().First + 6, Number: 0}
-	currentProposal := types.ProposalWithParent(ep0, currentView, spec.CommitQC, spec.ParentHeader().Map((*types.RoadBlockHeader).Hash))
+	currentProposal := types.ProposalWithParent(ep0, currentView, spec.CommitQC)
 	prepareQC := makePrepareQC(keys, currentProposal)
 
 	// Should succeed - current view prepareQC is valid
@@ -1048,7 +1048,7 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 
 	// Create prepareQC at current view (firstRoad+6, 0), naming the tip as its parent
 	view := types.View{Height: ep0.RoadRange().First + 6, Number: 0}
-	currentProposal := types.ProposalWithParent(ep0, view, spec.CommitQC, spec.ParentHeader().Map((*types.RoadBlockHeader).Hash))
+	currentProposal := types.ProposalWithParent(ep0, view, spec.CommitQC)
 	prepareQC := makePrepareQC(keys, currentProposal)
 
 	// Load state

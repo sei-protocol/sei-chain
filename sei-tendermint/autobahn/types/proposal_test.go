@@ -872,7 +872,7 @@ func TestTimeoutQCVerifyRejectsALockedHeaderWithAWrongParent(t *testing.T) {
 	prev := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
 	view := View{Height: prev.Height() + 1, Number: 0, EpochIndex: ep.EpochIndex()}
 	timeoutQC := func(parentHash utils.Option[RoadBlockHeaderHash]) *TimeoutQC {
-		locked := ProposalWithParent(ep, view, utils.Some(prev), parentHash)
+		locked := ProposalWithParentHash(ep, view, utils.Some(prev), parentHash)
 		prepareQC := BuildPrepareQC(keys, locked)
 		var votes []*FullTimeoutVote
 		for _, k := range keys {

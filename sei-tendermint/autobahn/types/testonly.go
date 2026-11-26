@@ -383,8 +383,14 @@ func ProposalAt(ep *Epoch, view View) *Proposal {
 }
 
 // ProposalWithParent is ProposalAt(ep, view) with lane ranges that continue from parent and a
-// header that names parentHash as its parent hash.
-func ProposalWithParent(ep *Epoch, view View, parent utils.Option[*CommitQC], parentHash utils.Option[RoadBlockHeaderHash]) *Proposal {
+// header that names the hash of the parent header as its parent hash.
+func ProposalWithParent(ep *Epoch, view View, parent utils.Option[*CommitQC]) *Proposal {
+	return ProposalWithParentHash(ep, view, parent, parent.Map(func(qc *CommitQC) RoadBlockHeaderHash { return qc.Header().Hash() }))
+}
+
+// ProposalWithParentHash is ProposalWithParent with a header that names parentHash as its parent
+// hash, whatever parent is.
+func ProposalWithParentHash(ep *Epoch, view View, parent utils.Option[*CommitQC], parentHash utils.Option[RoadBlockHeaderHash]) *Proposal {
 	p, _ := proposalAtBlocks(ep, view, 1, parent, parentHash)
 	return p
 }
