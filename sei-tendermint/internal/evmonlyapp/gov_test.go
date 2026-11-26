@@ -76,7 +76,7 @@ func signedGovTx(t *testing.T, nonce uint64, value *big.Int, method string, args
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: big.NewInt(evmOnlyMinGasPrice),
-		Gas:      2_000_000,
+		Gas:      5_000_000,
 		To:       &to,
 		Value:    value,
 		Data:     input,

@@ -1558,6 +1558,10 @@ describe("SSTORE Gas Discrepancy Test", function() {
 
     // Verify we found at least one SSTORE
     expect(sstoreOps.length).to.be.greaterThan(0, "Should find at least one SSTORE operation");
+    // The EVM-only chain charges a cold slot access plus 72,000 for a write to a new slot.
+    if (await isEvmOnlyChain()) {
+      expect(sstoreOps[0].gasCostField).to.equal(2100 + 72000);
+    }
   });
 
   it("should compare gas with callTracer (matches Go auditor)", async function() {

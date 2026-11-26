@@ -90,7 +90,7 @@ func (p registeredCustomPrecompile) RunAndCalculateGas(
 		materializeAccount(evm.StateDB, p.address)
 	}
 	start := suppliedGas - gasCost
-	state := &precompileState{db: evm.StateDB, readOnly: readOnly, metered: true, gas: start}
+	state := &precompileState{db: evm.StateDB, sstoreSetGas: evm.ChainConfig().SstoreSetGasEIP2200(), readOnly: readOnly, metered: true, gas: start}
 	ctx := &precompiles.Context{
 		Caller:        sender,
 		Address:       p.address,
@@ -154,12 +154,15 @@ func unixNano(seconds uint64) uint64 {
 // metered, storage reads and writes and logs are paid from gas and fail the
 // call once it runs out; otherwise their cost is added to spent.
 type precompileState struct {
-	db       vm.StateDB
-	readOnly bool
-	metered  bool
-	gas      uint64
-	spent    uint64
-	err      error
+	db vm.StateDB
+	// sstoreSetGas is the gas a write charges to set a storage slot from zero to non-zero, the chain
+	// config's SstoreSetGasEIP2200.
+	sstoreSetGas uint64
+	readOnly     bool
+	metered      bool
+	gas          uint64
+	spent        uint64
+	err          error
 }
 
 var (
@@ -309,7 +312,7 @@ func (s *precompileState) chargeSstore(addr common.Address, key, value common.Ha
 	case current == value:
 		cost += params.WarmStorageReadCostEIP2929
 	case original == current && original == (common.Hash{}):
-		cost += params.SstoreSetGasEIP2200
+		cost += s.sstoreSetGas
 	case original == current:
 		if value == (common.Hash{}) {
 			refund = params.SstoreClearsScheduleRefundEIP3529
@@ -326,7 +329,7 @@ func (s *precompileState) chargeSstore(addr common.Address, key, value common.Ha
 		}
 		if original == value {
 			if original == (common.Hash{}) {
-				refund += params.SstoreSetGasEIP2200 - params.WarmStorageReadCostEIP2929
+				refund += s.sstoreSetGas - params.WarmStorageReadCostEIP2929
 			} else {
 				refund += params.SstoreResetGasEIP2200 - params.ColdSloadCostEIP2929 - params.WarmStorageReadCostEIP2929
 			}

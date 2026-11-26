@@ -55,6 +55,8 @@ func TestRegisteredCustomPrecompileRuns(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), result.Txs[0].Status)
 	require.NoError(t, result.Txs[0].Err)
+	// Its write sets a new slot, charged at the chain config's SSTORE set cost.
+	require.Equal(t, params.TxGas+params.TxDataNonZeroGasEIP2028+1_000+params.ColdSloadCostEIP2929+SstoreSetGas, result.Txs[0].GasUsed)
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, common.BytesToHash([]byte{0x2a}), state.GetState(registeredPrecompileAddress, common.Hash{}))
 }
@@ -206,20 +208,20 @@ func TestPrecompileStateMetersStorageWrites(t *testing.T) {
 		source := NewMemoryState()
 		source.SetState(registeredPrecompileAddress, existing, common.HexToHash("0x05"))
 		db := newNativeStateDB(source)
-		return &precompileState{db: db, metered: metered, gas: gas}, db
+		return &precompileState{db: db, sstoreSetGas: SstoreSetGas, metered: metered, gas: gas}, db
 	}
 	one, zero := common.HexToHash("0x01"), common.Hash{}
 
 	s, db := newState(100_000, true)
 	s.SetState(registeredPrecompileAddress, zero, one)
-	require.Equal(t, 100_000-params.ColdSloadCostEIP2929-params.SstoreSetGasEIP2200, s.gas, "cold slot created")
+	require.Equal(t, 100_000-params.ColdSloadCostEIP2929-SstoreSetGas, s.gas, "cold slot created")
 	gas := s.gas
 	s.SetState(registeredPrecompileAddress, zero, one)
 	require.Equal(t, gas-params.WarmStorageReadCostEIP2929, s.gas, "no-op write")
 	gas = s.gas
 	s.SetState(registeredPrecompileAddress, zero, zero)
 	require.Equal(t, gas-params.WarmStorageReadCostEIP2929, s.gas, "restored to its original")
-	require.Equal(t, params.SstoreSetGasEIP2200-params.WarmStorageReadCostEIP2929, db.GetRefund())
+	require.Equal(t, SstoreSetGas-params.WarmStorageReadCostEIP2929, db.GetRefund())
 	require.NoError(t, s.err)
 
 	s, db = newState(100_000, true)
@@ -232,7 +234,7 @@ func TestPrecompileStateMetersStorageWrites(t *testing.T) {
 	require.ErrorIs(t, s.err, errPrecompileSstoreSentry)
 	require.Equal(t, zero, db.GetState(registeredPrecompileAddress, zero), "the write is dropped")
 
-	s, db = newState(params.SstoreSetGasEIP2200, true)
+	s, db = newState(SstoreSetGas, true)
 	s.SetState(registeredPrecompileAddress, zero, one)
 	require.ErrorIs(t, s.err, vm.ErrOutOfGas)
 	require.Equal(t, zero, db.GetState(registeredPrecompileAddress, zero), "the write is dropped")

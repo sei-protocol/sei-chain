@@ -60,8 +60,8 @@ func TestGovPrecompileThroughExecutor(t *testing.T) {
 	require.NoError(t, err)
 	to := gov.Address
 	txs := [][]byte{
-		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, usei(10), submit, 1_000_000, big.NewInt(1)),
-		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), vote, 1_000_000, big.NewInt(1)),
+		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, usei(10), submit, 3_000_000, big.NewInt(1)),
+		signLegacyTxWithGasPrice(t, key, chainID, 1, &to, big.NewInt(0), vote, 3_000_000, big.NewInt(1)),
 	}
 
 	govPrecompile := gov.Precompile{Electorate: gov.GenesisElectorate{sender: big.NewInt(1)}}
@@ -271,7 +271,7 @@ func TestCallcodeDepositIsRejected(t *testing.T) {
 	require.NoError(t, err)
 	to := gov.Address
 	txs := [][]byte{
-		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, usei(1), submit, 1_000_000, big.NewInt(1)),
+		signLegacyTxWithGasPrice(t, key, chainID, 0, &to, usei(1), submit, 3_000_000, big.NewInt(1)),
 		signLegacyTxWithGasPrice(t, key, chainID, 1, &caller, big.NewInt(0), nil, 1_000_000, big.NewInt(1)),
 	}
 

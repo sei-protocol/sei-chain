@@ -38,7 +38,7 @@ func TestEVMOnlyCustomPrecompileCallOpcodes_Behavior(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			state := NewMemoryState()
 			state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
-			state.SetCode(caller, callOpcodeRuntime(byte(tc.op), behaviorCustomPrecompile, successSlot))
+			state.SetCode(caller, callOpcodeRuntime(byte(tc.op), behaviorCustomPrecompile, 0xffff, successSlot))
 			raw := signLegacyTxWithGasPrice(t, key, chainID, 0, &caller, big.NewInt(0), nil, 200_000, big.NewInt(1))
 
 			result, err := NewExecutor(Config{
@@ -94,7 +94,7 @@ func TestEVMOnlyEstimateGasCustomPrecompile_Behavior(t *testing.T) {
 	t.Run("contract calling custom precompile", func(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(behaviorSenderFunds))
-		state.SetCode(caller, callOpcodeRuntime(byte(vm.CALL), behaviorCustomPrecompile, successSlot))
+		state.SetCode(caller, callOpcodeRuntime(byte(vm.CALL), behaviorCustomPrecompile, 0xffff, successSlot))
 		store := NewMemoryStore(state)
 		executor := NewExecutor(cfg, withTestStores(store, NewMemoryReceiptStore()))
 

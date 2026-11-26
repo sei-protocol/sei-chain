@@ -64,9 +64,10 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	}
 	stateDB := e.acquireStateDB(newPendingOverlay(source, &result.ChangeSet))
 	defer e.releaseStateDB(stateDB)
-	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
+	chainConfig := e.chainConfig(block)
+	blockCtx := endBlockContext(block, chainConfig.ChainID)
 	for _, blocker := range e.endBlockers {
-		state := &precompileState{db: stateDB}
+		state := &precompileState{db: stateDB, sstoreSetGas: chainConfig.SstoreSetGasEIP2200()}
 		failures, err := blocker.contract.EndBlock(blockCtx, state)
 		logEndBlockFailures(block.Number, blocker.address, failures)
 		if err != nil {
