@@ -18,8 +18,10 @@ func (id streamID) isConnect() bool { return id&1 == 0 }
 func streamIDFromRemote(x uint64) streamID { return streamID(x ^ 1) }
 
 type closeState struct {
-	local  bool
-	remote bool
+	local bool
+	// localSent is set once runSend has taken the local CLOSE frame off the queue.
+	localSent bool
+	remote    bool
 }
 
 type sendState struct {
