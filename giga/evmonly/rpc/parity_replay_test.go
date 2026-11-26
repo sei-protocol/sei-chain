@@ -44,7 +44,9 @@ type replayBackend struct {
 	receipts    *evmonly.MemoryReceiptStore
 	blocks      []*coretypes.ResultBlock
 	byHash      map[common.Hash]*coretypes.ResultBlock
-	tip         evmonly.BlockContext
+	// executed holds the context each replayed block executed under, by number.
+	executed map[uint64]evmonly.BlockContext
+	tip      evmonly.BlockContext
 }
 
 // serveFixture replays fixture and returns a Caller for an EVM-only RPC
@@ -86,6 +88,7 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 		store:       store,
 		receipts:    receipts,
 		byHash:      map[common.Hash]*coretypes.ResultBlock{},
+		executed:    map[uint64]evmonly.BlockContext{},
 	}
 	for _, block := range fixture.Blocks {
 		blockCtx := replayBlockContext(chainID, block)
@@ -98,6 +101,7 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 		resultBlock := consensusBlock(block)
 		backend.blocks = append(backend.blocks, resultBlock)
 		backend.byHash[block.Header.Hash] = resultBlock
+		backend.executed[blockCtx.Number] = blockCtx
 		backend.tip = blockCtx
 	}
 	require.NoError(t, executor.AwaitCommits())
@@ -219,8 +223,12 @@ func (b *replayBackend) EvmBaseFee() *big.Int {
 	return new(big.Int).Set(b.tip.BaseFee)
 }
 
-func (*replayBackend) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
-	return vm.BlockContext{}, errNotReplayed
+func (b *replayBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	blockCtx, ok := b.executed[header.Number.Uint64()]
+	if !ok {
+		return vm.BlockContext{}, fmt.Errorf("block %s was not replayed", header.Number)
+	}
+	return evmonly.EVMBlockContext(blockCtx), nil
 }
 
 func (b *replayBackend) EvmBlockNumber() uint64 {

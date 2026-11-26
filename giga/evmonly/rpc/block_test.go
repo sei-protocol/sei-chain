@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"math/big"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
@@ -22,6 +25,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -1023,4 +1028,92 @@ func TestGetTransactionByBlockAndIndexEndToEnd(t *testing.T) {
 	var unknownHash map[string]any
 	require.NoError(t, client.CallContext(t.Context(), &unknownHash, "eth_getTransactionByBlockHashAndIndex", common.Hash{9}, "0x0"))
 	require.Nil(t, unknownHash)
+}
+
+// prevRandaoCode is runtime bytecode that returns PREVRANDAO as a 32-byte word.
+var prevRandaoCode = []byte{
+	0x44, 0x60, 0x00, 0x52, // PREVRANDAO, PUSH1 0, MSTORE
+	0x60, 0x20, 0x60, 0x00, 0xf3, // PUSH1 32, PUSH1 0, RETURN
+}
+
+// A block's mixHash is the PREVRANDAO it executed at: what a call at that block reads from opcode
+// 0x44. eth_getBlockByNumber, eth_getBlockByHash and newHeads all report it.
+func TestBlockMixHashIsThePrevRandaoACallReads(t *testing.T) {
+	const head = 3
+	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	chainConfig := *params.AllDevChainProtocolChanges
+	chainConfig.ChainID = big.NewInt(traceChainID)
+	executor := evmonly.NewExecutor(evmonly.Config{ChainConfig: &chainConfig})
+	t.Cleanup(executor.Close)
+	state := evmonly.NewMemoryState()
+	state.SetCode(contract, prevRandaoCode)
+	store := evmonly.NewMemoryStore(state)
+	// The context each block executed at, with a PREVRANDAO of its own.
+	blockContext := func(header *ethtypes.Header) evmonly.BlockContext {
+		return evmonly.BlockContext{
+			Number:      header.Number.Uint64(),
+			Time:        header.Time,
+			GasLimit:    traceGasLimit,
+			ChainID:     big.NewInt(traceChainID),
+			BaseFee:     new(big.Int),
+			BlobBaseFee: new(big.Int),
+			ParentHash:  header.ParentHash,
+			PrevRandao:  crypto.Keccak256Hash([]byte("executed"), header.Number.Bytes()),
+		}
+	}
+	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: head - 1}))
+	subscribed := make(chan struct{}, 1)
+	backend := pastBlocksBackend(head)
+	backend.chainConfig = func() *params.ChainConfig { return &chainConfig }
+	backend.blockContext = func(header *ethtypes.Header) (vm.BlockContext, error) {
+		return evmonly.EVMBlockContext(blockContext(header)), nil
+	}
+	backend.callAt = func(ctx context.Context, msg *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+		view := store.OpenView()
+		defer view.Close()
+		return executor.CallAt(ctx, view, blockContext(header), msg, abevm.CallOverrides{})
+	}
+	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
+		subscribed <- struct{}{}
+		return executed.Subscribe(), nil
+	}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(websocketHandler(handler))
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialContext(t.Context(), "ws"+strings.TrimPrefix(server.URL, "http"))
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	mixHashes := map[common.Hash]int64{}
+	for number := int64(1); number <= head; number++ {
+		var byNumber, byHash struct{ MixHash common.Hash }
+		require.NoError(t, client.CallContext(t.Context(), &byNumber, "eth_getBlockByNumber", hexutil.EncodeBig(big.NewInt(number)), false))
+		require.NoError(t, client.CallContext(t.Context(), &byHash, "eth_getBlockByHash", traceBlockHash(number), false))
+		var called hexutil.Bytes
+		require.NoError(t, client.CallContext(t.Context(), &called, "eth_call", map[string]any{"to": contract}, hexutil.EncodeBig(big.NewInt(number))))
+
+		// Verify: the block responses report what the call at the block read.
+		require.Equal(t, common.BytesToHash(called), byNumber.MixHash, "block %d", number)
+		require.Equal(t, byNumber.MixHash, byHash.MixHash, "block %d", number)
+		mixHashes[byNumber.MixHash] = number
+	}
+	require.Len(t, mixHashes, head, "each block reports its own PREVRANDAO")
+
+	headers := make(chan *ethtypes.Header, 1)
+	sub, err := client.EthSubscribe(t.Context(), headers, "newHeads")
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+	<-subscribed
+	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Height: head}))
+
+	select {
+	case header := <-headers:
+		// Verify: newHeads reports the head's PREVRANDAO as eth_getBlockByNumber does.
+		require.Equal(t, big.NewInt(head), header.Number)
+		require.Equal(t, int64(head), mixHashes[header.MixDigest])
+	case err := <-sub.Err():
+		t.Fatalf("subscription failed: %v", err)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -78,7 +79,16 @@ type testBackend struct {
 	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error)
 }
 
+// testPrevRandao is the PREVRANDAO testBackend reports for header's block when blockContext is unset.
+func testPrevRandao(header *ethtypes.Header) common.Hash {
+	return crypto.Keccak256Hash([]byte("prevrandao"), header.Number.Bytes())
+}
+
 func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	if b.blockContext == nil {
+		random := testPrevRandao(header)
+		return vm.BlockContext{BlockNumber: header.Number, Time: header.Time, Random: &random}, nil
+	}
 	return b.blockContext(header)
 }
 

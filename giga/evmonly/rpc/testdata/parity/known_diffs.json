@@ -93,5 +93,17 @@
     "v2": "<absent>",
     "evmOnly": "null",
     "reason": "Same as eth_getTransactionReceipt result.to."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.mixHash",
+    "v2": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "The fixtures were recorded before v2 reported PREVRANDAO in mixHash, so v2's side holds the zero hash; the EVM-only RPC reports the PREVRANDAO the block executed at, which is the fixture's prevRandao. Recording the fixtures again removes this difference."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.mixHash",
+    "v2": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
+    "reason": "Same as eth_getBlockByNumber result.mixHash."
   }
 ]
