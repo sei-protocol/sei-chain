@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -201,6 +202,8 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
+		// The block's PREVRANDAO, which Time, in whole seconds, cannot derive.
+		MixDigest: evmonly.PrevRandao(block.Block.Time),
 		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
 		BaseFee: baseFee,
 	}, nil

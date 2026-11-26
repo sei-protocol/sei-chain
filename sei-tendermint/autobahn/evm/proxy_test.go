@@ -147,17 +147,18 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 	})
 
 	t.Run("past block call", func(t *testing.T) {
-		header := &ethtypes.Header{Number: big.NewInt(5), Time: 123, ParentHash: common.Hash{9}}
+		header := &ethtypes.Header{Number: big.NewInt(5), Time: 123, ParentHash: common.Hash{9}, MixDigest: common.Hash{7}}
 
 		// Test: EvmCallAt.
 		got, err := evm.EvmCallAt(t.Context(), msg, header, testOverrides)
 
-		// Verify: the app's result is returned for the message and block passed in.
+		// Verify: the app's result is returned for the message and block passed in, whose mix digest is
+		// its PREVRANDAO.
 		require.NoError(t, err)
 		require.Same(t, testExecutionResult, got)
 		require.Same(t, msg, app.gotMsg)
 		require.Equal(t, testOverrides, app.gotOverrides)
-		require.Equal(t, BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, app.gotHeader)
+		require.Equal(t, BlockRef{Height: atypes.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash, PrevRandao: header.MixDigest}, app.gotHeader)
 	})
 
 	t.Run("past block gas estimate", func(t *testing.T) {

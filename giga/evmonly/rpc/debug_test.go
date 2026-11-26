@@ -44,7 +44,8 @@ const (
 
 var (
 	traceRecipient = common.HexToAddress("0x1000000000000000000000000000000000000001")
-	traceBlockTime = time.Unix(1_700_000_000, 0)
+	// A non-zero fraction of a second, so a value derived from whole seconds differs.
+	traceBlockTime = time.Unix(1_700_000_000, 400_000_000)
 )
 
 // traceChain is a two-block chain served to the debug API: block 1 is empty, and block 2 holds two

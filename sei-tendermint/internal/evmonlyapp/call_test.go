@@ -10,11 +10,13 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -238,11 +240,8 @@ func TestEVMOnlyApplicationAppliesCallOverrides(t *testing.T) {
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
 	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
-	code := hexutil.Bytes(blockInfoCode)
-	overrides := abevm.CallOverrides{
-		State: export.StateOverride{contract: {Code: &code}},
-		Block: utils.Some(export.BlockOverrides{Number: (*hexutil.Big)(big.NewInt(0x1234))}),
-	}
+	overrides := codeOverride(contract, blockInfoCode)
+	overrides.Block = utils.Some(export.BlockOverrides{Number: (*hexutil.Big)(big.NewInt(0x1234))})
 	wantNumber := common.BigToHash(big.NewInt(0x1234)).Bytes()
 
 	for _, tc := range []struct {
@@ -310,4 +309,96 @@ func TestEVMOnlyApplicationEvmCallRequiresInitChain(t *testing.T) {
 	_, err := evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil), abevm.CallOverrides{})
 
 	require.Error(t, err)
+}
+
+// prevRandaoCode is runtime bytecode that returns PREVRANDAO as a 32-byte word.
+var prevRandaoCode = []byte{
+	0x44, 0x60, 0x00, 0x52, // PREVRANDAO, PUSH1 0, MSTORE
+	0x60, 0x20, 0x60, 0x00, 0xf3, // PUSH1 32, PUSH1 0, RETURN
+}
+
+// prevRandaoRecorderInitCode is creation bytecode that stores the PREVRANDAO its transaction
+// executes at in slot 0, then installs prevRandaoCode.
+func prevRandaoRecorderInitCode() []byte {
+	runtimeLen := byte(len(prevRandaoCode))
+	code := []byte{
+		0x44, 0x60, 0x00, 0x55, // PREVRANDAO, PUSH1 0, SSTORE
+		0x60, runtimeLen, 0x60, 0x10, 0x60, 0x00, 0x39, // CODECOPY(0, 16, len)
+		0x60, runtimeLen, 0x60, 0x00, 0xf3, // RETURN(0, len)
+	}
+	return append(code, prevRandaoCode...)
+}
+
+// prevRandaoCheckCode returns runtime bytecode that stops when PREVRANDAO is want and reverts
+// otherwise.
+func prevRandaoCheckCode(want common.Hash) []byte {
+	code := append([]byte{0x44, 0x7f}, want.Bytes()...) // PREVRANDAO, PUSH32 want
+	return append(code,
+		0x14, 0x60, 0x2a, 0x57, // EQ, PUSH1 42, JUMPI
+		0x60, 0x00, 0x80, 0xfd, // PUSH1 0, DUP1, REVERT
+		0x5b, 0x00, // JUMPDEST, STOP
+	)
+}
+
+// codeOverride returns call overrides that install code at address.
+func codeOverride(address common.Address, code []byte) abevm.CallOverrides {
+	bz := hexutil.Bytes(code)
+	return abevm.CallOverrides{State: export.StateOverride{address: {Code: &bz}}}
+}
+
+// A block's PREVRANDAO is derived from its full time, so two blocks in the same second differ, and the
+// block's transactions, a call or gas estimate at the latest block or at a past one, and a past block's
+// rebuilt context all see the value the block executed at.
+func TestEVMOnlyApplicationDerivesPrevRandaoFromTheFullBlockTime(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+	deployRaw, sender, recorder := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, prevRandaoRecorderInitCode(), 300_000)
+	first := evmOnlyTestBlock(app, 1, deployRaw)
+	first.Time = time.Unix(1_700_000_001, 250_000_000)
+	second := evmOnlyTestBlock(app, 2)
+	second.Time = time.Unix(1_700_000_001, 750_000_000)
+	finalizeEVMOnlyTestBlock(t, app, first)
+	finalizeEVMOnlyTestBlock(t, app, second)
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
+	firstPrevRandao := evmonly.PrevRandao(first.Time)
+	secondPrevRandao := evmonly.PrevRandao(second.Time)
+	require.NotEqual(t, firstPrevRandao, secondPrevRandao, "blocks in the same second must differ")
+	checker := common.HexToAddress("0x2000000000000000000000000000000000000002")
+
+	// Verify: the deploy transaction executed at the first block's PREVRANDAO.
+	recorded, err := app.EvmStorageAt(recorder, common.Hash{}, 1)
+	require.NoError(t, err)
+	require.Equal(t, firstPrevRandao, recorded)
+
+	t.Run("latest block", func(t *testing.T) {
+		result, err := app.EvmCall(t.Context(), callMessage(sender, &recorder), abevm.CallOverrides{})
+		require.NoError(t, err)
+		require.NoError(t, result.Err)
+		require.Equal(t, secondPrevRandao.Bytes(), result.Return())
+
+		_, _, err = app.EvmEstimateGas(t.Context(), callMessage(sender, &checker), 0, codeOverride(checker, prevRandaoCheckCode(secondPrevRandao)))
+		require.NoError(t, err)
+		_, _, err = app.EvmEstimateGas(t.Context(), callMessage(sender, &checker), 0, codeOverride(checker, prevRandaoCheckCode(firstPrevRandao)))
+		require.ErrorIs(t, err, vm.ErrExecutionReverted, "the check code reverts at any other PREVRANDAO")
+	})
+
+	t.Run("past block", func(t *testing.T) {
+		// The reference the RPC builds for the first block, carrying its PREVRANDAO.
+		block := abevm.BlockRef{
+			Height:     1,
+			Time:       uint64(first.Time.Unix()), //nolint:gosec // G115: test times are positive.
+			PrevRandao: firstPrevRandao,
+		}
+		result, err := app.EvmCallAt(t.Context(), callMessage(sender, &recorder), block, abevm.CallOverrides{})
+		require.NoError(t, err)
+		require.NoError(t, result.Err)
+		require.Equal(t, firstPrevRandao.Bytes(), result.Return())
+
+		_, _, err = app.EvmEstimateGasAt(t.Context(), callMessage(sender, &checker), 0, block, codeOverride(checker, prevRandaoCheckCode(firstPrevRandao)))
+		require.NoError(t, err)
+
+		blockCtx, err := app.EvmBlockContext(block)
+		require.NoError(t, err)
+		require.Equal(t, firstPrevRandao, *blockCtx.Random)
+		require.Equal(t, uint64(1_700_000_001), blockCtx.Time, "TIMESTAMP stays in whole seconds")
+	})
 }

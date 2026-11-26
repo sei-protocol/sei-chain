@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -171,6 +172,7 @@ func requirePastHeader(t *testing.T, number int64, header *ethtypes.Header) {
 	require.Equal(t, traceBlockTime.Unix()+number, int64(header.Time)) //nolint:gosec // G115: test times are small.
 	require.Equal(t, traceBlockHash(number-1), header.ParentHash)
 	require.Equal(t, uint64(traceGasLimit), header.GasLimit)
+	require.Equal(t, evmonly.PrevRandao(traceBlockTime.Add(time.Duration(number)*time.Second)), header.MixDigest)
 }
 
 // A past block's call runs against the state after that block, in the context it executed at.

@@ -49,6 +49,8 @@ type BlockRef struct {
 	Height     types.RoadHeight
 	Time       uint64
 	ParentHash common.Hash
+	// PrevRandao is the PREVRANDAO the block executed with.
+	PrevRandao common.Hash
 }
 
 type tx = ethtypes.Transaction

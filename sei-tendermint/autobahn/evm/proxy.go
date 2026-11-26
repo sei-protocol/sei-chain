@@ -236,7 +236,13 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 	if header.Number == nil || !header.Number.IsInt64() || header.Number.Sign() < 0 {
 		return BlockRef{}, fmt.Errorf("invalid EVM block number: %v", header.Number)
 	}
-	return BlockRef{Height: types.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, nil
+	return BlockRef{
+		Height:     types.RoadHeight(header.Number.Uint64()),
+		Time:       header.Time,
+		ParentHash: header.ParentHash,
+		// As in go-ethereum, a post-merge header carries PREVRANDAO in its mix digest.
+		PrevRandao: header.MixDigest,
+	}, nil
 }
 
 // EpochRegistry returns the wrapped application's retained epoch window.
