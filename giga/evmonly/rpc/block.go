@@ -114,8 +114,9 @@ func transactionCount(block *coretypes.ResultBlock) *hexutil.Uint {
 	return &count
 }
 
-// resolveBlockByHash returns the block with the given hash, or a nil block if
-// hash is unknown.
+// resolveBlockByHash returns the block with the given hash, served as its height is by
+// resolveBlockByNumber: a nil block if hash is unknown or names a block above the executed head,
+// and coretypes.ErrHeightNotAvailable for a pruned one.
 func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
 	block, err := api.backend.BlockByHash(ctx, &coretypes.RequestBlockByHash{Hash: tmbytes.HexBytes(hash.Bytes())})
 	if err != nil {
@@ -124,7 +125,8 @@ func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (
 	if block == nil || block.Block == nil {
 		return nil, nil
 	}
-	return block, nil
+	// The hash index holds every finalized block, including ones not yet executed.
+	return api.blockAt(ctx, block.Block.Height)
 }
 
 // resolveBlockByNumber returns the block number names, with earliest and 0x0 naming the earliest
