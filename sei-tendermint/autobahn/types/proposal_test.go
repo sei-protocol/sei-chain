@@ -485,8 +485,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 		proposal: proposerKey.Sign(tamperedProposal),
 		laneQCs:  map[LaneID]*LaneQC{target: badQC},
 	}
-	err := tamperedFP.Verify(vs, testViewTimeout)
-	require.Error(t, err)
+	require.ErrorIs(t, tamperedFP.Verify(vs, testViewTimeout), ErrParentMismatch)
 }
 
 func TestProposalVerifyRejectsMissingLaneQC(t *testing.T) {
