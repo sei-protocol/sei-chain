@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -25,13 +25,13 @@ var (
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store          seidbtypes.StateStore
+	store          sstypes.StateStore
 	storeKey       types.StoreKey
 	version        int64
 	subspaceLimits query.Limits
 }
 
-func NewStore(store seidbtypes.StateStore, storeKey types.StoreKey, version int64, subspaceLimits query.Limits) *Store {
+func NewStore(store sstypes.StateStore, storeKey types.StoreKey, version int64, subspaceLimits query.Limits) *Store {
 	return &Store{store, storeKey, version, subspaceLimits}
 }
 
@@ -88,7 +88,7 @@ func (st *Store) ReverseIteratorWithContext(ctx context.Context, start, end []by
 }
 
 func (st *Store) iterator(ctx context.Context, start, end []byte, ascending bool) types.Iterator {
-	itr, err := seidbtypes.IterateWithContext(st.store, ctx, st.storeKey.Name(), st.version, start, end, !ascending)
+	itr, err := sstypes.IterateWithContext(st.store, ctx, st.storeKey.Name(), st.version, start, end, !ascending)
 	if err != nil {
 		panic(err)
 	}

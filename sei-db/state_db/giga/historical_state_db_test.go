@@ -2,7 +2,6 @@ package giga
 
 import (
 	"encoding/binary"
-	"fmt"
 	"maps"
 	"math/big"
 	"math/rand/v2"
@@ -16,14 +15,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
-// undoTestHome holds the configs a StateDB over an undo-log SS reopens from.
+// undoTestHome holds the configs a StateDB over an undo-log historical state DB reopens from.
 type undoTestHome struct {
 	flatkv *flatkvconfig.Config
 	ss     config.StateStoreConfig
@@ -41,7 +37,7 @@ func (h undoTestHome) open(t *testing.T) *StateDB {
 	t.Helper()
 	db, err := assembleStateDB(t, h, h.ss, true)
 	require.NoError(t, err)
-	require.NotNil(t, db.UndoSS())
+	require.NotNil(t, db.HistoricalStateDB())
 	return db
 }
 
@@ -118,7 +114,7 @@ func nonceOf(value []byte) uint64 {
 
 func (m *undoModel) requireHistory(t *testing.T, db *StateDB, from, to int64, keyList [][]byte) {
 	t.Helper()
-	db.UndoSS().WaitForPendingWrites()
+	db.HistoricalStateDB().WaitForPendingWrites()
 	for h := from; h <= to; h++ {
 		view, ok := db.OpenViewAt(h)
 		require.True(t, ok, "height %d", h)
@@ -165,13 +161,47 @@ func TestUndoStateDBServesHistoryAcrossReopen(t *testing.T) {
 	require.False(t, ok, "a height above the applied head is not served")
 	require.NoError(t, db.Close())
 
-	// A clean close drains the log onto SC's height, so reopening keeps every block readable.
+	// A clean close drains the log onto the live state DB's height, so reopening keeps every block readable.
 	db = home.open(t)
-	require.Equal(t, int64(30), db.UndoSS().GetLatestVersion())
+	require.Equal(t, int64(30), db.HistoricalStateDB().GetLatestVersion())
 	model.requireHistory(t, db, 0, 30, keyList)
 	model.commitBlock(t, db, map[string][]byte{string(nonceKey(addrs[1])): nonceValue(99)})
 	model.requireHistory(t, db, 25, 31, keyList)
 	require.NoError(t, db.Close())
+}
+
+// An undo log behind the live state DB, as a crash leaves it, replays the blocks it lacks from the state WAL when the
+// StateDB opens, and keeps the history below them.
+func TestUndoStateDBReplaysTheStateWALBlocksItLacks(t *testing.T) {
+	home := newUndoTestHome(t)
+	addr := common.Address{1}
+	keyList := [][]byte{nonceKey(addr), storageKey(addr, 1)}
+	model := &undoModel{states: []map[string][]byte{{}}}
+	commitBlocks := func(db *StateDB, through int) {
+		for block := len(model.states); block <= through; block++ {
+			model.commitBlock(t, db, map[string][]byte{
+				string(nonceKey(addr)):      nonceValue(uint64(block)),
+				string(storageKey(addr, 1)): common.Hash{byte(block), 0xff}.Bytes(),
+			})
+		}
+	}
+	db := home.open(t)
+	commitBlocks(db, 5)
+	require.NoError(t, db.Close())
+
+	// Blocks 6-8 reach the state WAL and the live state DB, but not the undo log.
+	withoutUndoLog := home.ss
+	withoutUndoLog.Enable = false
+	db, err := assembleStateDB(t, home, withoutUndoLog, true)
+	require.NoError(t, err)
+	commitBlocks(db, 8)
+	require.NoError(t, db.Close())
+
+	db = home.open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, int64(8), db.HistoricalStateDB().GetLatestVersion())
+	require.Equal(t, int64(0), db.HistoricalStateDB().GetEarliestVersion())
+	model.requireHistory(t, db, 0, 8, keyList)
 }
 
 func TestUndoStateDBPrunesThroughTheCollectorInterface(t *testing.T) {
@@ -183,11 +213,11 @@ func TestUndoStateDBPrunesThroughTheCollectorInterface(t *testing.T) {
 	for block := 1; block <= 20; block++ {
 		model.commitBlock(t, db, map[string][]byte{string(nonceKey(addr)): nonceValue(uint64(block))})
 	}
-	db.UndoSS().WaitForPendingWrites()
+	db.HistoricalStateDB().WaitForPendingWrites()
 
 	var pruned bool
 	for _, store := range db.PrunableStores() {
-		if store.Name() != db.UndoSS().Name() {
+		if store.Name() != db.HistoricalStateDB().Name() {
 			continue
 		}
 		require.True(t, store.ExternalPruning())
@@ -195,124 +225,14 @@ func TestUndoStateDBPrunesThroughTheCollectorInterface(t *testing.T) {
 		pruned = true
 	}
 	require.True(t, pruned, "the undo log joins the prune cycle")
-	require.Equal(t, int64(11), db.UndoSS().GetEarliestVersion())
+	require.Equal(t, int64(11), db.HistoricalStateDB().GetEarliestVersion())
 
 	_, ok := db.OpenViewAt(10)
 	require.False(t, ok, "history below the cut line is no longer served")
 	model.requireHistory(t, db, 11, 20, [][]byte{nonceKey(addr)})
 }
 
-func TestUndoStateDBRollsBackByDiscardingLaterRecords(t *testing.T) {
-	home := newUndoTestHome(t)
-	db := home.open(t)
-	addr, other := common.Address{9}, common.Address{10}
-	model := &undoModel{states: []map[string][]byte{{}}}
-	for block := 1; block <= 14; block++ {
-		writes := map[string][]byte{string(nonceKey(addr)): nonceValue(uint64(block))}
-		// other changes once below the rollback target and three times above it.
-		if block == 3 || block == 10 || block == 11 || block == 13 {
-			writes[string(nonceKey(other))] = nonceValue(uint64(block))
-		}
-		model.commitBlock(t, db, writes)
-	}
-	require.NoError(t, db.Close())
-
-	// The rollback to 9 discards every record above it.
-	require.NoError(t, home.rollBack(t, 9))
-	db = home.open(t)
-	defer func() { require.NoError(t, db.Close()) }()
-	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
-
-	// The chain goes on differently from 9 and never writes other again, so a record of 11 or 13
-	// left behind would show through as a change it no longer has.
-	model.states = model.states[:10]
-	for block := 10; block <= 16; block++ {
-		model.commitBlock(t, db, map[string][]byte{string(nonceKey(addr)): nonceValue(uint64(100 + block))})
-	}
-	model.requireHistory(t, db, 0, 16, [][]byte{nonceKey(addr), nonceKey(other)})
-}
-
-// rollBack rolls home's live state DB, historical state DB and state WAL back to target, in the order the storage
-// manager's startup does.
-func (h undoTestHome) rollBack(t *testing.T, target uint64) error {
-	t.Helper()
-	if err := flatkv.RollBackLiveStateDB(h.flatkv, target); err != nil {
-		return fmt.Errorf("roll back the live state DB: %w", err)
-	}
-	if err := undo.DiscardStateAbove(h.ss.EVMDBDirectory, h.ss, target); err != nil {
-		return fmt.Errorf("roll back the historical state DB: %w", err)
-	}
-	if err := statewal.PruneAfter(flatkv.StateWALConfig(h.flatkv.DataDir), target); err != nil {
-		return fmt.Errorf("roll back the state WAL: %w", err)
-	}
-	return nil
-}
-
-// The historical state DB is cut back to the target along with the live state DB, its records of the
-// blocks above it going with them.
-func TestRollbackCutsTheHistoricalStateDBBackToTheWALHead(t *testing.T) {
-	home := newUndoTestHome(t)
-	db := home.open(t)
-	commitNonceBlocks(t, db, 1, 3)
-	require.NoError(t, db.Close())
-	truncateWAL(t, home, 2)
-
-	require.NoError(t, home.rollBack(t, 2))
-
-	db = home.open(t)
-	defer func() { require.NoError(t, db.Close()) }()
-	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
-	commitNonceBlocks(t, db, 3, 3)
-}
-
-// A rollback above the undo log's head is legal. The log holds no records of the blocks between its head
-// and the target, so it serves the target from the live state DB and nothing below it.
-func TestUndoStateDBRollbackAboveTheLogServesFromTheTarget(t *testing.T) {
-	home := newUndoTestHome(t)
-	db := home.open(t)
-	addr := common.Address{11}
-	for block := int64(1); block <= 14; block++ {
-		nonce := uint64(block) //nolint:gosec // positive
-		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
-	}
-	require.NoError(t, db.Close())
-	require.NoError(t, undo.DiscardStateAbove(home.ss.EVMDBDirectory, home.ss, 5))
-
-	require.NoError(t, home.rollBack(t, 9))
-	db = home.open(t)
-	defer func() { require.NoError(t, db.Close()) }()
-	require.Equal(t, int64(9), db.SC().Version())
-	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
-	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
-	_, ok := db.OpenViewAt(8)
-	require.False(t, ok, "no records cover the blocks between the log's head and the target")
-	view, ok := db.OpenViewAt(9)
-	require.True(t, ok)
-	defer view.Close()
-	require.Equal(t, uint64(9), view.GetNonce(addr))
-}
-
-// An empty undo log holds nothing to disagree with the target, so a rollback leaves it to fill forward
-// from the target.
-func TestUndoStateDBRollbackTakesAnEmptyLog(t *testing.T) {
-	home := newUndoTestHome(t)
-	db := home.open(t)
-	addr := common.Address{12}
-	for block := int64(1); block <= 14; block++ {
-		nonce := uint64(block) //nolint:gosec // positive
-		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
-	}
-	require.NoError(t, db.Close())
-	require.NoError(t, os.RemoveAll(home.ss.EVMDBDirectory))
-
-	require.NoError(t, home.rollBack(t, 9))
-	db = home.open(t)
-	defer func() { require.NoError(t, db.Close()) }()
-	require.Equal(t, int64(9), db.UndoSS().GetLatestVersion())
-	require.Equal(t, int64(9), db.UndoSS().GetEarliestVersion())
-}
-
-// A block's change set carries each balance and code it replaced, which a read below the block serves.
+// A read below a block serves each balance and code the block replaced.
 func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -322,16 +242,22 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	require.NoError(t, db.CommitStateChanges(1, &gigatypes.StateChangeSet{
 		Accounts: []gigatypes.AccountChange{{
 			Address: addr,
+			Account: gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
+		}},
+	}))
+	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
+		Accounts: []gigatypes.AccountChange{{
+			Address: addr,
 			Account: gigatypes.AccountState{Balance: big.NewInt(9), Code: newCode},
 			Prior:   gigatypes.AccountState{Balance: big.NewInt(4), Code: oldCode},
 		}},
 	}))
-	db.UndoSS().WaitForPendingWrites()
+	db.HistoricalStateDB().WaitForPendingWrites()
 
 	for height, want := range map[int64]struct {
 		balance int64
 		code    []byte
-	}{0: {4, oldCode}, 1: {9, newCode}} {
+	}{1: {4, oldCode}, 2: {9, newCode}} {
 		view, ok := db.OpenViewAt(height)
 		require.True(t, ok)
 		require.Equal(t, common.BigToHash(big.NewInt(want.balance)), view.GetBalance(addr), "height %d", height)
@@ -341,43 +267,51 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	}
 }
 
-// A block that writes only outside the EVM module hands over an empty change set, and the undo log
-// takes it as a block that changed nothing.
-func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
+// The undo log keeps the history of every module the live state DB holds, not only the EVM one.
+func TestUndoStateDBServesHistoryOutsideTheEVMModule(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
 	addr := common.Address{3}
 	require.NoError(t, db.CommitStateChanges(1, nonceChanges(addr, 0, 1)))
+	writeHead := func(value byte) *gigatypes.StateChangeSet {
+		return &gigatypes.StateChangeSet{
+			Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{value}}},
+		}
+	}
+	require.NoError(t, db.CommitStateChanges(2, writeHead(2)))
+	require.NoError(t, db.CommitStateChanges(3, writeHead(3)))
+	db.HistoricalStateDB().WaitForPendingWrites()
 
-	require.NoError(t, db.CommitStateChanges(2, &gigatypes.StateChangeSet{
-		Misc: []gigatypes.MiscChange{{Module: "cursor", Key: []byte("head"), Value: []byte{2}}},
-	}))
-	db.UndoSS().WaitForPendingWrites()
-
-	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
-	for height, want := range []uint64{0, 1, 1} {
+	require.Equal(t, int64(3), db.HistoricalStateDB().GetLatestVersion())
+	for height, want := range []struct {
+		nonce uint64
+		head  []byte
+	}{{0, nil}, {1, nil}, {1, []byte{2}}, {1, []byte{3}}} {
 		view, ok := db.OpenViewAt(int64(height))
 		require.True(t, ok, "height %d", height)
-		require.Equal(t, want, view.GetNonce(addr), "height %d", height)
+		require.Equal(t, want.nonce, view.GetNonce(addr), "height %d", height)
+		head, found := view.Get("cursor", []byte("head"))
+		require.Equal(t, want.head != nil, found, "height %d", height)
+		require.Equal(t, want.head, head, "height %d", height)
 		view.Close()
 	}
 }
 
-// Seeding an empty SC to a later height, as InitChain does for a chain that starts above block 1, leaves
+// Seeding an empty live state DB to a later height, as InitChain does for a chain that starts above block 1, leaves
 // the undo log to resume on the seeded height at the first block.
 func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
-	require.NoError(t, db.SC().SetInitialVersion(5))
+	require.NoError(t, db.LiveStateDB().SetInitialVersion(5))
 
 	addr := common.Address{4}
 	for block := int64(5); block <= 6; block++ {
 		nonce := uint64(block - 4) //nolint:gosec // positive
 		require.NoError(t, db.CommitStateChanges(block, nonceChanges(addr, nonce-1, nonce)))
 	}
-	db.UndoSS().WaitForPendingWrites()
+	db.HistoricalStateDB().WaitForPendingWrites()
 
-	require.Equal(t, int64(4), db.UndoSS().GetEarliestVersion())
+	require.Equal(t, int64(4), db.HistoricalStateDB().GetEarliestVersion())
 	for height, want := range map[int64]uint64{4: 0, 5: 1, 6: 2} {
 		view, ok := db.OpenViewAt(height)
 		require.True(t, ok, "height %d", height)
@@ -386,8 +320,9 @@ func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 	}
 }
 
-// An undo log that holds blocks over an empty SC, as left by wiping SC alone, is refused at open.
-func TestUndoStateDBRefusesAnUndoLogOverAnEmptySC(t *testing.T) {
+// An undo log that holds blocks over an empty live state DB, as left by wiping the live state DB alone, is
+// refused at open.
+func TestUndoStateDBRefusesAnUndoLogOverAnEmptyLiveStateDB(t *testing.T) {
 	home := newUndoTestHome(t)
 	db := home.open(t)
 	model := &undoModel{states: []map[string][]byte{{}}}
@@ -407,7 +342,7 @@ func TestUndoStateDBClosesWithAHistoricalViewOpen(t *testing.T) {
 	model := &undoModel{states: []map[string][]byte{{}}}
 	model.commitBlock(t, db, map[string][]byte{string(nonceKey(addr)): nonceValue(1)})
 	model.commitBlock(t, db, map[string][]byte{string(nonceKey(addr)): nonceValue(2)})
-	db.UndoSS().WaitForPendingWrites()
+	db.HistoricalStateDB().WaitForPendingWrites()
 	view, ok := db.OpenViewAt(1)
 	require.True(t, ok)
 	require.Equal(t, uint64(1), view.GetNonce(addr))

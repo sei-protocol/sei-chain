@@ -187,7 +187,7 @@ func TestEVMOnlyApplicationExecutesAgainstAPastBlock(t *testing.T) {
 	finalizeEVMOnlyTestBlock(t, app, second)
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 3))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	for _, tc := range []struct {
 		name       string
@@ -236,7 +236,7 @@ func TestEVMOnlyApplicationAppliesCallOverrides(t *testing.T) {
 	first := evmOnlyTestBlock(app, 1)
 	finalizeEVMOnlyTestBlock(t, app, first)
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2))
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
 	code := hexutil.Bytes(blockInfoCode)
 	overrides := abevm.CallOverrides{

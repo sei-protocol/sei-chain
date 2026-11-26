@@ -45,8 +45,8 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "votes_ingested",
-			Help:      "Votes the aggregator accepted (new for that replica, or a strictly later view).",
-		}, []string{"type"}),
+			Help:      "Votes the aggregator accepted (new for that replica, or a strictly later view), labeled by vote type and signer address.",
+		}, []string{"type", "validator"}),
 		viewNumber: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -81,8 +81,8 @@ func (m *metrics) commitsAt(leader string) *tmprometheus.CounterInt {
 	return m.commits.WithLabelValues(leader)
 }
 
-func (m *metrics) votesIngestedAt(l0_type string) *tmprometheus.CounterInt {
-	return m.votesIngested.WithLabelValues(l0_type)
+func (m *metrics) votesIngestedAt(l0_type string, l1_validator string) *tmprometheus.CounterInt {
+	return m.votesIngested.WithLabelValues(l0_type, l1_validator)
 }
 
 func (m *metrics) viewNumberAt() *tmprometheus.GaugeInt {

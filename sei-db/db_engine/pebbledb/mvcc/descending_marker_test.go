@@ -20,7 +20,7 @@ func TestDescendingMVCCMarker_FreshDBWritesMarker(t *testing.T) {
 
 	store, err := OpenDB(dir, cfg)
 	require.NoError(t, err)
-	db := store.(*Database)
+	db := store
 	require.True(t, db.descending, "fresh DB must open in descending mode")
 	require.NoError(t, store.Close())
 
@@ -65,7 +65,7 @@ func TestDescendingMVCCMarker_LegacyDBOpensInAscendingMode(t *testing.T) {
 
 	store, err := OpenDB(dir, cfg)
 	require.NoError(t, err, "legacy DB must open without error")
-	db := store.(*Database)
+	db := store
 	require.False(t, db.descending, "legacy DB must open in ascending mode")
 
 	// Pre-existing value is readable via the ascending path.
@@ -105,14 +105,14 @@ func TestDescendingMVCCMarker_RoundTrip(t *testing.T) {
 
 	store, err := OpenDB(dir, cfg)
 	require.NoError(t, err)
-	db := store.(*Database)
+	db := store
 	require.True(t, db.descending)
 	applyVersion(t, db, "store1", 1, []byte("k"), []byte("v"))
 	require.NoError(t, db.Close())
 
 	store2, err := OpenDB(dir, cfg)
 	require.NoError(t, err)
-	db2 := store2.(*Database)
+	db2 := store2
 	require.True(t, db2.descending, "marked DB must reopen in descending mode")
 	require.NoError(t, store2.Close())
 }

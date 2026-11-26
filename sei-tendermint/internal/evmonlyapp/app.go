@@ -34,7 +34,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -164,15 +163,15 @@ func NewEVMOnlyApplication(
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
-	cursor, err := loadEVMOnlyCursor(storage.StateDB().SC())
+	cursor, err := loadEVMOnlyCursor(storage.StateDB().LiveStateDB())
 	if err != nil {
 		return nil, err
 	}
 	if cursor, ok := cursor.Get(); ok {
-		if err := a.checkStartedWithAlloc(storage.StateDB().SC()); err != nil {
+		if err := a.checkStartedWithAlloc(storage.StateDB().LiveStateDB()); err != nil {
 			return nil, err
 		}
-		if err := a.checkStartedWithChainID(storage.StateDB().SC()); err != nil {
+		if err := a.checkStartedWithChainID(storage.StateDB().LiveStateDB()); err != nil {
 			return nil, err
 		}
 		for executor := range a.executor.Lock() {
@@ -306,11 +305,8 @@ func (a *evmOnlyApplication) InitChain(req abevm.InitConfig) error {
 // between InitChain and the first block leaves it that way; a store holding
 // any block is refused.
 func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error {
-	stateStore := a.storage.StateDB().SC()
-	latest, err := stateStore.GetLatestVersion()
-	if err != nil {
-		return fmt.Errorf("read EVM-only state version: %w", err)
-	}
+	stateStore := a.storage.StateDB().LiveStateDB()
+	latest := stateStore.Version()
 	switch {
 	case latest == initialHeight-1:
 		return nil
@@ -940,11 +936,7 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 // A durable cursor remains pending after a failed finalization.
 func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height int64) error {
 	commitErr := executor.AwaitCommits()
-	latest, err := a.storage.StateDB().SC().GetLatestVersion()
-	if err != nil {
-		return errors.Join(commitErr, fmt.Errorf("read EVM-only state version: %w", err))
-	}
-	if latest >= height {
+	if a.storage.StateDB().LiveStateDB().Version() >= height {
 		return commitErr
 	}
 	for state := range a.cursor.Lock() {
@@ -1152,7 +1144,7 @@ func (g GenesisAlloc) miscChange() gigatypes.MiscChange {
 // checkStartedWithAlloc refuses to resume a chain with an alloc other than the one it started with:
 // adding one would empty every account the chain has not written, and dropping one would give each
 // 2^200 wei.
-func (a *evmOnlyApplication) checkStartedWithAlloc(store *flatkv.CommitStore) error {
+func (a *evmOnlyApplication) checkStartedWithAlloc(store gigatypes.LiveStateStore) error {
 	started, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyGenesisAllocKey))
 	alloc, ok := a.alloc.Get()
 	switch {
@@ -1180,7 +1172,7 @@ func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
 
 // checkStartedWithChainID refuses to resume a chain on a chain ID other than the one it ran on, which
 // would reject its transactions and change what CHAINID returns.
-func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
+func (a *evmOnlyApplication) checkStartedWithChainID(store gigatypes.LiveStateStore) error {
 	raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey))
 	if !found {
 		return errors.New("EVM-only chain has no recorded chain ID; reset it onto a new evm_chain_id")

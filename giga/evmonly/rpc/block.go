@@ -196,39 +196,19 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	parentHash, err := api.parentHash(ctx, block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
 	gasLimit := api.backend.EvmGasLimit()
 	baseFee, err := blockBaseFee(ctx, api.backend, api.store, block.Block.Height)
 	if err != nil {
 		return nil, err
 	}
 	return &ethtypes.Header{
-		ParentHash: parentHash,
+		ParentHash: common.BytesToHash(block.Block.LastBlockID.Hash),
 		Number:     big.NewInt(block.Block.Height),
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
 		BaseFee:    baseFee,
 	}, nil
-}
-
-// parentHash returns the hash of the block before height, which a stored block does not carry. It is
-// zero for the chain's first block.
-func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash, error) {
-	if height <= firstBlockHeight(api.backend) {
-		return common.Hash{}, nil
-	}
-	parent, err := api.blockAt(ctx, height-1)
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
-	}
-	if parent == nil {
-		return common.Hash{}, nil
-	}
-	return common.BytesToHash(parent.BlockID.Hash), nil
 }
 
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,

@@ -50,7 +50,7 @@ func TestEVMOnlyApplicationReplaysTheStateBeforeEachTransaction(t *testing.T) {
 	}
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 2, block...))
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 	header := traceTestHeader(2, first.Hash)
 
 	for _, tc := range []struct {
@@ -114,7 +114,7 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 	t.Run("full node", func(t *testing.T) {
 		app := newUndoLogEVMOnlyTestApp(t)
 		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1, oneEVMOnlyTestTx(t)))
-		app.storage.StateDB().UndoSS().WaitForPendingWrites()
+		app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 		_, err := app.EvmStateAt(t.Context(), 9)
 		require.Error(t, err)
@@ -154,7 +154,7 @@ func TestEVMOnlyApplicationReplaysTheFirstBlock(t *testing.T) {
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	state, err := app.EvmStateBeforeTx(t.Context(), traceTestHeader(1, common.Hash{}), nil)
 

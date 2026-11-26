@@ -15,12 +15,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/undolog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/seilog"
 )
@@ -32,6 +33,9 @@ var logger = seilog.NewLogger("db", "giga")
 type GigaStorageManager struct {
 	// cfg is the config the stores were opened with.
 	cfg *config.GigaStorageConfig
+
+	// openHeight is the live state DB's version when the stores opened.
+	openHeight uint64
 
 	// blockStore.Close closes the block database it was built over.
 	blockStore *blockstore.Store
@@ -173,7 +177,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	}
 
 	timer.SetPhase("app_hash_builder_setup")
-	height := uint64(stateDB.SC().Version()) //nolint:gosec // live state DB versions are never negative
+	height := uint64(stateDB.LiveStateDB().Version()) //nolint:gosec // live state DB versions are never negative
 	if err := connectLiveStateDBToAppHashBuilder(ctx, stateDB, appHashBuilder, height); err != nil {
 		return nil, fmt.Errorf("connect the live state DB to the app hash builder: %w", err)
 	}
@@ -195,6 +199,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 
 	return &GigaStorageManager{
 		cfg:            cfg,
+		openHeight:     height,
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
 		archive:        archiveStore,
@@ -236,17 +241,17 @@ func openStateDB(
 	checkpointer := controller.NewCheckpointScheduler(cfg.CheckpointConfig)
 	liveStateDB.SetCheckpointScheduler(checkpointer)
 
-	var historicalStateDB *undo.Database
+	var historicalStateDB gigatypes.HistoricalStateStore
 	if cfg.SSConfig.Enable {
 		timer.SetPhase("historical_state_db")
-		historicalStateDB, err = undo.OpenDB(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
+		historicalStateDB, err = undolog.Open(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
 		if err != nil {
 			return nil, fmt.Errorf("open the historical state DB: %w", err)
 		}
 		defer closeOnFailure(&retErr, "historical state DB", historicalStateDB.Close)
 	}
 
-	stateDB, err := giga.NewStateDB(cfg.FlatKVConfig, liveStateDB, historicalStateDB, wal, checkpointer, budHasher)
+	stateDB, err := giga.NewStateDB(liveStateDB, historicalStateDB, wal, checkpointer, budHasher)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the state DB: %w", err)
 	}
@@ -275,7 +280,7 @@ func connectLiveStateDBToAppHashBuilder(
 	}
 	// The blocks the live state DB replayed at open are hashed in the background. Registering before their hashes
 	// are delivered would hand back an earlier block's hash than the one it stands at.
-	if err := stateDB.SC().FlushHashes(); err != nil {
+	if err := stateDB.LiveStateDB().FlushHashes(); err != nil {
 		return fmt.Errorf("wait for the live state DB's state hashes: %w", err)
 	}
 	current, err := stateDB.RegisterHashListener(reportStateHash)
