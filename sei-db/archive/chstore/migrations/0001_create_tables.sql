@@ -148,17 +148,36 @@ PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, address)
 SETTINGS auto_statistics_types = '';
 
--- The blocks in which each account changed. block_number keeps per-part min/max statistics, so a
--- read at an old height skips the parts written after it.
+-- The blocks in which each account changed, keyed by the first 16 bytes of BLAKE3(address): k_hi
+-- is bytes 0-7 and k_lo bytes 8-15, both big-endian. A writer inserts address and block_number, and
+-- the table derives the key, which an insert cannot set; a reader computes it with the same
+-- expressions.
+--
+-- A read of an account at block H takes the newest block_number <= H with its k_hi and k_lo, then
+-- that block's row in account_changes. If that row is missing, the key belongs to another account
+-- too, and the read steps back to the next older block. No block at or below H means the account
+-- did not change from the archive's first block to H, so it holds what it held before that block,
+-- which an archive that starts after the chain's first block does not know.
+--
+-- primary_key_ratio_of_unique_prefix_values_to_skip_suffix_columns = 1 keeps k_lo and block_number
+-- in the in-memory primary index, which ClickHouse would otherwise drop because k_hi differs between
+-- almost every pair of marks. Without them, a read of an account changed in many blocks reads every
+-- granule of its history instead of one. block_number keeps per-part min/max statistics, so a read
+-- at an old height skips the parts written after it.
+--
+-- Note: the tradeoff chosen here is less space and a bit more CPU. k_hi | k_lo is 16 bytes vs address 20 bytes which
+-- saves storage. but as a con a hash is added which increases CPU. if ingestion rates become an issue, revisit this.
 CREATE TABLE IF NOT EXISTS account_history
 (
-    address                 FixedString(20) CODEC(ZSTD(3)),
+    address                 FixedString(20) EPHEMERAL,
+    k_hi                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(address), 1, 8))) CODEC(Delta, ZSTD(1)),
+    k_lo                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(address), 9, 8))) CODEC(ZSTD(1)),
     block_number            UInt64 CODEC(Delta, ZSTD(1)) STATISTICS(basic)
 )
 ENGINE = MergeTree
-PARTITION BY modulo(sipHash64(address), 32)
-ORDER BY (sipHash64(address), block_number)
-SETTINGS auto_statistics_types = '';
+PARTITION BY modulo(k_hi, 32)
+ORDER BY (k_hi, k_lo, block_number)
+SETTINGS primary_key_ratio_of_unique_prefix_values_to_skip_suffix_columns = 1, auto_statistics_types = '';
 
 -- The value of each slot a block wrote, after the block; a cleared slot is zero.
 CREATE TABLE IF NOT EXISTS storage_changes
@@ -173,18 +192,20 @@ PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, address, slot)
 SETTINGS auto_statistics_types = '';
 
--- The blocks in which each slot changed, with min/max statistics on block_number as in
--- account_history.
+-- The blocks in which each slot changed, laid out and read as account_history is, keyed by the
+-- first 16 bytes of BLAKE3(address || slot) and read back through storage_changes.
 CREATE TABLE IF NOT EXISTS storage_history
 (
-    address                 FixedString(20) CODEC(ZSTD(3)),
-    slot                    FixedString(32) CODEC(ZSTD(3)),
+    address                 FixedString(20) EPHEMERAL,
+    slot                    FixedString(32) EPHEMERAL,
+    k_hi                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(concat(address, slot)), 1, 8))) CODEC(Delta, ZSTD(1)),
+    k_lo                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(concat(address, slot)), 9, 8))) CODEC(ZSTD(1)),
     block_number            UInt64 CODEC(Delta, ZSTD(1)) STATISTICS(basic)
 )
 ENGINE = MergeTree
-PARTITION BY modulo(sipHash64(address, slot), 32)
-ORDER BY (sipHash64(address, slot), block_number)
-SETTINGS auto_statistics_types = '';
+PARTITION BY modulo(k_hi, 32)
+ORDER BY (k_hi, k_lo, block_number)
+SETTINGS primary_key_ratio_of_unique_prefix_values_to_skip_suffix_columns = 1, auto_statistics_types = '';
 
 -- Bytecode deployed more than once is written more than once; merges keep one copy.
 CREATE TABLE IF NOT EXISTS contract_code

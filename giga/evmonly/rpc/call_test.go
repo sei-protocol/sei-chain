@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // revertData ABI-encodes reason the same way a Solidity `require(false, reason)`
@@ -209,7 +210,11 @@ func TestCallRunsAtTheFirstBlockOfALaterChain(t *testing.T) {
 				if req.Height != nil && *req.Height < 3 {
 					return nil, coretypes.WrapErrHeightNotAvailable(int64(*req.Height), utils.Some(int64(3)))
 				}
-				return stored(ctx, req)
+				block, err := stored(ctx, req)
+				if err == nil && block.Block.Height == 3 {
+					block.Block.LastBlockID = tmtypes.BlockID{}
+				}
+				return block, err
 			}
 			backend.callAt = func(_ context.Context, _ *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
 				require.Equal(t, int64(3), header.Number.Int64())
@@ -223,6 +228,30 @@ func TestCallRunsAtTheFirstBlockOfALaterChain(t *testing.T) {
 			require.Equal(t, hexutil.Bytes{0x2a}, got)
 		})
 	}
+}
+
+// The oldest block the block store retains still has its execution header, whose parent hash is the
+// hash of the pruned block before it.
+func TestCallRunsAtTheOldestRetainedBlock(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend := pastBlocksBackend(5)
+	stored := backend.block
+	backend.block = func(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		if req.Height != nil && *req.Height < 3 {
+			return nil, coretypes.WrapErrHeightNotAvailable(int64(*req.Height), utils.Some(int64(3)))
+		}
+		return stored(ctx, req)
+	}
+	backend.callAt = func(_ context.Context, _ *core.Message, header *ethtypes.Header) (*core.ExecutionResult, error) {
+		require.Equal(t, int64(3), header.Number.Int64())
+		require.Equal(t, traceBlockHash(2), header.ParentHash)
+		return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
+	}
+
+	got, err := (&callAPI{backend: backend, blocks: &blockAPI{backend: backend}}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(3), nil, nil)
+
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Bytes{0x2a}, got)
 }
 
 // A block that cannot be resolved, or whose header cannot be read, is refused before anything runs.

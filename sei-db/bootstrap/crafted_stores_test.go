@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -282,5 +283,15 @@ func writeNode(t *testing.T, cfg *config.GigaStorageConfig, through byte) {
 	if cfg.ReceiptDBConfig.Enable {
 		writeReceipts(t, cfg, uint64(through))
 	}
+	writeAppHashes(t, cfg, through)
+}
+
+// writeRestoredHome leaves the live state DB and the app hash vault of cfg at block through, and the state WAL, the
+// historical state DB and the receipt store empty, as a restore from a snapshot does.
+func writeRestoredHome(t *testing.T, cfg *config.GigaStorageConfig, through byte) {
+	t.Helper()
+	writeState(t, cfg, through)
+	truncateWAL(t, cfg, 0)
+	require.NoError(t, os.RemoveAll(cfg.SSConfig.EVMDBDirectory))
 	writeAppHashes(t, cfg, through)
 }

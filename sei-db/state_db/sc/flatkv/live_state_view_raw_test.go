@@ -185,19 +185,19 @@ func TestGetRawRejectsMetaKey(t *testing.T) {
 	require.Panics(t, func() { stateView.BatchGetRaw([][]byte{rows[0].key, metaKey}) })
 }
 
-// storeViewFor reports a key it cannot serve as an error rather than panicking.
-func TestStoreViewForRejectsMetaKey(t *testing.T) {
+// dbFor reports a key it cannot serve as an error rather than panicking.
+func TestDBForRejectsMetaKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 	commitRowInEveryStore(t, s)
 
-	stateView := s.OpenView()
-	defer stateView.Close()
-	flatView := stateView.(*liveStateView)
+	view := s.OpenView()
+	defer view.Close()
+	flatView := view.(*liveStateView)
 
 	for _, key := range [][]byte{[]byte(ktype.MetaKeyPrefix + "version"), []byte("no-separator")} {
 		var err error
-		require.NotPanics(t, func() { _, err = flatView.storeViewFor(key) })
+		require.NotPanics(t, func() { _, err = flatView.dbFor(key) })
 		require.Error(t, err, "key %q", key)
 	}
 }

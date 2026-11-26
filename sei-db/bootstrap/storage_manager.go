@@ -34,6 +34,9 @@ type GigaStorageManager struct {
 	// cfg is the config the stores were opened with.
 	cfg *config.GigaStorageConfig
 
+	// openHeight is the live state DB's version when the stores opened.
+	openHeight uint64
+
 	// blockStore.Close closes the block database it was built over.
 	blockStore *blockstore.Store
 
@@ -196,6 +199,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 
 	return &GigaStorageManager{
 		cfg:            cfg,
+		openHeight:     height,
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
 		archive:        archiveStore,

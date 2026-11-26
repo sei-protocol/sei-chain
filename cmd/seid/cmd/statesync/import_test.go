@@ -342,6 +342,45 @@ func TestForeignFilesFollowsASymlinkThatHoldsTheFlatKVRoot(t *testing.T) {
 	require.Equal(t, []string{other}, foreign)
 }
 
+func TestRemoveFailedStartDataFollowsASymlinkThatHoldsTheFlatKVRoot(t *testing.T) {
+	layout := freshHome(t).layout
+	data := filepath.Join(layout.PersistentStateDir, "data")
+	require.NoError(t, os.Symlink(t.TempDir(), data))
+	kept := []string{
+		filepath.Join(layout.FlatKVDir, "snapshot-5", "data"),
+		filepath.Join(layout.AppHashVaultDir, "0.wal"),
+		layout.RestoreMarkerFile,
+		layout.RestoreProofFile,
+	}
+	removed := []string{
+		filepath.Join(layout.PersistentStateDir, "blockdb"),
+		layout.StateSyncProofDir,
+		filepath.Join(data, "ledger", "receipts"),
+	}
+	for _, path := range kept {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+	}
+	for _, dir := range removed {
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "data"), []byte("x"), 0o600))
+	}
+	var stderr bytes.Buffer
+
+	require.NoError(t, removeFailedStartData(layout, &stderr))
+
+	for _, path := range kept {
+		require.FileExists(t, path)
+	}
+	for _, dir := range removed {
+		require.NoDirExists(t, dir)
+		require.Contains(t, stderr.String(), dir)
+	}
+	info, err := os.Lstat(data)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink)
+}
+
 func TestImportIntoASymlinkedPersistentStateDir(t *testing.T) {
 	p := newProducer(t)
 	height := p.commit(t, 1)

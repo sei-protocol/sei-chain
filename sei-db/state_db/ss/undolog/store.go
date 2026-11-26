@@ -5,12 +5,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-var _ gigatypes.HistoricalStateStore = (*undoLog)(nil)
+var _ gigatypes.HistoricalStateStore = (*undoLogStore)(nil)
 
-// undoLog is a HistoricalStateStore that keeps recent history as a bucketed undo log.
-type undoLog struct {
+// undoLogStore is a HistoricalStateStore backed by the undo-log engine.
+type undoLogStore struct {
 	*undo.Database
 }
 
@@ -20,7 +21,7 @@ func Open(dataDir string, cfg config.StateStoreConfig) (gigatypes.HistoricalStat
 	if err != nil {
 		return nil, err
 	}
-	return &undoLog{Database: db}, nil
+	return &undoLogStore{Database: db}, nil
 }
 
 // GetLatestBlock returns the newest block the closed undo log in dataDir holds, or 0 when it holds none.
@@ -35,18 +36,29 @@ func PruneAfter(dataDir string, cfg config.StateStoreConfig, target uint64) erro
 	return undo.DiscardStateAbove(dataDir, cfg, target)
 }
 
-func (l *undoLog) Resume(version int64, current gigatypes.StateView) error {
-	return l.Database.Resume(version, current)
+func (s *undoLogStore) Resume(version int64, current gigatypes.RawStateView) error {
+	return s.Database.Resume(version, current)
 }
 
-func (l *undoLog) ApplyBlock(version int64, changes *gigatypes.StateChangeSet, current gigatypes.StateView) {
-	l.Database.ApplyBlock(version, changeSetMutations(changes), current)
+func (s *undoLogStore) ApplyBlock(version int64, mutations []mutation.Mutation, current gigatypes.RawStateView) {
+	if err := checkMutations(version, mutations); err != nil {
+		current.Close()
+		panic(err)
+	}
+	s.Database.ApplyBlock(version, mutations, current)
 }
 
-func (l *undoLog) OpenView(version int64) (gigatypes.StateView, bool) {
-	view, ok := l.Database.OpenView(version)
+func (s *undoLogStore) ReplayBlock(version int64, mutations []mutation.Mutation) error {
+	if err := checkMutations(version, mutations); err != nil {
+		return err
+	}
+	return s.Database.ReplayBlock(version, mutations)
+}
+
+func (s *undoLogStore) OpenView(version int64) (gigatypes.RawStateView, bool) {
+	view, ok := s.Database.OpenView(version)
 	if !ok {
 		return nil, false
 	}
-	return &historicalStateView{height: version, read: view.Get, release: view.Close}, true
+	return &historicalStateView{view: view, height: version}, true
 }
