@@ -410,15 +410,9 @@ func encodeTmBlock(
 	if err != nil {
 		return nil, err
 	}
-	var baseFeePerGas *big.Int
-	if block.Block.Height > 1 {
-		prevCtx, err := ctxAtHeight(ctxProvider, block.Block.Height-1)
-		if err != nil {
-			return nil, err
-		}
-		baseFeePerGas = k.GetNextBaseFeePerGas(prevCtx).TruncateInt().BigInt()
-	} else {
-		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
+	baseFeePerGas, err := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
 	}
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []any{}

@@ -381,6 +381,11 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
 		header.MixDigest = types.PrevRandao(tmBlock.Block.Time)
+		// A call at a block runs at that block's own base fee, as go-ethereum does.
+		header.BaseFee, err = pickHeadBaseFee(b.keeper.GetNextBaseFeePerGas, ctxProvider, tmBlock.Block.Height)
+		if err != nil {
+			return nil, nil, err
+		}
 		sdkCtx, err = ctxAtHeight(ctxProvider, tmBlock.Block.Height)
 		if err != nil {
 			return nil, nil, err
