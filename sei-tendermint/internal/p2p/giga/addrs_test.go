@@ -389,6 +389,86 @@ func TestValidatorAddrDroppedAckedEntryReturnsOnReconnect(t *testing.T) {
 	})
 }
 
+// A message that does not decode, or has no known type, is a protocol violation: the server side
+// returns it, which closes the connection.
+func TestValidatorAddrViolationEndsServerStream(t *testing.T) {
+	nineEndpoints := make([]*apb.ValidatorEndpoint, 9)
+	for i := range nineEndpoints {
+		nineEndpoints[i] = &apb.ValidatorEndpoint{Name: new("rpc"), HostPort: new("10.0.0.1:8545")}
+	}
+	for _, tc := range []struct {
+		name string
+		msg  *apb.ValidatorAddrMsg
+	}{
+		{name: "unknown type", msg: &apb.ValidatorAddrMsg{}},
+		{name: "undecodable ack", msg: &apb.ValidatorAddrMsg{T: &apb.ValidatorAddrMsg_Ack{Ack: &apb.ValidatorAddrAck{}}}},
+		{name: "unmarshal failure", msg: &apb.ValidatorAddrMsg{T: &apb.ValidatorAddrMsg_Announcement{Announcement: &apb.SignedValidatorAddrAnnouncement{
+			Msg: &apb.ValidatorAddrAnnouncement{Endpoints: nineEndpoints},
+		}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx := t.Context()
+				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					server, client := pipe(ctx, s)
+					serverErr := utils.NewAtomicSend[error](nil)
+					s.SpawnBg(func() error {
+						serverErr.Store((&Service{validatorAddrs: newAddrs()}).serverStreamValidatorAddrs(ctx, server))
+						return nil
+					})
+					stream, err := StreamValidatorAddrs.Call(ctx, client)
+					if err != nil {
+						return err
+					}
+					if err := stream.Send(ctx, tc.msg); err != nil {
+						return err
+					}
+					got, err := serverErr.Wait(ctx, func(err error) bool { return err != nil })
+					if err != nil {
+						return err
+					}
+					require.ErrorIs(t, got, errValidatorAddrViolation)
+					return nil
+				})
+				require.NoError(t, err)
+			})
+		})
+	}
+}
+
+// A table change sends the announcement that changed, but not an unacked one again until the next
+// interval.
+func TestValidatorAddrTableChangeQueuesOnlyChanges(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		refused, fresh := types.GenSecretKey(rng), types.GenSecretKey(rng)
+		source := newAddrs(signedAddr(refused, 1))
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			received, client := recordingPeerAfterAck(ctx, s, false, nil, nil, nil)
+			s.SpawnBg(func() error {
+				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: source}).clientStreamValidatorAddrs(ctx, client))
+			})
+			if _, err := received.Wait(ctx, func([]peerMsg) bool { return countMsgs(received, refused.Public(), false) == 1 }); err != nil {
+				return err
+			}
+			require.NoError(t, source.Receive(signedAddr(fresh, 1)))
+			if _, err := received.Wait(ctx, func([]peerMsg) bool { return countMsgs(received, fresh.Public(), false) == 1 }); err != nil {
+				return err
+			}
+			synctest.Wait()
+			require.Equal(t, 1, countMsgs(received, refused.Public(), false))
+			if err := utils.Sleep(ctx, validatorAddrInterval); err != nil {
+				return err
+			}
+			synctest.Wait()
+			require.Equal(t, 2, countMsgs(received, refused.Public(), false))
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
 // A peer that pushes beyond validatorAddrRate has its surplus dropped, and the stream stays open, so
 // an announcement sent after the rate has refilled is still received.
 func TestValidatorAddrSurplusIsDroppedWithoutEndingStream(t *testing.T) {

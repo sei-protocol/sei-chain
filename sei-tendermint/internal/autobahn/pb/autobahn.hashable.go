@@ -25,3 +25,4 @@ func (*EpochRegistry) IsHashable()             {}
 func (*EpochMember) IsHashable()               {}
 func (*Challenge) IsHashable()                 {}
 func (*ValidatorAddrAnnouncement) IsHashable() {}
+func (*ValidatorEndpoint) IsHashable()         {}

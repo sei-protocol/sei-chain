@@ -9,9 +9,35 @@ import (
 
 // ValidatorAddrAnnouncement is a validator's signed advertisement of where it can be dialed.
 type ValidatorAddrAnnouncement struct {
-	Version  uint64
-	NodeKey  string
+	Version   uint64
+	NodeKey   string
+	HostPort  string
+	Endpoints []ValidatorEndpoint
+}
+
+// ValidatorEndpoint is a named endpoint a validator advertises alongside its dial address.
+type ValidatorEndpoint struct {
+	Name     string
 	HostPort string
+}
+
+// ValidatorEndpointConv is a protobuf converter for ValidatorEndpoint.
+var ValidatorEndpointConv = protoutils.Conv[ValidatorEndpoint, *pb.ValidatorEndpoint]{
+	Encode: func(m ValidatorEndpoint) *pb.ValidatorEndpoint {
+		return &pb.ValidatorEndpoint{
+			Name:     new(m.Name),
+			HostPort: new(m.HostPort),
+		}
+	},
+	Decode: func(m *pb.ValidatorEndpoint) (ValidatorEndpoint, error) {
+		if m.Name == nil {
+			return ValidatorEndpoint{}, fmt.Errorf("name: missing")
+		}
+		if m.HostPort == nil {
+			return ValidatorEndpoint{}, fmt.Errorf("host_port: missing")
+		}
+		return ValidatorEndpoint{Name: *m.Name, HostPort: *m.HostPort}, nil
+	},
 }
 
 func (m ValidatorAddrAnnouncement) asMsg() *pb.Msg {
@@ -22,9 +48,10 @@ func (m ValidatorAddrAnnouncement) asMsg() *pb.Msg {
 var ValidatorAddrAnnouncementConv = protoutils.Conv[ValidatorAddrAnnouncement, *pb.ValidatorAddrAnnouncement]{
 	Encode: func(m ValidatorAddrAnnouncement) *pb.ValidatorAddrAnnouncement {
 		return &pb.ValidatorAddrAnnouncement{
-			Version:  new(m.Version),
-			NodeKey:  new(m.NodeKey),
-			HostPort: new(m.HostPort),
+			Version:   new(m.Version),
+			NodeKey:   new(m.NodeKey),
+			HostPort:  new(m.HostPort),
+			Endpoints: ValidatorEndpointConv.EncodeSlice(m.Endpoints),
 		}
 	},
 	Decode: func(m *pb.ValidatorAddrAnnouncement) (ValidatorAddrAnnouncement, error) {
@@ -37,10 +64,15 @@ var ValidatorAddrAnnouncementConv = protoutils.Conv[ValidatorAddrAnnouncement, *
 		if m.HostPort == nil {
 			return ValidatorAddrAnnouncement{}, fmt.Errorf("host_port: missing")
 		}
+		endpoints, err := ValidatorEndpointConv.DecodeSlice(m.Endpoints)
+		if err != nil {
+			return ValidatorAddrAnnouncement{}, fmt.Errorf("endpoints: %w", err)
+		}
 		return ValidatorAddrAnnouncement{
-			Version:  *m.Version,
-			NodeKey:  *m.NodeKey,
-			HostPort: *m.HostPort,
+			Version:   *m.Version,
+			NodeKey:   *m.NodeKey,
+			HostPort:  *m.HostPort,
+			Endpoints: endpoints,
 		}, nil
 	},
 }

@@ -172,11 +172,15 @@ func (*SignedChallenge) MaxSize() int {
 }
 
 func (*ValidatorAddrAnnouncement) MaxSize() int {
-	return 405
+	return 3061
+}
+
+func (*ValidatorEndpoint) MaxSize() int {
+	return 329
 }
 
 func (*SignedValidatorAddrAnnouncement) MaxSize() int {
-	return 512
+	return 3168
 }
 
 func (*ValidatorAddrAck) MaxSize() int {
@@ -184,7 +188,7 @@ func (*ValidatorAddrAck) MaxSize() int {
 }
 
 func (*ValidatorAddrMsg) MaxSize() int {
-	return 515
+	return 3171
 }
 
 func init() {
@@ -512,6 +516,13 @@ func init() {
 		1: {MaxCount: 1},
 		2: {MaxCount: 1, MaxSize: 128},
 		3: {MaxCount: 1, MaxSize: 260},
+		4: {MaxCount: 8, Nested: utils.Some(reflect.TypeFor[*ValidatorEndpoint]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.ValidatorEndpoint.
+	runtime.MustRegister[*ValidatorEndpoint](runtime.Schema{
+		1: {MaxCount: 1, MaxSize: 64},
+		2: {MaxCount: 1, MaxSize: 260},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedValidatorAddrAnnouncement.

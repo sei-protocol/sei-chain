@@ -440,6 +440,16 @@ message ValidatorAddrAnnouncement {
   optional string node_key = 2 [(wireguard.max_size) = 128]; // required
   // 260 fits the longest host:port: a 253-char DNS name + ":" + a 5-digit port.
   optional string host_port = 3 [(wireguard.max_size) = 260]; // required
+  // Other endpoints the validator advertises. Dialing uses host_port only.
+  repeated ValidatorEndpoint endpoints = 4 [(wireguard.max_count) = 8]; // optional
+}
+
+// ValidatorEndpoint is a named endpoint a validator advertises alongside its dial address.
+message ValidatorEndpoint {
+  option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
+  optional string name = 1 [(wireguard.max_size) = 64]; // required
+  optional string host_port = 2 [(wireguard.max_size) = 260]; // required
 }
 
 message SignedValidatorAddrAnnouncement {

@@ -9,6 +9,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -108,17 +109,28 @@ func (n *joinTestNode) serveConn(ctx context.Context, c tcp.Conn) error {
 	})
 }
 
-// dialMember keeps an outbound connection to validator at addr, redialing every DialInterval.
+// dialMember keeps an outbound connection to validator at addr. A dial that ends is retried only once
+// the node's Anchor or address table has changed since the attempt began.
 func (n *joinTestNode) dialMember(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error {
 	for {
+		anchor := n.epochs.state.Anchor().Load()
+		snapshot := n.addrs.Watch().Load()
 		err := n.router.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
 			return n.router.service.RunClient(ctx, client, validator, true)
 		})
 		logger.Info("test member outbound connection ended", "node", n.cfg.nodeKey.Public(), "validator", validator, "err", err)
-		if err := utils.Sleep(ctx, n.router.cfg.DialInterval); err != nil {
+		if err := n.waitChanged(ctx, anchor, snapshot); err != nil {
 			return err
 		}
 	}
+}
+
+// waitChanged returns once the node's Anchor or address table differs from anchor or snapshot. It
+// checks before waiting, so a change made during the attempt is not missed.
+func (n *joinTestNode) waitChanged(ctx context.Context, anchor data.Anchor, snapshot giga.ValidatorAddrSnapshot[GigaNodeAddr]) error {
+	return utils.WaitAny(ctx, func() bool {
+		return n.epochs.state.Anchor().Load().Epochs != anchor.Epochs || !n.addrs.Watch().Load().Same(snapshot)
+	}, n.epochs.state.Anchor(), n.addrs.Watch())
 }
 
 // waitHeld waits until the node's address table holds validator, or no longer holds it when held is false.
