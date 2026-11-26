@@ -43,21 +43,21 @@ func (l overrideLimits) callOverrides(state *export.StateOverride, block *export
 	return overrides, nil
 }
 
-// check refuses, as invalid params, a state override naming more accounts, or setting more slots of
-// one account, than l allows.
+// check returns a limit exceeded error for a state override naming more accounts, or setting more
+// slots of one account, than l allows.
 func (l overrideLimits) check(state *export.StateOverride) error {
 	if state == nil {
 		return nil
 	}
 	if l.accounts > 0 && len(*state) > l.accounts {
-		return rpcerr.InvalidParams(fmt.Errorf("%w (%d > %d)", errStateOverrideTooManyAccounts, len(*state), l.accounts))
+		return rpcerr.LimitExceeded(fmt.Errorf("%w (%d > %d)", errStateOverrideTooManyAccounts, len(*state), l.accounts))
 	}
 	if l.slots <= 0 {
 		return nil
 	}
 	for address, account := range *state {
 		if slots := max(len(account.State), len(account.StateDiff)); slots > l.slots {
-			return rpcerr.InvalidParams(fmt.Errorf("%w for %s (%d > %d)", errStateOverrideTooManySlots, address, slots, l.slots))
+			return rpcerr.LimitExceeded(fmt.Errorf("%w for %s (%d > %d)", errStateOverrideTooManySlots, address, slots, l.slots))
 		}
 	}
 	return nil

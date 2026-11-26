@@ -15,14 +15,14 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-var errTooLarge = errors.New("transaction too large")
-var errBadNonce = errors.New("bad nonce")
+var errTooLarge = abevm.ErrTxTooLarge
+var errBadNonce = abevm.ErrTxBadNonce
 
 // errAlreadyKnown rejects a transaction the mempool still holds (see holdsPending). Its message
 // matches geth's txpool.ErrAlreadyKnown, which Ethereum clients recognise.
-var errAlreadyKnown = errors.New("already known")
+var errAlreadyKnown = abevm.ErrTxAlreadyKnown
 var errMempoolFull = errors.New("mempool is full")
-var ErrNotProducing = errors.New("not producing")
+var ErrNotProducing = abevm.ErrNotProducing
 
 type pendingTx struct {
 	raw          tmtypes.Tx

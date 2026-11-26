@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -72,24 +73,26 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 	return hash, nil
 }
 
-// checkChainID rejects tx unless it is replay-protected and signed for chainID.
+// checkChainID returns a transaction rejected error unless tx is replay-protected and signed for
+// chainID.
 func checkChainID(tx *ethtypes.Transaction, chainID *big.Int) error {
 	if !tx.Protected() {
-		return errUnprotectedTx
+		return rpcerr.TransactionRejected(errUnprotectedTx)
 	}
 	if tx.ChainId().Sign() == 0 || tx.ChainId().Cmp(chainID) != 0 {
-		return errInvalidChainID
+		return rpcerr.TransactionRejected(errInvalidChainID)
 	}
 	return nil
 }
 
-// broadcast submits input to the local mempool, returning a CheckTx rejection as an error.
+// broadcast submits input to the local mempool, returning its refusal of the transaction as the
+// JSON-RPC error a client receives.
 func (api *sendAPI) broadcast(ctx context.Context, input hexutil.Bytes) error {
 	result, err := api.backend.BroadcastTx(ctx, &coretypes.RequestBroadcastTx{
 		Tx: append(tmtypes.Tx(nil), input...),
 	})
 	if err != nil {
-		return err
+		return mempoolError(err)
 	}
 	if result == nil {
 		return errors.New("missing broadcast response")
@@ -99,9 +102,25 @@ func (api *sendAPI) broadcast(ctx context.Context, input hexutil.Bytes) error {
 		if message == "" {
 			message = fmt.Sprintf("transaction rejected with code %d", result.Code)
 		}
-		return errors.New(message)
+		return rpcerr.TransactionRejected(errors.New(message))
 	}
 	return nil
+}
+
+// mempoolError returns the JSON-RPC error a client receives for err, the local mempool's refusal of
+// a transaction: a transaction rejected error when the mempool refused the transaction itself, and
+// a resource unavailable error while the validator is not producing. Any other failure, a deadline
+// included, is returned as it is.
+func mempoolError(err error) error {
+	switch {
+	case errors.Is(err, abevm.ErrTxAlreadyKnown),
+		errors.Is(err, abevm.ErrTxBadNonce),
+		errors.Is(err, abevm.ErrTxTooLarge):
+		return rpcerr.TransactionRejected(err)
+	case errors.Is(err, abevm.ErrNotProducing):
+		return rpcerr.ResourceUnavailable(err)
+	}
+	return err
 }
 
 // shardProxy returns the RPC client of the validator owning tx's sender shard,

@@ -80,6 +80,7 @@ func TestWebsocketSubscriptionLimits(t *testing.T) {
 	require.NoError(t, err)
 	_, err = subscribe(a)
 	require.ErrorContains(t, err, errConnectionSubscriptionLimit.Error())
+	requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 
 	// Unsubscribing frees a slot on the same connection.
 	a1.Unsubscribe()
@@ -92,6 +93,7 @@ func TestWebsocketSubscriptionLimits(t *testing.T) {
 	c := dial()
 	_, err = subscribe(c)
 	require.ErrorContains(t, err, errNewHeadsSubscriptionLimit.Error())
+	requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 
 	// Closing a connection frees all of its slots: c takes both of a's.
 	a.Close()

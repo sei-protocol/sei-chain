@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -155,12 +156,16 @@ func (api *blockAPI) blockAt(ctx context.Context, height int64) (*coretypes.Resu
 }
 
 // fetchBlock returns the backend's block at height, or the latest committed block for a nil
-// height, with a nil block for one the backend does not have.
+// height, with a nil block for one the backend does not have. It returns a resource unavailable
+// error for a pruned height.
 func (api *blockAPI) fetchBlock(ctx context.Context, height *coretypes.Int64) (*coretypes.ResultBlock, error) {
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
 		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
 		return nil, nil
+	}
+	if errors.Is(err, coretypes.ErrHeightNotAvailable) {
+		return nil, rpcerr.ResourceUnavailable(err)
 	}
 	if err != nil {
 		return nil, err
@@ -182,7 +187,7 @@ func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*etht
 		return nil, err
 	}
 	if block == nil {
-		return nil, fmt.Errorf("%w: %d", errBlockNotFound, height)
+		return nil, rpcerr.ResourceNotFound(fmt.Errorf("%w: %d", errBlockNotFound, height))
 	}
 	return api.executionHeader(ctx, block)
 }

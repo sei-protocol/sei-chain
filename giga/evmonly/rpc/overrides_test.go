@@ -104,7 +104,7 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 				tooMany := map[string]any{address.Hex(): map[string]any{}, common.Address{1}.Hex(): map[string]any{}}
 				err := client.CallContext(t.Context(), &got, method, call, block, tooMany)
 				require.ErrorContains(t, err, errStateOverrideTooManyAccounts.Error())
-				requireErrorCode(t, err, rpcerr.CodeInvalidParams)
+				requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 			})
 		}
 	}
@@ -120,7 +120,7 @@ func TestHandlerPassesCallOverrides(t *testing.T) {
 			tooMany := map[string]any{address.Hex(): map[string]any{}, common.Address{1}.Hex(): map[string]any{}}
 			err := client.CallContext(t.Context(), &got, "eth_estimateGasAfterCalls", call, []any{call}, block, tooMany)
 			require.ErrorContains(t, err, errStateOverrideTooManyAccounts.Error())
-			requireErrorCode(t, err, rpcerr.CodeInvalidParams)
+			requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 		})
 	}
 }

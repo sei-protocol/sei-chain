@@ -184,14 +184,14 @@ func (api *infoAPI) resolveEndHeight(ctx context.Context, lastBlock ethrpc.Block
 	switch kind {
 	case headBlock:
 		if current <= 0 {
-			return 0, errors.New("no committed block available for fee history")
+			return 0, rpcerr.ResourceUnavailable(errors.New("no committed block available for fee history"))
 		}
 		return current, nil
 	case earliestBlock:
 		return earliestRetainedHeight(api.backend, api.store), nil
 	}
 	if int64(lastBlock) > current {
-		return 0, fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current)
+		return 0, rpcerr.ResourceUnavailable(fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current))
 	}
 	return int64(lastBlock), nil
 }
@@ -242,7 +242,7 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		} else {
 			// end resolved successfully just before this call; only a store eviction racing that
 			// resolution reaches here.
-			return nil, fmt.Errorf("block %d is no longer available", end)
+			return nil, rpcerr.ResourceUnavailable(fmt.Errorf("block %d is no longer available", end))
 		}
 	}
 	// baseFeePerGas carries one more entry than gasUsedRatio: the projected fee for the block
@@ -402,12 +402,12 @@ func rewardRow(stats receipttypes.BlockStats, rewardPercentiles []float64) []*he
 // the [0, 100] range.
 func validateRewardPercentiles(percentiles []float64) error {
 	if len(percentiles) > 100 {
-		return errors.New("rewardPercentiles length must be less than or equal to 100")
+		return rpcerr.InvalidParams(errors.New("rewardPercentiles length must be less than or equal to 100"))
 	}
 	previous := -1.0
 	for _, p := range percentiles {
 		if p < 0 || p > 100 || p <= previous {
-			return errors.New("invalid reward percentiles: must be ascending and between 0 and 100")
+			return rpcerr.InvalidParams(errors.New("invalid reward percentiles: must be ascending and between 0 and 100"))
 		}
 		previous = p
 	}

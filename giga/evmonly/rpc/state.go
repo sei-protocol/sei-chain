@@ -95,7 +95,7 @@ func stateHeight(ctx context.Context, backend Backend, store receiptdb.ReceiptSt
 	} else {
 		number, ok := block.Number()
 		if !ok {
-			return 0, false, errBlockNotSpecified
+			return 0, false, rpcerr.InvalidParams(errBlockNotSpecified)
 		}
 		kind, err := classifyBlockNumber(number)
 		if err != nil {
@@ -124,7 +124,7 @@ func blockHeightByHash(ctx context.Context, backend Backend, hash common.Hash) (
 		return 0, err
 	}
 	if block == nil || block.Block == nil {
-		return 0, fmt.Errorf("%w: %s", errBlockNotFound, hash)
+		return 0, rpcerr.ResourceNotFound(fmt.Errorf("%w: %s", errBlockNotFound, hash))
 	}
 	return block.Block.Height, nil
 }
@@ -138,7 +138,7 @@ func (api *stateAPI) GetStorageAt(ctx context.Context, address common.Address, h
 	}
 	key, err := decodeStorageKey(hexKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode storage key: %w", err)
+		return nil, rpcerr.InvalidParams(fmt.Errorf("unable to decode storage key: %w", err))
 	}
 	value, err := readState(ctx, func() (common.Hash, error) {
 		if latest {

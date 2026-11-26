@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math/big"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -237,13 +236,5 @@ func TestEstimateGasAfterCallsCapComesFromConfig(t *testing.T) {
 // dialHandler serves backend over HTTP under limits and returns a client for it.
 func dialHandler(t *testing.T, backend Backend, limits gigaconfig.RPCConfig) *ethrpc.Client {
 	t.Helper()
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), limits)
-	require.NoError(t, err)
-	t.Cleanup(handler.Stop)
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	client, err := ethrpc.DialHTTP(server.URL)
-	require.NoError(t, err)
-	t.Cleanup(client.Close)
-	return client
+	return dialStore(t, backend, evmonly.NewMemoryReceiptStore(), limits)
 }

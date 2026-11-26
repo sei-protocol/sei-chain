@@ -426,7 +426,7 @@ func TestUnknownBlockHashEndToEnd(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			var logs []*ethtypes.Log
 			err := client.CallContext(t.Context(), &logs, tc.method, tc.param)
-			requireErrorCode(t, err, rpcerr.CodeServerError)
+			requireErrorCode(t, err, rpcerr.CodeResourceNotFound)
 			require.Equal(t, "unknown block", err.Error())
 		})
 	}

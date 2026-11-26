@@ -45,7 +45,7 @@ func (api *estimateAPI) EstimateGas(ctx context.Context, args export.Transaction
 // order.
 func (api *estimateAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, block *ethrpc.BlockNumberOrHash, stateOverrides *export.StateOverride) (hexutil.Uint64, error) {
 	if api.maxCalls > 0 && len(calls) > api.maxCalls {
-		return 0, fmt.Errorf("eth_estimateGasAfterCalls: too many calls (%d > %d)", len(calls), api.maxCalls)
+		return 0, rpcerr.LimitExceeded(fmt.Errorf("eth_estimateGasAfterCalls: too many calls (%d > %d)", len(calls), api.maxCalls))
 	}
 	overrides, err := api.limits.callOverrides(stateOverrides, nil)
 	if err != nil {

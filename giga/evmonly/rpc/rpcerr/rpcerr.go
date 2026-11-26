@@ -98,6 +98,21 @@ func InvalidParams(err error) *Error {
 	return &Error{code: CodeInvalidParams, err: err}
 }
 
+// ResourceNotFound returns err as an error with CodeResourceNotFound.
+func ResourceNotFound(err error) *Error {
+	return &Error{code: CodeResourceNotFound, err: err}
+}
+
+// ResourceUnavailable returns err as an error with CodeResourceUnavailable.
+func ResourceUnavailable(err error) *Error {
+	return &Error{code: CodeResourceUnavailable, err: err}
+}
+
+// TransactionRejected returns err as an error with CodeTransactionRejected.
+func TransactionRejected(err error) *Error {
+	return &Error{code: CodeTransactionRejected, err: err}
+}
+
 // LimitExceeded returns err as an error with CodeLimitExceeded.
 func LimitExceeded(err error) *Error {
 	return &Error{code: CodeLimitExceeded, err: err}

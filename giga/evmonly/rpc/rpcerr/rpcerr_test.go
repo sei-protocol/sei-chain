@@ -21,7 +21,16 @@ type failingService struct{}
 func (failingService) ServerError() error   { return rpcerr.ServerError(errCause) }
 func (failingService) InvalidParams() error { return rpcerr.InvalidParams(errCause) }
 func (failingService) LimitExceeded() error { return rpcerr.LimitExceeded(errCause) }
-func (failingService) Reverted() error      { return rpcerr.ExecutionReverted([]byte{0xde, 0xad}) }
+func (failingService) ResourceNotFound() error {
+	return rpcerr.ResourceNotFound(errCause)
+}
+func (failingService) ResourceUnavailable() error {
+	return rpcerr.ResourceUnavailable(errCause)
+}
+func (failingService) TransactionRejected() error {
+	return rpcerr.TransactionRejected(errCause)
+}
+func (failingService) Reverted() error { return rpcerr.ExecutionReverted([]byte{0xde, 0xad}) }
 func (failingService) Wrapped() error {
 	return fmt.Errorf("wrapped: %w", rpcerr.InvalidParams(errCause))
 }
@@ -51,6 +60,9 @@ func TestErrorCodeOnTheWire(t *testing.T) {
 		{method: "test_serverError", wantCode: rpcerr.CodeServerError},
 		{method: "test_invalidParams", wantCode: rpcerr.CodeInvalidParams},
 		{method: "test_limitExceeded", wantCode: rpcerr.CodeLimitExceeded},
+		{method: "test_resourceNotFound", wantCode: rpcerr.CodeResourceNotFound},
+		{method: "test_resourceUnavailable", wantCode: rpcerr.CodeResourceUnavailable},
+		{method: "test_transactionRejected", wantCode: rpcerr.CodeTransactionRejected},
 		{method: "test_reverted", wantCode: rpcerr.CodeExecutionReverted, wantData: hexutil.Encode([]byte{0xde, 0xad})},
 		// The server reads the code of the error a method returns, not of one it wraps.
 		{method: "test_wrapped", wantCode: rpcerr.CodeServerError},
@@ -70,5 +82,8 @@ func TestErrorCodeOnTheWire(t *testing.T) {
 func TestErrorUnwrapsToItsCause(t *testing.T) {
 	require.ErrorIs(t, rpcerr.InvalidParams(errCause), errCause)
 	require.ErrorIs(t, rpcerr.LimitExceeded(errCause), errCause)
+	require.ErrorIs(t, rpcerr.ResourceNotFound(errCause), errCause)
+	require.ErrorIs(t, rpcerr.ResourceUnavailable(errCause), errCause)
+	require.ErrorIs(t, rpcerr.TransactionRejected(errCause), errCause)
 	require.ErrorIs(t, rpcerr.ServerError(errCause), errCause)
 }

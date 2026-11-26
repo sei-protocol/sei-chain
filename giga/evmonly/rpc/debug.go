@@ -88,7 +88,7 @@ func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		return nil, err
 	}
 	if stored == nil {
-		return nil, rpcerr.InvalidParams(errTraceTxNotFound)
+		return nil, rpcerr.ResourceNotFound(errTraceTxNotFound)
 	}
 	if !executed(stored) {
 		return nil, rpcerr.InvalidParams(errTraceTxNotExecuted)
@@ -159,7 +159,7 @@ func (api *debugAPI) traceBlockNumber(number ethrpc.BlockNumber) (ethrpc.BlockNu
 		return ethrpc.BlockNumber(earliestRetainedHeight(api.txs.backend, api.store)), false, nil
 	}
 	if number.Int64() < firstBlockHeight(api.txs.backend) {
-		return 0, false, fmt.Errorf("%w: %d", errBlockNotFound, number)
+		return 0, false, rpcerr.ResourceNotFound(fmt.Errorf("%w: %d", errBlockNotFound, number))
 	}
 	return number, false, nil
 }
@@ -221,7 +221,7 @@ func (api *debugAPI) beginTrace(ctx context.Context) (context.Context, func(), e
 		case api.slots <- struct{}{}:
 			release = func() { <-api.slots }
 		default:
-			return nil, nil, errTraceBusy
+			return nil, nil, rpcerr.LimitExceeded(errTraceBusy)
 		}
 	}
 	if api.timeout <= 0 {

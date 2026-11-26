@@ -298,7 +298,7 @@ func TestDebugTraceTransaction(t *testing.T) {
 		config   *tracers.TraceConfig
 		wantCode int
 	}{
-		{name: "unknown transaction", hash: common.HexToHash("0xdead"), wantCode: rpcerr.CodeInvalidParams},
+		{name: "unknown transaction", hash: common.HexToHash("0xdead"), wantCode: rpcerr.CodeResourceNotFound},
 		{name: "transaction the block rejected", hash: chain.rejected.Hash(), wantCode: rpcerr.CodeInvalidParams},
 		{name: "JavaScript tracer", hash: second.Hash(), config: tracer("{result: function() { return 1 }}"), wantCode: rpcerr.CodeInvalidParams},
 	} {
@@ -377,6 +377,7 @@ func TestDebugTraceBlock(t *testing.T) {
 		var none json.RawMessage
 		err := client.CallContext(t.Context(), &none, "debug_traceBlockByNumber", ethrpc.BlockNumber(1), tracer("callTracer"))
 		require.ErrorContains(t, err, errBlockNotFound.Error(), "a block before the chain's first")
+		requireErrorCode(t, err, rpcerr.CodeResourceNotFound)
 	})
 
 	t.Run("block whose receipts are not indexed", func(t *testing.T) {
@@ -386,6 +387,7 @@ func TestDebugTraceBlock(t *testing.T) {
 		var got json.RawMessage
 		err := client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.BlockNumber(3), tracer("callTracer"))
 		require.ErrorContains(t, err, errTraceBlockNotIndexed.Error())
+		requireErrorCode(t, err, rpcerr.CodeResourceUnavailable)
 	})
 }
 
@@ -520,7 +522,7 @@ func TestDebugTraceCall(t *testing.T) {
 		var got json.RawMessage
 		err := limited.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", config)
 		require.ErrorContains(t, err, errStateOverrideTooManyAccounts.Error())
-		requireErrorCode(t, err, rpcerr.CodeInvalidParams)
+		requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 	})
 }
 
@@ -535,6 +537,7 @@ func TestDebugTraceConcurrencyLimit(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = api.beginTrace(t.Context())
 	require.ErrorIs(t, err, errTraceBusy)
+	requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 	done()
 	_, done, err = api.beginTrace(t.Context())
 	require.NoError(t, err)

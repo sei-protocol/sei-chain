@@ -57,7 +57,7 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 		return nil, err
 	}
 	if toBlock-fromBlock+1 > maxBlocksForLogs {
-		return nil, rpcerr.InvalidParams(errLogRangeTooWide)
+		return nil, rpcerr.LimitExceeded(errLogRangeTooWide)
 	}
 	return api.rangeLogs(ctx, crit, fromBlock, toBlock)
 }
@@ -73,7 +73,7 @@ func (api *filterAPI) rangeLogs(ctx context.Context, crit filters.FilterCriteria
 	// The store clamps to the retention floor it sees at read time. A floor
 	// that rose since resolveLogRange means the answer covers less than asked.
 	if floor := api.store.EarliestVersion(); floor > 0 && fromBlock < uint64(floor) { //nolint:gosec // floor is positive
-		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errLogRangePruned, fromBlock, floor)
+		return nil, rpcerr.ResourceUnavailable(fmt.Errorf("%w: block %d; earliest available block is %d", errLogRangePruned, fromBlock, floor))
 	}
 	if err := api.normalizeLogs(ctx, logs); err != nil {
 		return nil, err
@@ -93,26 +93,40 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 			return 0, 0, err
 		}
 		if block == nil || block.Block == nil {
-			return 0, 0, errUnknownBlock
+			return 0, 0, rpcerr.ResourceNotFound(errUnknownBlock)
 		}
 		height := uint64(block.Block.Height) //nolint:gosec // block heights are positive
 		earliest, latest := indexedRange(ctx, api.backend, api.store)
-		return height, height, checkIndexed(height, height, earliest, latest)
+		// A block the node holds but has not executed yet is above the committed head; it is not
+		// yet indexed rather than out of range.
+		head := max(height, committedHead(ctx, api.backend))
+		return height, height, checkIndexed(height, height, earliest, latest, head)
 	}
 
 	earliest, latest := indexedRange(ctx, api.backend, api.store)
-	fromBlock, err := resolveLogBound(crit.FromBlock, earliest, latest)
+	head := committedHead(ctx, api.backend)
+	fromBlock, _, err := resolveLogBound(crit.FromBlock, earliest, latest)
 	if err != nil {
 		return 0, 0, err
 	}
-	toBlock, err := resolveLogBound(crit.ToBlock, earliest, latest)
+	toBlock, toKind, err := resolveLogBound(crit.ToBlock, earliest, latest)
 	if err != nil {
 		return 0, 0, err
 	}
 	if fromBlock > toBlock {
-		return 0, 0, rpcerr.InvalidParams(errLogRangeInverted)
+		return 0, 0, invertedRangeError(fromBlock, latest, head, toKind == headBlock)
 	}
-	return fromBlock, toBlock, checkIndexed(fromBlock, toBlock, earliest, latest)
+	return fromBlock, toBlock, checkIndexed(fromBlock, toBlock, earliest, latest, head)
+}
+
+// invertedRangeError returns the error for a fromBlock above toBlock: a resource unavailable error
+// when toBlock follows the indexed head and fromBlock is committed but not yet indexed, and an
+// invalid params error otherwise.
+func invertedRangeError(fromBlock, latest, head uint64, toFollowsHead bool) error {
+	if toFollowsHead && fromBlock <= head {
+		return rpcerr.ResourceUnavailable(notIndexedError(fromBlock, latest))
+	}
+	return rpcerr.InvalidParams(errLogRangeInverted)
 }
 
 // indexedRange returns the inclusive height range the receipt store can
@@ -127,32 +141,42 @@ func indexedRange(ctx context.Context, backend Backend, store receiptdb.ReceiptS
 	return earliest, latest
 }
 
-// checkIndexed reports whether [fromBlock, toBlock] lies within
-// [earliest, latest], naming the offending bound otherwise.
-func checkIndexed(fromBlock, toBlock, earliest, latest uint64) error {
+// checkIndexed reports whether [fromBlock, toBlock] lies within [earliest, latest], naming the
+// offending bound otherwise. A pruned fromBlock and a toBlock not yet indexed are a resource
+// unavailable error, and a toBlock above head is an invalid params error.
+func checkIndexed(fromBlock, toBlock, earliest, latest, head uint64) error {
 	if fromBlock < earliest {
-		return fmt.Errorf("%w: block %d; earliest available block is %d", errLogRangePruned, fromBlock, earliest)
+		return rpcerr.ResourceUnavailable(fmt.Errorf("%w: block %d; earliest available block is %d", errLogRangePruned, fromBlock, earliest))
 	}
 	if toBlock > latest {
-		return fmt.Errorf("%w: block %d; latest indexed block is %d", errLogRangeNotIndexed, toBlock, latest)
+		if toBlock > head {
+			return rpcerr.InvalidParams(notIndexedError(toBlock, latest))
+		}
+		return rpcerr.ResourceUnavailable(notIndexedError(toBlock, latest))
 	}
 	return nil
 }
 
-// resolveLogBound maps a filter bound to a height: an omitted bound or a head tag is latest,
-// earliest and 0x0 are the retention floor, and a height passes through.
-func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
+// notIndexedError reports block as past latest, the last block the receipt store has indexed.
+func notIndexedError(block, latest uint64) error {
+	return fmt.Errorf("%w: block %d; latest indexed block is %d", errLogRangeNotIndexed, block, latest)
+}
+
+// resolveLogBound maps a filter bound to a height, and returns what the bound names: an omitted
+// bound or a head tag is latest, earliest and 0x0 are the retention floor, and a height passes
+// through.
+func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, blockNumberKind, error) {
 	kind, err := classifyFilterBound(bound)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	switch kind {
 	case headBlock:
-		return latest, nil
+		return latest, kind, nil
 	case earliestBlock:
-		return earliest, nil
+		return earliest, kind, nil
 	}
-	return bound.Uint64(), nil
+	return bound.Uint64(), kind, nil
 }
 
 // normalizeLogs completes the fields the receipt store cannot fill: BlockHash

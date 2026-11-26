@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -64,7 +65,7 @@ func (api *txAPI) pendingTransactionCount(ctx context.Context, address common.Ad
 	}
 	nonce, ok := api.backend.EvmPendingNonce(address).Get()
 	if !ok {
-		return nil, errPendingNonceUnavailable
+		return nil, rpcerr.ResourceUnavailable(errPendingNonceUnavailable)
 	}
 	return (*hexutil.Uint64)(&nonce), nil
 }
@@ -118,7 +119,7 @@ func (api *txAPI) GetVMError(ctx context.Context, hash common.Hash) (string, err
 		return "", err
 	}
 	if stored == nil {
-		return "", receiptdb.ErrNotFound
+		return "", rpcerr.ResourceNotFound(receiptdb.ErrNotFound)
 	}
 	return stored.VmError, nil
 }
