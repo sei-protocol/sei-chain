@@ -63,6 +63,7 @@ type BlockRef struct {
 	ParentHash common.Hash
 }
 
+// Private alias for private embedding.
 type tx = ethtypes.Transaction
 
 // EvmTx is a decoded replay-protected Ethereum transaction with a verified sender.
@@ -75,6 +76,18 @@ func (tx EvmTx) Sender() common.Address { return tx.sender }
 
 // Transaction returns the underlying Ethereum transaction for read-only use.
 func (tx EvmTx) Transaction() *ethtypes.Transaction { return tx.tx }
+
+// Private alias for private embedding.
+type evmTx = EvmTx
+
+// EvmTx + cached RawTx. Useful to avoid reencoding
+type EvmTxRaw struct {
+	evmTx
+	raw RawTx
+}
+
+func (tx EvmTxRaw) EvmTx() EvmTx { return tx.evmTx }
+func (tx EvmTxRaw) Raw() RawTx   { return tx.raw }
 
 // EvmBlock contains finalized block data used by EVM RPCs.
 type EvmBlock struct {

@@ -40,7 +40,6 @@ func TestRecordRPCMetricsNoPanic(t *testing.T) {
 	endpoint := "eth_smoke_" + t.Name()
 	recordRPCLatency(ctx, endpoint, "http", true, nil, false, time.Now().Add(-2*time.Millisecond))
 	recordWebsocketConnect(ctx)
-	recordRedirectedRequest(ctx, endpoint, "http")
 }
 
 func TestWSConnectionHandlerRecordsActiveConnections(t *testing.T) {

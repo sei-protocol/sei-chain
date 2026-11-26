@@ -102,11 +102,15 @@ func newAutobahnProxyEnv(t *testing.T, rng utils.Rng, validator bool, address co
 	t.Helper()
 	app := abevm.NewProxy(broadcastEVMApp{})
 	env := newAutobahnRoutingEnv(t, rng, validator, app, newTestSigner(app.EvmChainID(), 0), utils.Some(address))
+	env.setEvmProxy(address, client)
+	return env
+}
+
+func (env *gigaEvmTestFixture) setEvmProxy(address common.Address, client *ethrpc.Client) {
 	owner := env.common.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(address)
 	for proxies := range env.common.proxies.Lock() {
 		proxies[owner] = client
 	}
-	return env
 }
 
 func newAutobahnRoutingEnv(t *testing.T, rng utils.Rng, validator bool, app *abevm.Proxy, signer *abevm.Signer, remoteSender utils.Option[common.Address]) *gigaEvmTestFixture {
@@ -167,13 +171,14 @@ func newAutobahnRoutingEnv(t *testing.T, rng utils.Rng, validator bool, app *abe
 			},
 		}, nodeKey, dataState, signer)
 		require.NoError(t, err)
-		require.True(t, router.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
+		t.Cleanup(func() { require.NoError(t, router.consensus.Close()) })
+		require.True(t, router.mempool.IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
 		giga = router
 		common = router.GigaRouterCommon
 	} else {
 		router, err := NewGigaFullnodeRouter(&commonCfg, nodeKey, dataState, signer)
 		require.NoError(t, err)
-		require.False(t, router.Mempool().IsPresent())
+		require.False(t, router.mempool.IsPresent())
 		giga = router
 		common = router.GigaRouterCommon
 	}

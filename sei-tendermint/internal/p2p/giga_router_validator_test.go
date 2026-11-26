@@ -156,7 +156,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				allTxs = append(allTxs, tx)
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
-				v := giga.Mempool().OrPanic("validator giga must have a mempool")
+				v := giga.mempool.OrPanic("validator giga must have a mempool")
 				if err := v.WaitForMempool(ctx); err != nil {
 					return fmt.Errorf("producer.WaitForMempool(): %w", err)
 				}

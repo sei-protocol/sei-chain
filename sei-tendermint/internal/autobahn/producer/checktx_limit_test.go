@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"testing"
+	"testing/synctest"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -90,15 +91,15 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 		}
 
 		const m = 6
-		txs := make([][]byte, 0, m)
+		txs := make([]abevm.EvmTxRaw, 0, m)
 		for range m {
 			addr, nonce := app.NewAccount(rng)
-			txs = append(txs, env.genTx(rng, addr, nonce).encode())
+			txs = append(txs, env.genTx(rng, addr, nonce))
 		}
 		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			for _, tx := range txs {
 				s.Spawn(func() error {
-					err := env.state.InsertTx(ctx, env.parseTx(tx))
+					err := env.state.InsertTx(ctx, tx)
 					return err
 				})
 			}
@@ -113,7 +114,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 		if err := utils.TestDiff(limit, app.maxInflight()); err != nil {
 			return err
 		}
-		if err := utils.TestDiff(m, len(env.state.UnconfirmedTxs())); err != nil {
+		if err := utils.TestDiff(m, pendingTxCount(env.state)); err != nil {
 			return err
 		}
 		return nil
@@ -123,68 +124,70 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 // Waiters cancelled while queued for a CheckTx permit return ctx error and
 // do not consume a permit, so later inserts still get through.
 func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newGatedApp(ctx)
-	cfg := app.Cfg()
-	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
-	env := newTestEnv(t, rng, cfg, app)
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return env.Run(ctx) })
-		if _, err := env.waitForMempool(ctx); err != nil {
-			return err
-		}
-
-		newTx := func() []byte {
-			addr, nonce := app.NewAccount(rng)
-			return env.genTx(rng, addr, nonce).encode()
-		}
-		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			defer app.openGate()
-			holder := newTx()
-			s.Spawn(func() error {
-				err := env.state.InsertTx(ctx, env.parseTx(holder))
-				return err
-			})
-			// The single permit is now held by holder, blocked in CheckTx.
-			if err := app.waitInflight(ctx, 1); err != nil {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		app := newGatedApp(ctx)
+		cfg := app.Cfg()
+		cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
+		env := newTestEnv(t, rng, cfg, app)
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return env.Run(ctx) })
+			if _, err := env.waitForMempool(ctx); err != nil {
 				return err
 			}
-			waitCtx, cancel := context.WithCancel(ctx)
-			if err := scope.Run(waitCtx, func(ctx context.Context, s scope.Scope) error {
-				for range 4 {
-					tx := newTx()
-					s.Spawn(func() error {
-						err := env.state.InsertTx(ctx, env.parseTx(tx))
-						if !errors.Is(err, context.Canceled) {
-							return fmt.Errorf("InsertTx() = %v, want context.Canceled", err)
-						}
-						return nil
-					})
+
+			newTx := func() abevm.EvmTxRaw {
+				addr, nonce := app.NewAccount(rng)
+				return env.genTx(rng, addr, nonce)
+			}
+			if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				defer app.openGate()
+				holder := newTx()
+				s.Spawn(func() error {
+					err := env.state.InsertTx(ctx, holder)
+					return err
+				})
+				// The single permit is now held by holder, blocked in CheckTx.
+				if err := app.waitInflight(ctx, 1); err != nil {
+					return err
 				}
-				cancel()
-				return nil
+				waitCtx, cancel := context.WithCancel(ctx)
+				if err := scope.Run(waitCtx, func(ctx context.Context, s scope.Scope) error {
+					for range 4 {
+						tx := newTx()
+						s.Spawn(func() error {
+							err := env.state.InsertTx(ctx, tx)
+							if !errors.Is(err, context.Canceled) {
+								return fmt.Errorf("InsertTx() = %v, want context.Canceled", err)
+							}
+							return nil
+						})
+					}
+					synctest.Wait()
+					cancel()
+					return nil
+				}); err != nil {
+					return err
+				}
+				app.openGate()
+				// Once holder finishes, a fresh insert must acquire the permit.
+				err := env.state.InsertTx(ctx, newTx())
+				return err
 			}); err != nil {
 				return err
 			}
-			app.openGate()
-			// Once holder finishes, a fresh insert must acquire the permit.
-			err := env.state.InsertTx(ctx, env.parseTx(newTx()))
-			return err
-		}); err != nil {
-			return err
-		}
-		if err := utils.TestDiff(1, app.maxInflight()); err != nil {
-			return err
-		}
-		if err := utils.TestDiff(2, len(env.state.UnconfirmedTxs())); err != nil {
-			return err
-		}
-		return nil
-	}))
+			if err := utils.TestDiff(1, app.maxInflight()); err != nil {
+				return err
+			}
+			if err := utils.TestDiff(2, pendingTxCount(env.state)); err != nil {
+				return err
+			}
+			return nil
+		}))
+	})
 }
 
-// An absent or zero limit resolves to at least one permit so inserts proceed.
 func TestConfig_MaxConcurrentCheckTxDefault(t *testing.T) {
 	cfg := &Config{}
 	require.True(t, cfg.maxConcurrentCheckTx() >= 1)

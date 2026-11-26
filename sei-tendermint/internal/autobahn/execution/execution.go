@@ -163,7 +163,12 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 func (e *Executor) executeBlock(ctx context.Context, b *atypes.RoadBlock) (atypes.ExecutedBlock, error) {
 	app := e.cfg.App
 	header := b.Header()
-	txs, err := e.cfg.Signer.ParseTxs(b.Txs())
+	blockTxs := b.Txs()
+	raw := make([]abevm.RawTx, len(blockTxs))
+	for i, tx := range blockTxs {
+		raw[i] = tx
+	}
+	txs, err := e.cfg.Signer.ParseTxs(raw)
 	if err != nil {
 		return atypes.ExecutedBlock{}, fmt.Errorf("decode block transactions: %w", err)
 	}

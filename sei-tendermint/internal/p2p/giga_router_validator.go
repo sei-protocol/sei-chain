@@ -93,7 +93,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
-		s.SpawnNamed("producer", func() error { return r.Mempool().OrPanic("validator mempool").Run(ctx) })
+		s.SpawnNamed("producer", func() error { return r.mempool.OrPanic("validator mempool").Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })

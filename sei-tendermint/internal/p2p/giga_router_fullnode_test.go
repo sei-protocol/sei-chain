@@ -169,7 +169,7 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 					return err
 				}
 				return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, peerScope scope.Scope) error {
-					peerScope.SpawnBg(func() error { return c.Run(ctx) })
+					peerScope.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, c.Run(ctx)) })
 					peerURL := endpoint
 					peerURL.Path = fmt.Sprintf("/%d", i)
 					hConn, err := handshake(ctx, c, handshakeSpec{
@@ -184,7 +184,7 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 						return err
 					}
 					server := rpc.NewServer[giga.API]()
-					peerScope.SpawnBg(func() error { return server.Run(ctx, hConn.conn) })
+					peerScope.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, hConn.conn)) })
 					peerScope.SpawnBg(func() error {
 						return giga.StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *gigapb.StreamFullCommitQCsReq]) error {
 							if _, err := stream.Recv(ctx); err != nil {

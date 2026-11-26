@@ -57,32 +57,32 @@ func (s *Signer) ForgetTxs(txs []EvmTx) {
 }
 
 // ParseTx parses a replay-protected transaction and returns its verified sender.
-func (s *Signer) ParseTx(raw RawTx) (EvmTx, error) {
+func (s *Signer) ParseTx(raw RawTx) (EvmTxRaw, error) {
 	tx := new(ethtypes.Transaction)
 	if err := tx.UnmarshalBinary(raw); err != nil {
-		return EvmTx{}, err
+		return EvmTxRaw{}, err
 	}
 	if err := s.Admits(tx); err != nil {
-		return EvmTx{}, err
+		return EvmTxRaw{}, err
 	}
 	hash := tx.Hash()
 	if cached, ok := s.cache.Get(); ok {
 		for senders := range cached.Lock() {
 			if sender, ok := senders.get(hash).Get(); ok {
-				return EvmTx{tx: tx, sender: sender}, nil
+				return EvmTxRaw{evmTx: EvmTx{tx: tx, sender: sender}, raw: append(RawTx(nil), raw...)}, nil
 			}
 		}
 	}
 	sender, err := ethtypes.Sender(s.signer, tx)
 	if err != nil {
-		return EvmTx{}, err
+		return EvmTxRaw{}, err
 	}
-	return EvmTx{tx: tx, sender: sender}, nil
+	return EvmTxRaw{evmTx: EvmTx{tx: tx, sender: sender}, raw: raw}, nil
 }
 
 // ParseTxs parses replay-protected transactions, reusing cached senders or recovering them.
 // Results follow input order.
-func (s *Signer) ParseTxs(raw [][]byte) ([]EvmTx, error) {
+func (s *Signer) ParseTxs(raw []RawTx) ([]EvmTx, error) {
 	if len(raw) == 0 {
 		return []EvmTx{}, nil
 	}

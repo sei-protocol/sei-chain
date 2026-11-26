@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -37,10 +36,6 @@ func (*freshChainClient) GenesisInitialHeight() int64 {
 
 func (*freshChainClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
-}
-
-func (*freshChainClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
 }
 
 func (*freshChainClient) Status(context.Context) (*coretypes.ResultStatus, error) {

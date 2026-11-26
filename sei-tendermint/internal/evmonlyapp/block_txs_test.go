@@ -117,7 +117,11 @@ func TestGigaBlocksReconstructReorderedAndFilteredTransactions(t *testing.T) {
 			road, err := state.RoadBlock(t.Context(), header.Height())
 			require.NoError(t, err)
 			signer := newTestSigner(evmOnlyTestChainID, 0)
-			txs, err := signer.ParseTxs(road.Txs())
+			raw := make([]abevm.RawTx, len(road.Txs()))
+			for i, tx := range road.Txs() {
+				raw[i] = tx
+			}
+			txs, err := signer.ParseTxs(raw)
 			require.NoError(t, err)
 			response, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
 				Height: header.Height(), Time: header.Timestamp(), Hash: common.Hash(header.Hash()), Txs: txs,

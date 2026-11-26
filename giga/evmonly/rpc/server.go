@@ -55,7 +55,7 @@ type Backend interface {
 	EvmBlockNumber() int64
 	// GenesisInitialHeight returns the height of the chain's first block, or 0 when unknown.
 	GenesisInitialHeight() int64
-	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
+	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks]
 	EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
 	// block, in the context that block executed at, with overrides applied.

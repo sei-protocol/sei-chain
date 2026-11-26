@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -211,9 +210,4 @@ func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheck
 		return nil, err
 	}
 	return &coretypes.ResultCheckTx{ResponseCheckTx: *res.ResponseCheckTx}, nil
-}
-
-// EvmProxy returns None because CometBFT nodes admit transactions locally.
-func (env *Environment) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	return utils.None[*ethrpc.Client]()
 }

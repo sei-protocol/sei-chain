@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
+// sendProxyError is a shard rejection with a distinct JSON-RPC code for testing error forwarding.
 type sendProxyError struct{}
 
 func (sendProxyError) Error() string  { return "shard owner rejected" }
@@ -175,14 +176,13 @@ func TestGigaInsertTxCachesOnlyAdmittedSenders(t *testing.T) {
 			if rejected {
 				app.checkErr = utils.Some(rejection)
 			}
-			counted := &countingEvmSigner{
+			counted := &abevm.TestCountingSigner{
 				Signer: ethtypes.LatestSignerForChainID(big.NewInt(1)),
-				calls:  utils.NewMutex(new(int)),
 			}
 			signer := abevm.NewSigner(counted, 1024, 0)
 			env := newAutobahnEnvWithSigner(t, utils.TestRng(), true, abevm.NewProxy(app), signer)
 			router := env.Router
-			mp := env.common.Mempool().OrPanic("validator mempool")
+			mp := env.common.mempool.OrPanic("validator mempool")
 			tx := signedEVMStateTestTx(t, 0)
 			raw := utils.OrPanic1(tx.MarshalBinary())
 			sender := utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(1)), tx))
@@ -207,33 +207,17 @@ func TestGigaInsertTxCachesOnlyAdmittedSenders(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, utils.Some(sender), app.sender)
 			// Routing and admission share a single sender recovery.
-			for calls := range counted.calls.Lock() {
-				require.Equal(t, 1, *calls)
-			}
+			require.Equal(t, uint64(1), counted.Calls.Load())
 			parsed, err := signer.ParseTx(raw)
 			require.NoError(t, err)
 			require.Equal(t, sender, parsed.Sender())
-			expectedCalls := 1
+			expectedCalls := uint64(1)
 			if rejected {
 				expectedCalls = 2
 			}
-			for calls := range counted.calls.Lock() {
-				require.Equal(t, expectedCalls, *calls)
-			}
+			require.Equal(t, expectedCalls, counted.Calls.Load())
 		})
 	}
-}
-
-type countingEvmSigner struct {
-	ethtypes.Signer
-	calls utils.Mutex[*int]
-}
-
-func (s *countingEvmSigner) Sender(tx *ethtypes.Transaction) (common.Address, error) {
-	for calls := range s.calls.Lock() {
-		*calls += 1
-	}
-	return s.Signer.Sender(tx)
 }
 
 func TestGigaInsertTxRejectsUnsupportedTransactionType(t *testing.T) {

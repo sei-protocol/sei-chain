@@ -150,9 +150,7 @@ func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 func (r *Router) ConnInfos() []PeerConnInfo { return r.peerManager.ConnInfos() }
 func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 
-// Giga returns the GigaRouter if Autobahn is enabled, None otherwise.
-// Consumers (e.g. the /status RPC handler) use this to reach Autobahn-specific
-// state like the last committed block number.
+// Giga returns the configured Autobahn router, or None when disabled.
 func (r *Router) Giga() utils.Option[GigaRouter] { return r.giga }
 
 // OpenChannel opens a new channel for the given message type.

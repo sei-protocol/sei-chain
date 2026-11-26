@@ -119,7 +119,7 @@ func (r *GigaRouterCommon) InsertTx(ctx context.Context, input abevm.RawTx) (com
 	if err := mempool.InsertTx(ctx, tx); err != nil {
 		return hash, err
 	}
-	r.signer.Remember(tx)
+	r.signer.Remember(tx.EvmTx())
 	return hash, nil
 }
 
@@ -132,7 +132,7 @@ func (r *GigaRouterCommon) EvmPendingNonce(ctx context.Context, address common.A
 		}
 		return uint64(nonce), nil
 	}
-	mp, ok := r.Mempool().Get()
+	mp, ok := r.mempool.Get()
 	if !ok {
 		return 0, abevm.ErrPendingNonceUnavailable
 	}

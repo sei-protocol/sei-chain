@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -43,10 +42,6 @@ func (*parityTxCountTMClient) GenesisInitialHeight() int64 {
 
 func (*parityTxCountTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
-}
-
-func (*parityTxCountTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
 }
 
 func (c *parityTxCountTMClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {

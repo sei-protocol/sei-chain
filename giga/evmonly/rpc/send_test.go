@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestSendRawTransaction(t *testing.T) {
@@ -61,6 +63,45 @@ func TestReturnsCheckTxRejection(t *testing.T) {
 	}
 	_, err := newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
 	require.EqualError(t, err, "bad nonce")
+}
+
+func TestSendRawTransactionWrongChainID(t *testing.T) {
+	chainID := big.NewInt(713700)
+	wrongChainID := big.NewInt(74565)
+	signer := abevm.NewSigner(ethtypes.LatestSignerForChainID(chainID), 0, 1)
+	backend := &testBackend{
+		insertTx: func(_ context.Context, raw abevm.RawTx) (common.Hash, error) {
+			_, err := signer.ParseTx(raw)
+			require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
+			return common.Hash{}, err
+		},
+	}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	for _, txData := range []ethtypes.TxData{
+		&ethtypes.LegacyTx{To: &to, Gas: 21000, GasPrice: big.NewInt(1_000_000_000)},
+		&ethtypes.DynamicFeeTx{ChainID: wrongChainID, To: &to, Gas: 21000, GasFeeCap: big.NewInt(1_000_000_000)},
+	} {
+		tx, err := ethtypes.SignTx(ethtypes.NewTx(txData), ethtypes.LatestSignerForChainID(wrongChainID), key)
+		require.NoError(t, err)
+		raw, err := tx.MarshalBinary()
+		require.NoError(t, err)
+		var hash common.Hash
+		err = client.CallContext(t.Context(), &hash, "eth_sendRawTransaction", hexutil.Bytes(raw))
+		require.EqualError(t, err, "invalid chain-id")
+		var rpcErr ethrpc.Error
+		require.ErrorAs(t, err, &rpcErr)
+		require.Equal(t, -32000, rpcErr.ErrorCode())
+	}
 }
 
 func TestSendRawTransactionBroadcastError(t *testing.T) {
@@ -163,27 +204,41 @@ func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 }
 
 func TestSendConcurrencySlotReleasedOnError(t *testing.T) {
-	_, raw := testSignedTransaction(t)
-	want := errors.New("broadcast failed")
-	backend := &testBackend{
-		insertTx: func(ctx context.Context, _ abevm.RawTx) (common.Hash, error) {
-			if err := ctx.Err(); err != nil {
-				return common.Hash{}, err
-			}
-			return common.Hash{}, want
-		},
-	}
-	api := newSendAPI(backend, 1)
-	_, err := api.SendRawTransaction(t.Context(), nil)
-	require.Error(t, err)
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	_, err = api.SendRawTransaction(ctx, raw)
-	require.ErrorIs(t, err, context.Canceled)
-	for range 2 {
-		_, err = api.SendRawTransaction(t.Context(), raw)
+	synctest.Test(t, func(t *testing.T) {
+		_, raw := testSignedTransaction(t)
+		want := errors.New("broadcast failed")
+		block := true
+		backend := &testBackend{
+			insertTx: func(ctx context.Context, input abevm.RawTx) (common.Hash, error) {
+				if len(input) > 0 && block {
+					<-ctx.Done()
+					return common.Hash{}, ctx.Err()
+				}
+				return common.Hash{}, want
+			},
+		}
+		api := newSendAPI(backend, 1)
+		_, err := api.SendRawTransaction(t.Context(), nil)
 		require.ErrorIs(t, err, want)
-	}
+		var callErr error
+		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			callCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			s.Spawn(func() error {
+				_, callErr = api.SendRawTransaction(callCtx, raw)
+				return nil
+			})
+			synctest.Wait()
+			cancel()
+			return nil
+		}))
+		require.ErrorIs(t, callErr, context.Canceled)
+		block = false
+		for range 2 {
+			_, err = api.SendRawTransaction(t.Context(), raw)
+			require.ErrorIs(t, err, want)
+		}
+	})
 }
 
 func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {

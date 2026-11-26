@@ -47,7 +47,7 @@ type testBackend struct {
 	gasLimit         func() uint64
 	minGasPrice      func() *big.Int
 	storage          func(common.Address, common.Hash) (common.Hash, error)
-	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
+	executedBlocks   func() utils.AtomicRecv[atypes.ExecutedBlocks]
 	transactionCount func(common.Address) uint64
 	pendingNonce     func(context.Context, common.Address) (uint64, error)
 	// initialHeight is the genesis InitialHeight GenesisInitialHeight reports.
@@ -85,7 +85,7 @@ func (b *testBackend) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Hea
 	return b.stateBeforeTx(ctx, header, txs)
 }
 
-func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
+func (b *testBackend) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
 	return b.executedBlocks()
 }
 

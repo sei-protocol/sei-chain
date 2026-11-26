@@ -78,7 +78,7 @@ func TestSignerFeeWidths(t *testing.T) {
 							parser.Remember(TestEvmTx(tx, sender))
 						}
 						parsed, singleErr := parser.ParseTx(raw)
-						batch, batchErr := parser.ParseTxs([][]byte{raw, raw})
+						batch, batchErr := parser.ParseTxs([]RawTx{raw, raw})
 						if boundary.overflow {
 							require.ErrorIs(t, singleErr, tc.err)
 							require.ErrorIs(t, batchErr, tc.err)

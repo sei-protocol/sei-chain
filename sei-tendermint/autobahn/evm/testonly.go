@@ -1,24 +1,35 @@
 package evm
 
 import (
+	"sync/atomic"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TestEvmTx returns a decoded transaction with the given sender for tests.
+// TestEvmTx returns a transaction fixture with the given sender.
 func TestEvmTx(tx *ethtypes.Transaction, sender common.Address) EvmTx {
 	return EvmTx{tx: tx, sender: sender}
 }
 
-// TestEvmTxFromRaw returns a decoded transaction with the supplied sender for cache tests.
-func TestEvmTxFromRaw(raw RawTx, sender common.Address) (EvmTx, error) {
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(raw); err != nil {
-		return EvmTx{}, err
-	}
-	return TestEvmTx(tx, sender), nil
+// TestSignedEvmTx parses a signed test transaction with the signer for its chain.
+func TestSignedEvmTx(tx *ethtypes.Transaction) EvmTx {
+	signer := NewSigner(ethtypes.LatestSignerForChainID(tx.ChainId()), 0, 1)
+	return utils.OrPanic1(signer.ParseTx(utils.OrPanic1(tx.MarshalBinary()))).EvmTx()
+}
+
+// TestCountingSigner counts sender recovery calls made to an Ethereum signer.
+type TestCountingSigner struct {
+	ethtypes.Signer
+	Calls atomic.Uint64
+}
+
+func (s *TestCountingSigner) Sender(tx *ethtypes.Transaction) (common.Address, error) {
+	s.Calls.Add(1)
+	return s.Signer.Sender(tx)
 }
 
 // epochSnapshotApp serves the current snapshot of a test epoch registry.
