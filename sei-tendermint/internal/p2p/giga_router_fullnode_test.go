@@ -136,14 +136,9 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 func TestGigaFullnode_EvmProxyRelaysThroughConnectedValidator(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := atypes.GenCommittee(rng, 5)
-	state, _ := testDataState(t, committee)
-	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
-		DialInterval: time.Second,
-		App:          abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
-	}, makeKey(rng), state, newTestSigner(1, 0))
-	require.NoError(t, err)
+	router := newTestFullnodeRouter(t, rng, committee)
 
-	sender := func() common.Address { return common.BytesToAddress(utils.GenBytes(rng, common.AddressLength)) }
+	sender := func() common.Address { return testEvmSender(rng) }
 	require.False(t, router.EvmProxy(sender()).IsPresent())
 
 	connected := map[atypes.PublicKey]*ethrpc.Client{}
@@ -172,6 +167,67 @@ func TestGigaFullnode_EvmProxyRelaysThroughConnectedValidator(t *testing.T) {
 	}
 	// Senders of unconnected owners are spread across the connected validators.
 	require.Equal(t, relays, usedRelays)
+}
+
+// TestGigaFullnode_EvmProxyRelayStaysWhenAnotherRelayDisconnects checks that a
+// sender proxied through a relay keeps that relay when a different relay disconnects.
+func TestGigaFullnode_EvmProxyRelayStaysWhenAnotherRelayDisconnects(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := atypes.GenCommittee(rng, 5)
+	router := newTestFullnodeRouter(t, rng, committee)
+	relays := keys[:3]
+	clients := map[atypes.PublicKey]*ethrpc.Client{}
+	for i, key := range relays {
+		rpcURL := *utils.OrPanic1(url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i)))
+		clients[key.Public()] = registerEvmProxyForTest(t, router.gigaRouterCommon, key.Public(), rpcURL)
+	}
+	isRelay := func(v atypes.PublicKey) bool {
+		_, ok := clients[v]
+		return ok
+	}
+
+	// Senders whose shard owner is not connected, with the relay each one uses.
+	relayBySender := map[common.Address]*ethrpc.Client{}
+	for len(relayBySender) < 100 {
+		sender := testEvmSender(rng)
+		if isRelay(committee.EvmShard(sender)) {
+			continue
+		}
+		relayBySender[sender] = router.EvmProxy(sender).OrPanic("EvmProxy")
+	}
+
+	disconnected := relays[0].Public()
+	for proxies := range router.proxies.Lock() {
+		delete(proxies, disconnected)
+	}
+	moved := 0
+	for sender, relay := range relayBySender {
+		got := router.EvmProxy(sender).OrPanic("EvmProxy")
+		if relay == clients[disconnected] {
+			require.NotEqual(t, relay, got)
+			moved++
+			continue
+		}
+		require.Equal(t, relay, got)
+	}
+	// Sanity: some senders were on the disconnected relay.
+	require.True(t, moved > 0)
+}
+
+// newTestFullnodeRouter returns a fullnode router over committee with no connections.
+func newTestFullnodeRouter(t *testing.T, rng utils.Rng, committee *atypes.Committee) *gigaFullnodeRouter {
+	t.Helper()
+	state, _ := testDataState(t, committee)
+	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+		DialInterval: time.Second,
+		App:          abevm.NewProxy(newTestApp(testAppStateJSON(rng))),
+	}, makeKey(rng), state, newTestSigner(1, 0))
+	require.NoError(t, err)
+	return router
+}
+
+func testEvmSender(rng utils.Rng) common.Address {
+	return common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
 }
 
 func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) {

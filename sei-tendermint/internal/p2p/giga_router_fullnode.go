@@ -2,9 +2,7 @@ package p2p
 
 import (
 	"context"
-	"encoding/binary"
-	"maps"
-	"slices"
+	"hash/fnv"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -77,18 +75,29 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // sender, or None if no validator is connected.
 func (r *gigaFullnodeRouter) relayEvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
 	for proxies := range r.proxies.RLock() {
-		if len(proxies) == 0 {
-			return utils.None[*ethrpc.Client]()
-		}
 		// The relay forwards to the shard owner when connected to it, and otherwise
-		// keeps the tx in its own mempool. Choosing the relay by sender keeps a sender's
-		// sends and pending-nonce queries on the same relay while the connection set
-		// is unchanged, and spreads senders across relays.
-		validators := slices.SortedFunc(maps.Keys(proxies), atypes.PublicKey.Compare)
-		relay := validators[binary.BigEndian.Uint64(sender[:8])%uint64(len(validators))]
-		return utils.Some(proxies[relay])
+		// keeps the tx in its own mempool. Rendezvous hashing keeps a sender's sends
+		// and pending-nonce queries on the same relay unless that relay disconnects,
+		// and spreads senders across relays.
+		var best utils.Option[atypes.PublicKey]
+		var bestScore uint64
+		for validator := range proxies {
+			score := relayScore(sender, validator)
+			if b, ok := best.Get(); !ok || score > bestScore || (score == bestScore && validator.Compare(b) < 0) {
+				best, bestScore = utils.Some(validator), score
+			}
+		}
+		return best.Map(func(v atypes.PublicKey) *ethrpc.Client { return proxies[v] })
 	}
 	panic("unreachable")
+}
+
+// relayScore returns the rendezvous-hashing weight of validator as a relay for sender.
+func relayScore(sender common.Address, validator atypes.PublicKey) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write(sender[:])
+	_, _ = h.Write(validator.Bytes())
+	return h.Sum64()
 }
 
 // runCommitteeConnections maintains block-sync and EVM RPC connections to every committee member.
