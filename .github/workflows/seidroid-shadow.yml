@@ -33,3 +33,26 @@ jobs:
       # conversation, and the service pairs this check with v1's on each commit.
       shadow: true
       allowed-bots: seidroid[bot]
+      # The review's shell has no network, so Go at go.mod's version and the modules are
+      # fetched into its home first.
+      prepare: >-
+        v=$(awk '$1 == "go" {print $2; exit}' go.mod) &&
+        mkdir -p ~/sdk &&
+        { ~/sdk/go/bin/go version 2>/dev/null | grep -qF "go$v " ||
+        { rm -rf ~/sdk/go &&
+        curl --proto '=https' --tlsv1.2 -fsSL "https://go.dev/dl/go$v.linux-$(dpkg --print-architecture).tar.gz" |
+        tar -xzC ~/sdk; }; } &&
+        GOTOOLCHAIN=local ~/sdk/go/bin/go mod download
+      extra-instructions: >-
+        Go is in ~/sdk/go/bin, which is not on PATH, and the modules are already
+        downloaded, as there is no network; run
+        `export PATH="$HOME/sdk/go/bin:$PATH" GOPROXY=off GOTOOLCHAIN=local` before using go.
+        Use it to settle what reading cannot, one package at a time and narrowed with -run,
+        such as `go test -count=1 -run 'TestName' ./x/evm/keeper`.
+        When the diff adds or changes a field, a JSON tag, a default or a constant of something
+        that is serialised, hashed or written to disk, the tests that catch it are often far
+        from the change: list every test file in the repository that uses the type, such as
+        `grep -rlw TypeName --include='*_test.go' .`, and run the ones that compare against an
+        expected digest, hash, golden file or fixture.
+        Never run `./...` or a whole module, and leave -race, the integration and e2e suites
+        and lint to CI: the first build of a package can take minutes.
