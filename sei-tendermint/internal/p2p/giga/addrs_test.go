@@ -448,6 +448,12 @@ func recordingPeer(ctx context.Context, s scope.Scope, ack bool, first ...*types
 
 // recordingPeerWith is recordingPeer that also sends the messages in extra, in order, after first.
 func recordingPeerWith(ctx context.Context, s scope.Scope, ack bool, first []*types.Signed[types.ValidatorAddrAnnouncement], extra []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
+	return recordingPeerAfterAck(ctx, s, ack, first, extra, nil)
+}
+
+// recordingPeerAfterAck is recordingPeerWith that also sends the messages in afterAck once, when the
+// first ack arrives.
+func recordingPeerAfterAck(ctx context.Context, s scope.Scope, ack bool, first []*types.Signed[types.ValidatorAddrAnnouncement], extra, afterAck []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
 	received := utils.NewAtomicSend([]peerMsg{})
 	server, client := pipe(ctx, s)
 	s.SpawnBg(func() error {
@@ -467,6 +473,7 @@ func recordingPeerWith(ctx context.Context, s scope.Scope, ack bool, first []*ty
 					return err
 				}
 			}
+			sentAfterAck := false
 			for {
 				raw, err := stream.Recv(ctx)
 				if err != nil {
@@ -492,6 +499,14 @@ func recordingPeerWith(ctx context.Context, s scope.Scope, ack bool, first []*ty
 						return err
 					}
 					received.Store(append(received.Load(), peerMsg{validator: ack.Validator, version: ack.Version, ack: true}))
+					if !sentAfterAck {
+						sentAfterAck = true
+						for _, msg := range afterAck {
+							if err := stream.Send(ctx, msg); err != nil {
+								return err
+							}
+						}
+					}
 				}
 			}
 		}))
@@ -519,8 +534,9 @@ func TestValidatorAddrResentAnnouncementIsAckedAgain(t *testing.T) {
 		var received *utils.AtomicSend[[]peerMsg]
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			var client rpc.Client[API]
-			received, client = recordingPeerWith(ctx, s, false, nil, []*apb.ValidatorAddrMsg{
+			received, client = recordingPeerAfterAck(ctx, s, false, nil, []*apb.ValidatorAddrMsg{
 				encodeAnnouncement(signedAddr(key, 1)),
+			}, []*apb.ValidatorAddrMsg{
 				encodeAnnouncement(signedAddr(key, 1)),
 			})
 			s.SpawnBg(func() error {

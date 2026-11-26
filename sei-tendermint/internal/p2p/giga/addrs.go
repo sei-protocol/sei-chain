@@ -138,18 +138,22 @@ const validatorAddrInterval = 10 * time.Second
 // of each Anchor epoch.
 const validatorAddrTableBound = len(data.Anchor{}.Epochs) * atypes.MaxValidators
 
-// validatorAddrRate is the refill rate of a stream's receive budget: two full tables per
+// validatorAddrRotationBound is the most announcements a table holds during an epoch rotation, when
+// the departing epoch's members remain until Retain runs.
+const validatorAddrRotationBound = validatorAddrTableBound + atypes.MaxValidators
+
+// validatorAddrRate is the refill rate of a stream's receive budget: two rotation-sized tables per
 // validatorAddrInterval, one for announcements and one for the acks a peer sends back for them.
 // Messages beyond the budget are dropped.
 //
 // A connection serves one stream at a time and accepts at most one per interval, and each stream
 // starts with a full validatorAddrBurst, so a peer that reopens its stream every interval is admitted
-// about four tables per interval.
-var validatorAddrRate = rate.Every(validatorAddrInterval / time.Duration(2*validatorAddrTableBound))
+// about twice the per-interval budget.
+var validatorAddrRate = rate.Every(validatorAddrInterval / time.Duration(2*validatorAddrRotationBound))
 
-// validatorAddrBurst is the most messages a stream admits at once: the peer's full table plus the
-// acks for ours, so two full tables with no slack.
-const validatorAddrBurst = 2 * validatorAddrTableBound
+// validatorAddrBurst is the most messages a stream admits at once: the peer's rotation-sized table plus
+// the acks for ours.
+const validatorAddrBurst = 2 * validatorAddrRotationBound
 
 // validatorAddrStream is a validator address stream as seen from either end of a connection.
 type validatorAddrStream = rpc.Stream[*apb.ValidatorAddrMsg, *apb.ValidatorAddrMsg]
