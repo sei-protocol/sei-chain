@@ -39,9 +39,11 @@ jobs:
         v=$(awk '$1 == "go" {print $2; exit}' go.mod) &&
         mkdir -p ~/sdk &&
         { ~/sdk/go/bin/go version 2>/dev/null | grep -qF "go$v " ||
-        { rm -rf ~/sdk/go &&
-        curl --proto '=https' --tlsv1.2 -fsSL "https://go.dev/dl/go$v.linux-$(dpkg --print-architecture).tar.gz" |
-        tar -xzC ~/sdk; }; } &&
+        { f=go$v.linux-$(dpkg --print-architecture).tar.gz &&
+        rm -rf ~/sdk/go &&
+        curl --proto '=https' --tlsv1.2 -fsSLo ~/sdk/$f "https://dl.google.com/go/$f" &&
+        echo "$(curl --proto '=https' --tlsv1.2 -fsSL "https://dl.google.com/go/$f.sha256")  $HOME/sdk/$f" | sha256sum -c --quiet &&
+        tar -xzf ~/sdk/$f -C ~/sdk && rm ~/sdk/$f; }; } &&
         GOTOOLCHAIN=local ~/sdk/go/bin/go mod download
       extra-instructions: >-
         Go is in ~/sdk/go/bin, which is not on PATH, and the modules are already
