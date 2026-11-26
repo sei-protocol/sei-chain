@@ -1734,6 +1734,10 @@ func TestEVMOnlyApplicationRefusesTxsExecutionRejectsBeforeChargingGas(t *testin
 		}
 	}
 
+	blockGasLimit := evmOnlyTestInitChain().GasLimit
+	transfer := func(gas uint64) ethtypes.TxData {
+		return &ethtypes.DynamicFeeTx{ChainID: chainID, GasTipCap: minPrice, GasFeeCap: feeCap, Gas: gas, To: &recipient, Value: big.NewInt(1)}
+	}
 	create := func(initCodeSize int) ethtypes.TxData {
 		return &ethtypes.DynamicFeeTx{ChainID: chainID, GasTipCap: minPrice, GasFeeCap: feeCap, Gas: 1_000_000, Data: make([]byte, initCodeSize)}
 	}
@@ -1749,6 +1753,8 @@ func TestEVMOnlyApplicationRefusesTxsExecutionRejectsBeforeChargingGas(t *testin
 		{name: "set-code with an empty auth list", tx: setCode(nil), wantErr: ethcore.ErrEmptyAuthList},
 		{name: "create at the init code limit", tx: create(params.MaxInitCodeSize)},
 		{name: "create above the init code limit", tx: create(params.MaxInitCodeSize + 1), wantErr: vm.ErrMaxInitCodeSizeExceeded},
+		{name: "gas at the block gas limit", tx: transfer(blockGasLimit)},
+		{name: "gas above the block gas limit", tx: transfer(blockGasLimit + 1), wantErr: ethcore.ErrGasLimitReached},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			signed, err := ethtypes.SignTx(ethtypes.NewTx(tc.tx), ethtypes.LatestSignerForChainID(chainID), sender)
