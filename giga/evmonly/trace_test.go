@@ -36,7 +36,7 @@ func TestReplayStateAppliesEachPrefixAsTheBlockDid(t *testing.T) {
 		state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 		return state
 	}
-	cfg := Config{RejectUnappliableTxs: true}
+	cfg := Config{}
 
 	for _, tc := range []struct {
 		name          string
@@ -101,7 +101,7 @@ func TestReplayStateHonorsTxsOrdered(t *testing.T) {
 				},
 				TxsOrdered: ordered,
 			}
-			cfg := Config{RejectUnappliableTxs: true}
+			cfg := Config{}
 			replayed, err := NewExecutor(cfg).ReplayState(t.Context(), view, req)
 			require.NoError(t, err)
 			wantBalance, wantNonce := uint64(11), uint64(9)
@@ -135,7 +135,7 @@ func TestReplayStateRefusesAnInvalidBlockContext(t *testing.T) {
 	blockCtx := blockContext(chainID)
 	blockCtx.GasLimit = 0
 
-	_, err = NewExecutor(Config{RejectUnappliableTxs: true}).ReplayState(t.Context(), view, BlockRequest{
+	_, err = NewExecutor(Config{}).ReplayState(t.Context(), view, BlockRequest{
 		Context: blockCtx,
 		Txs:     []abevm.RawTx{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)},
 	})
@@ -165,7 +165,7 @@ func TestReplayStateStopsATransactionWhenCanceled(t *testing.T) {
 		cancel()
 	}()
 
-	_, err = NewExecutor(Config{RejectUnappliableTxs: true}).ReplayState(ctx, view, BlockRequest{
+	_, err = NewExecutor(Config{}).ReplayState(ctx, view, BlockRequest{
 		Context: blockCtx,
 		Txs:     []abevm.RawTx{signLegacyTxWithGas(t, key, chainID, 0, &loop, big.NewInt(0), nil, gas)},
 	})

@@ -69,7 +69,7 @@ func TestEarlySpeculationReusesTransactionsByHash(t *testing.T) {
 				genesis.SetCode(contract, log0Code())
 				raw[i] = signLegacyTxWithGas(t, key, chainID, 0, &contract, big.NewInt(0), nil, 50_000)
 			}
-			cfg := Config{OCCWorkers: 4, EarlySpeculationWorkers: 3, RejectUnappliableTxs: true}
+			cfg := Config{OCCWorkers: 4, EarlySpeculationWorkers: 3}
 			executor := NewExecutor(cfg, withTestStores(NewMemoryStore(genesis), NewMemoryReceiptStore()))
 			defer executor.Close()
 			original, err := executor.PrepareBlock(BlockRequest{Context: blockContext(chainID), Txs: raw[:3]})
@@ -99,7 +99,7 @@ func TestEarlySpeculationReusesTransactionsByHash(t *testing.T) {
 			require.NoError(t, err)
 			defer got.Release()
 			require.NoError(t, executor.AwaitCommits())
-			reference := NewExecutor(Config{OCCWorkers: 1, RejectUnappliableTxs: true},
+			reference := NewExecutor(Config{OCCWorkers: 1},
 				withTestStores(NewMemoryStore(genesis), NewMemoryReceiptStore()))
 			defer reference.Close()
 			want, err := reference.ExecuteBlock(t.Context(), request)

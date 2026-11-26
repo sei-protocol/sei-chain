@@ -32,7 +32,7 @@ func testBlock(number uint64) archive.ExecutedBlock {
 		GasUsed:    60_000,
 		BaseFee:    big.NewInt(7),
 		Txs: []archive.Tx{
-			{Tx: creation, Sender: sender, Locatable: true, Receipt: &ethtypes.Receipt{
+			{Tx: creation, Sender: sender, Receipt: &ethtypes.Receipt{
 				Type: ethtypes.DynamicFeeTxType, Status: 1, TxHash: creation.Hash(), ContractAddress: contract,
 				GasUsed: 60_000, CumulativeGasUsed: 60_000, EffectiveGasPrice: big.NewInt(7), Logs: []*ethtypes.Log{lg}}},
 			{Tx: rejected, Sender: sender, Rejected: true, Receipt: &ethtypes.Receipt{
@@ -84,9 +84,9 @@ func TestBatchAdd(t *testing.T) {
 	require.Equal(t, proto.ColUInt8{1, 0}, txs.executed)
 	require.Equal(t, u256(big.NewInt(7)), txs.price[0])
 
-	// The block and the locatable transaction are located; the rejection is not.
+	// The block and every archived transaction are located.
 	require.Equal(t, proto.ColUInt64{3}, b.blockLocatorRows.location)
-	require.Equal(t, proto.ColUInt64{3 << txIndexBits}, b.txLocatorRows.location)
+	require.Equal(t, proto.ColUInt64{3 << txIndexBits, 3<<txIndexBits | 1}, b.txLocatorRows.location)
 
 	logs := &b.logRows
 	require.Equal(t, 1, logs.number.Rows())
@@ -105,15 +105,6 @@ func TestBatchAdd(t *testing.T) {
 	// A deleted slot is stored as zero.
 	require.Equal(t, proto.ColFixedStr32{{0x51}, {0x52}}, b.storageRows.slot)
 	require.Equal(t, proto.ColFixedStr32{{0x7a, 3}, {}}, b.storageRows.value)
-}
-
-func TestBatchLocatesALocatableRejection(t *testing.T) {
-	block := testBlock(3)
-	block.Txs[1].Locatable = true
-	b := newBatch()
-	require.NoError(t, b.add(&block))
-	require.Equal(t, proto.ColUInt8{1, 0}, b.txRows.executed)
-	require.Equal(t, proto.ColUInt64{3 << txIndexBits, 3<<txIndexBits | 1}, b.txLocatorRows.location)
 }
 
 func TestBatchOwnsItsRows(t *testing.T) {

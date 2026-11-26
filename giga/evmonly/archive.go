@@ -1,37 +1,26 @@
 package evmonly
 
-import (
-	"fmt"
+import "github.com/sei-protocol/sei-chain/sei-db/archive"
 
-	"github.com/sei-protocol/sei-chain/sei-db/archive"
-)
-
-// archiveBlock returns block and its result as the archive stores them. The returned block refers to
-// result's receipts and changes rather than copying them.
-func archiveBlock(block OrderedBlock, result *BlockResult) (*archive.ExecutedBlock, error) {
-	if len(result.Txs) != len(block.Txs) || len(result.Receipts) != len(block.Txs) {
-		return nil, fmt.Errorf("block has %d transactions but %d results and %d receipts",
-			len(block.Txs), len(result.Txs), len(result.Receipts))
-	}
-	txs := make([]archive.Tx, len(block.Txs))
-	for i, tx := range block.Txs {
+// archiveBlock returns the finalized block as the archive stores it.
+func archiveBlock(block finalizedBlock) *archive.ExecutedBlock {
+	txs := make([]archive.Tx, len(block.txs))
+	for i, tx := range block.txs {
 		txs[i] = archive.Tx{
-			Tx:        tx.Transaction(),
-			Sender:    tx.Sender(),
-			Receipt:   result.Receipts[i],
-			Rejected:  result.Txs[i].Rejected,
-			Locatable: claimsHash(&result.Txs[i]),
+			Tx:      tx.Transaction(),
+			Sender:  tx.Sender(),
+			Receipt: block.receipts[i],
 		}
 	}
 	return &archive.ExecutedBlock{
-		Number:     block.Context.Number,
-		Hash:       block.Context.BlockHash,
-		ParentHash: block.Context.ParentHash,
-		Time:       block.Context.Time,
-		GasLimit:   block.Context.GasLimit,
-		GasUsed:    result.GasUsed,
-		BaseFee:    block.Context.BaseFee,
+		Number:     block.context.Number,
+		Hash:       block.context.BlockHash,
+		ParentHash: block.context.ParentHash,
+		Time:       block.context.Time,
+		GasLimit:   block.context.GasLimit,
+		GasUsed:    block.gasUsed,
+		BaseFee:    block.context.BaseFee,
 		Txs:        txs,
-		Changes:    result.ChangeSet,
-	}, nil
+		Changes:    block.changes,
+	}
 }

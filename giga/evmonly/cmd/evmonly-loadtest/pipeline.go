@@ -596,10 +596,25 @@ func executeBlocks(
 				metrics.recordExecutionError()
 				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
 			}
+			if err := validateWorkloadResult(result.Txs); err != nil {
+				result.Release()
+				metrics.recordExecutionError()
+				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
+			}
 			counts := countTxStatuses(result.Txs)
 			metrics.recordFinished(counts, result.GasUsed, result.OCCStats)
 			result.Release()
 			metrics.recordResultPoolStats(executor.ResultPoolStats())
+		}
+	}
+	return nil
+}
+
+// validateWorkloadResult reports a workload transaction that was skipped before execution.
+func validateWorkloadResult(txs []evmonly.TxResult) error {
+	for _, tx := range txs {
+		if tx.Rejected {
+			return fmt.Errorf("transaction %s rejected: %w", tx.Hash, tx.Err)
 		}
 	}
 	return nil

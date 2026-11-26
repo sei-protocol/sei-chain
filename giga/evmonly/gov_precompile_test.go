@@ -171,7 +171,7 @@ func TestGovPrecompileOCCMatchesSequential(t *testing.T) {
 		require.NoError(t, gov.SetParams(genesisState{state}, params))
 		registry := precompiles.NewStaticRegistry(map[common.Address]precompiles.Contract{gov.Address: gov.Precompile{}}, gov.Address)
 		result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, CustomPrecompiles: registry}, withTestState(state)).
-			ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: txs})
+			ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: txs, TxsOrdered: true})
 		require.NoError(t, err)
 		return result
 	}

@@ -34,8 +34,9 @@ func TestExecutorRejectsSpentNonceWithoutFailingBlock(t *testing.T) {
 		executor := NewExecutor(cfg, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: blockContext(chainID),
-			Txs:     txs,
+			TxsOrdered: true,
+			Context:    blockContext(chainID),
+			Txs:        txs,
 		})
 
 		require.NoError(t, err)
@@ -84,7 +85,8 @@ func TestExecutorRejectsTxOverBlockGasWithoutFailingBlock(t *testing.T) {
 		blockCtx.GasLimit = 30_000
 		executor := NewExecutor(cfg, withTestState(state))
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: blockCtx,
+			TxsOrdered: true,
+			Context:    blockCtx,
 			Txs: []abevm.RawTx{
 				signLegacyTxWithGas(t, key0, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
 				signLegacyTxWithGas(t, key1, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
@@ -124,9 +126,10 @@ func TestExecutorRejectionRestoresBlockGasPool(t *testing.T) {
 	}
 	blockCtx := blockContext(chainID)
 	blockCtx.GasLimit = 42_000
-	executor := NewExecutor(Config{RejectUnappliableTxs: true}, withTestState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockCtx,
+		TxsOrdered: true,
+		Context:    blockCtx,
 		Txs: []abevm.RawTx{
 			signLegacyTxWithGas(t, key0, chainID, 0, &recipient, big.NewInt(1), data, 21_000),
 			signLegacyTxWithGas(t, key1, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
@@ -160,9 +163,10 @@ func TestExecutorRejectsUnderfundedTxWithoutFailingBlock(t *testing.T) {
 	state.SetBalance(rich, big.NewInt(testFundedBalanceWei))
 	state.SetBalance(poor, big.NewInt(1))
 
-	executor := NewExecutor(Config{RejectUnappliableTxs: true}, withTestState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockContext(chainID),
+		TxsOrdered: true,
+		Context:    blockContext(chainID),
 		Txs: []abevm.RawTx{
 			signLegacyTx(t, poorKey, chainID, 0, &recipient, big.NewInt(1), nil),
 			signLegacyTx(t, richKey, chainID, 0, &recipient, big.NewInt(4), nil),
@@ -196,9 +200,8 @@ func TestRejectedTxCountsAsItsOwnStatus(t *testing.T) {
 		"the status must be in the vocabulary or it is never reported as zero")
 }
 
-// TestExecutorDefaultStillAbortsOnUnappliableTx preserves geth's invalid-block
-// behavior when rejected transactions are disabled.
-func TestExecutorDefaultStillAbortsOnUnappliableTx(t *testing.T) {
+// TestExecutorSkipsUnappliableTx checks that rejected candidates leave no state changes.
+func TestExecutorSkipsUnappliableTx(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -211,13 +214,18 @@ func TestExecutorDefaultStillAbortsOnUnappliableTx(t *testing.T) {
 
 	executor := NewExecutor(Config{}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockContext(chainID),
-		Txs:     []abevm.RawTx{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)},
+		TxsOrdered: true,
+		Context:    blockContext(chainID),
+		Txs:        []abevm.RawTx{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)},
 	})
 
-	require.Error(t, err)
-	require.ErrorIs(t, err, core.ErrNonceTooLow)
-	require.Nil(t, result)
+	require.NoError(t, err)
+	defer result.Release()
+	require.Len(t, result.Txs, 1)
+	require.True(t, result.Txs[0].Rejected)
+	require.ErrorIs(t, result.Txs[0].Err, core.ErrNonceTooLow)
+	require.True(t, result.ChangeSet.IsEmpty())
+	require.Zero(t, result.GasUsed)
 }
 
 func forEachExecutionPath(t *testing.T, run func(t *testing.T, cfg Config)) {
@@ -228,7 +236,7 @@ func forEachExecutionPath(t *testing.T, run func(t *testing.T, cfg Config)) {
 			name = "occ"
 		}
 		t.Run(name, func(t *testing.T) {
-			cfg := Config{RejectUnappliableTxs: true}
+			cfg := Config{}
 			if occ {
 				cfg.OCCWorkers = 4
 			}

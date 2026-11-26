@@ -35,7 +35,6 @@ var logger = seilog.NewLogger("db", "receipt-db", "pebble")
 var _ receiptdb.ReceiptStore = (*receiptStore)(nil)
 
 type receiptStore struct {
-	writeMu     sync.Mutex
 	db          sstypes.StateStore
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
@@ -154,24 +153,6 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 }
 
 func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []receipttypes.ReceiptRecord) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	var err error
-	drained := false
-	receipts, err = utils.FilterExistingReceipts(receipts, func(hash common.Hash) (bool, error) {
-		// A conditional read must see every previously queued write.
-		if !drained {
-			if waiter, ok := s.db.(seidbtypes.PendingWriteWaiter); ok {
-				waiter.WaitForPendingWrites()
-			}
-			drained = true
-		}
-		value, err := s.db.Get(types.ReceiptStoreKey, s.db.GetLatestVersion(), types.ReceiptKey(hash))
-		return value != nil, err
-	})
-	if err != nil {
-		return err
-	}
 	pairs := make([]*proto.KVPair, 0, len(receipts))
 	for _, record := range receipts {
 		if record.Receipt == nil {

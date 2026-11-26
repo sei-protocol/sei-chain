@@ -3,14 +3,17 @@ package evmonlyapp
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -129,8 +132,18 @@ func TestGigaBlocksReconstructReorderedAndFilteredTransactions(t *testing.T) {
 			first := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
 			second := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)
 			afterGap := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 3)
+			rejectedKey, err := crypto.GenerateKey()
+			require.NoError(t, err)
+			recipient := common.Address{1}
+			rejectedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+				GasPrice: big.NewInt(2 * evmOnlyMinGasPrice), Gas: 21_000,
+				To: &recipient, Value: new(big.Int).Lsh(big.NewInt(1), 255),
+			}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(evmOnlyTestChainID)), rejectedKey)
+			require.NoError(t, err)
+			rejectedRaw, err := rejectedTx.MarshalBinary()
+			require.NoError(t, err)
 			payload, err := (atypes.PayloadBuilder{
-				CreatedAt: time.Unix(1, 0), Txs: [][]byte{second, first, first, afterGap},
+				CreatedAt: time.Unix(1, 0), Txs: [][]byte{second, first, first, afterGap, rejectedRaw},
 			}).Build()
 			require.NoError(t, err)
 			lane := ep.Committee().Lanes().At(0)
@@ -169,6 +182,13 @@ func TestGigaBlocksReconstructReorderedAndFilteredTransactions(t *testing.T) {
 			hashes, err := proxy.BlockTxsHashes(1)
 			require.NoError(t, err)
 			require.Equal(t, []common.Hash{abevm.RawTx(first).Hash(), abevm.RawTx(second).Hash()}, hashes.OrPanic("executed block"))
+			for i, raw := range []abevm.RawTx{first, second} {
+				receipt, err := storage.ReceiptDB().GetReceipt(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(1), raw.Hash())
+				require.NoError(t, err)
+				require.Equal(t, uint32(i), receipt.TransactionIndex) //nolint:gosec // i indexes two transactions.
+			}
+			_, err = storage.ReceiptDB().GetReceipt(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(1), rejectedTx.Hash())
+			require.ErrorIs(t, err, receiptdb.ErrNotFound)
 
 			router, err := p2p.NewGigaFullnodeRouter(&p2p.GigaRouterCommonConfig{
 				App: proxy, GenDoc: &types.GenesisDoc{ChainID: "reordered-block-test", InitialHeight: 1},

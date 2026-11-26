@@ -45,7 +45,7 @@ func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block abevm.B
 		return nil, errTraceGenesis
 	}
 	parent := int64(number - 1) //nolint:gosec // G115: blockNumber bounds number to int64.
-	req := evmonly.BlockRequest{Context: a.traceBlockContext(number, block), Txs: txs}
+	req := evmonly.BlockRequest{Context: a.traceBlockContext(number, block), Txs: txs, TxsOrdered: true}
 	return a.openTraceState(parent, func(executor *evmonly.Executor, view gigatypes.StateView) (vm.SeiStateDB, error) {
 		return executor.ReplayState(ctx, view, req)
 	})

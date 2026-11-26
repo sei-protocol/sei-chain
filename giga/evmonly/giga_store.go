@@ -82,6 +82,10 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 			result.Release()
 		}
 	}()
+	finalized, err := finalizeBlock(ordered, result)
+	if err != nil {
+		return nil, fmt.Errorf("finalize block %d: %w", req.Context.Number, err)
+	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -110,7 +114,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
 		e.blockPhases.SetPhase(phaseEncodeReceipts)
-		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+		records, err := e.receiptRecordsParallel(ctx, finalized)
 		if err != nil {
 			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
 		}
@@ -121,7 +125,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	if receiptHasher := e.receiptHasher; receiptHasher != nil {
 		e.blockPhases.SetPhase(phaseSubmitReceiptHash)
-		if err := receiptHasher.Submit(ctx, req.Context.Number, nonceConsumingReceipts(result)); err != nil {
+		if err := receiptHasher.Submit(ctx, req.Context.Number, finalized.receipts); err != nil {
 			return nil, fmt.Errorf("submit receipts to be hashed for block %d: %w", req.Context.Number, err)
 		}
 	}
@@ -139,11 +143,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	// A restart replays blocks the archive may already hold.
 	if store := e.archive; store != nil && req.Context.Number > store.LatestBlock() {
-		block, err := archiveBlock(ordered, result)
-		if err != nil {
-			return nil, fmt.Errorf("encode archive block %d: %w", req.Context.Number, err)
-		}
-		if err := store.ArchiveBlock(ctx, block); err != nil {
+		if err := store.ArchiveBlock(ctx, archiveBlock(finalized)); err != nil {
 			return nil, fmt.Errorf("archive block %d: %w", req.Context.Number, err)
 		}
 	}

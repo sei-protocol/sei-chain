@@ -31,8 +31,9 @@ func TestArchiveBlock(t *testing.T) {
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TxHash: tx.Hash()})
 	}
 
-	got, err := archiveBlock(block, result)
+	finalized, err := finalizeBlock(block, result)
 	require.NoError(t, err)
+	got := archiveBlock(finalized)
 	require.Equal(t, uint64(7), got.Number)
 	require.Equal(t, common.Hash{0xb7}, got.Hash)
 	require.Equal(t, common.Hash{0xb6}, got.ParentHash)
@@ -41,20 +42,16 @@ func TestArchiveBlock(t *testing.T) {
 	require.Equal(t, uint64(42), got.GasUsed)
 	require.Equal(t, big.NewInt(3), got.BaseFee)
 	require.Equal(t, result.ChangeSet, got.Changes)
-	require.Len(t, got.Txs, 3)
+	require.Len(t, got.Txs, 1)
 	for i, tx := range got.Txs {
 		require.Same(t, block.Txs[i].Transaction(), tx.Tx)
 		require.Equal(t, block.Txs[i].Sender(), tx.Sender)
-		require.Same(t, result.Receipts[i], tx.Receipt)
+		require.Equal(t, result.Receipts[i], tx.Receipt)
 		require.Equal(t, result.Txs[i].Rejected, tx.Rejected)
 	}
-	// Found by hash exactly when the receipt store keeps a receipt for it.
-	require.True(t, got.Txs[0].Locatable)
-	require.True(t, got.Txs[1].Locatable)
-	require.False(t, got.Txs[2].Locatable)
 
 	result.Receipts = result.Receipts[:2]
-	_, err = archiveBlock(block, result)
+	_, err = finalizeBlock(block, result)
 	require.Error(t, err)
 }
 

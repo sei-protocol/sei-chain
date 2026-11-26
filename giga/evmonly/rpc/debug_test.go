@@ -97,7 +97,7 @@ func newTraceChain(t *testing.T) *traceChain {
 
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = big.NewInt(traceChainID)
-	executor := evmonly.NewExecutor(evmonly.Config{ChainConfig: &chainConfig, RejectUnappliableTxs: true})
+	executor := evmonly.NewExecutor(evmonly.Config{ChainConfig: &chainConfig})
 	// The state after block 1, which block 2 executed against.
 	base := evmonly.NewMemoryState()
 	base.SetBalance(sender, big.NewInt(1_000_000_000_000_000_000))

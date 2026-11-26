@@ -112,7 +112,7 @@ func TestWrite(t *testing.T) {
 		tableBlocks:         5,
 		tableTxs:            10,
 		tableBlockLocator:   5,
-		tableTxLocator:      5, // each block's executed transaction
+		tableTxLocator:      10,
 		tableLogs:           5,
 		tableAccountChanges: 10,
 		tableAccountHistory: 10,
@@ -147,7 +147,6 @@ func TestTransactionLocatorAliases(t *testing.T) {
 	number := uint64(1)<<39 | 300
 	block := testBlock(number)
 	block.Time = 1_700_000_000
-	block.Txs[1].Locatable = true
 	b := newBatch()
 	require.NoError(t, b.add(&block))
 	require.NoError(t, w.write(t.Context(), b))

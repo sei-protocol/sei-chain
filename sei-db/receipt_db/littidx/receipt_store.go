@@ -572,7 +572,7 @@ func (s *littReceiptStore) awaitIndexCommit() error {
 
 // writeBlock appends one part for the block into litt (the receipts concatenated, each tx hash a
 // secondary key aliasing its receipt's range) and stages the tag keys onto the index batch. It
-// returns the records it wrote, which omits conditional records that yield to a stored receipt.
+// returns the records it wrote.
 // nextPartIndex picks the next free part slot, so a normal block writes part 0 and legacy
 // migration appends.
 func (s *littReceiptStore) writeBlock(
@@ -581,15 +581,6 @@ func (s *littReceiptStore) writeBlock(
 	records []receipttypes.ReceiptRecord,
 ) ([]receipttypes.ReceiptRecord, error) {
 	sortRecordsByTxIndex(records)
-	// Check physical keys on the writer, including receipts below the retention
-	// floor that LittDB has not collected yet. Reusing those keys is also unsafe.
-	records, err := utils.FilterExistingReceipts(records, func(hash common.Hash) (bool, error) {
-		return s.receipts.Exists(hash[:])
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	s.writePhases.SetPhase("probe_part_index")
 	partIndex, err := s.nextPartIndex(blockNumber)
 	if err != nil {
@@ -625,8 +616,7 @@ func (s *littReceiptStore) writeBlock(
 		partOffset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
 		value = append(value, bz...)
 
-		// LittDB requires unique keys within one Put; conditional duplicates were
-		// already dropped, so this only guards against repeated unconditional records.
+		// LittDB requires unique secondary keys within one Put.
 		if _, exists := indexedHashes[record.TxHash]; exists {
 			continue
 		}

@@ -683,7 +683,7 @@ func TestExecutorVMFailureReceiptsAndFeesMatchGeth(t *testing.T) {
 	}
 }
 
-func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
+func TestExecutorRejectionCausesMatchGeth(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	recipient := testAddress(0xd9)
 	ctx := blockContext(chainID)
@@ -825,9 +825,14 @@ func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
 			})
 
 			require.ErrorIs(t, gethErr, tc.want)
-			require.ErrorIs(t, execErr, tc.want)
+			require.NoError(t, execErr)
+			defer execResult.Release()
+			require.Len(t, execResult.Txs, 1)
+			require.True(t, execResult.Txs[0].Rejected)
+			require.ErrorIs(t, execResult.Txs[0].Err, tc.want)
+			require.True(t, execResult.ChangeSet.IsEmpty())
+			require.Zero(t, execResult.GasUsed)
 			require.Nil(t, gethResult)
-			require.Nil(t, execResult)
 			require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 		})
 	}

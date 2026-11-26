@@ -1154,7 +1154,7 @@ func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 	require.Equal(t, big.NewInt(1), state.GetBalance(secondRecipient))
 }
 
-func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
+func TestExecutorOCCSkipsWhenDeclaredGasExceedsRemainingLimit(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	rawTxs := make([]abevm.RawTx, 0, 2)
 	state := NewMemoryState()
@@ -1177,9 +1177,13 @@ func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 		Txs:     rawTxs,
 	})
 
-	require.Error(t, err)
-	require.True(t, errors.Is(err, core.ErrGasLimitReached))
-	require.Nil(t, result)
+	require.NoError(t, err)
+	defer result.Release()
+	require.Len(t, result.Txs, 2)
+	require.False(t, result.Txs[0].Rejected)
+	require.True(t, result.Txs[1].Rejected)
+	require.ErrorIs(t, result.Txs[1].Err, core.ErrGasLimitReached)
+	require.Equal(t, uint64(21_000), result.GasUsed)
 }
 
 func TestExecutorOCCAllowsDeclaredGasSumAboveBlockLimitWhenUsedGasFits(t *testing.T) {
@@ -1338,7 +1342,7 @@ func TestExecutorEVMFailureProducesReceiptAndContinues(t *testing.T) {
 	require.Equal(t, uint64(2), state.GetNonce(sender))
 }
 
-func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
+func TestExecutorHandlesValidationFailures(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	recipient := testAddress(0xa7)
 
@@ -1353,13 +1357,18 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: blockContext(chainID),
-			Txs:     []abevm.RawTx{rawTx},
+			TxsOrdered: true,
+			Context:    blockContext(chainID),
+			Txs:        []abevm.RawTx{rawTx},
 		})
 
-		require.Error(t, err)
-		require.True(t, errors.Is(err, core.ErrNonceTooHigh))
-		require.Nil(t, result)
+		require.NoError(t, err)
+		defer result.Release()
+		require.Len(t, result.Txs, 1)
+		require.True(t, result.Txs[0].Rejected)
+		require.ErrorIs(t, result.Txs[0].Err, core.ErrNonceTooHigh)
+		require.True(t, result.ChangeSet.IsEmpty())
+		require.Zero(t, result.GasUsed)
 		require.Equal(t, uint64(0), state.GetNonce(sender))
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})
@@ -1375,13 +1384,18 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: blockContext(chainID),
-			Txs:     []abevm.RawTx{rawTx},
+			TxsOrdered: true,
+			Context:    blockContext(chainID),
+			Txs:        []abevm.RawTx{rawTx},
 		})
 
-		require.Error(t, err)
-		require.True(t, errors.Is(err, core.ErrInsufficientFunds))
-		require.Nil(t, result)
+		require.NoError(t, err)
+		defer result.Release()
+		require.Len(t, result.Txs, 1)
+		require.True(t, result.Txs[0].Rejected)
+		require.ErrorIs(t, result.Txs[0].Err, core.ErrInsufficientFunds)
+		require.True(t, result.ChangeSet.IsEmpty())
+		require.Zero(t, result.GasUsed)
 		require.Equal(t, uint64(0), state.GetNonce(sender))
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})
@@ -1399,8 +1413,9 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: blockContext(chainID),
-			Txs:     []abevm.RawTx{rawTx},
+			TxsOrdered: true,
+			Context:    blockContext(chainID),
+			Txs:        []abevm.RawTx{rawTx},
 		})
 
 		require.Error(t, err)
@@ -1436,13 +1451,18 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		ctx.BaseFee = big.NewInt(2 * testGasPriceWei)
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: ctx,
-			Txs:     []abevm.RawTx{rawTx},
+			TxsOrdered: true,
+			Context:    ctx,
+			Txs:        []abevm.RawTx{rawTx},
 		})
 
-		require.Error(t, err)
-		require.True(t, errors.Is(err, core.ErrFeeCapTooLow))
-		require.Nil(t, result)
+		require.NoError(t, err)
+		defer result.Release()
+		require.Len(t, result.Txs, 1)
+		require.True(t, result.Txs[0].Rejected)
+		require.ErrorIs(t, result.Txs[0].Err, core.ErrFeeCapTooLow)
+		require.True(t, result.ChangeSet.IsEmpty())
+		require.Zero(t, result.GasUsed)
 		require.Equal(t, uint64(0), state.GetNonce(sender))
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})
@@ -1458,13 +1478,18 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: blockContext(chainID),
-			Txs:     []abevm.RawTx{rawTx},
+			TxsOrdered: true,
+			Context:    blockContext(chainID),
+			Txs:        []abevm.RawTx{rawTx},
 		})
 
-		require.Error(t, err)
-		require.True(t, errors.Is(err, core.ErrIntrinsicGas))
-		require.Nil(t, result)
+		require.NoError(t, err)
+		defer result.Release()
+		require.Len(t, result.Txs, 1)
+		require.True(t, result.Txs[0].Rejected)
+		require.ErrorIs(t, result.Txs[0].Err, core.ErrIntrinsicGas)
+		require.True(t, result.ChangeSet.IsEmpty())
+		require.Zero(t, result.GasUsed)
 		require.Equal(t, uint64(0), state.GetNonce(sender))
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})
@@ -1483,13 +1508,18 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		ctx.GasLimit = 30_000
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: ctx,
-			Txs:     []abevm.RawTx{firstTransfer, secondTransfer},
+			TxsOrdered: true,
+			Context:    ctx,
+			Txs:        []abevm.RawTx{firstTransfer, secondTransfer},
 		})
 
-		require.Error(t, err)
-		require.True(t, errors.Is(err, core.ErrGasLimitReached))
-		require.Nil(t, result)
+		require.NoError(t, err)
+		defer result.Release()
+		require.Len(t, result.Txs, 2)
+		require.False(t, result.Txs[0].Rejected)
+		require.True(t, result.Txs[1].Rejected)
+		require.ErrorIs(t, result.Txs[1].Err, core.ErrGasLimitReached)
+		require.Equal(t, uint64(21_000), result.GasUsed)
 		require.Equal(t, uint64(0), state.GetNonce(sender))
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})

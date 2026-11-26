@@ -46,7 +46,4 @@ type Tx struct {
 	Receipt *ethtypes.Receipt
 	// Rejected reports that the executor did not run the transaction.
 	Rejected bool
-	// Locatable reports that the transaction is found by its hash. A hash found at several
-	// locations resolves to the earliest.
-	Locatable bool
 }

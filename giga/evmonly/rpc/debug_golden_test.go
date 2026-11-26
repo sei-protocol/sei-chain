@@ -319,10 +319,9 @@ func replayForTrace(t *testing.T, fixture *parity.Fixture) *traceReplayBackend {
 	receipts := evmonly.NewMemoryReceiptStore()
 	chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(new(big.Int).SetUint64(chainID))
 	executor := evmonly.NewExecutor(evmonly.Config{
-		ChainConfig:          chainConfig,
-		MinGasPrice:          new(big.Int),
-		OCCWorkers:           replayOCCWorkers,
-		RejectUnappliableTxs: true,
+		ChainConfig: chainConfig,
+		MinGasPrice: new(big.Int),
+		OCCWorkers:  replayOCCWorkers,
 	}, evmonly.WithStore(store), evmonly.WithReceiptStore(receipts))
 	t.Cleanup(executor.Close)
 

@@ -162,9 +162,7 @@ func (b *batch) addTx(number uint64, blockHash common.Hash, i int, tx *archive.T
 	r.contract.Append(rcpt.ContractAddress[:])
 	r.executed.Append(boolByte(!tx.Rejected))
 	b.bytes += len(payload)
-	if tx.Locatable {
-		b.txLocatorRows.append(rcpt.TxHash, number<<txIndexBits|uint64(index))
-	}
+	b.txLocatorRows.append(rcpt.TxHash, number<<txIndexBits|uint64(index))
 	for _, lg := range rcpt.Logs {
 		l := &b.logRows
 		l.number.Append(number)

@@ -53,7 +53,7 @@ func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
 		}},
 	}
 
-	records, err := receiptRecords(11, result)
+	records, err := receiptRecords(finalizeReceiptTestBlock(t, 11, result))
 
 	require.NoError(t, err)
 	require.Len(t, records, 1)
@@ -66,7 +66,7 @@ func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
 	require.Equal(t, uint64(22_000), stored.GasUsed)
 	require.Equal(t, uint64(9), stored.EffectiveGasPrice)
 	require.Equal(t, uint64(11), stored.BlockNumber)
-	require.Equal(t, uint32(10), stored.TransactionIndex)
+	require.Equal(t, uint32(0), stored.TransactionIndex)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), stored.Status)
 	require.Equal(t, sender.Hex(), stored.From)
 	require.Equal(t, recipient.Hex(), stored.To)
@@ -76,7 +76,7 @@ func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
 	require.Equal(t, recipient.Hex(), stored.Logs[0].Address)
 	require.Equal(t, []string{topic.Hex()}, stored.Logs[0].Topics)
 	require.Equal(t, []byte{7}, stored.Logs[0].Data)
-	require.Equal(t, uint32(8), stored.Logs[0].Index)
+	require.Equal(t, uint32(0), stored.Logs[0].Index)
 	// Reward is the tx's effective gas price unfiltered: giga's base fee is always zero.
 	require.Equal(t, big.NewInt(9), records[0].Reward)
 }
@@ -89,32 +89,26 @@ func TestReceiptRecordsLeaveRewardNilWithoutAnEffectiveGasPrice(t *testing.T) {
 		Txs:      []TxResult{{Hash: txHash, Sender: common.Address{2}}},
 	}
 
-	records, err := receiptRecords(1, result)
+	records, err := receiptRecords(finalizeReceiptTestBlock(t, 1, result))
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	require.Nil(t, records[0].Reward)
 }
 
-func TestReceiptRecordsRejectMalformedBlockResult(t *testing.T) {
-	_, err := receiptRecords(1, &BlockResult{Receipts: ethtypes.Receipts{{}}})
-	require.ErrorContains(t, err, "does not match")
-
-	_, err = receiptRecords(1, &BlockResult{Receipts: ethtypes.Receipts{nil}, Txs: []TxResult{{}}})
-	require.ErrorContains(t, err, "receipt 0 is nil")
-
-	_, err = receiptRecords(1, &BlockResult{
+func TestReceiptRecordsRejectInvalidStatus(t *testing.T) {
+	block := finalizeReceiptTestBlock(t, 1, &BlockResult{
 		Receipts: ethtypes.Receipts{{Status: uint64(math.MaxUint32) + 1}},
 		Txs:      []TxResult{{}},
 	})
+	_, err := receiptRecords(block)
 	require.ErrorContains(t, err, "status")
 }
 
-// The pooled path must store exactly the records the serial one does, including skipping a
-// curable rejection and keeping an existing receipt for a spent nonce.
+// The pooled and serial paths must encode the same finalized transactions and indexes.
 func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
-	const txs = 2 * occParallelReceiptThreshold
+	const txs = 3 * occParallelReceiptThreshold
 	result := &BlockResult{}
-	curable := 0
+	rejected := 0
 	for i := range txs {
 		hash := common.BigToHash(big.NewInt(int64(i) + 1))
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{
@@ -127,22 +121,24 @@ func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
 		switch i % 3 {
 		case 1:
 			tx.Rejected, tx.Err = true, core.ErrNonceTooHigh
-			curable++
+			rejected++
 		case 2:
 			tx.Rejected, tx.Err = true, core.ErrNonceTooLow
+			rejected++
 		}
 		result.Txs = append(result.Txs, tx)
 	}
 	executor := NewExecutor(Config{OCCWorkers: 4})
 	defer executor.Close()
 
-	serial, err := receiptRecords(7, result)
+	block := finalizeReceiptTestBlock(t, 7, result)
+	serial, err := receiptRecords(block)
 	require.NoError(t, err)
-	parallel, err := executor.receiptRecordsParallel(t.Context(), 7, result)
+	parallel, err := executor.receiptRecordsParallel(t.Context(), block)
 	require.NoError(t, err)
 
 	require.Equal(t, serial, parallel)
-	require.Len(t, parallel, txs-curable, "a curable rejection must store no receipt")
+	require.Len(t, parallel, txs-rejected, "rejected attempts must store no receipts")
 	for _, record := range parallel {
 		require.NotEqual(t, core.ErrNonceTooHigh.Error(), record.Receipt.VmError)
 	}
@@ -169,11 +165,12 @@ func TestExecutorSubmitsTheReceiptsOfNonceConsumingTransactions(t *testing.T) {
 			return nil
 		})
 	require.NoError(t, err)
-	executor := NewExecutor(Config{RejectUnappliableTxs: true}, withTestState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 	executor.receiptHasher = hasher
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockContext(chainID),
+		Context:    blockContext(chainID),
+		TxsOrdered: true,
 		Txs: []abevm.RawTx{
 			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(5), nil),
 			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(9), nil),
@@ -185,7 +182,20 @@ func TestExecutorSubmitsTheReceiptsOfNonceConsumingTransactions(t *testing.T) {
 	require.NoError(t, hasher.Close())
 
 	require.True(t, result.Txs[1].Rejected)
-	want, err := receipthash.ComputeReceiptHash([]*ethtypes.Receipt{result.Receipts[0], result.Receipts[2]})
+	second := *result.Receipts[2]
+	second.TransactionIndex = 1
+	want, err := receipthash.ComputeReceiptHash([]*ethtypes.Receipt{result.Receipts[0], &second})
 	require.NoError(t, err)
 	require.Equal(t, report{blockHeight: 1, receiptHash: want}, <-reported)
+}
+
+func finalizeReceiptTestBlock(t *testing.T, number uint64, result *BlockResult) finalizedBlock {
+	t.Helper()
+	input := OrderedBlock{Context: BlockContext{Number: number}}
+	for i, tx := range result.Txs {
+		input.Txs = append(input.Txs, abevm.TestEvmTx(ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: uint64(i)}), tx.Sender))
+	}
+	block, err := finalizeBlock(input, result)
+	require.NoError(t, err)
+	return block
 }

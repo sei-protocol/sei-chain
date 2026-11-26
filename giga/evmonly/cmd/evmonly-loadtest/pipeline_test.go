@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
@@ -16,6 +18,19 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 )
+
+func TestWorkloadResultRejectsSkippedTransactions(t *testing.T) {
+	require.NoError(t, validateWorkloadResult([]evmonly.TxResult{
+		{Status: ethtypes.ReceiptStatusSuccessful},
+		{Status: ethtypes.ReceiptStatusFailed, Err: vm.ErrExecutionReverted},
+	}))
+	hash := common.Hash{1}
+	err := validateWorkloadResult([]evmonly.TxResult{
+		{Hash: hash, Rejected: true, Err: core.ErrInsufficientFunds},
+	})
+	require.ErrorIs(t, err, core.ErrInsufficientFunds)
+	require.ErrorContains(t, err, hash.Hex())
+}
 
 // stallingWorkload holds the build of one height until released, standing in for a slow builder.
 type stallingWorkload struct {

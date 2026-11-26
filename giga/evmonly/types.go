@@ -56,7 +56,7 @@ type PreparedBlock struct {
 	TxsOrdered bool
 }
 
-// OrderedBlock contains transactions with verified senders in execution order.
+// OrderedBlock contains execution candidates with verified senders in execution order.
 type OrderedBlock struct {
 	Context BlockContext
 	Txs     []abevm.EvmTx
@@ -76,7 +76,7 @@ type BlockContext struct {
 	PrevRandao  common.Hash
 }
 
-// BlockResult is the executor output consumed by the new runtime boundary.
+// BlockResult contains execution attempts and the state changes produced by a block.
 type BlockResult struct {
 	// The block's state changes. Never modified once the block has executed, so a holder may keep it
 	// after the result is released.

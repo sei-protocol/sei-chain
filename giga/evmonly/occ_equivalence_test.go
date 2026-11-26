@@ -277,7 +277,7 @@ func occScenarioRun(t *testing.T, scenario *occScenario, reqs []BlockRequest, wo
 	state := scenario.genesis()
 	results := make([]*BlockResult, 0, len(reqs))
 	for _, req := range reqs {
-		executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, RejectUnappliableTxs: true}, withTestState(state))
+		executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers}, withTestState(state))
 		result, err := executor.ExecuteBlock(t.Context(), req)
 		executor.Close()
 		require.NoError(t, err, "%s seed %d block %d workers %d", scenario.profile.name, scenario.seed, req.Context.Number, workers)

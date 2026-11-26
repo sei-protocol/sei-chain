@@ -373,7 +373,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
 	})
 
-	t.Run("execution error", func(t *testing.T) {
+	t.Run("block validity error", func(t *testing.T) {
 		chainID := big.NewInt(testChainID)
 		key, err := crypto.GenerateKey()
 		require.NoError(t, err)
@@ -383,7 +383,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		store := &recordingGigaStore{snapshot: snapshot}
 		encodeCalls := 0
 		executor := NewExecutor(
-			Config{MinGasPrice: big.NewInt(0)},
+			Config{MinGasPrice: big.NewInt(1)},
 			withTestStores(store, NewMemoryReceiptStore()),
 			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult) ([]gigatypes.MiscChange, error) {
 				encodeCalls++
@@ -396,7 +396,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 			Txs:     []abevm.RawTx{rawTx},
 		})
 
-		require.Error(t, err)
+		require.ErrorIs(t, err, errInsufficientGasPrice)
 		require.Nil(t, result)
 		require.Zero(t, encodeCalls)
 		require.Empty(t, store.commits)

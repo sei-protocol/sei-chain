@@ -448,7 +448,8 @@ func (e *Executor) executeTx(
 
 	msg, err := transactionToPreparedMessage(p, baseFee)
 	if err != nil {
-		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
+		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+		return txResult, receipt, nil
 	}
 	if e.cfg.DisableNonceCheck {
 		msg.SkipNonceCheck()
@@ -466,12 +467,11 @@ func (e *Executor) executeTx(
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender(), To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		if e.cfg.RejectUnappliableTxs {
-			stateDB.RevertToSnapshot(snapshot)
-			stateDB.clearSnapshots()
-			gasPool.Set(poolSnapshot)
-		}
-		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
+		stateDB.RevertToSnapshot(snapshot)
+		stateDB.clearSnapshots()
+		gasPool.Set(poolSnapshot)
+		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+		return txResult, receipt, nil
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(evm.GetRules())
@@ -521,22 +521,6 @@ func (e *Executor) executeTx(
 		Logs:              txLogs,
 		Err:               execResult.Err,
 	}
-	return txResult, receipt, nil
-}
-
-// unappliableTx returns the outcome for a transaction that cannot be applied: err, failing
-// the block, or a failed receipt when RejectUnappliableTxs is set.
-func (e *Executor) unappliableTx(
-	p abevm.EvmTx,
-	block BlockContext,
-	txIndexUint uint,
-	baseFee *big.Int,
-	err error,
-) (TxResult, *ethtypes.Receipt, error) {
-	if !e.cfg.RejectUnappliableTxs {
-		return TxResult{Hash: p.Transaction().Hash(), Sender: p.Sender(), To: p.Transaction().To(), Err: err}, nil, err
-	}
-	txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
 	return txResult, receipt, nil
 }
 

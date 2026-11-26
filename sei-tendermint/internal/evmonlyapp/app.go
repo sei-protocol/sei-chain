@@ -215,11 +215,8 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		OCCWorkers:              workersOrGOMAXPROCS(a.execution.OCCWorkers),
 		ParseWorkers:            workersOrGOMAXPROCS(a.execution.ParseWorkers),
 		EarlySpeculationWorkers: a.execution.EarlySpeculationWorkers,
-		// Autobahn orders transactions without validating them, so a block can hold one
-		// the executor cannot apply; failing the block would halt every validator.
-		RejectUnappliableTxs: true,
-		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
-		CustomPrecompiles:    a.customPrecompiles.Or(nil),
+		BlockResultPoolSize:     a.execution.BlockResultPoolSize,
+		CustomPrecompiles:       a.customPrecompiles.Or(nil),
 	}, opts...)
 }
 

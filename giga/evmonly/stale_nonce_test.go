@@ -1,6 +1,7 @@
 package evmonly
 
 import (
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
 	"fmt"
@@ -29,7 +30,7 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			store := NewMemoryStore(state)
 			receipts := NewMemoryReceiptStore()
 			executor := NewExecutor(
-				Config{OCCWorkers: workers, RejectUnappliableTxs: true},
+				Config{OCCWorkers: workers},
 				withTestStores(store, receipts),
 			)
 			t.Cleanup(executor.Close)
@@ -43,8 +44,9 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			block.Number = 1
 			block.GasLimit = 42_000
 			result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-				Context: block,
-				Txs:     []abevm.RawTx{stale, first, first, next, next},
+				Context:    block,
+				Txs:        []abevm.RawTx{stale, first, first, next, next},
+				TxsOrdered: true,
 			})
 			require.NoError(t, err)
 			defer result.Release()
@@ -69,18 +71,15 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			wantBalance := new(big.Int).Sub(initialBalance, big.NewInt(42_000*testGasPriceWei+2))
 			require.Equal(t, wantBalance, new(big.Int).SetBytes(view.GetBalance(sender).Bytes()))
 			view.Close()
-			staleReceipt, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), decodeTx(t, stale).Hash())
-			require.NoError(t, err)
-			require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), staleReceipt.Status)
-			require.Zero(t, staleReceipt.GasUsed)
-			require.NotEmpty(t, staleReceipt.VmError)
+			_, err = receipts.GetReceipt(newReceiptContext(t.Context(), 1), decodeTx(t, stale).Hash())
+			require.ErrorIs(t, err, receiptdb.ErrNotFound)
 			firstHash := decodeTx(t, first).Hash()
 			original, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), firstHash)
 			require.NoError(t, err)
 			require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), original.Status)
 			require.Equal(t, uint64(21_000), original.GasUsed)
 			require.Empty(t, original.VmError)
-			require.Equal(t, uint32(1), original.TransactionIndex)
+			require.Equal(t, uint32(0), original.TransactionIndex)
 
 			// A replay must preserve the receipt of the original execution.
 			block.Number = 2
@@ -96,48 +95,24 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 	}
 }
 
-func TestReceiptRecordsIncludeStaleNonces(t *testing.T) {
-	const count = 4
-	result := &BlockResult{}
-	for i := range count {
-		txResult := TxResult{}
-		if i%2 == 1 {
-			txResult.Err = fmt.Errorf("replay: %w", core.ErrNonceTooLow)
-			txResult.Rejected = true
-		}
-		result.Txs = append(result.Txs, txResult)
-		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TransactionIndex: uint(i)})
-	}
-	records, err := receiptRecords(1, result)
-	require.NoError(t, err)
-	require.Len(t, records, count)
-	for i, record := range records {
-		require.Equal(t, uint32(i), record.Receipt.TransactionIndex)
-		require.Equal(t, i%2 == 1, record.KeepExisting)
-		if i%2 == 1 {
-			require.Equal(t, "replay: "+core.ErrNonceTooLow.Error(), record.Receipt.VmError)
-			require.Zero(t, record.Receipt.GasUsed)
-		}
-	}
-}
-
-func TestReceiptRecordsOmitCurableRejections(t *testing.T) {
+func TestReceiptRecordsOmitRejectedAttempts(t *testing.T) {
 	result := &BlockResult{
 		Txs: []TxResult{
 			{},
 			{Rejected: true, Err: core.ErrNonceTooHigh},
 			{Rejected: true, Err: core.ErrInsufficientFunds},
 			{Rejected: true, Err: fmt.Errorf("replay: %w", core.ErrNonceTooLow)},
+			{},
 		},
 	}
 	for i := range result.Txs {
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TransactionIndex: uint(i)})
 	}
-	records, err := receiptRecords(1, result)
+	records, err := receiptRecords(finalizeReceiptTestBlock(t, 1, result))
 	require.NoError(t, err)
 	require.Len(t, records, 2)
-	require.Equal(t, uint32(0), records[0].Receipt.TransactionIndex)
-	require.False(t, records[0].KeepExisting)
-	require.Equal(t, uint32(3), records[1].Receipt.TransactionIndex)
-	require.True(t, records[1].KeepExisting)
+	for i, record := range records {
+		require.Equal(t, uint32(i), record.Receipt.TransactionIndex)
+		require.Empty(t, record.Receipt.VmError)
+	}
 }

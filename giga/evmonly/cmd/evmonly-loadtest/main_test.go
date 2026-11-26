@@ -105,6 +105,7 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 		{
 			name:           "same sender nonce chain",
 			args:           []string{"--same-sender"},
+			wantConflicts:  true,
 			wantReruns:     true,
 			wantSameSender: true,
 		},

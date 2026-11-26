@@ -61,7 +61,7 @@ func BenchmarkOCCValidateAndMerge(b *testing.B) {
 			scenario := newOCCScenario(b, profile, 1)
 			genesis := scenario.genesis()
 			source := frozenStateReader{accounts: genesis.accounts}
-			executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, RejectUnappliableTxs: true}, withTestState(genesis))
+			executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers}, withTestState(genesis))
 			b.Cleanup(executor.Close)
 			prepared, err := executor.PrepareBlock(scenario.block(b, 1))
 			require.NoError(b, err)

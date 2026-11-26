@@ -70,9 +70,8 @@ func replayFixture(t *testing.T, fixture *parity.Fixture) *replayBackend {
 	executor := evmonly.NewExecutor(evmonly.Config{
 		ChainConfig: chainConfig,
 		// v2 admitted every fixture transaction; admission pricing is not compared.
-		MinGasPrice:          new(big.Int),
-		OCCWorkers:           replayOCCWorkers,
-		RejectUnappliableTxs: true,
+		MinGasPrice: new(big.Int),
+		OCCWorkers:  replayOCCWorkers,
 	}, evmonly.WithStore(store), evmonly.WithReceiptStore(receipts))
 	t.Cleanup(executor.Close)
 

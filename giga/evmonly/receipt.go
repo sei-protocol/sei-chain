@@ -7,8 +7,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
@@ -18,49 +16,36 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
-	if len(result.Receipts) != len(result.Txs) {
-		return nil, fmt.Errorf("receipt count %d does not match transaction result count %d", len(result.Receipts), len(result.Txs))
-	}
-	records := make([]receipttypes.ReceiptRecord, 0, len(result.Receipts))
-	for i := range result.Receipts {
-		record, keep, err := encodeReceiptRecord(blockNumber, result, i)
+func receiptRecords(block finalizedBlock) ([]receipttypes.ReceiptRecord, error) {
+	records := make([]receipttypes.ReceiptRecord, len(block.receipts))
+	for i := range block.receipts {
+		record, err := encodeReceiptRecord(block, i)
 		if err != nil {
 			return nil, err
 		}
-		if keep {
-			records = append(records, record)
-		}
+		records[i] = record
 	}
 	return records, nil
 }
 
-// encodeReceiptRecord builds the record for transaction i, and reports false when the transaction
-// stores no receipt. Records are independent of each other, so a caller holding a worker pool may
-// build them in parallel.
-func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receipttypes.ReceiptRecord, bool, error) {
-	ethReceipt := result.Receipts[i]
-	if ethReceipt == nil {
-		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d is nil", i)
-	}
-	txResult := result.Txs[i]
-	if !claimsHash(&txResult) {
-		return receipttypes.ReceiptRecord{}, false, nil
-	}
+// encodeReceiptRecord builds the stored receipt for transaction i of a finalized block.
+func encodeReceiptRecord(block finalizedBlock, i int) (receipttypes.ReceiptRecord, error) {
+	ethReceipt := block.receipts[i]
+	txResult := block.results[i]
 	transactionIndex, ok := utils.SafeCast[uint32](ethReceipt.TransactionIndex)
 	if !ok {
-		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d transaction index %d exceeds uint32", i, ethReceipt.TransactionIndex)
+		return receipttypes.ReceiptRecord{}, fmt.Errorf("receipt %d transaction index %d exceeds uint32", i, ethReceipt.TransactionIndex)
 	}
 	status, ok := utils.SafeCast[uint32](ethReceipt.Status)
 	if !ok {
-		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
+		return receipttypes.ReceiptRecord{}, fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
 	}
 	stored := &evmtypes.Receipt{
 		TxType:            uint32(ethReceipt.Type),
 		CumulativeGasUsed: ethReceipt.CumulativeGasUsed,
 		TxHashHex:         ethReceipt.TxHash.Hex(),
 		GasUsed:           ethReceipt.GasUsed,
-		BlockNumber:       blockNumber,
+		BlockNumber:       block.context.Number,
 		TransactionIndex:  transactionIndex,
 		Status:            status,
 		From:              txResult.Sender.Hex(),
@@ -87,29 +72,16 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receip
 	}
 	return receipttypes.ReceiptRecord{
 		TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
-		KeepExisting: txResult.Rejected,
-	}, true, nil
+	}, nil
 }
 
-// claimsHash reports whether tx's hash resolves to this execution of it: every executed transaction,
-// and a rejection for a stale nonce. A rejection the sender can still cure (nonce too high,
-// insufficient funds) leaves the hash unclaimed so a later execution can store its receipt.
-func claimsHash(tx *TxResult) bool {
-	return !tx.Rejected || errors.Is(tx.Err, core.ErrNonceTooLow)
-}
-
-// receiptRecordsParallel builds the block's records across the executor's worker pool, returning
-// the same records in the same order as receiptRecords.
-func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint64, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
-	count := len(result.Receipts)
+// receiptRecordsParallel builds a finalized block's receipt records across the executor's worker pool.
+func (e *Executor) receiptRecordsParallel(ctx context.Context, block finalizedBlock) ([]receipttypes.ReceiptRecord, error) {
+	count := len(block.receipts)
 	if e.occPool == nil || e.closed.Load() || count < occParallelReceiptThreshold {
-		return receiptRecords(blockNumber, result)
-	}
-	if count != len(result.Txs) {
-		return nil, fmt.Errorf("receipt count %d does not match transaction result count %d", count, len(result.Txs))
+		return receiptRecords(block)
 	}
 	records := make([]receipttypes.ReceiptRecord, count)
-	kept := make([]bool, count)
 	chunk := occChunkSize(count, e.cfg.OCCWorkers)
 	ranges := occRanges(count, chunk)
 	err := e.occPool.Run(ctx, len(ranges), func(workerCtx context.Context, workerID int, workers int) error {
@@ -118,40 +90,22 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 				if err := workerCtx.Err(); err != nil {
 					return err
 				}
-				record, keep, err := encodeReceiptRecord(blockNumber, result, i)
+				record, err := encodeReceiptRecord(block, i)
 				if err != nil {
 					return err
 				}
-				records[i], kept[i] = record, keep
+				records[i] = record
 			}
 		}
 		return nil
 	})
 	if errors.Is(err, errOCCWorkerPoolClosed) {
-		return receiptRecords(blockNumber, result)
+		return receiptRecords(block)
 	}
 	if err != nil {
 		return nil, err
 	}
-	compacted := records[:0]
-	for i := range records {
-		if kept[i] {
-			compacted = append(compacted, records[i])
-		}
-	}
-	return compacted, nil
-}
-
-// nonceConsumingReceipts returns the receipts of the block's transactions that consumed a nonce, which is every
-// transaction but the rejected ones, in block order.
-func nonceConsumingReceipts(result *BlockResult) []*ethtypes.Receipt {
-	receipts := make([]*ethtypes.Receipt, 0, len(result.Receipts))
-	for i, ethReceipt := range result.Receipts {
-		if !result.Txs[i].Rejected {
-			receipts = append(receipts, ethReceipt)
-		}
-	}
-	return receipts
+	return records, nil
 }
 
 // occParallelReceiptThreshold is the block size below which fanning receipt encoding out costs more
