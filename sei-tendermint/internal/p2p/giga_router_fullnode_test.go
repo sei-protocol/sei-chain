@@ -80,7 +80,6 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		App:                proxyApp,
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
-		EnableEvmProxy:     true,
 	}
 	registry := testGenesisEpochs(t, genDoc, addrs)
 	dataState, err := BuildDataState(cfg, blockStore, abevm.TestEpochApp(registry), genDoc.GenesisTime)
@@ -90,14 +89,15 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// App is required for execution but isn't exercised by this test.
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
+	// With no lane client yet, EvmProxy forwards nowhere.
+	require.False(t, router.EvmProxy(common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))).IsPresent())
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
 	for validator, rpcURL := range urlByValidator {
 		clientByValidator[validator] = registerEvmProxyForTest(t, router.gigaRouterCommon, validator, rpcURL)
 	}
 
-	// EvmProxy: for every sender, the fullnode router resolves to the
-	// shard owner's connected client. No sender is ever proxied
-	// "to ourselves" — that short-circuit doesn't exist in fullnode mode.
+	// EvmProxy: for every sender, the fullnode router resolves to one of the
+	// connected lane clients, and to the same client on every call.
 	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for _, client := range clientByValidator {
 		expectedRemoteClients[client] = struct{}{}
@@ -105,15 +105,17 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
-		expectedClient := clientByValidator[shardValidator]
 		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)
-		require.Equal(t, expectedClient, proxyClient)
+		_, known := expectedRemoteClients[proxyClient]
+		require.True(t, known, "EvmProxy returned a client of no lane")
+		again, ok := router.EvmProxy(sender).Get()
+		require.True(t, ok)
+		require.Equal(t, proxyClient, again)
 		returnedRemoteClients[proxyClient] = struct{}{}
 	}
-	// Sanity: with 200 random senders mapped uniformly over 5 shards we
-	// expect to have hit every shard owner at least once.
+	// Sanity: with 200 random senders mapped uniformly over 5 lanes we
+	// expect to have hit every lane at least once.
 	require.Equal(t, expectedRemoteClients, returnedRemoteClients)
 
 	// Read-path methods source from local data.State + genesis doc — no

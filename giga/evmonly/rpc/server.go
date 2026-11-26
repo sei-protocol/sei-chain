@@ -43,8 +43,8 @@ var wsAllowedOrigins = []string{"*"}
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
 // Backend submits transactions, reads committed EVM state and finalized
-// blocks, publishes new block heights, and returns the RPC client for an
-// Autobahn shard owner.
+// blocks, publishes new block heights, and returns the RPC client for the
+// Autobahn lane of a sender.
 // EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
 // is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {

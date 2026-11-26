@@ -17,13 +17,20 @@ import (
 
 type gigaFullnodeRouter struct {
 	*gigaRouterCommon
+
+	// lanes picks the lane that EvmProxy forwards each sender's txs to.
+	lanes *laneAssignments
 }
 
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State, signer *abevm.Signer) (*gigaFullnodeRouter, error) {
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
+	// A new seed at each start gives each full node, and each restart, its own
+	// sender-to-lane mapping. The seed is never stored or exposed.
+	seed := newLaneSeed()
 	return &gigaFullnodeRouter{
+		lanes: newLaneAssignments(func(c *atypes.Committee) laneAssigner { return newLaneRing(seed, c) }),
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:                  cfg,
 			key:                  key,
@@ -59,10 +66,18 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 // every transaction.
 func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
 
-// EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
-// EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
+// EvmProxy returns the EVM RPC client of the lane that this fullnode assigns to
+// sender, skipping lanes it has no EVM RPC client for. It returns None when it
+// has a client for no lane of the committee.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender))
+	assigner := r.lanes.For(r.data.Anchor().Load().NextHeightEpoch().Committee())
+	for proxies := range r.proxies.RLock() {
+		reachable := func(v atypes.PublicKey) bool { _, ok := proxies[v]; return ok }
+		if v, ok := assigner.Lane(sender, reachable).Get(); ok {
+			return utils.Some(proxies[v])
+		}
+	}
+	return utils.None[*ethrpc.Client]()
 }
 
 // runCommitteeConnections maintains block-sync and EVM RPC connections to every committee member.

@@ -111,9 +111,9 @@ func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
 			return v.EvmNextPendingNonce(addr)
 		}
 		// Fullnode: no local mempool; the pending nonce lives on the
-		// shard owner. Returning 0 here defers to the on-chain confirmed
+		// sender's lane. Returning 0 here defers to the on-chain confirmed
 		// nonce; callers that need the pending value should query the
-		// shard owner's EVM RPC directly via EvmProxy.
+		// lane's EVM RPC directly via EvmProxy.
 		return 0
 	}
 	if mp, ok := c.Mempool.Get(); ok {
