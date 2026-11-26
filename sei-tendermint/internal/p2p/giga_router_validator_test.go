@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"maps"
 	"math/big"
 	"net/http/httptest"
 	"net/url"
@@ -99,7 +98,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				App:                proxyApp,
 				AppHashBuilder:     newPublishingAppHashBuilder(),
 				GenDoc:             genDoc,
-				EnableEvmProxy:     true,
 			}
 			signer := newTestSigner(proxyApp.EvmChainID(), 0)
 			executor := newTestExecutor(&commonCfg, blockStore, signer)
@@ -341,7 +339,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		App:                abevm.NewProxy(app),
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
-		EnableEvmProxy:     true,
 	}
 	registry := testGenesisEpochs(t, genDoc, addrs)
 	dataState, err := BuildDataState(&commonCfg, blockStore, abevm.TestEpochApp(registry), genDoc.GenesisTime)
@@ -365,18 +362,14 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 
 	localValidator := validatorKeys[0].Public()
 
+	// Connect every remote validator, with an EVM RPC client and a giga
+	// connection, so that no sender's lane is out of reach.
 	connectedRemote := map[atypes.PublicKey]*ethrpc.Client{}
-	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for validator := range addrs {
 		if validator == localValidator {
 			continue
 		}
-		if len(connectedRemote) >= 3 {
-			break
-		}
-		client := registerEvmProxyForTest(t, router.gigaRouterCommon, validator, urlByValidator[validator])
-		connectedRemote[validator] = client
-		expectedRemoteClients[client] = struct{}{}
+		connectedRemote[validator] = registerEvmProxyForTest(t, router.gigaRouterCommon, validator, urlByValidator[validator])
 	}
 
 	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
@@ -395,32 +388,13 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			}
 		}
 
-		returnedRemoteClients := map[*ethrpc.Client]struct{}{}
-		seenDisconnected := false
+		// A validator keeps every tx. It reports proxying as disabled and forwards
+		// no sender, although every remote validator is connected.
+		require.False(t, router.EvmProxyEnabled())
 		for range 400 {
 			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-			shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
-
-			proxyClient, ok := router.EvmProxy(sender).Get()
-
-			if shardValidator == localValidator {
-				// Self-shard: validator short-circuits to local mempool.
-				require.False(t, ok, "expected local shard %s to avoid proxying", shardValidator)
-				require.Nil(t, proxyClient)
-			} else if expectedClient, connected := connectedRemote[shardValidator]; !connected {
-				require.False(t, ok, "expected disconnected shard %s to avoid proxying", shardValidator)
-				require.Nil(t, proxyClient)
-				seenDisconnected = true
-			} else {
-				require.True(t, ok, "expected connected shard %s to proxy", shardValidator)
-				require.NotNil(t, proxyClient)
-				require.Equal(t, expectedClient, proxyClient)
-				returnedRemoteClients[proxyClient] = struct{}{}
-			}
+			require.False(t, router.EvmProxy(sender).IsPresent())
 		}
-
-		require.True(t, maps.Equal(expectedRemoteClients, returnedRemoteClients), "returned remote clients = %v, want %v", returnedRemoteClients, expectedRemoteClients)
-		require.True(t, seenDisconnected, "expected at least one disconnected shard sample")
 		return nil
 	})
 	require.NoError(t, err)

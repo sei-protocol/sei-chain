@@ -1294,7 +1294,6 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 			AppHashBuilder:     newManualAppHashBuilder(),
 			GenDoc:             genDoc,
 			PersistentStateDir: dir,
-			EnableEvmProxy:     true,
 		}
 		fullnodeRouter := utils.OrPanic1(NewGigaFullnodeRouter(&cfg, localNodeKey, state, newTestSigner(1, 0)))
 		s.SpawnBg(func() error { return utils.IgnoreCancel(fullnodeRouter.Run(ctx)) })

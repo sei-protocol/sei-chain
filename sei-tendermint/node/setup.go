@@ -267,7 +267,6 @@ func buildValidatorGigaConfig(
 			App:                     app,
 			GenDoc:                  genDoc,
 			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
-			EnableEvmProxy:          fc.GetEnableEvmProxy(),
 		},
 		ValidatorKey: validatorKey,
 		EVMRPC:       *endpoint.URL,

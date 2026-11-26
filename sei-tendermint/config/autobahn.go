@@ -176,12 +176,8 @@ type AutobahnFileConfig struct {
 	// cannot starve the consensus and data loops of CPU.
 	// Absent ⇒ half of GOMAXPROCS (at least 1).
 	MaxConcurrentCheckTx utils.Option[uint64] `json:"max_concurrent_check_tx,omitzero"`
-	// Whether validators proxy mempool EVM RPC requests to the validator
-	// handling a given shard of addresses.
-	// No-op on fullnodes: they do not have a local mempool, so EVM RPC
-	// requests are always proxied to the shard owner.
-	// Useful for loadtesting (to compare enabled/disabled performance).
-	// Defaults to true.
+	// Deprecated: this option has no effect. Validators never forward EVM txs,
+	// and full nodes choose the lane of each sender.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto blockstore.DefaultConfig.
 	// Zero value ⇒ blockstore.DefaultConfig unchanged (see AutobahnBlockDBConfig
@@ -252,10 +248,6 @@ func (a *EVMGenesisAccount) UnmarshalJSON(data []byte) error {
 	}
 	*a = EVMGenesisAccount(decoded)
 	return nil
-}
-
-func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
-	return c.EnableEvmProxy.Or(true)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when

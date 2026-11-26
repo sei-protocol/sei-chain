@@ -25,9 +25,6 @@ type gigaValidatorRouter struct {
 
 	consensus *consensus.State
 	producer  *producer.State
-	// validatorKey is the cached public form of cfg.ValidatorKey, used by
-	// EvmProxy to short-circuit self-shard sends to the local mempool.
-	validatorKey atypes.PublicKey
 }
 
 // NewGigaValidatorRouter constructs a validator GigaRouter over an already-built
@@ -87,9 +84,8 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
-		consensus:    consensusState,
-		producer:     producerState,
-		validatorKey: validatorKey,
+		consensus: consensusState,
+		producer:  producerState,
 	}, nil
 }
 
@@ -115,7 +111,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 // Self disables GetBlock: a loopback consumer always returns empty for missing
 // catch-up heights and can starve the contiguous prefix while higher gap-fills
 // keep retrying. Compare against the p2p node key (r.key.Public), not
-// validatorKey (consensus signing key used by EvmProxy): GigaNodeAddr.Key is a
+// validatorKey (consensus signing key): GigaNodeAddr.Key is a
 // NodePublicKey.
 func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
 	getBlock := addr.Key != r.key.Public()
@@ -130,25 +126,12 @@ func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey
 	}
 }
 
-// EvmProxyEnabled reports whether this validator proxies txs of remote shards.
-func (r *gigaValidatorRouter) EvmProxyEnabled() bool {
-	return r.cfg.EnableEvmProxy
-}
+// EvmProxyEnabled is always false, because a validator admits every EVM tx it
+// receives into its own mempool.
+func (r *gigaValidatorRouter) EvmProxyEnabled() bool { return false }
 
-// EvmProxy on the validator returns None when the sender's shard owner is
-// us (handle locally via mempool). For remote
-// shards, we proxy only while the target validator is currently connected;
-// otherwise we keep the tx local as a best-effort availability heuristic.
-func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	if !r.EvmProxyEnabled() {
-		return utils.None[*ethrpc.Client]()
-	}
-	validator := r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
-	if r.validatorKey == validator {
-		return utils.None[*ethrpc.Client]()
-	}
-	if _, ok := r.poolOut.Get(validator); !ok {
-		return utils.None[*ethrpc.Client]()
-	}
-	return r.evmProxy(validator)
+// EvmProxy on the validator always returns None. Validators never forward EVM
+// txs to another validator, and full nodes choose the lane.
+func (r *gigaValidatorRouter) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
+	return utils.None[*ethrpc.Client]()
 }

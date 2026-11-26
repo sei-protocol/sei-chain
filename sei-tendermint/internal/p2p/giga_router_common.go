@@ -610,9 +610,8 @@ func committeeValidators(committee *atypes.Committee) ([]*types.Validator, error
 	return vs, nil
 }
 
-// EvmProxy returns the shard owner's EVMRPC client for an EVM tx sender, or
-// None if the caller should handle it locally. Overridden on
-// *gigaValidatorRouter to short-circuit self-shard sends.
+// evmProxy returns the EVM RPC client that the router holds for validator, or
+// None when it holds none.
 func (r *gigaRouterCommon) evmProxy(validator atypes.PublicKey) utils.Option[*ethrpc.Client] {
 	for proxies := range r.proxies.RLock() {
 		client, ok := proxies[validator]
