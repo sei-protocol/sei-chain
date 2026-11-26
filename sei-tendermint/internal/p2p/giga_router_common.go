@@ -106,26 +106,34 @@ func BuildDataState(
 	app *abevm.Proxy,
 	genesisTimestamp time.Time,
 ) (*data.State, error) {
-	if cfg.GenDoc.InitialHeight < 1 {
-		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
-	}
-	if cfg.DialInterval <= 0 {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
-	}
-	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
-	}
-	if cfg.PersistentStateDir == "" {
-		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
-	}
-	if cfg.AppHashBuilder == nil {
-		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 	ds, err := data.NewState(&data.Config{App: app, GenesisTimestamp: genesisTimestamp}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
 	return ds, nil
+}
+
+// Validate returns an error when cfg cannot back a data.State.
+func (cfg *GigaRouterCommonConfig) Validate() error {
+	if cfg.GenDoc.InitialHeight < 1 {
+		return fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
+	}
+	if cfg.DialInterval <= 0 {
+		return fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
+	}
+	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
+		return fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
+	}
+	if cfg.PersistentStateDir == "" {
+		return errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
+	}
+	if cfg.AppHashBuilder == nil {
+		return errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
+	}
+	return nil
 }
 
 func (r *gigaRouterCommon) LastCommittedHeight() int64 {
@@ -173,6 +181,7 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*
 }
 
 // translateSuperBlock converts a SuperBlock to the CometBFT result used by block RPCs.
+// LastBlockID holds the parent hash of the SuperBlock, and is empty for the first road block.
 // LastCommit has empty Signatures, matching executeBlock's empty CommitInfo.
 func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Txs
@@ -181,6 +190,10 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 		tmTxs[i] = tx
 	}
 	h := common.Hash(gb.Hash)
+	var lastBlockID types.BlockID
+	if parent, ok := gb.ParentHash.Get(); ok {
+		lastBlockID.Hash = tmbytes.HexBytes(common.Hash(parent).Bytes())
+	}
 	return &coretypes.ResultBlock{
 		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
 		Block: &types.Block{
@@ -189,8 +202,9 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 				// Clamp accepts any constraints.Integer for From, so
 				// gb.Height (a typed uint64) goes in directly — no
 				// intermediate uint64() conversion needed.
-				Height: utils.Clamp[int64](gb.Height),
-				Time:   gb.Timestamp,
+				Height:      utils.Clamp[int64](gb.Height),
+				Time:        gb.Timestamp,
+				LastBlockID: lastBlockID,
 			},
 			Data: types.Data{Txs: tmTxs},
 			// Autobahn does not feed per-validator votes into the app. Filling N

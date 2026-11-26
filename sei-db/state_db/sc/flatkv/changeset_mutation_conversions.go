@@ -25,7 +25,7 @@ func MutationsFromChangeSets(
 	// The block the changesets belong to. Every new value is stamped with it.
 	blockHeight uint64,
 	// The state as of the block before blockHeight. Supplies each mutation's previous value.
-	priorState gigatypes.StateView,
+	priorState gigatypes.RawStateView,
 ) ([]mutation.Mutation, error) {
 	priorHeight := priorState.GetBlockHeight()
 	//nolint:gosec // a non-negative height converts exactly

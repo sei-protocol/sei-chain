@@ -206,6 +206,10 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 		if err := pQC.Verify(ep); err != nil {
 			return fmt.Errorf("higPrepareQC: %w", err)
 		}
+		// The reproposal re-signs this header, so it must name the previous road block as its parent.
+		if err := pQC.Header().VerifyParent(prev.Map((*CommitQC).Header)); err != nil {
+			return fmt.Errorf("latestPrepareQC: %w", err)
+		}
 	} else {
 		if _, ok := m.latestPrepareQC.Get(); ok {
 			return errors.New("unnecessary latestPrepareQC")

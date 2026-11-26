@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 #
-# Installs the two exporters the monitoring stack scrapes on a validator host:
-# sei-cosmos-exporter on 9300 and node-exporter on 9100.
+# Installs node-exporter on 9100 as a systemd service on a validator host.
+# Validator, wallet and bank metrics need no exporter: seid reports them as
+# sei_chain_cosmos_* on its own Prometheus endpoint when [cosmos_metrics] is
+# enabled in app.toml.
 #
 # Usage: ./install-exporters.sh
 #
-# Requirements: git, wget, tar and sudo. Linux only — node-exporter is fetched
+# Requirements: wget, tar and sudo. Linux only — node-exporter is fetched
 # as a Linux binary and installed as a systemd unit.
 
 set -euo pipefail
@@ -28,25 +30,7 @@ esac
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 
-echo -e "\e[1m\e[32m1. Installing sei-cosmos-exporter... \e[0m" && sleep 1
-
-# The installer ships in the source tree rather than as a release asset, so this
-# clones. Re-running the script finds the checkout already there.
-if [ -d "$workdir/sei-cosmos-exporter" ]; then
-	git -C "$workdir/sei-cosmos-exporter" fetch --depth 1 origin
-else
-	git clone --depth 1 https://github.com/sei-protocol/sei-cosmos-exporter.git \
-		"$workdir/sei-cosmos-exporter"
-fi
-
-installer="$workdir/sei-cosmos-exporter/install-sei-cosmos-exporter.sh"
-if [ ! -f "$installer" ]; then
-	echo "sei-cosmos-exporter checkout has no $installer" >&2
-	exit 1
-fi
-sudo bash "$installer"
-
-echo -e "\e[1m\e[32m2. Installing node-exporter... \e[0m" && sleep 1
+echo -e "\e[1m\e[32mInstalling node-exporter... \e[0m" && sleep 1
 
 archive="node_exporter-${NODE_EXPORTER_VERSION}.linux-${arch}"
 wget -q -O "$workdir/$archive.tar.gz" \
@@ -77,4 +61,4 @@ sudo systemctl enable node-exporter
 sudo systemctl restart node-exporter
 
 echo -e "\e[1m\e[32mInstallation finished... \e[0m" && sleep 1
-echo -e "\e[1m\e[32mPlease make sure ports 9100 and 9300 are open \e[0m" && sleep 1
+echo -e "\e[1m\e[32mPlease make sure port 9100 is open \e[0m" && sleep 1

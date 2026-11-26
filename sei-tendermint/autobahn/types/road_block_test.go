@@ -7,7 +7,11 @@ import (
 
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protowire"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -208,6 +212,22 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	require.Equal(t, [][]byte{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}}, block.Txs)
 }
 
+func TestSuperBlockNamesTheParentOfItsRoadBlock(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 3)
+	ep := GenEpochWithCommittee(rng, committee)
+	for _, parent := range []utils.Option[RoadBlockHeaderHash]{utils.None[RoadBlockHeaderHash](), utils.Some(GenRoadBlockHeaderHash(rng))} {
+		proposal, blocks := proposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 1, parent)
+		prepareQC := BuildPrepareQC(keys, proposal)
+		var votes []*Signed[*CommitVote]
+		for _, key := range keys {
+			votes = append(votes, key.Sign(NewCommitVote(prepareQC)))
+		}
+		qc := NewFullCommitQC(NewCommitQC(votes), []*LaneBlockHeader{blocks[0].Header()})
+		require.Equal(t, parent, NewRoadBlock(qc, blocks).SuperBlock().ParentHash)
+	}
+}
+
 func TestLaneRangeVerifyRejectsHashOnEmptyRange(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := GenCommittee(rng, 4)
@@ -219,4 +239,93 @@ func TestLaneRangeVerifyRejectsHashOnEmptyRange(t *testing.T) {
 	require.Error(t, (&LaneRange{
 		lane: lane, first: 1, next: 1, lastHash: GenLaneBlockHeaderHash(rng),
 	}).Verify(committee))
+}
+
+func TestRoadBlockHeaderParentHashRoundTrips(t *testing.T) {
+	rng := utils.TestRng()
+	for _, parentHash := range []utils.Option[RoadBlockHeaderHash]{
+		utils.None[RoadBlockHeaderHash](),
+		utils.Some(GenRoadBlockHeaderHash(rng)),
+	} {
+		h := newRoadBlockHeader(GenEpochIndex(rng), RoadHeight(rng.Uint64()), parentHash, utils.GenTimestamp(rng), rng.GenSlice(GenLaneRange))
+		got, err := RoadBlockHeaderConv.Decode(RoadBlockHeaderConv.Encode(h))
+		require.NoError(t, err)
+		require.Equal(t, parentHash, got.ParentHash())
+		require.Equal(t, h.Hash(), got.Hash())
+	}
+}
+
+func TestRoadBlockHeaderVerifyParent(t *testing.T) {
+	rng := utils.TestRng()
+	parent := newRoadBlockHeader(GenEpochIndex(rng), 1, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
+	other := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
+	headerWith := func(parentHash utils.Option[RoadBlockHeaderHash]) *RoadBlockHeader {
+		return newRoadBlockHeader(GenEpochIndex(rng), 3, parentHash, utils.GenTimestamp(rng), nil)
+	}
+	for name, tc := range map[string]struct {
+		header *RoadBlockHeader
+		parent utils.Option[*RoadBlockHeader]
+		ok     bool
+	}{
+		"no parent expected, none named": {headerWith(utils.None[RoadBlockHeaderHash]()), utils.None[*RoadBlockHeader](), true},
+		"parent expected, same named":    {headerWith(utils.Some(parent.Hash())), utils.Some(parent), true},
+		"parent expected, other named":   {headerWith(utils.Some(other.Hash())), utils.Some(parent), false},
+		"parent expected, none named":    {headerWith(utils.None[RoadBlockHeaderHash]()), utils.Some(parent), false},
+		"no parent expected, one named":  {headerWith(utils.Some(parent.Hash())), utils.None[*RoadBlockHeader](), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := tc.header.VerifyParent(tc.parent)
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrParentMismatch)
+			}
+		})
+	}
+}
+
+// A header with no parent omits field 6 from its canonical encoding.
+func TestRoadBlockHeaderWithoutParentOmitsTheField(t *testing.T) {
+	rng := utils.TestRng()
+	fields := func(parentHash utils.Option[RoadBlockHeaderHash]) map[protowire.Number]bool {
+		h := newRoadBlockHeader(GenEpochIndex(rng), RoadHeight(rng.Uint64()), parentHash, utils.GenTimestamp(rng), nil)
+		b := hashable.MarshalCanonical(RoadBlockHeaderConv.Encode(h))
+		got := map[protowire.Number]bool{}
+		for len(b) > 0 {
+			num, typ, n := protowire.ConsumeTag(b)
+			require.GreaterOrEqual(t, n, 0)
+			b = b[n:]
+			n = protowire.ConsumeFieldValue(num, typ, b)
+			require.GreaterOrEqual(t, n, 0)
+			b = b[n:]
+			got[num] = true
+		}
+		return got
+	}
+	require.False(t, fields(utils.None[RoadBlockHeaderHash]())[6])
+	require.True(t, fields(utils.Some(GenRoadBlockHeaderHash(rng)))[6])
+}
+
+// A present parent hash of length 0 or 31 passes the unmarshal and fails the header decoder.
+func TestRoadBlockHeaderDecodeRejectsAParentHashOfTheWrongLength(t *testing.T) {
+	rng := utils.TestRng()
+	h := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), nil)
+	for _, n := range []int{0, 31} {
+		m := RoadBlockHeaderConv.Encode(h)
+		m.ParentHash = utils.GenBytes(rng, n)
+		decoded, err := protoutils.Unmarshal[*pb.RoadBlockHeader](protoutils.Marshal(m))
+		require.NoError(t, err)
+		_, err = RoadBlockHeaderConv.Decode(decoded)
+		require.Error(t, err)
+	}
+}
+
+// A 33 byte value fails the wireguard size check of the unmarshal, before the header decoder runs.
+func TestRoadBlockHeaderUnmarshalRejectsAParentHashLongerThanTheHash(t *testing.T) {
+	rng := utils.TestRng()
+	h := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.Some(GenRoadBlockHeaderHash(rng)), utils.GenTimestamp(rng), nil)
+	m := RoadBlockHeaderConv.Encode(h)
+	m.ParentHash = utils.GenBytes(rng, 33)
+	_, err := protoutils.Unmarshal[*pb.RoadBlockHeader](protoutils.Marshal(m))
+	require.Error(t, err)
 }
