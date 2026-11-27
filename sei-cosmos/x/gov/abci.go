@@ -18,6 +18,9 @@ const MaxVotesProcessedPerBlock = 1000
 // MaxDepositsSettledPerBlock is the number of finished proposals' deposit records burned or refunded per block.
 const MaxDepositsSettledPerBlock = 1000
 
+// MaxInactiveProposalsExpiredPerBlock is the number of proposals past their deposit deadline deleted per block.
+const MaxInactiveProposalsExpiredPerBlock = 100
+
 // minTallyCleanupVotesPerBlock reserves part of the budget for completed tally archives.
 const minTallyCleanupVotesPerBlock = 100
 
@@ -41,9 +44,11 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	defer keeper.SettleDeposits(ctx, MaxDepositsSettledPerBlock)
 
 	// delete inactive proposal from store and schedule its deposits to be burned
+	remainingExpiries := MaxInactiveProposalsExpiredPerBlock
 	keeper.IterateInactiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
 		keeper.DeleteProposal(ctx, proposal.ProposalId)
 		keeper.ScheduleDepositSettlement(ctx, proposal.ProposalId, true)
+		remainingExpiries--
 
 		// called when proposal become inactive
 		keeper.AfterProposalFailedMinDeposit(ctx, proposal.ProposalId)
@@ -65,7 +70,7 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 			"total_deposit", proposal.TotalDeposit.String(),
 		)
 
-		return false
+		return remainingExpiries == 0
 	})
 
 	remainingRecords := MaxVotesProcessedPerBlock
