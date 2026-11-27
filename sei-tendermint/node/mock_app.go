@@ -124,11 +124,11 @@ func (app *MockApp) InitChain(req abevm.InitConfig) error {
 func (app *MockApp) RestoreBlockTime(time.Time) {}
 
 func (app *MockApp) Info() *abevm.ResponseInfo {
-	info := *app.app.Info()
 	for state := range app.state.RLock() {
-		info.LastBlockHeight = state.lastBlockHeight
-		info.LastBlockAppHash = slices.Clone(state.lastBlockAppHash)
-		return &info
+		return &abevm.ResponseInfo{
+			LastBlockHeight:  state.lastBlockHeight,
+			LastBlockAppHash: slices.Clone(state.lastBlockAppHash),
+		}
 	}
 	panic("unreachable")
 }

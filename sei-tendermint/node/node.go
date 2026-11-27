@@ -156,6 +156,8 @@ type nodeImpl struct {
 	evmOnlyRPCLimits  gigaconfig.RPCConfig
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
+	gigaRPCEnv        utils.Option[*rpccore.GigaEnvironment]
+	evmApp            utils.Option[*abevm.Proxy]
 	prometheusSrv     utils.Option[*http.Server]
 }
 
@@ -296,6 +298,7 @@ func makeNode(
 		evmOnlyRPCPort:     opts.giga.Execution.EvmRpcPort,
 		evmOnlyWSPort:      opts.giga.Execution.EvmWsPort,
 		evmOnlyRPCLimits:   opts.giga.RPC,
+		evmApp:             evmApp,
 
 		nodeKey: nodeKey,
 
@@ -309,7 +312,6 @@ func makeNode(
 
 		rpcEnv: &rpccore.Environment{
 			App: proxyApp,
-			EVM: evmApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -367,7 +369,12 @@ func makeNode(
 			return nil, errors.New("autobahn requires a router")
 		}
 		node.executor = utils.Some(buildExecutor(evmApp.OrPanic("Autobahn router requires an EVM application"), evmSigner.OrPanic("Autobahn requires a transaction signer"), genDoc, manager, opts.giga.Execution.MaxBlocksInFlight))
-		node.rpcEnv.Executor = node.executor
+		node.gigaRPCEnv = utils.Some(&rpccore.GigaEnvironment{
+			Proxy:    evmApp.OrPanic("Autobahn RPC requires an EVM application"),
+			Router:   node.giga.OrPanic("Autobahn RPC requires a router").Common(),
+			Executor: node.executor.OrPanic("Autobahn RPC requires an executor"),
+			GenDoc:   genDoc,
+		})
 	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
@@ -766,12 +773,8 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		if !ok {
 			return errors.New("autobahn rpc requires giga storage")
 		}
-		evm, ok := n.rpcEnv.EVM.Get()
-		if !ok {
-			return errors.New("autobahn rpc requires an EVM application")
-		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
-			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, Proxy: evm}
+			evmEnv := n.gigaRPCEnv.OrPanic("Autobahn RPC requires a Giga environment")
 			n.evmOnlyRPC, err = evmonlyrpc.Start(evmEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
 			if err != nil {
 				return err
@@ -849,7 +852,7 @@ func (n *nodeImpl) closeGigaStorage() error {
 	var err error
 	n.gigaStorageCloseOnce.Do(func() {
 		if manager, ok := n.gigaStorageManager.Get(); ok {
-			if settleErr := n.rpcEnv.EVM.OrPanic("Giga storage requires an EVM application").AwaitCommits(); settleErr != nil {
+			if settleErr := n.evmApp.OrPanic("Giga storage requires an EVM application").AwaitCommits(); settleErr != nil {
 				logger.Error("failed to settle block commits before closing Giga storage", "err", settleErr)
 			}
 			if err = manager.Close(); err != nil {

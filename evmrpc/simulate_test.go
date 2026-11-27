@@ -33,7 +33,6 @@ import (
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -956,10 +955,6 @@ func (c *fixedBlockClient) GenesisInitialHeight() int64 {
 
 func (c *fixedBlockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
-}
-
-func (c *fixedBlockClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
 }
 
 func (c *fixedBlockClient) Block(_ context.Context, _ *int64) (*coretypes.ResultBlock, error) {

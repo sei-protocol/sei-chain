@@ -320,9 +320,7 @@ func TestEncodeBlockFullTxIncludesDecodedTransactionsInOrder(t *testing.T) {
 	require.Equal(t, (*hexutil.Big)(big.NewInt(0)), got["totalDifficulty"])
 }
 
-// TestEncodeBlockDocumentedHeaderGaps pins the header fields
-// gigaRouterCommon.translateGlobalBlock never populates, confirmed by reading
-// that translation rather than assumed.
+// TestEncodeBlockDocumentedHeaderGaps pins zero-valued header fields absent from EvmBlock.
 func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
@@ -382,7 +380,6 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 	backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 		return block, nil
 	}
-	backend.proxy = utils.None[*ethrpc.Client]()
 	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
@@ -739,7 +736,6 @@ func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
 			}
 			return block, nil
 		},
-		proxy: utils.None[*ethrpc.Client](),
 	}
 	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
@@ -1012,7 +1008,6 @@ func TestGetTransactionByBlockAndIndexEndToEnd(t *testing.T) {
 		}
 		return block, nil
 	}
-	backend.proxy = utils.None[*ethrpc.Client]()
 	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)

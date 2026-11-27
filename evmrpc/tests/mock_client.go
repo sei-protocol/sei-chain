@@ -8,10 +8,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -43,10 +41,6 @@ func (c *MockClient) GenesisInitialHeight() int64 {
 
 func (*MockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
-}
-
-func (c *MockClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
