@@ -34,6 +34,7 @@ type Config struct {
 	RPC       RPCConfig       `mapstructure:"rpc"`
 	StateSync StateSyncConfig `mapstructure:"state_sync"`
 	Archive   ArchiveConfig   `mapstructure:"archive"`
+	DataLake  DataLakeConfig  `mapstructure:"data_lake"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -248,6 +249,15 @@ type ArchiveConfig struct {
 // Enabled reports whether an archive is configured.
 func (c ArchiveConfig) Enabled() bool { return c.ClickHouseAddr != "" }
 
+// DataLakeConfig is the [giga.data_lake] sub-table: the bucket every data lake of this node keeps its
+// stores in.
+type DataLakeConfig struct {
+	// Enabled opens this node's data lakes in BucketURL.
+	Enabled bool `mapstructure:"enabled"`
+	// BucketURL names the bucket, such as r2://<bucket>?account_id=<cloudflare-account-id>.
+	BucketURL string `mapstructure:"bucket_url"`
+}
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -359,6 +369,8 @@ const (
 	FlagArchiveDatabase                  = "giga.archive.database"
 	FlagArchiveUser                      = "giga.archive.user"
 	FlagArchivePassword                  = "giga.archive.password" //nolint:gosec // a config key, not a credential
+	FlagDataLakeEnabled                  = "giga.data_lake.enabled"
+	FlagDataLakeBucketURL                = "giga.data_lake.bucket_url"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -600,6 +612,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagArchivePassword, err)
 		}
 	}
+	if v := opts.Get(FlagDataLakeEnabled); v != nil {
+		if cfg.DataLake.Enabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagDataLakeEnabled, err)
+		}
+	}
+	if v := opts.Get(FlagDataLakeBucketURL); v != nil {
+		if cfg.DataLake.BucketURL, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagDataLakeBucketURL, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -711,6 +733,9 @@ func (c Config) Validate() error {
 	}
 	if c.Archive.Enabled() && c.Archive.Database == "" {
 		return fmt.Errorf("%s: must be set when %s is", FlagArchiveDatabase, FlagArchiveClickHouseAddr)
+	}
+	if c.DataLake.Enabled && c.DataLake.BucketURL == "" {
+		return fmt.Errorf("%s: needs %s", FlagDataLakeEnabled, FlagDataLakeBucketURL)
 	}
 	deadlines, err := c.RPC.DeadlineConfig()
 	if err != nil {
@@ -917,6 +942,18 @@ database = "{{ .Giga.Archive.Database }}"
 # user and password authenticate to ClickHouse.
 user = "{{ .Giga.Archive.User }}"
 password = {{ printf "%q" .Giga.Archive.Password }}
+
+[giga.data_lake]
+# enabled copies this node's data to the data lake at bucket_url: every block and AppQC the block
+# store makes durable, byte for byte, keyed by road height, in its blocks/ and app_qcs/ directories.
+# Copying runs in the background and never holds up the node, but a node whose bucket cannot be
+# opened refuses to start, so do not enable it on a validator.
+enabled = {{ .Giga.DataLake.Enabled }}
+
+# bucket_url names the bucket: r2://<bucket>?account_id=<cloudflare-account-id> for Cloudflare R2,
+# which reads the credentials of an R2 API token from R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY.
+# Each node needs a bucket of its own, or its own path in one: append &prefix=<path>/ to the URL.
+bucket_url = "{{ .Giga.DataLake.BucketURL }}"
 `
 
 // requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one

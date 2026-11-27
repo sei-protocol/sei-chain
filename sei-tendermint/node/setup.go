@@ -412,7 +412,8 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
 // persistent-state directory, laid out for nodeMode unless storage pins a mode,
-// with the history archive when archiveConfig enables one. The BlockDB opens with seed.
+// with the history archive when archiveConfig enables one and the data lake
+// when dataLake enables it. The BlockDB opens with seed.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
@@ -420,6 +421,7 @@ func openAutobahnStorageManager(
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
 	archiveConfig gigaconfig.ArchiveConfig,
+	dataLake gigaconfig.DataLakeConfig,
 	genDoc *types.GenesisDoc,
 	seed utils.Option[ablockstore.Seed],
 ) (*bootstrap.GigaStorageManager, error) {
@@ -449,6 +451,10 @@ func openAutobahnStorageManager(
 			User:     archiveConfig.User,
 			Password: archiveConfig.Password,
 		}
+	}
+	if dataLake.Enabled {
+		lakeConfig := seidbconfig.DefaultDataLakeConfig(dataLake.BucketURL)
+		storageConfig.DataLakeConfig = &lakeConfig
 	}
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }

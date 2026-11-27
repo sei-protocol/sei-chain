@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/cdkdatalake"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -26,6 +27,7 @@ type GigaStorageConfig struct {
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 	BUDHasherConfig      *bud.BUDHasherConfig             // required
 	ArchiveConfig        *clickhouse.Config               // optional; nil disables the archive
+	DataLakeConfig       *cdkdatalake.DataLakeConfig      // optional; nil disables every data lake
 	EVMChainID           uint64                           // the EVM chain whose blocks the stores hold
 	// The file present while a node holds these stores open. Empty disables it.
 	RunningMarkerPath string
@@ -147,6 +149,11 @@ func (c *GigaStorageConfig) Validate() error {
 	}
 	if err := c.BlockDBConfig.Validate(); err != nil {
 		return fmt.Errorf("block db config is invalid: %w", err)
+	}
+	if c.DataLakeConfig != nil {
+		if err := c.DataLakeConfig.Validate(); err != nil {
+			return fmt.Errorf("data lake config is invalid: %w", err)
+		}
 	}
 
 	if c.SSConfig.Enable && c.SSConfig.EVMDBDirectory == "" {

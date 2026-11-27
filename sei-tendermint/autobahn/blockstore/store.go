@@ -52,6 +52,8 @@ type storeStatus struct {
 	blocks map[types.RoadHeight]*types.RoadBlock
 	// nextDurable is the lowest road whose block is not durable yet.
 	nextDurable types.RoadHeight
+	// nextDurableAppQC is the lowest road whose AppQC is not durable yet.
+	nextDurableAppQC types.RoadHeight
 }
 
 // SuffixRange contains the road cursors restored by startup recovery.
@@ -302,13 +304,16 @@ func (s *Store) readSuffix() (Suffix, error) {
 
 // Flush makes all previously returned writes durable.
 func (s *Store) Flush() error {
-	// Every block below next was written before the flush, so the flush covers it.
-	next := s.nextBlock()
+	// Every record below these cursors was written before the flush, so the flush covers it.
+	written := s.Status()
 	if err := s.table.Flush(); err != nil {
 		return fmt.Errorf("s.table.Flush(): %w", err)
 	}
 	for status, ctrl := range s.status.Lock() {
-		status.nextDurable = max(status.nextDurable, next)
+		if written, ok := written.Get(); ok {
+			status.nextDurable = max(status.nextDurable, written.NextBlock)
+			status.nextDurableAppQC = max(status.nextDurableAppQC, written.NextAppQC)
+		}
 		ctrl.Updated()
 	}
 	return nil
@@ -538,14 +543,6 @@ func (s *Store) ReadAppQC(n types.RoadHeight) (utils.Option[*types.AppQC], error
 	return utils.Some(appQC), nil
 }
 
-// nextBlock returns the road of the next block to write, or 0 when the store is empty.
-func (s *Store) nextBlock() types.RoadHeight {
-	if current, ok := s.Status().Get(); ok {
-		return current.NextBlock
-	}
-	return 0
-}
-
 // WaitForBlock returns the block of road n, waiting until a Flush has made it
 // durable. It returns ErrPruned when n is below First.
 func (s *Store) WaitForBlock(ctx context.Context, n types.RoadHeight) (*types.RoadBlock, error) {
@@ -571,6 +568,48 @@ func (s *Store) WaitForBlock(ctx context.Context, n types.RoadHeight) (*types.Ro
 	return block, nil
 }
 
+// WaitForBlockRecord returns the bytes WriteBlock stored for road n, waiting until a Flush has
+// made them durable. It returns ErrPruned when n is below First.
+func (s *Store) WaitForBlockRecord(ctx context.Context, n types.RoadHeight) ([]byte, error) {
+	return s.waitForRecord(ctx, n, (blockKey{Height: n}).encode(), func(status *storeStatus) types.RoadHeight {
+		return status.nextDurable
+	})
+}
+
+// WaitForAppQCRecord returns the bytes WriteAppQC stored for road n, waiting until a Flush has
+// made them durable. It returns ErrPruned when n is below First.
+func (s *Store) WaitForAppQCRecord(ctx context.Context, n types.RoadHeight) ([]byte, error) {
+	return s.waitForRecord(ctx, n, (appQCKey{Height: n}).encode(), func(status *storeStatus) types.RoadHeight {
+		return status.nextDurableAppQC
+	})
+}
+
+// waitForRecord returns the stored bytes at key, the record of road n, once nextDurable is above n.
+func (s *Store) waitForRecord(
+	ctx context.Context,
+	n types.RoadHeight,
+	key ledgerKey,
+	nextDurable func(*storeStatus) types.RoadHeight,
+) ([]byte, error) {
+	for status, ctrl := range s.status.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < nextDurable(status) }); err != nil {
+			return nil, err
+		}
+	}
+	value, exists, err := s.getRecord(key)
+	if err != nil {
+		return nil, fmt.Errorf("s.getRecord(): %w", err)
+	}
+	// First is read after the record, so a record GC reclaimed reads as pruned rather than missing.
+	if n < s.First() {
+		return nil, types.ErrPruned
+	}
+	if !exists {
+		return nil, fmt.Errorf("record %d: %w", n, types.ErrNotFound)
+	}
+	return value, nil
+}
+
 func (s *Store) Status() utils.Option[SuffixRange] {
 	for status := range s.status.Lock() {
 		return status.suffix
@@ -591,6 +630,7 @@ func (s *Store) restore(first types.RoadHeight, suffix Suffix) error {
 		}
 		if current, ok := suffix.Status.Get(); ok {
 			status.nextDurable = current.NextBlock
+			status.nextDurableAppQC = current.NextAppQC
 		}
 		s.first.Store(uint64(first))
 		Global.pruneWatermarkAt().Set(utils.Clamp[int64](first))

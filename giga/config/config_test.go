@@ -152,6 +152,21 @@ func TestConfigTemplateRendersArchivePassword(t *testing.T) {
 	require.Equal(t, want, cfg)
 }
 
+func TestConfigTemplateRendersDataLake(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	want := gigaconfig.DefaultConfig
+	want.DataLake.Enabled = true
+	want.DataLake.BucketURL = "r2://sei-lake?account_id=abc123&prefix=pacific-1/"
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{want}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, want, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                         "full",
@@ -201,6 +216,8 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.archive.database":                     "arch",
 		"giga.archive.user":                         "writer",
 		"giga.archive.password":                     "secret",
+		"giga.data_lake.enabled":                    "true",
+		"giga.data_lake.bucket_url":                 "r2://sei-lake?account_id=abc123",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -260,6 +277,10 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			Database:       "arch",
 			User:           "writer",
 			Password:       "secret",
+		},
+		DataLake: gigaconfig.DataLakeConfig{
+			Enabled:   true,
+			BucketURL: "r2://sei-lake?account_id=abc123",
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -358,6 +379,9 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative upload interval":     {"giga.state_sync.snapshot_upload_interval": "-1s"},
 		"non-duration upload interval": {"giga.state_sync.snapshot_upload_interval": "daily"},
 		"archive without database":     {"giga.archive.clickhouse_addr": "ch:9000", "giga.archive.database": ""},
+		"data lake without bucket":     {"giga.data_lake.enabled": "true"},
+		"non-boolean data lake":        {"giga.data_lake.enabled": "maybe"},
+		"non-string data lake bucket":  {"giga.data_lake.bucket_url": []string{"a", "b"}},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
