@@ -1226,12 +1226,11 @@ func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 
 func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := atypes.GenCommittee(rng, 2)
+	committee, keys := atypes.GenCommittee(rng, 1)
 	state, _ := testDataState(t, committee)
 	validatorKey := keys[0]
 	nodeKey := makeKey(rng)
 	localNodeKey := makeKey(rng)
-	localAddr := tcp.TestReserveAddr()
 	genDoc := &tmtypes.GenesisDoc{ChainID: "loopback-evmrpc", InitialHeight: 1}
 	require.NoError(t, genDoc.ValidateAndComplete())
 	dir := t.TempDir()
@@ -1249,7 +1248,7 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 				return fmt.Errorf("need a local evmrpc for this test")
 			}
 
-			// Accept and run the fullnode and validator P2P connections.
+			// Accept and run the fullnode P2P connection.
 			listener, err := tcp.Listen(addr)
 			if err != nil {
 				return fmt.Errorf("tcp.Listen(): %w", err)
@@ -1277,10 +1276,6 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 		})
 		cfg := GigaRouterCommonConfig{
 			ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
-				keys[1].Public(): {
-					Key:      localNodeKey.Public(),
-					HostPort: tcp.HostPort{Hostname: localAddr.Addr().String(), Port: localAddr.Port()},
-				},
 				validatorKey.Public(): {
 					Key:      nodeKey.Public(),
 					HostPort: tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()},

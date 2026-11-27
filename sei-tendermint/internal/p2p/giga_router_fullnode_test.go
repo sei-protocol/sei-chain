@@ -127,8 +127,8 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		}
 		returnedRemoteClients[proxyClient] = struct{}{}
 	}
-	// Sanity: with 200 random senders mapped uniformly over 5 lanes we
-	// expect to have hit every lane at least once.
+	// Sanity: 200 random senders mapped uniformly over 5 lanes hit every lane
+	// at least once.
 	require.Equal(t, expectedRemoteClients, returnedRemoteClients)
 
 	// Read-path methods source from local data.State + genesis doc — no

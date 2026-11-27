@@ -24,7 +24,7 @@ const (
 // a committee must fit in 256 lanes. This constant fails to compile otherwise.
 const _ = uint8(atypes.MaxValidators - 1)
 
-// laneSeed is the per-process secret that keys a full node's lane ring.
+// laneSeed is the random per-process value that keys a full node's lane ring.
 type laneSeed [32]byte
 
 // newLaneSeed returns a random laneSeed.

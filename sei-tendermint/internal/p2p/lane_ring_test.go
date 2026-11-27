@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// laneRingSizes are the committee sizes that the lane ring benchmarks compare.
+// laneRingSizes are the committee sizes that the lane ring spread test and benchmarks use.
 var laneRingSizes = []int{40, 100}
 
 func genLaneSeed(rng utils.Rng) laneSeed {

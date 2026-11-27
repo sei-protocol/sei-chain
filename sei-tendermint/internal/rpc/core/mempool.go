@@ -19,8 +19,8 @@ import (
 )
 
 // EvmProxy returns the EVM RPC client of the autobahn lane that this node
-// forwards sender's txs to, or None if the tx stays local or autobahn isn't
-// configured.
+// forwards sender's txs to. It returns None on a validator, on a fullnode that
+// has an EVM RPC client for no lane, and when autobahn isn't configured.
 func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
 	if r, ok := env.gigaRouter().Get(); ok {
 		return r.EvmProxy(sender)

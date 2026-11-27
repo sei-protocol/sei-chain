@@ -107,9 +107,9 @@ func (api *sendAPI) broadcast(ctx context.Context, input hexutil.Bytes) error {
 	return nil
 }
 
-// laneProxy returns the RPC client of the lane that this node forwards tx's sender to,
-// or None when the transaction is handled locally. Sender recovery is skipped
-// entirely when the backend has no proxies, since CheckTx recovers it anyway. A
+// laneProxy returns the RPC client of the lane that this node forwards tx's
+// sender to, or None when the transaction is handled locally. Sender recovery is
+// skipped entirely when the backend never forwards, since CheckTx recovers it anyway. A
 // sender recovered for a transaction handled locally is handed to the backend,
 // so CheckTx need not recover it again.
 func (api *sendAPI) laneProxy(tx *ethtypes.Transaction, chainID *big.Int) utils.Option[*ethrpc.Client] {
