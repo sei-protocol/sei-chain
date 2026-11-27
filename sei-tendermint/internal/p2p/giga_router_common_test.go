@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -26,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	gigapb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
@@ -39,7 +37,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
+func registerEvmProxyForTest(t *testing.T, router *gigaFullnodeRouter, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
 	t.Helper()
 	client, err := ethrpc.DialContext(t.Context(), rpcURL.String())
 	require.NoError(t, err)
@@ -1071,7 +1069,7 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 		})
 		return router.dialAndRunConn(ctx, atypes.GenSecretKey(rng).Public(), makeKey(rng).Public(),
 			tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()},
-			func(context.Context, rpc.Client[giga.API]) error { return nil })
+			func(context.Context, rpc.Client[giga.API], validatorHandshake) error { return nil })
 	})
 	// Cancelling the handshake half-closes the socket, so the connection pump
 	// often reports EOF before handshake returns the deadline.
@@ -1221,7 +1219,7 @@ func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 				auth:   keys[0].Sign(atypes.Challenge{}),
 				EVMRPC: *utils.OrPanic1(url.Parse(endpoint)),
 			}))
-			require.False(t, router.evmProxy(keys[0].Public()).IsPresent())
+			require.False(t, router.EvmProxy(common.Address{}).IsPresent())
 		})
 	}
 }
@@ -1230,7 +1228,6 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := atypes.GenCommittee(rng, 2)
 	state, _ := testDataState(t, committee)
-	validatorState, _ := testDataState(t, committee)
 	validatorKey := keys[0]
 	nodeKey := makeKey(rng)
 	localNodeKey := makeKey(rng)
@@ -1298,115 +1295,14 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 		fullnodeRouter := utils.OrPanic1(NewGigaFullnodeRouter(&cfg, localNodeKey, state, newTestSigner(1, 0)))
 		s.SpawnBg(func() error { return utils.IgnoreCancel(fullnodeRouter.Run(ctx)) })
 
-		validatorRouter := utils.OrPanic1(NewGigaValidatorRouter(&GigaValidatorConfig{
-			GigaRouterCommonConfig: cfg,
-			ValidatorKey:           keys[1],
-			EVMRPC:                 testEVMRPCURL(),
-			ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
-			ProposalTimeout:        time.Hour,
-			Producer: &producer.Config{
-				MaxGasWantedPerBlock:    1,
-				MaxGasEstimatedPerBlock: 1,
-				MaxTxsPerBlock:          1,
-				MaxTxsPerSecond:         utils.None[uint64](),
-				BlockInterval:           time.Second,
-			},
-		}, localNodeKey, validatorState, newTestSigner(1, 0)))
-		s.SpawnBg(func() error { return utils.IgnoreCancel(validatorRouter.Run(ctx)) })
-
-		// This test is not fully robust: these checks may be void in case runEvmProxy has not run yet,
+		// This test is not fully robust: this check may be void in case runEvmProxy has not run yet,
 		// even though the P2P connection is established.
 		if err := fullnodeRouter.poolOut.WaitFor(ctx, validatorKey.Public()); err != nil {
 			return err
 		}
-		if fullnodeRouter.evmProxy(validatorKey.Public()).IsPresent() {
+		if fullnodeRouter.EvmProxy(common.Address{}).IsPresent() {
 			return fmt.Errorf("fullnode EVM proxy created for loopback EVM RPC address")
-		}
-		if err := validatorRouter.poolOut.WaitFor(ctx, validatorKey.Public()); err != nil {
-			return err
-		}
-		if validatorRouter.evmProxy(validatorKey.Public()).IsPresent() {
-			return fmt.Errorf("validator EVM proxy created for loopback EVM RPC address")
 		}
 		return nil
 	}))
-}
-
-func TestGigaRouterCommon_EvmProxyClosesWithGigaConnection(t *testing.T) {
-	rng := utils.TestRng()
-	validatorKey := atypes.GenSecretKey(rng)
-	peerKey := makeKey(rng)
-	localKey := makeKey(rng)
-	rpcServer := ethrpc.NewServer()
-	t.Cleanup(rpcServer.Stop)
-	opened := make(chan struct{})
-	closed := make(chan struct{})
-	wsHandler := rpcServer.WebsocketHandler([]string{"*"})
-	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(opened)
-		defer close(closed)
-		wsHandler.ServeHTTP(w, r)
-	}))
-	t.Cleanup(httpServer.Close)
-	endpoint := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpServer.URL, "http")))
-
-	addr := tcp.TestReserveAddr()
-	listener, err := tcp.Listen(addr)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, listener.Close()) })
-	router := &gigaRouterCommon{
-		cfg:     &GigaRouterCommonConfig{DialInterval: time.Second, AllowLocalAddrs: true},
-		key:     localKey,
-		poolOut: giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
-		proxies: utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-	}
-	disconnect := make(chan struct{})
-	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error {
-			c, err := listener.AcceptOrClose(ctx)
-			if err != nil {
-				return err
-			}
-			return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, serverScope scope.Scope) error {
-				serverScope.SpawnBg(func() error { return c.Run(ctx) })
-				hConn, err := handshake(ctx, c, handshakeSpec{
-					NodeKey: peerKey,
-					Giga: utils.Some(gigaHandshakeSpec{
-						ValidatorKey: utils.Some(validatorKey),
-						EVMRPC:       endpoint,
-					}),
-					IsServer: true,
-				})
-				if err != nil {
-					return err
-				}
-				server := rpc.NewServer[giga.API]()
-				serverScope.SpawnBg(func() error { return server.Run(ctx, hConn.conn) })
-				_, _, err = utils.RecvOrClosed(ctx, disconnect)
-				return err
-			}))
-		})
-		finished := s.Spawn1(func() (struct{}, error) {
-			err := router.dialAndRunConn(ctx, validatorKey.Public(), peerKey.Public(),
-				tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()},
-				func(ctx context.Context, _ rpc.Client[giga.API]) error {
-					<-ctx.Done()
-					return ctx.Err()
-				})
-			if err == nil {
-				return struct{}{}, fmt.Errorf("giga connection ended without a disconnect error")
-			}
-			return struct{}{}, nil
-		})
-		if _, _, err := utils.RecvOrClosed(ctx, opened); err != nil {
-			return err
-		}
-		close(disconnect)
-		if _, err := finished.Join(ctx); err != nil {
-			return err
-		}
-		_, _, err := utils.RecvOrClosed(ctx, closed)
-		return err
-	}))
-	require.False(t, router.evmProxy(validatorKey.Public()).IsPresent())
 }

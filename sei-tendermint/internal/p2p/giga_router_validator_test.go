@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"net/http/httptest"
-	"net/url"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
@@ -25,8 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -297,14 +291,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	_, validatorKeys := atypes.GenCommittee(rng, 10)
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
-	urlByValidator := map[atypes.PublicKey]url.URL{}
-	// DialContext opens the websocket before the first call, so the URL has
-	// to name a listener.
-	rpcSrv := ethrpc.NewServer()
-	t.Cleanup(rpcSrv.Stop)
-	httpSrv := httptest.NewServer(rpcSrv.WebsocketHandler([]string{"*"}))
-	t.Cleanup(httpSrv.Close)
-	rpcURL := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpSrv.URL, "http")))
 	for _, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
@@ -312,7 +298,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
 		}
-		urlByValidator[validatorKey.Public()] = rpcURL
 	}
 	genDoc := &types.GenesisDoc{
 		ChainID:         "giga-router-proxy-test",
@@ -360,44 +345,13 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}, nodeKeys[0], dataState, newTestSigner(1, 0))
 	require.NoError(t, err)
 
-	localValidator := validatorKeys[0].Public()
-
-	// Connect every remote validator, with an EVM RPC client and a giga
-	// connection, so that no sender's lane is out of reach.
-	connectedRemote := map[atypes.PublicKey]*ethrpc.Client{}
-	for validator := range addrs {
-		if validator == localValidator {
-			continue
-		}
-		connectedRemote[validator] = registerEvmProxyForTest(t, router.gigaRouterCommon, validator, urlByValidator[validator])
+	// A validator keeps every tx. It reports proxying as disabled and forwards
+	// no sender.
+	require.False(t, router.EvmProxyEnabled())
+	for range 400 {
+		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+		require.False(t, router.EvmProxy(sender).IsPresent())
 	}
-
-	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		for validator := range connectedRemote {
-			ready := make(chan struct{})
-			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", validator), func() error {
-				var client rpc.Client[giga.API]
-				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, validator, client, func(ctx context.Context) error {
-					close(ready)
-					<-ctx.Done()
-					return ctx.Err()
-				}))
-			})
-			if _, _, err := utils.RecvOrClosed(ctx, ready); err != nil {
-				return err
-			}
-		}
-
-		// A validator keeps every tx. It reports proxying as disabled and forwards
-		// no sender, although every remote validator is connected.
-		require.False(t, router.EvmProxyEnabled())
-		for range 400 {
-			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-			require.False(t, router.EvmProxy(sender).IsPresent())
-		}
-		return nil
-	})
-	require.NoError(t, err)
 }
 
 func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {

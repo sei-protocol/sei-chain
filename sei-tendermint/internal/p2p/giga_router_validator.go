@@ -72,7 +72,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
-			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:             cfg.App,
 			signer:          signer,
 			gigaSpec: gigaHandshakeSpec{
@@ -116,7 +115,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
 	getBlock := addr.Key != r.key.Public()
 	for {
-		err := r.dialAndRunConn(ctx, validatorKey, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+		err := r.dialAndRunConn(ctx, validatorKey, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API], _ validatorHandshake) error {
 			return r.service.RunClient(ctx, client, validatorKey, getBlock)
 		})
 		logger.Info("giga connection failed", "addr", addr, "err", err)

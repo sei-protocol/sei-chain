@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -45,7 +44,6 @@ type gigaRouterCommon struct {
 	poolIn          *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
-	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 	app             *abevm.Proxy
 	signer          *abevm.Signer
 	gigaSpec        gigaHandshakeSpec
@@ -233,39 +231,6 @@ func (r *gigaRouterCommon) runPushAppHashes(ctx context.Context) error {
 	}
 }
 
-// runEvmProxy maintains an EVM RPC client for the lifetime of its Giga connection.
-func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator validatorHandshake) error {
-	if !r.cfg.AllowLocalAddrs && utils.IsLoopbackOrLinkLocalURL(validator.EVMRPC) {
-		logger.Error("committee member advertised an unroutable EVM RPC; not learning its address",
-			"validator", validator.auth.Key(), "evmRPC", validator.EVMRPC.String())
-		return nil
-	}
-	var client *ethrpc.Client
-	for {
-		var err error
-		client, err = ethrpc.DialContext(ctx, validator.EVMRPC.String())
-		if err == nil {
-			defer client.Close()
-			break
-		}
-		logger.Info("evm proxy dial failed", "url", validator.EVMRPC, "err", err)
-		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
-			return err
-		}
-	}
-	key := validator.auth.Key()
-	for proxies := range r.proxies.Lock() {
-		proxies[key] = client
-	}
-	<-ctx.Done()
-	for proxies := range r.proxies.Lock() {
-		if proxies[key] == client {
-			delete(proxies, key)
-		}
-	}
-	return ctx.Err()
-}
-
 // RestoreMarkerFile returns the path of the marker file that a state sync restore
 // writes in the persistent state dir psd.
 func RestoreMarkerFile(psd string) string {
@@ -279,16 +244,16 @@ func RestoreProofFile(psd string) string {
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,
-// registers the rpc client in poolOut, and runs runClient for the
-// connection's lifetime. It verifies the p2p node key against the selected
-// address, requires a validator claim for expectedValidatorKey, and registers
-// the client under that validator.
+// registers the rpc client in poolOut, and runs runClient with the peer's
+// validator handshake for the connection's lifetime. It verifies the p2p node
+// key against the selected address, requires a validator claim for
+// expectedValidatorKey, and registers the client under that validator.
 func (r *gigaRouterCommon) dialAndRunConn(
 	ctx context.Context,
 	expectedValidatorKey atypes.PublicKey,
 	expectedNodeKey NodePublicKey,
 	hp tcp.HostPort,
-	runClient func(ctx context.Context, client rpc.Client[giga.API]) error,
+	runClient func(ctx context.Context, client rpc.Client[giga.API], validator validatorHandshake) error,
 ) error {
 	addrs, err := hp.Resolve(ctx)
 	if err != nil {
@@ -333,11 +298,10 @@ func (r *gigaRouterCommon) dialAndRunConn(
 		return r.poolOut.InsertAndRun(ctx, expectedValidatorKey, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
-				s.Spawn(func() error { return r.runEvmProxy(ctx, validator) })
 				Global.gigaNewConnsAt("out").Add(1)
 				Global.gigaConnsAt("out").Add(1)
 				defer Global.gigaConnsAt("out").Add(-1)
-				return runClient(ctx, client)
+				return runClient(ctx, client, validator)
 			})
 		})
 	})
@@ -608,16 +572,4 @@ func committeeValidators(committee *atypes.Committee) ([]*types.Validator, error
 	}
 	sort.Sort(types.ValidatorsByVotingPower(vs))
 	return vs, nil
-}
-
-// evmProxy returns the EVM RPC client that the router holds for validator, or
-// None when it holds none.
-func (r *gigaRouterCommon) evmProxy(validator atypes.PublicKey) utils.Option[*ethrpc.Client] {
-	for proxies := range r.proxies.RLock() {
-		client, ok := proxies[validator]
-		if ok {
-			return utils.Some(client)
-		}
-	}
-	return utils.None[*ethrpc.Client]()
 }

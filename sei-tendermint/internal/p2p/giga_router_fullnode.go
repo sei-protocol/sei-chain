@@ -20,6 +20,8 @@ type gigaFullnodeRouter struct {
 
 	// lanes picks the lane that EvmProxy forwards each sender's txs to.
 	lanes *laneAssignments
+	// proxies holds an EVM RPC client for each validator with a live connection.
+	proxies utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 }
 
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
@@ -30,7 +32,8 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 	// sender-to-lane mapping. The seed is never stored or exposed.
 	seed := newLaneSeed()
 	return &gigaFullnodeRouter{
-		lanes: newLaneAssignments(func(c *atypes.Committee) laneAssigner { return newLaneRing(seed, c) }),
+		lanes:   newLaneAssignments(func(c *atypes.Committee) laneAssigner { return newLaneRing(seed, c) }),
+		proxies: utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:                  cfg,
 			key:                  key,
@@ -39,7 +42,6 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			poolIn:               giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee:      giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:              giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
-			proxies:              utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:                  cfg.App,
 			signer:               signer,
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
@@ -84,8 +86,11 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 func (r *gigaFullnodeRouter) runCommitteeConnections(ctx context.Context) error {
 	return r.runPerCommitteeMember(ctx, true, func(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error {
 		for {
-			err := r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-				return r.service.RunClient(ctx, client, validator, true)
+			err := r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API], peer validatorHandshake) error {
+				return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					s.Spawn(func() error { return r.runEvmProxy(ctx, peer) })
+					return r.service.RunClient(ctx, client, validator, true)
+				})
 			})
 			logger.Info("fullnode giga connection ended", "addr", addr, "err", err)
 			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
@@ -93,4 +98,37 @@ func (r *gigaFullnodeRouter) runCommitteeConnections(ctx context.Context) error 
 			}
 		}
 	})
+}
+
+// runEvmProxy maintains an EVM RPC client for the lifetime of its Giga connection.
+func (r *gigaFullnodeRouter) runEvmProxy(ctx context.Context, validator validatorHandshake) error {
+	if !r.cfg.AllowLocalAddrs && utils.IsLoopbackOrLinkLocalURL(validator.EVMRPC) {
+		logger.Error("committee member advertised an unroutable EVM RPC; not learning its address",
+			"validator", validator.auth.Key(), "evmRPC", validator.EVMRPC.String())
+		return nil
+	}
+	var client *ethrpc.Client
+	for {
+		var err error
+		client, err = ethrpc.DialContext(ctx, validator.EVMRPC.String())
+		if err == nil {
+			defer client.Close()
+			break
+		}
+		logger.Info("evm proxy dial failed", "url", validator.EVMRPC, "err", err)
+		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+			return err
+		}
+	}
+	key := validator.auth.Key()
+	for proxies := range r.proxies.Lock() {
+		proxies[key] = client
+	}
+	<-ctx.Done()
+	for proxies := range r.proxies.Lock() {
+		if proxies[key] == client {
+			delete(proxies, key)
+		}
+	}
+	return ctx.Err()
 }

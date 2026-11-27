@@ -99,7 +99,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for validator, rpcURL := range urlByValidator {
 		if validator != late {
-			expectedRemoteClients[registerEvmProxyForTest(t, router.gigaRouterCommon, validator, rpcURL)] = struct{}{}
+			expectedRemoteClients[registerEvmProxyForTest(t, router, validator, rpcURL)] = struct{}{}
 		}
 	}
 	before := make([]*ethrpc.Client, len(senders))
@@ -116,7 +116,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 
 	// When the client of the last lane arrives, the senders of that lane move to
 	// it and every other sender keeps its client.
-	lateClient := registerEvmProxyForTest(t, router.gigaRouterCommon, late, urlByValidator[late])
+	lateClient := registerEvmProxyForTest(t, router, late, urlByValidator[late])
 	expectedRemoteClients[lateClient] = struct{}{}
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for i, sender := range senders {
@@ -253,7 +253,6 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 	}))
 	_, err = utils.Recv(t.Context(), closed)
 	require.NoError(t, err)
-	for _, key := range keys {
-		require.False(t, router.evmProxy(key.Public()).IsPresent())
-	}
+	// Every connection ended, so EvmProxy forwards nowhere.
+	require.False(t, router.EvmProxy(common.Address{}).IsPresent())
 }
