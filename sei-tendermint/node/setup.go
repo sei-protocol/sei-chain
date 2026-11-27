@@ -17,6 +17,7 @@ import (
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/datalake/blocklake"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
@@ -412,7 +413,8 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
 // persistent-state directory, laid out for nodeMode unless storage pins a mode,
-// with the history archive when archiveConfig enables one. The BlockDB opens with seed.
+// with the history archive when archiveConfig enables one and the block data
+// lake when blockDataLake enables it. The BlockDB opens with seed.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
@@ -420,6 +422,7 @@ func openAutobahnStorageManager(
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
 	archiveConfig gigaconfig.ArchiveConfig,
+	blockDataLake gigaconfig.BlockDataLakeConfig,
 	genDoc *types.GenesisDoc,
 	seed utils.Option[ablockstore.Seed],
 ) (*bootstrap.GigaStorageManager, error) {
@@ -449,6 +452,10 @@ func openAutobahnStorageManager(
 			User:     archiveConfig.User,
 			Password: archiveConfig.Password,
 		}
+	}
+	if blockDataLake.Enabled {
+		lakeConfig := blocklake.DefaultDataLakeConfig(blockDataLake.BucketURL)
+		storageConfig.BlockDataLakeConfig = &lakeConfig
 	}
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }

@@ -29,11 +29,12 @@ const (
 
 // Config is the [giga] section.
 type Config struct {
-	Storage   StorageConfig   `mapstructure:"storage"`
-	Execution ExecutionConfig `mapstructure:"execution"`
-	RPC       RPCConfig       `mapstructure:"rpc"`
-	StateSync StateSyncConfig `mapstructure:"state_sync"`
-	Archive   ArchiveConfig   `mapstructure:"archive"`
+	Storage       StorageConfig       `mapstructure:"storage"`
+	Execution     ExecutionConfig     `mapstructure:"execution"`
+	RPC           RPCConfig           `mapstructure:"rpc"`
+	StateSync     StateSyncConfig     `mapstructure:"state_sync"`
+	Archive       ArchiveConfig       `mapstructure:"archive"`
+	BlockDataLake BlockDataLakeConfig `mapstructure:"block_data_lake"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -248,6 +249,15 @@ type ArchiveConfig struct {
 // Enabled reports whether an archive is configured.
 func (c ArchiveConfig) Enabled() bool { return c.ClickHouseAddr != "" }
 
+// BlockDataLakeConfig is the [giga.block_data_lake] sub-table: the bucket this node copies the blocks
+// and AppQCs of its block store to.
+type BlockDataLakeConfig struct {
+	// Enabled copies every block and AppQC the block store makes durable to BucketURL.
+	Enabled bool `mapstructure:"enabled"`
+	// BucketURL names the bucket, such as r2://<bucket>?account_id=<cloudflare-account-id>.
+	BucketURL string `mapstructure:"bucket_url"`
+}
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -359,6 +369,8 @@ const (
 	FlagArchiveDatabase                  = "giga.archive.database"
 	FlagArchiveUser                      = "giga.archive.user"
 	FlagArchivePassword                  = "giga.archive.password" //nolint:gosec // a config key, not a credential
+	FlagBlockDataLakeEnabled             = "giga.block_data_lake.enabled"
+	FlagBlockDataLakeBucketURL           = "giga.block_data_lake.bucket_url"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -600,6 +612,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagArchivePassword, err)
 		}
 	}
+	if v := opts.Get(FlagBlockDataLakeEnabled); v != nil {
+		if cfg.BlockDataLake.Enabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagBlockDataLakeEnabled, err)
+		}
+	}
+	if v := opts.Get(FlagBlockDataLakeBucketURL); v != nil {
+		if cfg.BlockDataLake.BucketURL, err = cast.ToStringE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagBlockDataLakeBucketURL, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -711,6 +733,9 @@ func (c Config) Validate() error {
 	}
 	if c.Archive.Enabled() && c.Archive.Database == "" {
 		return fmt.Errorf("%s: must be set when %s is", FlagArchiveDatabase, FlagArchiveClickHouseAddr)
+	}
+	if c.BlockDataLake.Enabled && c.BlockDataLake.BucketURL == "" {
+		return fmt.Errorf("%s: needs %s", FlagBlockDataLakeEnabled, FlagBlockDataLakeBucketURL)
 	}
 	deadlines, err := c.RPC.DeadlineConfig()
 	if err != nil {
@@ -917,6 +942,18 @@ database = "{{ .Giga.Archive.Database }}"
 # user and password authenticate to ClickHouse.
 user = "{{ .Giga.Archive.User }}"
 password = {{ printf "%q" .Giga.Archive.Password }}
+
+[giga.block_data_lake]
+# enabled copies every block and AppQC the block store makes durable to bucket_url, byte for byte,
+# keyed by road height. Copying runs in the background and never holds up the node, but a node
+# whose bucket cannot be opened refuses to start, so do not enable it on a validator.
+enabled = {{ .Giga.BlockDataLake.Enabled }}
+
+# bucket_url names the bucket: r2://<bucket>?account_id=<cloudflare-account-id> for Cloudflare R2,
+# which reads the credentials of an R2 API token from R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY.
+# The blocks and AppQCs go in its blocks/ and app_qcs/ directories. Each node needs a bucket of its
+# own, or its own path in one: append &prefix=<path>/ to the URL.
+bucket_url = "{{ .Giga.BlockDataLake.BucketURL }}"
 `
 
 // requireSimulationDeadlines reports the first method that executes EVM code left unbounded: one

@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+	"github.com/sei-protocol/sei-chain/sei-db/datalake/blocklake"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -45,6 +46,9 @@ type GigaStorageManager struct {
 
 	// archive is nil when ArchiveConfig is nil.
 	archive archive.ArchivalStore
+
+	// blockDataLake copies blockStore into the block data lake. It is nil when BlockDataLakeConfig is nil.
+	blockDataLake *blocklake.BlockDataLake
 
 	// stateDB owns the live state DB, the historical state DB and the state WAL they share, along
 	// with the checkpoint schedule those stores run on.
@@ -192,6 +196,15 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		return nil, fmt.Errorf("start storage garbage collector: %w", err)
 	}
 	defer closeOnFailure(&retErr, "storage garbage collector", gc.Close)
+
+	timer.SetPhase("block_data_lake")
+	blockDataLake, err := openBlockDataLake(ctx, cfg, blockStore)
+	if err != nil {
+		return nil, fmt.Errorf("open block data lake: %w", err)
+	}
+	if blockDataLake != nil {
+		defer closeOnFailure(&retErr, "block data lake", blockDataLake.Close)
+	}
 	if err := createRunningMarker(cfg.RunningMarkerPath); err != nil {
 		return nil, fmt.Errorf("mark the stores as held open: %w", err)
 	}
@@ -203,6 +216,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
 		archive:        archiveStore,
+		blockDataLake:  blockDataLake,
 		stateDB:        stateDB,
 		gc:             gc,
 		appHashBuilder: appHashBuilder,
@@ -257,6 +271,18 @@ func openStateDB(
 	}
 	timer.Log("Opened the state DB")
 	return stateDB, nil
+}
+
+// openBlockDataLake starts copying blockStore into the block data lake, returning nil when none is configured.
+func openBlockDataLake(
+	ctx context.Context,
+	cfg *config.GigaStorageConfig,
+	blockStore *blockstore.Store,
+) (*blocklake.BlockDataLake, error) {
+	if cfg.BlockDataLakeConfig == nil {
+		return nil, nil
+	}
+	return blocklake.New(ctx, *cfg.BlockDataLakeConfig, blockStore)
 }
 
 // connectLiveStateDBToAppHashBuilder hands appHashBuilder the state hash of block height, which the live state DB
@@ -365,6 +391,13 @@ func (m *GigaStorageManager) Close() error {
 	timer.SetPhase("state_sync_proof_export")
 	// Before the block store, which the export reads.
 	m.stateSyncProofExport.stop()
+	if m.blockDataLake != nil {
+		timer.SetPhase("block_data_lake")
+		// Before the block store, which it reads.
+		if err := m.blockDataLake.Close(); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close block data lake: %w", err))
+		}
+	}
 	timer.SetPhase("gc")
 	if err := m.gc.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close storage garbage collector: %w", err))

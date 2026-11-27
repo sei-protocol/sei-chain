@@ -13,9 +13,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/datalake"
 
 	// Importing a driver registers its bucket URL scheme. blob.OpenBucket() rejects a BucketURL whose scheme no
-	// imported driver has registered, so this list is the set of supported schemes: file://, mem:// and s3://.
-	// Supporting gs:// (GCS) or azblob:// (Azure) needs the matching import uncommented, which adds that cloud's
-	// SDK as a dependency.
+	// imported driver has registered, so this list is the set of supported schemes: file://, mem://, r2:// and
+	// s3://. Supporting gs:// (GCS) or azblob:// (Azure) needs the matching import uncommented, which adds that
+	// cloud's SDK as a dependency.
+	_ "github.com/sei-protocol/sei-chain/sei-db/db_engine/cdkdatalake/r2blob"
 	_ "gocloud.dev/blob/fileblob"
 	_ "gocloud.dev/blob/memblob"
 	_ "gocloud.dev/blob/s3blob"
