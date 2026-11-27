@@ -150,6 +150,11 @@ func (app *Proxy) EvmBaseFee() *big.Int {
 	return app.app.EvmBaseFee()
 }
 
+func (app *Proxy) EvmNextBaseFee() *big.Int {
+	defer proxymetrics.Observe("evm_next_base_fee", "sync")()
+	return app.app.EvmNextBaseFee()
+}
+
 func (app *Proxy) EvmGasLimit() uint64 {
 	defer proxymetrics.Observe("evm_gas_limit", "sync")()
 	return app.app.EvmGasLimit()
@@ -240,6 +245,7 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 		Height:     types.RoadHeight(header.Number.Uint64()),
 		Time:       header.Time,
 		ParentHash: header.ParentHash,
+		BaseFee:    header.BaseFee,
 		// As in go-ethereum, a post-merge header carries PREVRANDAO in its mix digest.
 		PrevRandao: header.MixDigest,
 	}, nil

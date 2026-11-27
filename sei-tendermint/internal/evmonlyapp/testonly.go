@@ -13,10 +13,11 @@ func EpochRegistryRowForTesting(registry *atypes.EpochRegistry) (string, []byte,
 	return epochRegistryModule, []byte(epochRegistryKey), epoch.Encode(registry)
 }
 
-// CursorRowForTesting returns the module, key and value of the cursor row that the application
-// commits with block height. Intended for use in tests only.
+// CursorRowForTesting returns the module, key and value of the cursor row of block height, with the
+// genesis base fees. Intended for use in tests only.
 func CursorRowForTesting(height int64) (string, []byte, []byte) {
-	return evmOnlyCursorModule, []byte(evmOnlyCursorKey), evmOnlyCursor{height: height}.encode()
+	cursor := evmOnlyCursor{height: height, baseFees: genesisBaseFees()}
+	return evmOnlyCursorModule, []byte(evmOnlyCursorKey), cursor.encode()
 }
 
 // ChainIDRowForTesting returns the module, key and value of the chain ID row that the application

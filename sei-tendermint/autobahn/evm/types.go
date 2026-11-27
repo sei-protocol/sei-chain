@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -49,6 +50,8 @@ type BlockRef struct {
 	Height     types.RoadHeight
 	Time       uint64
 	ParentHash common.Hash
+	// BaseFee is the base fee the block ran at.
+	BaseFee *big.Int
 	// PrevRandao is the PREVRANDAO the block executed with.
 	PrevRandao common.Hash
 }

@@ -102,7 +102,10 @@ func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.Re
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	baseFee := api.backend.EvmBaseFee()
+	baseFee, err := blockBaseFee(ctx, api.backend, api.store, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	chainConfig := api.backend.EvmChainConfig()
 	return api.rpcTransaction(ctx, block, i, blockUnix, baseFee, chainConfig)
 }
@@ -115,17 +118,22 @@ func transactionCount(block *coretypes.ResultBlock) *hexutil.Uint {
 	return &count
 }
 
-// resolveBlockByHash returns the block with the given hash, or a nil block if
-// hash is unknown.
+// resolveBlockByHash returns the block with the given hash, served as its height is by
+// resolveBlockByNumber: a nil block if hash is unknown or names a block above the executed head,
+// and coretypes.ErrHeightNotAvailable for a pruned one whose hash is still indexed. A hash pruned
+// from the index is indistinguishable from an unknown one and returns a nil block.
 func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
 	block, err := api.backend.BlockByHash(ctx, &coretypes.RequestBlockByHash{Hash: tmbytes.HexBytes(hash.Bytes())})
 	if err != nil {
 		return nil, err
 	}
+	// A number can be compared with the retained range, but a hash carries no height once its
+	// index entry is gone, so a pruned block cannot be told apart from one that never existed.
 	if block == nil || block.Block == nil {
 		return nil, nil
 	}
-	return block, nil
+	// The hash index holds every finalized block, including ones not yet executed.
+	return api.blockAt(ctx, block.Block.Height)
 }
 
 // resolveBlockByNumber returns the block number names, with earliest and 0x0 naming the earliest
@@ -195,17 +203,19 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
 	gasLimit := api.backend.EvmGasLimit()
-	baseFee := api.backend.EvmBaseFee()
+	baseFee, err := blockBaseFee(ctx, api.backend, api.store, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	return &ethtypes.Header{
 		ParentHash: common.BytesToHash(block.Block.LastBlockID.Hash),
 		Number:     big.NewInt(block.Block.Height),
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
+		BaseFee:    baseFee,
 		// The block's PREVRANDAO, which Time, in whole seconds, cannot derive.
 		MixDigest: evmonly.PrevRandao(block.Block.Time),
-		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
-		BaseFee: baseFee,
 	}, nil
 }
 
@@ -220,7 +230,10 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Block.Time)
 	}
 	gasLimit := api.backend.EvmGasLimit()
-	baseFee := api.backend.EvmBaseFee()
+	baseFee, err := blockBaseFee(ctx, api.backend, api.store, number)
+	if err != nil {
+		return nil, err
+	}
 
 	txs := block.Block.Txs
 	transactions := make([]any, len(txs))
@@ -282,13 +295,16 @@ func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.Result
 
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
 // decodes.
-func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
+func encodeHeader(ctx context.Context, backend Backend, store receiptdb.ReceiptStore, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
 	gasLimit := backend.EvmGasLimit()
-	baseFee := backend.EvmBaseFee()
+	baseFee, err := blockBaseFee(ctx, backend, store, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
 }
 

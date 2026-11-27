@@ -280,8 +280,8 @@ func epochModuleKeyCount(misc []gigatypes.MiscChange, key string) int {
 // changes app encodes for each block, by block number.
 func installRecordingEVMExecutor(app *evmOnlyApplication) *utils.Mutex[map[uint64][]gigatypes.MiscChange] {
 	encoded := new(utils.NewMutex(map[uint64][]gigatypes.MiscChange{}))
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result)
 		if err != nil {
 			return nil, err
 		}
@@ -570,18 +570,19 @@ func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	require.ErrorIs(t, admissionError(app, raw), ethtypes.ErrInvalidChainId)
 }
 
-// A zero priority fee is valid EIP-1559, and admitting on tx.GasPrice() — the
-// fee cap on a dynamic-fee tx — let one through that the executor then refused.
-// An executor refusal is a node panic rather than a failed receipt, so this has
-// to be caught here.
-func TestEVMOnlyApplicationRefusesATxTheExecutorWouldRefuse(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t)
+// A dynamic-fee tx pays the base fee plus at most its tip, so it is admitted on
+// that price, not on tx.GasPrice(), its fee cap. A zero tip pays the base fee,
+// which a node whose floor is above the base fee refuses.
+func TestEVMOnlyApplicationAdmitsADynamicFeeTxOnItsEffectivePrice(t *testing.T) {
+	raised := gigaconfig.DefaultConfig.Execution
+	raised.MinGasPrice = 2 * evmOnlyMinGasPrice
+	app := newEVMOnlyTestAppWithExecution(t, nil, raised)
+	require.NoError(t, app.InitChain(evmOnlyTestInitChain()))
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
-	// Fee cap far above the minimum, tip cap zero. At a zero base fee the
-	// effective gas price is the tip, so block validity refuses it.
+	// Fee cap far above the floor, tip cap zero.
 	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     0,
@@ -1305,8 +1306,8 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 // into the EVM module, which the state DB refuses to commit. Each block executes and encodes cleanly, and its commit
 // is the first thing that fails.
 func installUnwritableEVMExecutor(app *evmOnlyApplication) {
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode the cursor: %w", err)
 		}
@@ -1608,8 +1609,8 @@ func TestEVMOnlyApplicationRefusesToResumeWithoutARecordedChainID(t *testing.T) 
 	err = started.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	app := started.(*evmOnlyApplication)
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result)
 		return slices.DeleteFunc(misc, func(change gigatypes.MiscChange) bool {
 			return change.Module == evmOnlyCursorModule && string(change.Key) == evmOnlyChainIDKey
 		}), err
