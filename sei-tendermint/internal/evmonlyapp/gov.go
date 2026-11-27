@@ -30,8 +30,8 @@ type GovUpgrades struct {
 // NewGovRegistry returns a registry running gov, weighing votes by electorate,
 // the params precompile and the upgrade precompile, with a handler for every
 // upgrade name this build ships. The first block writes params,
-// startingProposalID and upgrades.Applied; until then gov and params refuse
-// calls.
+// startingProposalID, evmOnlyGenesisEVMParams and upgrades.Applied; until then
+// gov and params refuse calls.
 func NewGovRegistry(params gov.Params, startingProposalID uint64, electorate gov.GenesisElectorate, upgrades GovUpgrades) precompiles.Registry {
 	return newGovRegistry(params, startingProposalID, electorate, upgrades, upgradeHandlers())
 }
@@ -101,7 +101,7 @@ type genesisWriter func(state precompiles.State, height uint64) error
 // TODO(evmonly-initchain-genesis): run these from InitChain, at the chain's
 // initial height, instead of gov's first EndBlock.
 func (g govPrecompile) genesisWriters() []genesisWriter {
-	return []genesisWriter{g.writeGovGenesis, g.writeUpgradeGenesis}
+	return []genesisWriter{g.writeGovGenesis, writeEVMGenesis, g.writeUpgradeGenesis}
 }
 
 // writeGovGenesis writes gov's params and, when set, its starting proposal ID.
@@ -113,6 +113,11 @@ func (g govPrecompile) writeGovGenesis(state precompiles.State, _ uint64) error 
 		return nil
 	}
 	return gov.SetStartingProposalID(state, g.startingProposalID)
+}
+
+// writeEVMGenesis writes evmOnlyGenesisEVMParams as the evm params.
+func writeEVMGenesis(state precompiles.State, _ uint64) error {
+	return chainparams.WriteEVM(state, evmOnlyGenesisEVMParams)
 }
 
 // writeUpgradeGenesis records the upgrades the chain starts past as applied
