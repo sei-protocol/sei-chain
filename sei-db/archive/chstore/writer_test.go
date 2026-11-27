@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -14,23 +13,22 @@ import (
 	"github.com/zeebo/blake3"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse/chtest"
 )
 
 // testChain is the EVM chain the tests' archives hold.
 const testChain = 713715
 
-// testConfig returns a config for a throwaway database on the ClickHouse server named by
-// SEI_ARCHIVE_TEST_CLICKHOUSE, skipping the test when it is unset.
+func TestMain(m *testing.M) { chtest.Main(m) }
+
+// testConfig returns a config for a throwaway database on the package's test server.
 func testConfig(t *testing.T) clickhouse.Config {
-	addr := os.Getenv("SEI_ARCHIVE_TEST_CLICKHOUSE")
-	if addr == "" {
-		t.Skip("SEI_ARCHIVE_TEST_CLICKHOUSE is not set")
-	}
+	srv := chtest.Start(t)
 	cfg := clickhouse.Config{
-		Addr:     addr,
+		Addr:     srv.Addr,
 		Database: "sei_archive_test",
-		User:     "default",
-		Password: os.Getenv("SEI_ARCHIVE_TEST_PASSWORD"),
+		User:     srv.User,
+		Password: srv.Password,
 	}
 	exec(t, cfg, "default", "DROP DATABASE IF EXISTS "+cfg.Database+" SYNC")
 	t.Cleanup(func() { exec(t, cfg, "default", "DROP DATABASE IF EXISTS "+cfg.Database+" SYNC") })

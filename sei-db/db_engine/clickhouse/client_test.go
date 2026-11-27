@@ -2,7 +2,6 @@ package clickhouse
 
 import (
 	"context"
-	"os"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -10,20 +9,20 @@ import (
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse/chtest"
 )
 
-// testConfig returns a config for a throwaway database on the ClickHouse server named by
-// SEI_ARCHIVE_TEST_CLICKHOUSE, skipping the test when it is unset.
+func TestMain(m *testing.M) { chtest.Main(m) }
+
+// testConfig returns a config for a throwaway database on the package's test server.
 func testConfig(t *testing.T) Config {
-	addr := os.Getenv("SEI_ARCHIVE_TEST_CLICKHOUSE")
-	if addr == "" {
-		t.Skip("SEI_ARCHIVE_TEST_CLICKHOUSE is not set")
-	}
+	srv := chtest.Start(t)
 	cfg := Config{
-		Addr:     addr,
+		Addr:     srv.Addr,
 		Database: "sei_clickhouse_test",
-		User:     "default",
-		Password: os.Getenv("SEI_ARCHIVE_TEST_PASSWORD"),
+		User:     srv.User,
+		Password: srv.Password,
 	}
 	drop := []string{"DROP DATABASE IF EXISTS " + cfg.Database + " SYNC"}
 	require.NoError(t, run(context.Background(), cfg.options("default", Options{}), drop))
