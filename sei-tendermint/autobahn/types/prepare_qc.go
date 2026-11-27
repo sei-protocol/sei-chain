@@ -36,8 +36,18 @@ func (m *PrepareQC) View() View {
 	return m.vote.Msg().View()
 }
 
-// Verify verifies the PrepareQC against the epoch.
-func (m *PrepareQC) Verify(ep *Epoch) error {
+// Verify runs verifyWithoutParent and then checks that the header of the PrepareQC follows parent,
+// the CommitQC of the previous road block, or None for the first road block of the chain.
+func (m *PrepareQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.verifyWithoutParent(ep); err != nil {
+		return err
+	}
+	return m.Header().verifyParent(ep, parent)
+}
+
+// verifyWithoutParent checks that the header of the PrepareQC is valid in ep and that a prepare
+// quorum of the committee of ep signed the PrepareQC. It does not check the previous road block.
+func (m *PrepareQC) verifyWithoutParent(ep *Epoch) error {
 	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
 	}

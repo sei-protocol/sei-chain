@@ -111,7 +111,7 @@ func TestRestartAcceptsFinalRoadCommitQC(t *testing.T) {
 	require.Equal(t, registry.LastRoad(0), spec.Height())
 	// Receiving the final CommitQC must not advance the spec before it is persisted.
 	last := types.BuildCommitQC(ep, keys, ds.Anchor().Load().CommitQC(), nil)
-	require.NoError(t, last.Verify(ep))
+	require.NoError(t, last.Verify(ep, ds.Anchor().Load().CommitQC()))
 	require.NoError(t, state.PushCommitQC(t.Context(), last))
 	require.Equal(t, last.Height()+1, nextRoad(state))
 	require.Equal(t, ep, state.ConsensusSpec().Load().Epoch)

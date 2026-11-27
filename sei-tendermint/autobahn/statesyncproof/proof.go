@@ -46,7 +46,8 @@ func (p *Proof) Verify(ep *types.Epoch) error {
 	if err := p.appQC.Proposal().Verify(p.block.QC().QC()); err != nil {
 		return fmt.Errorf("AppQC does not match road block: %w", err)
 	}
-	if err := p.block.Verify(ep); err != nil {
+	// A restoring node holds no road block before this one, so it has no parent to check against.
+	if err := p.block.VerifyWithoutParent(ep); err != nil {
 		return fmt.Errorf("road block: %w", err)
 	}
 	if err := p.appQC.Verify(ep.Committee()); err != nil {

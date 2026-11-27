@@ -198,11 +198,11 @@ func GenLaneHeight(rng utils.Rng) LaneHeight {
 	return LaneHeight(rng.Uint64())
 }
 
-// GenLaneRangeFor generates a random LaneRange whose lane ID is drawn from c.
+// GenLaneRangeFor generates a random LaneRange that starts at 0 and whose lane ID is drawn from c.
 func GenLaneRangeFor(rng utils.Rng, c *Committee) *LaneRange {
 	lanes := c.Lanes()
 	lane := lanes.At(rng.Intn(lanes.Len()))
-	first := GenLaneHeight(rng)
+	first := LaneHeight(0)
 	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
 	if length == 0 {
 		return NewLaneRange(lane, first, utils.None[*LaneBlockHeader]())
@@ -382,33 +382,49 @@ func ProposalAt(ep *Epoch, view View) *Proposal {
 	return p
 }
 
-// ProposalWithParent is ProposalAt with the given parent hash.
-func ProposalWithParent(ep *Epoch, view View, parentHash utils.Option[RoadBlockHeaderHash]) *Proposal {
-	p, _ := proposalAtBlocks(ep, view, 1, parentHash)
+// ProposalWithParent is ProposalAt(ep, view) with lane ranges that continue from parent and a
+// header that names the hash of the parent header as its parent hash.
+func ProposalWithParent(ep *Epoch, view View, parent utils.Option[*CommitQC]) *Proposal {
+	return ProposalWithParentHash(ep, view, parent, parent.Map(func(qc *CommitQC) RoadBlockHeaderHash { return qc.Header().Hash() }))
+}
+
+// ProposalWithParentHash is ProposalWithParent with a header that names parentHash as its parent
+// hash, whatever parent is.
+func ProposalWithParentHash(ep *Epoch, view View, parent utils.Option[*CommitQC], parentHash utils.Option[RoadBlockHeaderHash]) *Proposal {
+	p, _ := proposalAtBlocks(ep, view, 1, parent, parentHash)
 	return p
 }
 
 // ProposalAtBlocks is ProposalAt with a lane range of n blocks, n >= 1.
 func ProposalAtBlocks(ep *Epoch, view View, n int) (*Proposal, []*LaneBlock) {
-	return proposalAtBlocks(ep, view, n, utils.None[RoadBlockHeaderHash]())
+	return proposalAtBlocks(ep, view, n, utils.None[*CommitQC](), utils.None[RoadBlockHeaderHash]())
 }
 
-// proposalAtBlocks returns a Proposal at view with parentHash and a lane range of n blocks, n >= 1,
-// together with those blocks.
-func proposalAtBlocks(ep *Epoch, view View, n int, parentHash utils.Option[RoadBlockHeaderHash]) (*Proposal, []*LaneBlock) {
+// proposalAtBlocks returns a Proposal of ep at view, together with n >= 1 new lane blocks on the
+// first lane of the committee of ep. The header of the Proposal names parentHash as its parent hash,
+// and each of its lane ranges continues from parent.
+func proposalAtBlocks(ep *Epoch, view View, n int, parent utils.Option[*CommitQC], parentHash utils.Option[RoadBlockHeaderHash]) (*Proposal, []*LaneBlock) {
 	view.EpochIndex = ep.EpochIndex()
-	lane := ep.Committee().Lanes().At(0)
+	lanes := ep.Committee().Lanes()
+	lane := lanes.At(0)
+	prev := LaneRangeOpt(parent, lane)
 	blocks := make([]*LaneBlock, n)
-	var parent LaneBlockHeaderHash
-	num := LaneHeight(0)
+	prevHash := prev.LastHash()
+	num := prev.Next()
 	for i := 0; i < n; i++ {
-		b := NewLaneBlock(lane, num, parent, &Payload{})
+		b := NewLaneBlock(lane, num, prevHash, &Payload{})
 		blocks[i] = b
-		parent = b.Header().Hash()
+		prevHash = b.Header().Hash()
 		num = b.Header().Next()
 	}
-	header := blocks[n-1].Header()
-	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, parentHash, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))})}, blocks
+	laneRanges := []*LaneRange{NewLaneRange(lane, prev.Next(), utils.Some(blocks[n-1].Header()))}
+	for l := range lanes.All() {
+		// A lane that the header omits starts at 0, so only a lane that the parent advanced needs an empty range.
+		if next := LaneRangeOpt(parent, l).Next(); l != lane && next > 0 {
+			laneRanges = append(laneRanges, NewLaneRange(l, next, utils.None[*LaneBlockHeader]()))
+		}
+	}
+	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, parentHash, time.Time{}, laneRanges)}, blocks
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
@@ -417,6 +433,7 @@ func proposalAtBlocks(ep *Epoch, view View, n int, parentHash utils.Option[RoadB
 func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
+	// The lane ranges start at 0, so they continue from an empty parent.
 	laneRanges := rng.GenSlice(func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
 	return &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), laneRanges)}
 }

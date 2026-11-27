@@ -43,8 +43,18 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 	return m.Header().LaneRange(lane)
 }
 
-// Verify verifies the CommitQC against the epoch.
-func (m *CommitQC) Verify(ep *Epoch) error {
+// Verify runs verifyWithoutParent and then checks that the header of the CommitQC follows parent,
+// the CommitQC of the previous road block, or None for the first road block of the chain.
+func (m *CommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.verifyWithoutParent(ep); err != nil {
+		return err
+	}
+	return m.Header().verifyParent(ep, parent)
+}
+
+// verifyWithoutParent checks that the header of the CommitQC is valid in ep and that a commit
+// quorum of the committee of ep signed the CommitQC. It does not check the previous road block.
+func (m *CommitQC) verifyWithoutParent(ep *Epoch) error {
 	if err := m.vote.Msg().Verify(ep); err != nil {
 		return err
 	}
@@ -82,11 +92,27 @@ func (m *FullCommitQC) Height() RoadHeight {
 	return m.qc.Height()
 }
 
-// Verify verifies the FullCommitQC against the epoch.
-func (m *FullCommitQC) Verify(ep *Epoch) error {
-	if err := m.qc.Verify(ep); err != nil {
+// Verify runs verifyWithoutParent and then checks that the header of the FullCommitQC follows
+// parent, the CommitQC of the previous road block, or None for the first road block of the chain.
+func (m *FullCommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.verifyWithoutParent(ep); err != nil {
+		return err
+	}
+	return m.Header().verifyParent(ep, parent)
+}
+
+// verifyWithoutParent checks the CommitQC of the FullCommitQC against ep without a parent, and
+// checks that the lane block headers of the FullCommitQC are the ones that the CommitQC finalizes.
+func (m *FullCommitQC) verifyWithoutParent(ep *Epoch) error {
+	if err := m.qc.verifyWithoutParent(ep); err != nil {
 		return fmt.Errorf("qC: %w", err)
 	}
+	return m.verifyHeaders(ep)
+}
+
+// verifyHeaders checks that the lane block headers of the FullCommitQC are the ones that the lane
+// ranges of its CommitQC finalize, for each lane of the committee of ep.
+func (m *FullCommitQC) verifyHeaders(ep *Epoch) error {
 	n := uint64(0)
 	if want, got := int(m.Header().NumBlocks()), len(m.headers); want != got { //nolint:gosec // lane block count is bounded by the committee size and per-lane limit
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)

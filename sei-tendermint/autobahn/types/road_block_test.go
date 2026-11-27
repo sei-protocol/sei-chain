@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/hex"
+	"errors"
 	"slices"
 	"time"
 
@@ -66,7 +67,7 @@ func TestRoadBlockVerify(t *testing.T) {
 				ep = NewEpoch(ep.EpochIndex(), roads, committee)
 			}
 			qc := NewFullCommitQC(commitQC, headers)
-			err := NewRoadBlock(qc, blocks).Verify(ep)
+			err := NewRoadBlock(qc, blocks).Verify(ep, utils.None[*CommitQC]())
 			switch variant {
 			case "valid":
 				require.NoError(t, err)
@@ -204,7 +205,7 @@ func TestSuperBlockMergesTransactionsInHeaderOrder(t *testing.T) {
 	}
 	qc := BuildCommitQC(ep, keys, utils.None[*CommitQC](), laneQCs)
 	fullQC := NewFullCommitQC(qc, headers)
-	require.NoError(t, fullQC.Verify(ep))
+	require.NoError(t, fullQC.Verify(ep, utils.None[*CommitQC]()))
 	block := NewRoadBlock(fullQC, blocks).SuperBlock()
 	require.Equal(t, qc.Height(), block.Height)
 	require.Equal(t, qc.Header().Timestamp(), block.Timestamp)
@@ -217,7 +218,7 @@ func TestSuperBlockNamesTheParentOfItsRoadBlock(t *testing.T) {
 	committee, keys := GenCommittee(rng, 3)
 	ep := GenEpochWithCommittee(rng, committee)
 	for _, parent := range []utils.Option[RoadBlockHeaderHash]{utils.None[RoadBlockHeaderHash](), utils.Some(GenRoadBlockHeaderHash(rng))} {
-		proposal, blocks := proposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 1, parent)
+		proposal, blocks := proposalAtBlocks(ep, View{Height: ep.RoadRange().First}, 1, utils.None[*CommitQC](), parent)
 		prepareQC := BuildPrepareQC(keys, proposal)
 		var votes []*Signed[*CommitVote]
 		for _, key := range keys {
@@ -255,33 +256,84 @@ func TestRoadBlockHeaderParentHashRoundTrips(t *testing.T) {
 	}
 }
 
-func TestRoadBlockHeaderVerifyParent(t *testing.T) {
+func TestRoadBlockVerifyChecksParentUnlessSkipped(t *testing.T) {
 	rng := utils.TestRng()
-	parent := newRoadBlockHeader(GenEpochIndex(rng), 1, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
-	other := newRoadBlockHeader(GenEpochIndex(rng), 2, utils.None[RoadBlockHeaderHash](), utils.GenTimestamp(rng), nil)
-	headerWith := func(parentHash utils.Option[RoadBlockHeaderHash]) *RoadBlockHeader {
-		return newRoadBlockHeader(GenEpochIndex(rng), 3, parentHash, utils.GenTimestamp(rng), nil)
+	committee, keys := GenCommittee(rng, 3)
+	ep := GenEpochWithCommittee(rng, committee)
+	parent := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
+	proposal, blocks := proposalAtBlocks(ep, View{Height: parent.Height() + 1}, 3, utils.Some(parent), utils.Some(parent.Header().Hash()))
+	headers := make([]*LaneBlockHeader, len(blocks))
+	for i, block := range blocks {
+		headers[i] = block.Header()
 	}
+	signedBy := func(signers []SecretKey) *RoadBlock {
+		var votes []*Signed[*CommitVote]
+		for _, key := range signers {
+			votes = append(votes, key.Sign(NewCommitVote(BuildPrepareQC(signers, proposal))))
+		}
+		return NewRoadBlock(NewFullCommitQC(NewCommitQC(votes), headers), blocks)
+	}
+	block := signedBy(keys)
+
+	require.NoError(t, block.Verify(ep, utils.Some(parent)))
+	require.ErrorIs(t, block.Verify(ep, utils.None[*CommitQC]()), ErrParentMismatch)
+	require.NoError(t, block.VerifyWithoutParent(ep))
+
+	_, otherKeys := GenCommittee(rng, 3)
+	require.Error(t, signedBy(otherKeys).VerifyWithoutParent(ep))
+}
+
+func TestRoadBlockHeaderVerifyWithParent(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 3)
+	ep := GenEpochWithCommittee(rng, committee)
+	first := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
+	second := BuildCommitQC(ep, keys, utils.Some(first), nil)
+	lane := committee.Lanes().At(0)
+	// secondWith returns the header of second with height, parentHash, and rs as the ranges of lane.
+	// With no rs, the header omits lane.
+	secondWith := func(height RoadHeight, parentHash utils.Option[RoadBlockHeaderHash], rs ...*LaneRange) *RoadBlockHeader {
+		laneRanges := slices.Clone(rs)
+		for l := range committee.Lanes().All() {
+			if l != lane {
+				laneRanges = append(laneRanges, second.Header().LaneRange(l))
+			}
+		}
+		return newRoadBlockHeader(ep.EpochIndex(), height, parentHash, second.Header().Timestamp(), laneRanges)
+	}
+	h := second.Header()
+	parentHash := utils.Some(first.Header().Hash())
 	for name, tc := range map[string]struct {
-		header *RoadBlockHeader
-		parent utils.Option[*RoadBlockHeader]
-		ok     bool
+		header   *RoadBlockHeader
+		parent   utils.Option[*CommitQC]
+		mismatch bool
 	}{
-		"no parent expected, none named": {headerWith(utils.None[RoadBlockHeaderHash]()), utils.None[*RoadBlockHeader](), true},
-		"parent expected, same named":    {headerWith(utils.Some(parent.Hash())), utils.Some(parent), true},
-		"parent expected, other named":   {headerWith(utils.Some(other.Hash())), utils.Some(parent), false},
-		"parent expected, none named":    {headerWith(utils.None[RoadBlockHeaderHash]()), utils.Some(parent), false},
-		"no parent expected, one named":  {headerWith(utils.Some(parent.Hash())), utils.None[*RoadBlockHeader](), false},
+		"first road block":                          {first.Header(), utils.None[*CommitQC](), false},
+		"next road block":                           {h, utils.Some(first), false},
+		"wrong parent hash":                         {secondWith(h.Height(), utils.Some(GenRoadBlockHeaderHash(rng)), h.LaneRange(lane)), utils.Some(first), true},
+		"missing parent hash":                       {secondWith(h.Height(), utils.None[RoadBlockHeaderHash](), h.LaneRange(lane)), utils.Some(first), true},
+		"parent hash on first road block":           {newRoadBlockHeader(ep.EpochIndex(), first.Height(), parentHash, first.Header().Timestamp(), nil), utils.None[*CommitQC](), true},
+		"height after a gap":                        {secondWith(h.Height()+1, parentHash, h.LaneRange(lane)), utils.Some(first), true},
+		"lane range after a gap":                    {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()+1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
+		"lane range overlaps the parent":            {secondWith(h.Height(), parentHash, NewLaneRange(lane, h.LaneRange(lane).First()-1, utils.None[*LaneBlockHeader]())), utils.Some(first), true},
+		"lane omitted after the parent advanced it": {secondWith(h.Height(), parentHash), utils.Some(first), true},
+		"first road block above the first height":   {newRoadBlockHeader(ep.EpochIndex(), first.Height()+1, utils.None[RoadBlockHeaderHash](), first.Header().Timestamp(), nil), utils.None[*CommitQC](), true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := tc.header.VerifyParent(tc.parent)
-			if tc.ok {
-				require.NoError(t, err)
-			} else {
+			err := tc.header.VerifyWithParent(ep, tc.parent)
+			if tc.mismatch {
 				require.ErrorIs(t, err, ErrParentMismatch)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
+	t.Run("header fails its own check", func(t *testing.T) {
+		other := NewEpoch(ep.EpochIndex()+1, ep.RoadRange(), committee)
+		err := h.VerifyWithParent(other, utils.Some(first))
+		require.Error(t, err)
+		require.False(t, errors.Is(err, ErrParentMismatch))
+	})
 }
 
 // A header with no parent omits field 6 from its canonical encoding.

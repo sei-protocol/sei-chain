@@ -256,11 +256,8 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	if vs.View() != qc.View() {
 		return nil
 	}
-	if err := qc.Verify(vs.Epoch); err != nil {
+	if err := qc.Verify(vs.Epoch, vs.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
-	}
-	if err := qc.Header().VerifyParent(vs.ParentHeader()); err != nil {
-		return fmt.Errorf("qc: %w", err)
 	}
 	// Update.
 	for isend := range s.inner.Lock() {

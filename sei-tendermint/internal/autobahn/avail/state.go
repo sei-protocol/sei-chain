@@ -215,6 +215,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	height := qc.Height()
 	want := qc.View().EpochIndex
 	var epoch *types.Epoch
+	var parent utils.Option[*types.CommitQC]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			return inner.applied().EpochIndex() >= want && height <= inner.roads.next
@@ -225,16 +226,15 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return nil
 		}
 		epoch = inner.applied()
+		// The qc is the next road here, so its parent is fixed until the next road advances.
+		parent = inner.lastCommitQC()
 	}
-	if err := qc.Verify(epoch); err != nil {
+	if err := qc.Verify(epoch, parent); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		if height != inner.roads.next || inner.applied().EpochIndex() != want {
 			return nil
-		}
-		if err := qc.Header().VerifyParent(inner.lastCommitQC().Map((*types.CommitQC).Header)); err != nil {
-			return fmt.Errorf("qc: %w", err)
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
