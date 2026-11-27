@@ -36,15 +36,13 @@ func (m *PrepareQC) View() View {
 	return m.vote.Msg().View()
 }
 
-// Verify checks that the header of the PrepareQC is valid in ep and follows parent, and that a
-// prepare quorum of the committee of ep signed the PrepareQC. parent is the CommitQC of the previous
-// road block, or None when the PrepareQC prepares the first road block of the chain.
+// Verify runs verifyWithoutParent and then checks that the header of the PrepareQC follows parent,
+// the CommitQC of the previous road block, or None for the first road block of the chain.
 func (m *PrepareQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
-	if err := m.Header().VerifyWithParent(ep, parent); err != nil {
+	if err := m.verifyWithoutParent(ep); err != nil {
 		return err
 	}
-	c := ep.Committee()
-	return m.vote.verifyQC(c, c.PrepareQuorum(), m.sigs)
+	return m.Header().verifyParent(ep, parent)
 }
 
 // verifyWithoutParent checks that the header of the PrepareQC is valid in ep and that a prepare

@@ -43,15 +43,13 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 	return m.Header().LaneRange(lane)
 }
 
-// Verify checks that the header of the CommitQC is valid in ep and follows parent, and that a
-// commit quorum of the committee of ep signed the CommitQC. parent is the CommitQC of the previous
-// road block, or None when the CommitQC finalizes the first road block of the chain.
+// Verify runs verifyWithoutParent and then checks that the header of the CommitQC follows parent,
+// the CommitQC of the previous road block, or None for the first road block of the chain.
 func (m *CommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
-	if err := m.Header().VerifyWithParent(ep, parent); err != nil {
+	if err := m.verifyWithoutParent(ep); err != nil {
 		return err
 	}
-	c := ep.Committee()
-	return m.vote.verifyQC(c, c.CommitQuorum(), m.sigs)
+	return m.Header().verifyParent(ep, parent)
 }
 
 // verifyWithoutParent checks that the header of the CommitQC is valid in ep and that a commit
@@ -94,13 +92,13 @@ func (m *FullCommitQC) Height() RoadHeight {
 	return m.qc.Height()
 }
 
-// Verify checks the CommitQC of the FullCommitQC with CommitQC.Verify(ep, parent), and checks
-// that the lane block headers of the FullCommitQC are the ones that the CommitQC finalizes.
+// Verify runs verifyWithoutParent and then checks that the header of the FullCommitQC follows
+// parent, the CommitQC of the previous road block, or None for the first road block of the chain.
 func (m *FullCommitQC) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
-	if err := m.qc.Verify(ep, parent); err != nil {
-		return fmt.Errorf("qC: %w", err)
+	if err := m.verifyWithoutParent(ep); err != nil {
+		return err
 	}
-	return m.verifyHeaders(ep)
+	return m.Header().verifyParent(ep, parent)
 }
 
 // verifyWithoutParent checks the CommitQC of the FullCommitQC against ep without a parent, and
