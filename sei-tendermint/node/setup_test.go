@@ -64,7 +64,6 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
 		AllowEmptyBlocks:   false,
-		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		PersistentStateDir: t.TempDir(),
 		DialInterval:       utils.Duration(10 * time.Second),
 		EVMChainID:         713700,
@@ -169,7 +168,6 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
 		AllowEmptyBlocks:   true,
-		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		PersistentStateDir: "/tmp/autobahn-state",
 		DialInterval:       utils.Duration(5 * time.Second),
 		EVMChainID:         713700,
@@ -181,6 +179,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	txMempool, genDoc := makeTestGigaDeps()
 	params := types.DefaultAutobahnParams()
 	params.ViewTimeout = 3 * time.Second
+	params.LaneBlockInterval = 200 * time.Millisecond
 	genDoc.Autobahn = utils.Some(params)
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
@@ -209,6 +208,19 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	assert.Equal(t, 200*time.Millisecond, result.Producer.BlockInterval)
 
 	assert.Equal(t, genDoc, result.GenDoc)
+}
+
+func TestBuildGigaConfig_DefaultLaneBlockInterval(t *testing.T) {
+	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
+	cfgFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{v1}))
+	nodeKey := makeTestNodeKey([]byte("node-seed"))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
+	txMempool, genDoc := makeTestGigaDeps()
+	genDoc.Autobahn = utils.None[types.AutobahnParams]()
+
+	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
+	require.NoError(t, err)
+	assert.Equal(t, 150*time.Millisecond, result.Producer.BlockInterval)
 }
 
 func TestBuildGigaConfig_NoneMaxTxsPerSecond(t *testing.T) {
@@ -374,14 +386,14 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.StateDB())
-	require.Nil(t, manager.StateDB().UndoSS())
+	require.Nil(t, manager.StateDB().HistoricalStateDB())
 	require.NotNil(t, manager.ReceiptDB())
 	require.Equal(t, "evmonly", app.Info().Data)
 	registry, err := app.EpochRegistry()

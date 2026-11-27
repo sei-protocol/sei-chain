@@ -47,9 +47,7 @@ func TestOpenFreshHome(t *testing.T) {
 	require.NotNil(t, manager.ReceiptDB())
 	require.NotNil(t, historicalStateDB(manager))
 
-	scVersion, err := manager.StateDB().SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Zero(t, scVersion)
+	require.Zero(t, manager.StateDB().LiveStateDB().Version())
 	require.Zero(t, historicalStateDB(manager).GetLatestVersion())
 	require.Zero(t, manager.ReceiptDB().LatestVersion())
 }
@@ -62,10 +60,8 @@ func TestOpenFreshHome(t *testing.T) {
 func TestOpenLoadsTheCommitStore(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	version, err := manager.StateDB().SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Zero(t, version, "a fresh home is at genesis, but the version must be readable")
-	require.NotNil(t, manager.StateDB().SC().Name(), "a loaded store answers as a prunable store")
+	require.Zero(t, manager.StateDB().LiveStateDB().Version(), "a fresh home is at genesis")
+	require.NotNil(t, manager.StateDB().LiveStateDB().Name(), "a loaded store answers as a prunable store")
 }
 
 // TestReceiptsDisabled pins that Enable is what decides whether the receipt store is opened at
@@ -113,8 +109,7 @@ func TestHistoricalStateDBDisabledRefusesAStoreWithHistory(t *testing.T) {
 	second, err := NewGigaStorageManager(t.Context(), cfg)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), historicalStateDB(second).GetLatestVersion())
-	require.ErrorContains(t, second.Close(), "the receipt store stands at block 0",
-		"state was written with no receipts, so the shutdown is not clean")
+	require.NoError(t, second.Close())
 }
 
 // TestReceiptsDisabledTakesAnEmptyStore pins that a receipt store that was opened but never written
@@ -145,7 +140,7 @@ func TestStateStoreDisabled(t *testing.T) {
 
 	require.NotNil(t, manager.StateDB().CheckpointScheduler(),
 		"SC still needs the schedule that replaces its own interval")
-	require.True(t, manager.StateDB().SC().ExternalPruning())
+	require.True(t, manager.StateDB().LiveStateDB().ExternalPruning())
 
 	names := make([]string, 0, 5)
 	for _, store := range managerPrunableStores(manager) {
@@ -249,7 +244,7 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 	commitBlock(t, manager, 1, changes)
 	historicalStateDB(manager).WaitForPendingWrites()
 
-	require.Equal(t, int64(1), manager.StateDB().SC().Version())
+	require.Equal(t, int64(1), manager.StateDB().LiveStateDB().Version())
 	require.Equal(t, int64(1), historicalStateDB(manager).GetLatestVersion(),
 		"a committed block must advance the EVM state store even when it carries no EVM keys")
 	ok, first, last, err := manager.StateDB().WAL().GetStoredRange()
@@ -281,7 +276,7 @@ func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.True(t, manager.StateDB().SC().ExternalPruning())
+	require.True(t, manager.StateDB().LiveStateDB().ExternalPruning())
 	require.True(t, historicalStateDB(manager).ExternalPruning())
 
 	names := make([]string, 0, 6)
@@ -291,7 +286,7 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
 	// meaning to the collector: it fixes both cut lines as a minimum over every store before pruning
 	// any of them.
-	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS undo", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
+	require.Equal(t, []string{"FlatKV", "StateWAL", "SS undo", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered

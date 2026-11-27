@@ -34,7 +34,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -42,27 +41,13 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
 
-// evmOnlyBaseFee is the base fee this application executes every block at.
-// Admission and block validity both price against it, so they cannot diverge.
-func evmOnlyBaseFee() *big.Int { return new(big.Int) }
-
-// evmOnlyBlockMinGasPrice is the effective gas price, in wei, below which a
-// transaction invalidates the block containing it. Every node must agree on
-// it, so it is not an operator setting.
-const evmOnlyBlockMinGasPrice = 1_000_000_000
-
-// evmOnlyAdmissionMinGasPrice returns the local admission floor for a configured
-// value, never below the block-validity floor.
-func evmOnlyAdmissionMinGasPrice(configured uint64) *big.Int {
-	return new(big.Int).SetUint64(max(configured, evmOnlyBlockMinGasPrice))
-}
-
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
 type evmOnlyApplication struct {
 	chainID     *big.Int
 	chainConfig *params.ChainConfig
 	execution   gigaconfig.ExecutionConfig
+	// minGasPrice is this node's floor on the effective gas price it admits a transaction at.
 	minGasPrice *big.Int
 	storage     *bootstrap.GigaStorageManager
 	// epochRegistry is the epoch registry each executed block advances.
@@ -118,6 +103,15 @@ type evmOnlyCursorState struct {
 	pendingBlockTime uint64
 }
 
+// newEVMOnlyCursorState returns the cursor state of an app that neither InitChain nor a stored
+// cursor has set yet: its committed cursor schedules the genesis base fees.
+func newEVMOnlyCursorState() *evmOnlyCursorState {
+	return &evmOnlyCursorState{
+		committed: evmOnlyCursor{baseFees: genesisBaseFees()},
+		started:   map[int64]common.Hash{},
+	}
+}
+
 var _ abevm.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application Autobahn runs.
@@ -155,26 +149,26 @@ func NewEVMOnlyApplication(
 		chainID:           new(big.Int).SetUint64(chainID),
 		chainConfig:       &chainConfig,
 		execution:         execution,
-		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
+		minGasPrice:       new(big.Int).SetUint64(execution.MinGasPrice),
 		storage:           storage,
 		epochRegistry:     epochRegistry,
 		customPrecompiles: customPrecompiles,
 		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
 		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:            utils.NewWatch(&evmOnlyCursorState{started: map[int64]common.Hash{}}),
+		cursor:            utils.NewWatch(newEVMOnlyCursorState()),
 		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
-	cursor, err := loadEVMOnlyCursor(storage.StateDB().SC())
+	cursor, err := loadEVMOnlyCursor(storage.StateDB().LiveStateDB())
 	if err != nil {
 		return nil, err
 	}
 	if cursor, ok := cursor.Get(); ok {
-		if err := a.checkStartedWithAlloc(storage.StateDB().SC()); err != nil {
+		if err := a.checkStartedWithAlloc(storage.StateDB().LiveStateDB()); err != nil {
 			return nil, err
 		}
-		if err := a.checkStartedWithChainID(storage.StateDB().SC()); err != nil {
+		if err := a.checkStartedWithChainID(storage.StateDB().LiveStateDB()); err != nil {
 			return nil, err
 		}
 		for executor := range a.executor.Lock() {
@@ -208,10 +202,12 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	}
 	return evmonly.NewExecutor(evmonly.Config{
 		ChainConfig:             a.chainConfig,
-		MinGasPrice:             big.NewInt(evmOnlyBlockMinGasPrice),
 		OCCWorkers:              workersOrGOMAXPROCS(a.execution.OCCWorkers),
 		ParseWorkers:            workersOrGOMAXPROCS(a.execution.ParseWorkers),
 		EarlySpeculationWorkers: a.execution.EarlySpeculationWorkers,
+		// The block's base fee is the only price rule: a transaction whose fee cap is below
+		// it is unappliable, and so recorded as a failed receipt.
+		DisableGasPriceCheck: true,
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
@@ -223,9 +219,11 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 // encodeCursorChangeSet chains the block into the app hash and stages the
 // resulting cursor as pending, returning it as the write committed with
 // the block's state. The epoch registry row is written with it when the block
-// is the initial road or closes an epoch.
+// is the initial road or closes an epoch. The block's base fee update follows
+// the params in execState, the state the block executed against.
 func (a *evmOnlyApplication) encodeCursorChangeSet(
 	block evmonly.BlockContext,
+	execState evmonly.StateReader,
 	result *evmonly.BlockResult,
 	after func() precompiles.State,
 ) ([]gigatypes.MiscChange, error) {
@@ -233,9 +231,14 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 	if !ok {
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
 	}
+	baseFeeRules := evmOnlyBaseFeeRules(execState)
 	for state := range a.cursor.Lock() {
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
+		}
+		baseFee := state.committed.baseFees[1]
+		if block.BaseFee == nil || block.BaseFee.Cmp(baseFee.ToBig()) != 0 {
+			return nil, fmt.Errorf("EVM-only block %d executed at base fee %v, not its scheduled %s", height, block.BaseFee, &baseFee)
 		}
 		epochChanges, err := a.epochRegistry.Changes(atypes.RoadHeight(block.Number), func() (map[atypes.PublicKey]uint64, error) {
 			return stakingWeights(after())
@@ -243,7 +246,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if err != nil {
 			return nil, err
 		}
-		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
+		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, &baseFee, result)
 		if err != nil {
 			return nil, err
 		}
@@ -252,6 +255,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 			appHash:   appHash,
 			blockHash: block.BlockHash,
 			gasLimit:  block.GasLimit,
+			baseFees:  state.committed.nextBaseFees(baseFeeRules, result.GasUsed, block.GasLimit),
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
@@ -285,7 +289,11 @@ func (a *evmOnlyApplication) InitChain(req abevm.InitConfig) error {
 		}
 		a.installExecutor(executor)
 		for state := range a.cursor.Lock() {
-			state.committed = evmOnlyCursor{height: initialHeight - 1, gasLimit: gasLimit}
+			state.committed = evmOnlyCursor{
+				height:   initialHeight - 1,
+				gasLimit: gasLimit,
+				baseFees: genesisBaseFees(),
+			}
 		}
 		return nil
 	}
@@ -297,11 +305,8 @@ func (a *evmOnlyApplication) InitChain(req abevm.InitConfig) error {
 // between InitChain and the first block leaves it that way; a store holding
 // any block is refused.
 func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error {
-	stateStore := a.storage.StateDB().SC()
-	latest, err := stateStore.GetLatestVersion()
-	if err != nil {
-		return fmt.Errorf("read EVM-only state version: %w", err)
-	}
+	stateStore := a.storage.StateDB().LiveStateDB()
+	latest := stateStore.Version()
 	switch {
 	case latest == initialHeight-1:
 		return nil
@@ -437,12 +442,13 @@ func (a *evmOnlyApplication) admissionBalance(sender common.Address) uint256.Int
 }
 
 func (a *evmOnlyApplication) checkAdmissionPolicy(tx abevm.EvmTx) error {
-	// The predicate block validity uses, not tx.GasPrice(): on a dynamic-fee tx
-	// that is the fee cap, so admitting on it let through transactions the
-	// executor then refused — and an executor refusal is a node panic, not a
-	// failed receipt.
-	if evmonly.EffectiveGasPrice(tx.Transaction(), evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
-		return fmt.Errorf("insufficient fee: effective gas price is below %s", a.minGasPrice)
+	// The effective price at baseFee, not tx.GasPrice(), which is a dynamic-fee tx's fee cap. It
+	// is below baseFee exactly when the fee cap is, so a transaction no block at the scheduled
+	// heights could execute is refused too.
+	baseFee := a.admissionBaseFee()
+	minGasPrice := a.admissionMinGasPrice(baseFee)
+	if evmonly.EffectiveGasPrice(tx.Transaction(), baseFee).Cmp(minGasPrice) < 0 {
+		return fmt.Errorf("insufficient fee: effective gas price is below %s", minGasPrice)
 	}
 	return nil
 }
@@ -565,6 +571,24 @@ func (a *evmOnlyApplication) EvmStorageAt(address common.Address, key common.Has
 // EvmMinGasPrice returns the minimum effective gas price this application admits a transaction
 // at. Admission and eth_gasPrice's suggestion both price against it, so they cannot diverge.
 func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
+	return a.admissionMinGasPrice(a.admissionBaseFee())
+}
+
+// admissionBaseFee returns the highest base fee set for the blocks after the committed one.
+// CheckTx prices against it, so a transaction it admits is eligible at each of those heights.
+func (a *evmOnlyApplication) admissionBaseFee() *big.Int {
+	for state := range a.cursor.Lock() {
+		return state.committed.highestScheduledBaseFee()
+	}
+	panic("unreachable")
+}
+
+// admissionMinGasPrice returns the minimum effective gas price CheckTx admits a transaction at
+// when it prices against baseFee: this node's floor, or baseFee when that is higher.
+func (a *evmOnlyApplication) admissionMinGasPrice(baseFee *big.Int) *big.Int {
+	if baseFee.Cmp(a.minGasPrice) > 0 {
+		return new(big.Int).Set(baseFee)
+	}
 	return new(big.Int).Set(a.minGasPrice)
 }
 
@@ -601,9 +625,29 @@ func (a *evmOnlyApplication) EvmChainConfig() *params.ChainConfig {
 	return a.chainConfig
 }
 
-// EvmBaseFee returns the base fee this application executes every block at.
+// EvmBaseFee returns the base fee the most recently committed block ran at.
 func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
-	return evmOnlyBaseFee()
+	for state := range a.cursor.Lock() {
+		return state.committed.baseFee()
+	}
+	panic("unreachable")
+}
+
+// EvmNextBaseFee returns the base fee the block after the most recently committed one runs at.
+func (a *evmOnlyApplication) EvmNextBaseFee() *big.Int {
+	for state := range a.cursor.Lock() {
+		return state.committed.nextBaseFee()
+	}
+	panic("unreachable")
+}
+
+// scheduledBaseFee returns the base fee the latest finalized block's cursor sets for the block at
+// height, or the nearest one it sets when it sets none for height.
+func (a *evmOnlyApplication) scheduledBaseFee(height int64) *big.Int {
+	for state := range a.cursor.Lock() {
+		return state.committed.scheduledBaseFee(height)
+	}
+	panic("unreachable")
 }
 
 // evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
@@ -611,15 +655,16 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
 }
 
-// blockContext returns the context this application executes a block at. Coinbase is zero, and
-// the base fee and blob base fee are always zero.
-func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, parentHash, blockHash common.Hash) evmonly.BlockContext {
+// blockContext returns the context this application executes a block at. Its coinbase is
+// evmonly.FeeCollectorAddress and its blob base fee is zero.
+func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, baseFee *big.Int, parentHash, blockHash common.Hash) evmonly.BlockContext {
 	return evmonly.BlockContext{
 		Number:      number,
 		Time:        timestamp,
 		GasLimit:    gasLimit,
 		ChainID:     new(big.Int).Set(a.chainID),
-		BaseFee:     evmOnlyBaseFee(),
+		Coinbase:    evmonly.FeeCollectorAddress,
+		BaseFee:     baseFee,
 		BlobBaseFee: new(big.Int),
 		ParentHash:  parentHash,
 		BlockHash:   blockHash,
@@ -666,7 +711,7 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 			return evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
 		}
 		// ParentHash is left zero.
-		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, common.Hash{}, state.committed.blockHash), nil
+		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, state.committed.baseFee(), common.Hash{}, state.committed.blockHash), nil
 	}
 	panic("unreachable")
 }
@@ -829,7 +874,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 	// Prepared before this block's turn, so it overlaps the previous block's execution.
 	parentHash, parentKnown := a.startBlock(height, blockHash)
 	prepared, err := executor.PrepareDecodedBlock(ctx,
-		a.blockContext(number, timestamp, a.EvmGasLimit(), parentHash, blockHash), req.Txs)
+		a.blockContext(number, timestamp, a.EvmGasLimit(), a.scheduledBaseFee(height), parentHash, blockHash), req.Txs)
 	if err != nil {
 		return abevm.FinalizeBlockResp{}, err
 	}
@@ -852,7 +897,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 			return abevm.FinalizeBlockResp{}, err
 		}
 		a.finalizePhases.SetPhase(finalizePhaseExecute)
-		block := a.blockContext(number, timestamp, parent.gasLimit, parent.blockHash, blockHash)
+		block := a.blockContext(number, timestamp, parent.gasLimit, parent.nextBaseFee(), parent.blockHash, blockHash)
 		if epoch, ok := a.epochRegistry.EpochOf(atypes.RoadHeight(number)).Get(); ok {
 			block.Epoch = utils.Some(uint64(epoch))
 		}
@@ -894,11 +939,7 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 // A durable cursor remains pending after a failed finalization.
 func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height int64) error {
 	commitErr := executor.AwaitCommits()
-	latest, err := a.storage.StateDB().SC().GetLatestVersion()
-	if err != nil {
-		return errors.Join(commitErr, fmt.Errorf("read EVM-only state version: %w", err))
-	}
-	if latest >= height {
+	if a.storage.StateDB().LiveStateDB().Version() >= height {
 		return commitErr
 	}
 	for state := range a.cursor.Lock() {
@@ -948,12 +989,14 @@ func (a *evmOnlyApplication) finishBlock(height int64) error {
 	panic("unreachable")
 }
 
-func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, baseFee *uint256.Int, result *evmonly.BlockResult) (common.Hash, error) {
 	h := sha256.New()
 	w := newEVMOnlyHashWriter(h)
 	w.write(previous[:])
 	w.writeUint64(height)
 	w.write(blockHash[:])
+	baseFeeBytes := baseFee.Bytes32()
+	w.write(baseFeeBytes[:])
 	w.writeUint64(result.GasUsed)
 	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
 	if err != nil {
@@ -1104,7 +1147,7 @@ func (g GenesisAlloc) miscChange() gigatypes.MiscChange {
 // checkStartedWithAlloc refuses to resume a chain with an alloc other than the one it started with:
 // adding one would empty every account the chain has not written, and dropping one would give each
 // 2^200 wei.
-func (a *evmOnlyApplication) checkStartedWithAlloc(store *flatkv.CommitStore) error {
+func (a *evmOnlyApplication) checkStartedWithAlloc(store gigatypes.LiveStateStore) error {
 	started, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyGenesisAllocKey))
 	alloc, ok := a.alloc.Get()
 	switch {
@@ -1132,7 +1175,7 @@ func (a *evmOnlyApplication) chainIDMiscChange() gigatypes.MiscChange {
 
 // checkStartedWithChainID refuses to resume a chain on a chain ID other than the one it ran on, which
 // would reject its transactions and change what CHAINID returns.
-func (a *evmOnlyApplication) checkStartedWithChainID(store *flatkv.CommitStore) error {
+func (a *evmOnlyApplication) checkStartedWithChainID(store gigatypes.LiveStateStore) error {
 	raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyChainIDKey))
 	if !found {
 		return errors.New("EVM-only chain has no recorded chain ID; reset it onto a new evm_chain_id")

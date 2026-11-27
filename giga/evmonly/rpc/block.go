@@ -101,7 +101,10 @@ func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.Re
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	baseFee := api.backend.EvmBaseFee()
+	baseFee, err := blockBaseFee(ctx, api.backend, api.store, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	chainConfig := api.backend.EvmChainConfig()
 	return api.rpcTransaction(ctx, block, i, blockUnix, baseFee, chainConfig)
 }
@@ -193,37 +196,19 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	parentHash, err := api.parentHash(ctx, block.Block.Height)
+	gasLimit := api.backend.EvmGasLimit()
+	baseFee, err := blockBaseFee(ctx, api.backend, api.store, block.Block.Height)
 	if err != nil {
 		return nil, err
 	}
-	gasLimit := api.backend.EvmGasLimit()
-	baseFee := api.backend.EvmBaseFee()
 	return &ethtypes.Header{
-		ParentHash: parentHash,
+		ParentHash: common.BytesToHash(block.Block.LastBlockID.Hash),
 		Number:     big.NewInt(block.Block.Height),
 		GasLimit:   gasLimit,
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
-		// Zero rather than nil, so a dynamic-fee transaction is priced at its tip as it executed.
-		BaseFee: baseFee,
+		BaseFee:    baseFee,
 	}, nil
-}
-
-// parentHash returns the hash of the block before height, which a stored block does not carry. It is
-// zero for the chain's first block.
-func (api *blockAPI) parentHash(ctx context.Context, height int64) (common.Hash, error) {
-	if height <= firstBlockHeight(api.backend) {
-		return common.Hash{}, nil
-	}
-	parent, err := api.blockAt(ctx, height-1)
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("read the parent of block %d: %w", height, err)
-	}
-	if parent == nil {
-		return common.Hash{}, nil
-	}
-	return common.BytesToHash(parent.BlockID.Hash), nil
 }
 
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
@@ -237,7 +222,10 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Block.Time)
 	}
 	gasLimit := api.backend.EvmGasLimit()
-	baseFee := api.backend.EvmBaseFee()
+	baseFee, err := blockBaseFee(ctx, api.backend, api.store, number)
+	if err != nil {
+		return nil, err
+	}
 
 	txs := block.Block.Txs
 	transactions := make([]any, len(txs))
@@ -299,13 +287,16 @@ func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.Result
 
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
 // decodes.
-func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
+func encodeHeader(ctx context.Context, backend Backend, store receiptdb.ReceiptStore, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
 	gasLimit := backend.EvmGasLimit()
-	baseFee := backend.EvmBaseFee()
+	baseFee, err := blockBaseFee(ctx, backend, store, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
 }
 

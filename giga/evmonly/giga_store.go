@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
+	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -23,13 +24,13 @@ var _ StateReader = gigaSnapshotStateReader{}
 // BlockChangeSetEncoder contributes non-EVM writes that are committed in the
 // same CommitStateChanges call as the block's EVM state changes, so they are
 // durable, rolled back and replayed together with that state. It is called
-// after execution with the block's context and result, which it must treat as
-// immutable, and with after, which opens read-only state as the block left it
-// and may be called only during the call. A write to the EVM module fails the
-// commit.
+// after execution with the block's context, execState, the state the block
+// executed against, and the block's result, all of which it must treat as
+// immutable. after opens read-only state as the block left it, and may be
+// called only during the call. A write to the EVM module fails the commit.
 //
 // What it returns must not alias the result, since the commit outlives the block.
-type BlockChangeSetEncoder func(block BlockContext, result *BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error)
+type BlockChangeSetEncoder func(block BlockContext, execState StateReader, result *BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
@@ -108,7 +109,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		after := func() precompiles.State {
 			return &precompileState{db: newNativeStateDB(newPendingOverlay(source, &result.ChangeSet)), readOnly: true}
 		}
-		misc, err = e.blockChangeSetEncoder(req.Context, result, after)
+		misc, err = e.blockChangeSetEncoder(req.Context, source, result, after)
 		if err != nil {
 			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
 		}
@@ -118,12 +119,13 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
 		e.blockPhases.SetPhase(phaseEncodeReceipts)
-		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, req.Context.BaseFee, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
 		}
 		e.blockPhases.SetPhase(phaseWriteReceipts)
-		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+		receiptCtx := receiptdb.WithBlockBaseFee(newReceiptContext(ctx, blockNumber), req.Context.BaseFee)
+		if err := receiptStore.SetReceipts(receiptCtx, records); err != nil {
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 		}
 	}

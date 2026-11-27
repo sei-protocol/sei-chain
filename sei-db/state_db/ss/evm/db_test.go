@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 func testConfig() config.StateStoreConfig {
@@ -22,7 +23,7 @@ func testConfig() config.StateStoreConfig {
 	}
 }
 
-func openTestStore(t *testing.T) types.StateStore {
+func openTestStore(t *testing.T) sstypes.StateStore {
 	t.Helper()
 	dir := t.TempDir()
 	store, err := NewEVMStateStore(dir, testConfig())
@@ -209,9 +210,9 @@ func TestEVMStateStoreSeparatedPreservesUnifiedKeyLayout(t *testing.T) {
 	require.Equal(t, []byte("slot_value"), storageVal)
 }
 
-// verifyStateStoreInterface ensures EVMStateStore satisfies db_engine.StateStore.
+// verifyStateStoreInterface ensures EVMStateStore satisfies sstypes.StateStore.
 func TestEVMStateStoreImplementsInterface(t *testing.T) {
-	var _ types.StateStore = (*EVMStateStore)(nil)
+	var _ sstypes.StateStore = (*EVMStateStore)(nil)
 }
 
 func TestEVMStateStoreGetHas(t *testing.T) {

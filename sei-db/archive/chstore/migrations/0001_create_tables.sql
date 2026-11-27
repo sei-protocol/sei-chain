@@ -1,8 +1,9 @@
 -- The archive's tables.
 --
 -- Block-ordered tables are partitioned by 10M-block ranges, and hash-keyed tables into 32 buckets
--- so a lookup reads one bucket's parts. Every table has automatic statistics off: they cost CPU on
--- every insert and merge.
+-- so a lookup reads one bucket's parts. block_hash_locator is the exception: at about 10 bytes a
+-- block it never nears the merge cap below, so it stays one partition. Every table has automatic
+-- statistics off: they cost CPU on every insert and merge.
 --
 -- Inserts are not fsynced. A process crash loses nothing, but a machine crash or power loss can
 -- lose the newest inserts in any order, leaving an archive_commits row whose rows are gone, or
@@ -14,12 +15,12 @@
 -- A read of a slot at block H takes the newest block <= H from storage_history, then that block's
 -- row from storage_changes.
 --
--- A lookup in a hash-keyed table (hash_locator, account_history, storage_history) reads one
--- granule from every part in its bucket. Background merges stop at 150 GB per part, so a bucket
+-- A lookup in a hash-keyed table (transaction_hash_locator, account_history, storage_history) reads
+-- one granule from every part in its bucket. Background merges stop at 150 GB per part, so a bucket
 -- gains about one part per 150 GB it grows. If those lookups get slow, raising the cap for that
 -- table cuts its part count, at the cost of longer merges and free disk for the largest one.
 -- Untested at production size:
---   ALTER TABLE hash_locator MODIFY SETTING max_bytes_to_merge_at_max_space_in_pool = 1099511627776;
+--   ALTER TABLE transaction_hash_locator MODIFY SETTING max_bytes_to_merge_at_max_space_in_pool = 1099511627776;
 
 -- Two rows per batch: a pending row written before the batch's rows, and a committed row written
 -- after them. Every block from start_block to end_block of a committed row is in every table. A
@@ -33,6 +34,16 @@ CREATE TABLE IF NOT EXISTS archive_commits
 )
 ENGINE = MergeTree
 ORDER BY (end_block, committed)
+SETTINGS auto_statistics_types = '';
+
+-- The archive's metadata: one row, recorded by the first node that opens the empty archive. chain_id
+-- is the EVM chain whose blocks the archive holds. A node of another chain refuses the archive.
+CREATE TABLE IF NOT EXISTS archive_meta
+(
+    chain_id                UInt64
+)
+ENGINE = MergeTree
+ORDER BY tuple()
 SETTINGS auto_statistics_types = '';
 
 CREATE TABLE IF NOT EXISTS blocks
@@ -73,19 +84,33 @@ PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, transaction_index)
 SETTINGS auto_statistics_types = '';
 
--- Finds a block or transaction by hash: hash_prefix is the hash's big-endian first eight bytes,
--- and location the block number, or the block number << 24 | transaction index. A hash with
--- several locations resolves to the earliest. The prefixes are random but sorted, so their deltas
--- are small.
-CREATE TABLE IF NOT EXISTS hash_locator
+-- Finds a block by hash: hash_prefix is the hash's big-endian first eight bytes. A prefix can
+-- match more than one block, so a reader checks the full hash in blocks. The prefixes are random
+-- but sorted, so their deltas are small.
+CREATE TABLE IF NOT EXISTS block_hash_locator
 (
     hash_prefix             UInt64 CODEC(Delta, ZSTD(1)),
-    object_kind             UInt8,
-    location                UInt64 CODEC(ZSTD(1))
+    block_number            UInt64 CODEC(ZSTD(1))
+)
+ENGINE = MergeTree
+ORDER BY (hash_prefix, block_number)
+SETTINGS index_granularity = 4096, auto_statistics_types = '';
+
+-- Finds a transaction by hash: hash_prefix is the hash's big-endian first eight bytes, and
+-- location the block number << 24 | transaction index, read back through the block_number and
+-- transaction_index alias columns. A hash with several locations resolves to the earliest. A
+-- prefix can match more than one transaction, so a reader checks the full hash in
+-- transactions_receipts.
+CREATE TABLE IF NOT EXISTS transaction_hash_locator
+(
+    hash_prefix             UInt64 CODEC(Delta, ZSTD(1)),
+    location                UInt64 CODEC(ZSTD(1)),
+    block_number            UInt64 ALIAS bitShiftRight(location, 24),
+    transaction_index       UInt32 ALIAS toUInt32(bitAnd(location, 16777215))
 )
 ENGINE = MergeTree
 PARTITION BY modulo(hash_prefix, 32)
-ORDER BY (hash_prefix, object_kind, location)
+ORDER BY (hash_prefix, location)
 SETTINGS index_granularity = 4096, auto_statistics_types = '';
 
 -- The text index holds, per log, 'a' plus the raw address and the topic position digit
@@ -123,17 +148,36 @@ PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, address)
 SETTINGS auto_statistics_types = '';
 
--- The blocks in which each account changed. block_number keeps per-part min/max statistics, so a
--- read at an old height skips the parts written after it.
+-- The blocks in which each account changed, keyed by the first 16 bytes of BLAKE3(address): k_hi
+-- is bytes 0-7 and k_lo bytes 8-15, both big-endian. A writer inserts address and block_number, and
+-- the table derives the key, which an insert cannot set; a reader computes it with the same
+-- expressions.
+--
+-- A read of an account at block H takes the newest block_number <= H with its k_hi and k_lo, then
+-- that block's row in account_changes. If that row is missing, the key belongs to another account
+-- too, and the read steps back to the next older block. No block at or below H means the account
+-- did not change from the archive's first block to H, so it holds what it held before that block,
+-- which an archive that starts after the chain's first block does not know.
+--
+-- primary_key_ratio_of_unique_prefix_values_to_skip_suffix_columns = 1 keeps k_lo and block_number
+-- in the in-memory primary index, which ClickHouse would otherwise drop because k_hi differs between
+-- almost every pair of marks. Without them, a read of an account changed in many blocks reads every
+-- granule of its history instead of one. block_number keeps per-part min/max statistics, so a read
+-- at an old height skips the parts written after it.
+--
+-- Note: the tradeoff chosen here is less space and a bit more CPU. k_hi | k_lo is 16 bytes vs address 20 bytes which
+-- saves storage. but as a con a hash is added which increases CPU. if ingestion rates become an issue, revisit this.
 CREATE TABLE IF NOT EXISTS account_history
 (
-    address                 FixedString(20) CODEC(ZSTD(3)),
+    address                 FixedString(20) EPHEMERAL,
+    k_hi                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(address), 1, 8))) CODEC(Delta, ZSTD(1)),
+    k_lo                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(address), 9, 8))) CODEC(ZSTD(1)),
     block_number            UInt64 CODEC(Delta, ZSTD(1)) STATISTICS(basic)
 )
 ENGINE = MergeTree
-PARTITION BY modulo(sipHash64(address), 32)
-ORDER BY (sipHash64(address), block_number)
-SETTINGS auto_statistics_types = '';
+PARTITION BY modulo(k_hi, 32)
+ORDER BY (k_hi, k_lo, block_number)
+SETTINGS primary_key_ratio_of_unique_prefix_values_to_skip_suffix_columns = 1, auto_statistics_types = '';
 
 -- The value of each slot a block wrote, after the block; a cleared slot is zero.
 CREATE TABLE IF NOT EXISTS storage_changes
@@ -148,18 +192,20 @@ PARTITION BY intDiv(block_number, 10000000)
 ORDER BY (block_number, address, slot)
 SETTINGS auto_statistics_types = '';
 
--- The blocks in which each slot changed, with min/max statistics on block_number as in
--- account_history.
+-- The blocks in which each slot changed, laid out and read as account_history is, keyed by the
+-- first 16 bytes of BLAKE3(address || slot) and read back through storage_changes.
 CREATE TABLE IF NOT EXISTS storage_history
 (
-    address                 FixedString(20) CODEC(ZSTD(3)),
-    slot                    FixedString(32) CODEC(ZSTD(3)),
+    address                 FixedString(20) EPHEMERAL,
+    slot                    FixedString(32) EPHEMERAL,
+    k_hi                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(concat(address, slot)), 1, 8))) CODEC(Delta, ZSTD(1)),
+    k_lo                    UInt64 MATERIALIZED reinterpretAsUInt64(reverse(substring(BLAKE3(concat(address, slot)), 9, 8))) CODEC(ZSTD(1)),
     block_number            UInt64 CODEC(Delta, ZSTD(1)) STATISTICS(basic)
 )
 ENGINE = MergeTree
-PARTITION BY modulo(sipHash64(address, slot), 32)
-ORDER BY (sipHash64(address, slot), block_number)
-SETTINGS auto_statistics_types = '';
+PARTITION BY modulo(k_hi, 32)
+ORDER BY (k_hi, k_lo, block_number)
+SETTINGS primary_key_ratio_of_unique_prefix_values_to_skip_suffix_columns = 1, auto_statistics_types = '';
 
 -- Bytecode deployed more than once is written more than once; merges keep one copy.
 CREATE TABLE IF NOT EXISTS contract_code

@@ -106,13 +106,13 @@ func TestMakeEVMApplicationFullModeOpensStateStore(t *testing.T) {
 	validator := makeValidator([]byte("full-validator"), []byte("full-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	_, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeFull},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
-	require.NotNil(t, manager.StateDB().UndoSS())
+	require.NotNil(t, manager.StateDB().HistoricalStateDB())
 }
 
 func TestMakeEVMApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
@@ -121,7 +121,7 @@ func TestMakeEVMApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Storage.Receipts = false
 
-	_, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	_, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, giga, genesisAt(1))
@@ -136,7 +136,7 @@ func TestMakeEVMApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Execution.MinGasPrice = 2_000_000_000
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
 	}, giga, genesisAt(1))
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
 	fc.EVMChainID = 713701
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		AutobahnConfigFile: writeAutobahnConfig(t, fc),
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
@@ -159,23 +159,12 @@ func TestMakeEVMApplicationEVMOnlyUsesConfiguredChainID(t *testing.T) {
 	require.Equal(t, uint64(713701), app.EvmChainID())
 }
 
-func TestMakeEVMApplicationRefusesAPendingRestore(t *testing.T) {
-	psd := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(psd, "state-sync-restore-pending"), []byte("7\n"), 0o600))
-
-	_, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
-
-	require.ErrorIs(t, err, errPendingRestore)
-	_, err = os.Stat(filepath.Join(psd, "data"))
-	require.ErrorIs(t, err, os.ErrNotExist, "no store may open on a home with a pending restore")
-}
-
 func TestMakeEVMApplicationRemovesTheStagingDirOfAStoppedImport(t *testing.T) {
 	psd := t.TempDir()
 	layout := autobahnLayout(psd)
 	require.NoError(t, os.MkdirAll(filepath.Join(layout.ImportStagingDir, "download"), 0o750))
 
-	_, manager, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
+	_, manager, _, err := makeEVMApplication(storageContext(t), layoutConfig(t, psd), gigaconfig.DefaultConfig, genesisAt(1))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
@@ -203,7 +192,7 @@ func TestFirstAppHashFollowsTheGenesisHeight(t *testing.T) {
 	validator := makeValidator([]byte("activation-validator"), []byte("activation-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, gigaconfig.DefaultConfig, genesisAt(initialHeight))

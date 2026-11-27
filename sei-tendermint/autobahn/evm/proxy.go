@@ -145,6 +145,11 @@ func (app *Proxy) EvmBaseFee() *big.Int {
 	return app.app.EvmBaseFee()
 }
 
+func (app *Proxy) EvmNextBaseFee() *big.Int {
+	defer proxymetrics.Observe("evm_next_base_fee", "sync")()
+	return app.app.EvmNextBaseFee()
+}
+
 func (app *Proxy) EvmGasLimit() uint64 {
 	defer proxymetrics.Observe("evm_gas_limit", "sync")()
 	return app.app.EvmGasLimit()
@@ -231,7 +236,12 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 	if header.Number == nil || !header.Number.IsInt64() || header.Number.Sign() < 0 {
 		return BlockRef{}, fmt.Errorf("invalid EVM block number: %v", header.Number)
 	}
-	return BlockRef{Height: types.RoadHeight(header.Number.Uint64()), Time: header.Time, ParentHash: header.ParentHash}, nil
+	return BlockRef{
+		Height:     types.RoadHeight(header.Number.Uint64()),
+		Time:       header.Time,
+		ParentHash: header.ParentHash,
+		BaseFee:    header.BaseFee,
+	}, nil
 }
 
 // EpochRegistry returns the wrapped application's retained epoch window.

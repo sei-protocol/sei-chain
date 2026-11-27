@@ -337,7 +337,7 @@ func TestBlockEncoderReadsTheStateItsBlockLeft(t *testing.T) {
 	defer release()
 	var seen []*big.Int
 	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()),
-		WithStoreIndependentBlockChangeSetEncoder(func(block BlockContext, _ *BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
+		WithStoreIndependentBlockChangeSetEncoder(func(block BlockContext, _ StateReader, _ *BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
 			seen = append(seen, after().GetBalance(recipient))
 			if block.Number == 42 {
 				// Block 41's commit is held until block 42 has read past it.

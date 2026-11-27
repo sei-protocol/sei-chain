@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
@@ -177,6 +178,19 @@ func TestImportRejectsAnotherChain(t *testing.T) {
 	requireUntouched(t, tg)
 }
 
+func TestImportRejectsAnArchiveBelowTheGigaActivationHeight(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	tg := freshHome(t)
+	tg.genDoc.InitialHeight = height + 1
+
+	err := runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard)
+
+	require.ErrorIs(t, err, node.ErrBelowGigaActivation)
+	require.NoFileExists(t, tg.layout.RestoreProofFile)
+	requireUntouched(t, tg)
+}
+
 func TestImportRejectsAChangedRow(t *testing.T) {
 	p := newProducer(t)
 	height := p.commit(t, 1)
@@ -210,6 +224,20 @@ func TestRewriteAcceptsAnArchiveOfAnOlderPebbleFormat(t *testing.T) {
 	got, err := flatkv.SnapshotDirStats(checkpoint, height)
 	require.NoError(t, err)
 	require.Equal(t, want, got)
+}
+
+func TestImportRejectsAProofOfAnotherCommittee(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	other, err := node.GenStateSyncProofFixture(utils.TestRngFromSeed(height+1000), height)
+	require.NoError(t, err)
+	tg := freshHome(t)
+
+	archive := archiveWithProof(t, p.stage(t, height), testChainID, height, other.Proof)
+	err = runImport(t.Context(), tg, bytesSource(archive), io.Discard)
+
+	require.ErrorContains(t, err, "verify the archived state sync proof file")
+	requireUntouched(t, tg)
 }
 
 // changeOneRow changes the value of one data row of the checkpoint in dir, and leaves its
@@ -277,6 +305,14 @@ func TestImportRejectsAHomeWithOtherData(t *testing.T) {
 		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.FlatKVDir)
 		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
 	})
+	t.Run("an app-hash vault without the marker", func(t *testing.T) {
+		tg := freshHome(t)
+		require.NoError(t, os.MkdirAll(tg.layout.AppHashVaultDir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(tg.layout.AppHashVaultDir, "0.wal"), []byte("x"), 0o600))
+
+		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.AppHashVaultDir)
+		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
+	})
 }
 
 func TestForeignFilesLooksPastASymlinkedFlatKVRoot(t *testing.T) {
@@ -306,6 +342,45 @@ func TestForeignFilesFollowsASymlinkThatHoldsTheFlatKVRoot(t *testing.T) {
 	require.Equal(t, []string{other}, foreign)
 }
 
+func TestRemoveFailedStartDataFollowsASymlinkThatHoldsTheFlatKVRoot(t *testing.T) {
+	layout := freshHome(t).layout
+	data := filepath.Join(layout.PersistentStateDir, "data")
+	require.NoError(t, os.Symlink(t.TempDir(), data))
+	kept := []string{
+		filepath.Join(layout.FlatKVDir, "snapshot-5", "data"),
+		filepath.Join(layout.AppHashVaultDir, "0.wal"),
+		layout.RestoreMarkerFile,
+		layout.RestoreProofFile,
+	}
+	removed := []string{
+		filepath.Join(layout.PersistentStateDir, "blockdb"),
+		layout.StateSyncProofDir,
+		filepath.Join(data, "ledger", "receipts"),
+	}
+	for _, path := range kept {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+	}
+	for _, dir := range removed {
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "data"), []byte("x"), 0o600))
+	}
+	var stderr bytes.Buffer
+
+	require.NoError(t, removeFailedStartData(layout, &stderr))
+
+	for _, path := range kept {
+		require.FileExists(t, path)
+	}
+	for _, dir := range removed {
+		require.NoDirExists(t, dir)
+		require.Contains(t, stderr.String(), dir)
+	}
+	info, err := os.Lstat(data)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink)
+}
+
 func TestImportIntoASymlinkedPersistentStateDir(t *testing.T) {
 	p := newProducer(t)
 	height := p.commit(t, 1)
@@ -328,6 +403,7 @@ func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
 		importStepRewritten,
 		importStepMarked,
 		importStepProofInstalled,
+		importStepAnchorStored,
 		importStepInstalled,
 	} {
 		t.Run(step, func(t *testing.T) {

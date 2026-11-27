@@ -41,6 +41,18 @@ contract ParamsStorage {
         uint256[8] __gap;
     }
 
+    /// @dev The params that set the base fee: x/evm's, and KeyBaseFeeLag, which V2 lacks. V2's
+    /// KeyTargetGasUsedPerBlock has no field: the target is half the block gas limit, so only
+    /// the gas limit moves it.
+    struct EVM {
+        uint256 maxDynamicBaseFeeUpwardAdjustment; // KeyMaxDynamicBaseFeeUpwardAdjustment
+        uint256 maxDynamicBaseFeeDownwardAdjustment; // KeyMaxDynamicBaseFeeDownwardAdjustment
+        uint256 minFeePerGas; // KeyMinFeePerGas
+        uint32 baseFeeLag; // KeyBaseFeeLag
+        uint256[6] __gap;
+    }
+
     Gov internal gov; // subspace "gov"
     Staking internal staking; // subspace "staking"
+    EVM internal evm; // subspace "evm"
 }

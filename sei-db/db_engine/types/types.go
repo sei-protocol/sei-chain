@@ -1,10 +1,8 @@
 package types
 
 import (
-	"context"
 	"io"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -190,59 +188,6 @@ type RollbackValidator interface {
 // behavior: sei-db/controller picks the height every store checkpoints at, and
 // sei-db/state_db/ss/snapshot composes these capabilities into the checkpoint an
 // SS member store performs.
-
-// ---------------------------------------------------------------------------
-// SS DB layer
-// ---------------------------------------------------------------------------
-
-// StateStore is the unified interface for versioned key-value storage.
-// Implemented by pebbledb/mvcc.Database, rocksdb/mvcc.Database,
-// CosmosStateStore, EVMStateStore, and CompositeStateStore.
-type StateStore interface {
-	Get(storeKey string, version int64, key []byte) ([]byte, error)
-	Has(storeKey string, version int64, key []byte) (bool, error)
-	Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
-	ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
-	RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error)
-	GetLatestVersion() int64
-	SetLatestVersion(version int64) error
-	GetEarliestVersion() int64
-	SetEarliestVersion(version int64, ignoreVersion bool) error
-	ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error
-	ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error
-	Prune(version int64) error
-	Import(version int64, ch <-chan SnapshotNode) error
-	io.Closer
-}
-
-// BlockCommitter is the live commit path's entry into a state store: one call per committed block,
-// a block that changed nothing included. A store that checkpoints takes its heights from these
-// calls, so every committed version has to arrive here.
-type BlockCommitter interface {
-	CommitBlock(version int64, changesets []*proto.NamedChangeSet) error
-}
-
-// ContextIteratorStore is implemented by StateStores whose iterators can observe
-// a deadline while skipping MVCC versions. Historical traces attach the RPC
-// timeout here so a skip loop does not run for minutes after the caller gave up.
-type ContextIteratorStore interface {
-	IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
-	ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
-}
-
-// IterateWithContext prefers ContextIteratorStore when the store implements it.
-func IterateWithContext(store StateStore, ctx context.Context, storeKey string, version int64, start, end []byte, reverse bool) (dbm.Iterator, error) {
-	if c, ok := store.(ContextIteratorStore); ok {
-		if reverse {
-			return c.ReverseIteratorWithContext(ctx, storeKey, version, start, end)
-		}
-		return c.IteratorWithContext(ctx, storeKey, version, start, end)
-	}
-	if reverse {
-		return store.ReverseIterator(storeKey, version, start, end)
-	}
-	return store.Iterator(storeKey, version, start, end)
-}
 
 type SnapshotNode struct {
 	StoreKey string

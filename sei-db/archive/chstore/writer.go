@@ -17,7 +17,7 @@ const (
 	// writeTimeout bounds one attempt to write a batch.
 	writeTimeout = time.Minute
 	// writerConns is the number of data tables, which a write inserts at once.
-	writerConns = 9
+	writerConns = 10
 )
 
 // writer writes batches to the archive. It is not safe for concurrent use.
@@ -114,6 +114,65 @@ func (w *writer) write(ctx context.Context, b *batch) error {
 	}
 	if err := w.insertCommit(ctx, b.first, b.last, true); err != nil {
 		return fmt.Errorf("commit blocks %d-%d: %w", b.first, b.last, err)
+	}
+	return nil
+}
+
+// claimChain records chainID in the metadata of an empty archive, and refuses an archive whose metadata records
+// another chain or none.
+func (w *writer) claimChain(ctx context.Context, chainID uint64) error {
+	rows, recorded, commits, err := w.readMeta(ctx)
+	if err == nil && rows == 0 && commits == 0 {
+		// Read back, so that nodes recording at once both see both rows.
+		if err = w.insertMeta(ctx, chainID); err == nil {
+			rows, recorded, _, err = w.readMeta(ctx)
+		}
+	}
+	switch {
+	case err != nil:
+		return err
+	case rows == 0:
+		return fmt.Errorf("the archive is not empty but records no chain in %s; once its chain is known, restore "+
+			"it with INSERT INTO %s VALUES (<evm chain id>)", tableMeta, tableMeta)
+	case rows != 1:
+		return fmt.Errorf("%s holds %d rows, recorded by nodes that opened the empty archive at once; it must "+
+			"hold one", tableMeta, rows)
+	case recorded != chainID:
+		return fmt.Errorf("the archive holds EVM chain %d, not %d; every chain needs its own database",
+			recorded, chainID)
+	}
+	return nil
+}
+
+// readMeta returns how many rows archive_meta holds, the chain one of them records, and how many rows
+// archive_commits holds.
+func (w *writer) readMeta(ctx context.Context) (rows, chainID, commits uint64, err error) {
+	var n, id, c proto.ColUInt64
+	err = w.client.Do(ctx, ch.Query{
+		Body: "SELECT count() AS n, any(chain_id) AS id, assumeNotNull((SELECT count() FROM " + tableCommits +
+			")) AS c FROM " + tableMeta,
+		Result: proto.Results{{Name: "n", Data: &n}, {Name: "id", Data: &id}, {Name: "c", Data: &c}},
+		OnResult: func(context.Context, proto.Block) error {
+			if n.Rows() > 0 {
+				rows, chainID, commits = n[0], id[0], c[0]
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("read %s: %w", tableMeta, err)
+	}
+	return rows, chainID, commits, nil
+}
+
+// insertMeta records the archive's metadata row, holding chainID.
+func (w *writer) insertMeta(ctx context.Context, chainID uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+	var id proto.ColUInt64
+	id.Append(chainID)
+	if err := w.client.Insert(ctx, tableMeta, proto.Input{{Name: "chain_id", Data: &id}}); err != nil {
+		return fmt.Errorf("record the archive's chain %d: %w", chainID, err)
 	}
 	return nil
 }

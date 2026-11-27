@@ -381,7 +381,7 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	app, manager, err := makeEVMApplication(storageContext(t), &config.Config{
+	app, manager, _, err := makeEVMApplication(storageContext(t), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp: true,
 		},
@@ -413,7 +413,7 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 }
 
 func TestMakeEVMApplicationAutobahnRequiresReadableConfig(t *testing.T) {
-	_, _, err := makeEVMApplication(t.Context(), &config.Config{
+	_, _, _, err := makeEVMApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
 	}, gigaconfig.DefaultConfig, genesisAt(1))
 

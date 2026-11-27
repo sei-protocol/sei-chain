@@ -8,7 +8,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	sstest "github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/sstest"
 )
 
 const compactionTestStore = "store1" // matches the store key used by sstest.FillData
@@ -23,7 +23,7 @@ func newCompactionTestDB(t *testing.T) *Database {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	return store.(*Database)
+	return store
 }
 
 // TestPruneCompactsDeletedRange verifies that a prune which deletes keys triggers
@@ -116,7 +116,7 @@ func TestPruneAscendingCompactsDeletedRange(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	db := store.(*Database)
+	db := store
 	require.False(t, db.descending, "seeded legacy DB must open in ascending mode")
 
 	require.NoError(t, sstest.FillData(db, 10, 50))

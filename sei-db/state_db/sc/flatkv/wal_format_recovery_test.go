@@ -293,7 +293,7 @@ func TestReadOnlyLoadFromWAL(t *testing.T) {
 			require.NoError(t, primary.Close())
 			defer func() { require.NoError(t, readOnly.Close()) }()
 
-			requireMatchesReference(t, readOnly.(*CommitStore), run, height)
+			requireMatchesReference(t, readOnly, run, height)
 		})
 	}
 }

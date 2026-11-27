@@ -64,7 +64,10 @@ var _ archive.ArchivalStore = (*Exporter)(nil)
 
 // StartExporter creates the archive tables when they are missing and starts writing after the last block
 // already archived. An empty archive records first as its start before StartExporter returns.
-func StartExporter(ctx context.Context, cfg clickhouse.Config, first uint64) (*Exporter, error) {
+func StartExporter(ctx context.Context, cfg clickhouse.Config, chainID, first uint64) (*Exporter, error) {
+	if chainID == 0 {
+		return nil, errors.New("an archive needs an EVM chain ID")
+	}
 	if first == 0 {
 		return nil, errors.New("an archive cannot start at block 0")
 	}
@@ -73,6 +76,10 @@ func StartExporter(ctx context.Context, cfg clickhouse.Config, first uint64) (*E
 	}
 	w, err := newWriter(cfg)
 	if err != nil {
+		return nil, err
+	}
+	if err := w.claimChain(ctx, chainID); err != nil {
+		w.close()
 		return nil, err
 	}
 	next, err := w.nextBlock(ctx)

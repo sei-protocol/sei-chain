@@ -225,8 +225,10 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	store := &recordingGigaStore{snapshot: snapshot}
 	wantMisc := []gigatypes.MiscChange{{Module: "encoded", Key: []byte("key"), Value: []byte("value")}}
 	encodeCalls := 0
-	encoder := func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
+	var encodedSenderNonce uint64
+	encoder := func(_ BlockContext, state StateReader, _ *BlockResult, _ func() precompiles.State) ([]gigatypes.MiscChange, error) {
 		encodeCalls++
+		encodedSenderNonce = state.GetNonce(sender)
 		return wantMisc, nil
 	}
 
@@ -245,6 +247,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 1, encodeCalls)
+	require.Zero(t, encodedSenderNonce, "the encoder reads the state the block executed against")
 	require.Equal(t, 1, store.openCount)
 	require.Equal(t, 1, snapshot.closeCount)
 	require.Equal(t, []int64{41}, store.commitBlock)
@@ -358,7 +361,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		executor := NewExecutor(
 			Config{BlockResultPoolSize: 1},
 			withTestStores(store, NewMemoryReceiptStore()),
-			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
+			WithBlockChangeSetEncoder(func(BlockContext, StateReader, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
 				return nil, encodeErr
 			}),
 		)
@@ -384,7 +387,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		executor := NewExecutor(
 			Config{MinGasPrice: big.NewInt(0)},
 			withTestStores(store, NewMemoryReceiptStore()),
-			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
+			WithBlockChangeSetEncoder(func(BlockContext, StateReader, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
 				encodeCalls++
 				return nil, nil
 			}),
@@ -409,7 +412,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		executor := NewExecutor(
 			Config{BlockResultPoolSize: 1},
 			withTestStores(store, NewMemoryReceiptStore()),
-			WithBlockChangeSetEncoder(func(BlockContext, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
+			WithBlockChangeSetEncoder(func(BlockContext, StateReader, *BlockResult, func() precompiles.State) ([]gigatypes.MiscChange, error) {
 				cancel()
 				return nil, nil
 			}),

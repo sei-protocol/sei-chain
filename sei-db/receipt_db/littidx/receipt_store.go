@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -127,7 +128,9 @@ type littReceiptStore struct {
 
 // receiptWrite is one block's receipts, waiting to be applied.
 type receiptWrite struct {
-	height   int64
+	height int64
+	// baseFee is the base fee block height ran at, or nil.
+	baseFee  *big.Int
 	receipts []receipttypes.ReceiptRecord
 }
 
@@ -423,13 +426,21 @@ func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (rec
 // applies them inline when AsyncWriteBuffer is off. Once a queued write has failed it takes no
 // further block and returns that failure.
 func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []receipttypes.ReceiptRecord) error {
+	baseFee := receiptdb.BlockBaseFee(ctx)
+	if err := checkBlockBaseFee(baseFee); err != nil {
+		return err
+	}
+	if baseFee != nil {
+		// The write may land after this returns, so it must not share the caller's value.
+		baseFee = new(big.Int).Set(baseFee)
+	}
 	if s.writes == nil {
-		return s.applyReceipts(ctx.BlockHeight(), receipts)
+		return s.applyReceipts(ctx.BlockHeight(), baseFee, receipts)
 	}
 	if err := s.writeFailure(); err != nil {
 		return err
 	}
-	return s.queueWrite(receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
+	return s.queueWrite(receiptWrite{height: ctx.BlockHeight(), baseFee: baseFee, receipts: receipts})
 }
 
 func (s *littReceiptStore) Flush() error {
@@ -466,8 +477,8 @@ func (s *littReceiptStore) queueWrite(message any) error {
 // applyReceipts writes a block's receipt bodies, log index and version marker, and reports what it
 // committed. The write itself is writeReceipts; this wrapper is where the count is taken, so a
 // failed write is not counted as one.
-func (s *littReceiptStore) applyReceipts(height int64, receipts []receipttypes.ReceiptRecord) error {
-	written, err := s.writeReceipts(height, receipts)
+func (s *littReceiptStore) applyReceipts(height int64, baseFee *big.Int, receipts []receipttypes.ReceiptRecord) error {
+	written, err := s.writeReceipts(height, baseFee, receipts)
 	if err != nil {
 		return err
 	}
@@ -477,9 +488,11 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []receipttypes.R
 }
 
 // writeReceipts writes the receipts to litt, then commits their tag keys, block stats and the new
-// head to the index in one batch. It returns the records it wrote.
+// head to the index in one batch. baseFee, when not nil, is block height's base fee. It returns the
+// records it wrote.
 func (s *littReceiptStore) writeReceipts(
 	height int64,
+	baseFee *big.Int,
 	receipts []receipttypes.ReceiptRecord,
 ) ([]receipttypes.ReceiptRecord, error) {
 	s.writeMu.Lock()
@@ -514,7 +527,11 @@ func (s *littReceiptStore) writeReceipts(
 
 	var written []receipttypes.ReceiptRecord
 	for _, blockNumber := range blockNumbers {
-		blockWritten, err := s.writeBlock(batch, blockNumber, receiptsByBlock[blockNumber])
+		var blockBaseFee *big.Int
+		if blockNumber == uint64(height) { //nolint:gosec // height is non-negative
+			blockBaseFee = baseFee
+		}
+		blockWritten, err := s.writeBlock(batch, blockNumber, blockBaseFee, receiptsByBlock[blockNumber])
 		if err != nil {
 			return nil, err
 		}
@@ -571,13 +588,14 @@ func (s *littReceiptStore) awaitIndexCommit() error {
 }
 
 // writeBlock appends one part for the block into litt (the receipts concatenated, each tx hash a
-// secondary key aliasing its receipt's range) and stages the tag keys onto the index batch. It
-// returns the records it wrote, which omits conditional records that yield to a stored receipt.
-// nextPartIndex picks the next free part slot, so a normal block writes part 0 and legacy
-// migration appends.
+// secondary key aliasing its receipt's range) and stages the tag keys and the block's stats, with
+// baseFee as its base fee, onto the index batch. It returns the records it wrote, which omits
+// conditional records that yield to a stored receipt. nextPartIndex picks the next free part slot,
+// so a normal block writes part 0 and legacy migration appends.
 func (s *littReceiptStore) writeBlock(
 	batch dbtypes.Batch,
 	blockNumber uint64,
+	baseFee *big.Int,
 	records []receipttypes.ReceiptRecord,
 ) ([]receipttypes.ReceiptRecord, error) {
 	sortRecordsByTxIndex(records)
@@ -652,25 +670,27 @@ func (s *littReceiptStore) writeBlock(
 	}
 
 	s.writePhases.SetPhase("stage_block_stats")
-	if err := s.stageBlockStats(batch, blockNumber, partIndex, records); err != nil {
+	if err := s.stageBlockStats(batch, blockNumber, partIndex, baseFee, records); err != nil {
 		return nil, err
 	}
 	return records, nil
 }
 
-// stageBlockStats stages the block's aggregate stats onto the index batch. A block written across
-// multiple parts (legacy migration) has no aggregate any single call can compute, so a later part
-// deletes whatever an earlier part wrote instead.
+// stageBlockStats stages the block's aggregate stats, with baseFee as its base fee, onto the index
+// batch. A block written across multiple parts (legacy migration) has no aggregate any single call
+// can compute, so a later part deletes whatever an earlier part wrote instead.
 func (s *littReceiptStore) stageBlockStats(
 	batch dbtypes.Batch,
 	blockNumber uint64,
 	partIndex uint32,
+	baseFee *big.Int,
 	records []receipttypes.ReceiptRecord,
 ) error {
 	if partIndex > 0 {
 		return batch.Delete(blockStatsKey(blockNumber))
 	}
 	stats := receiptmetrics.ComputeBlockStats(records, s.rewardPercentiles)
+	stats.BaseFee = baseFee
 	return batch.Set(blockStatsKey(blockNumber), encodeBlockStats(stats))
 }
 
@@ -793,7 +813,7 @@ func (s *littReceiptStore) applyWrite(message any) {
 		if s.writeFailure() != nil {
 			return
 		}
-		if err := s.applyReceipts(m.height, m.receipts); err != nil {
+		if err := s.applyReceipts(m.height, m.baseFee, m.receipts); err != nil {
 			logger.Error("failed to write receipts", "height", m.height, "err", err)
 			s.writeErr.CompareAndSwap(nil, &err)
 		}

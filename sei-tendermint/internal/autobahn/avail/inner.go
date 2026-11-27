@@ -103,6 +103,9 @@ func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedStat
 		if err := qc.Verify(ep); err != nil {
 			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Height(), err)
 		}
+		if err := qc.Header().VerifyParent(i.lastCommitQC().Map((*types.CommitQC).Header)); err != nil {
+			return nil, fmt.Errorf("persisted commitQC %d: %w", qc.Height(), err)
+		}
 		i.roads.pushBack(newRoad(qc, ep))
 	}
 	i.nextCommitQCToPersist = i.roads.next
@@ -153,6 +156,15 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 func (i *inner) persistedCommitQC() utils.Option[*types.CommitQC] {
 	if i.nextCommitQCToPersist > i.roads.first {
 		return utils.Some(i.roads.q[i.nextCommitQCToPersist-1].commitQC)
+	}
+	return i.anchor.CommitQC()
+}
+
+// lastCommitQC returns the CommitQC of the road before roads.next, from the retained roads or anchor.
+// It is None only when roads.next is the first road of the chain.
+func (i *inner) lastCommitQC() utils.Option[*types.CommitQC] {
+	if i.roads.next > i.roads.first {
+		return utils.Some(i.roads.q[i.roads.next-1].commitQC)
 	}
 	return i.anchor.CommitQC()
 }

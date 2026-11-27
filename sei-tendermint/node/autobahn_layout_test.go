@@ -45,6 +45,8 @@ func TestResolveAutobahnLayout(t *testing.T) {
 	require.Equal(t, filepath.Join(psd, "state-sync-proof"), layout.RestoreProofFile)
 	require.Equal(t, filepath.Join(psd, "data", "state_commit", "state_sync_proofs"), layout.StateSyncProofDir)
 	require.Equal(t, filepath.Join(psd, ".state-sync-import"), layout.ImportStagingDir)
+	// The app-hash vault dir is the one the storage manager opens at startup.
+	require.Equal(t, want.AppHashBuilderConfig.HashVaultConfig.Path, layout.AppHashVaultDir)
 }
 
 func TestResolveAutobahnLayoutAbsolutePersistentStateDir(t *testing.T) {

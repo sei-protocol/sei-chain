@@ -15,8 +15,8 @@ type Hash = common.Hash
 // account that exists and holds no code.
 var EmptyCodeHash = crypto.Keccak256Hash(nil)
 
-// StateView is a read-only, point-in-time view over the store's raw key/value data, plus (via the
-// embedded EVMStateView) EVM-specific accessors for account/storage/code/balance/nonce reads.
+// RawStateView is a read-only, point-in-time view of the state's stored key-values: each key with its
+// module prefix, each value as the store holds it.
 //
 // Until Close, the view's underlying resources stay alive, even as later blocks are written. A view is
 // thread safe with respect to updates to the store it came from, and with respect to other views.
@@ -29,21 +29,12 @@ var EmptyCodeHash = crypto.Keccak256Hash(nil)
 //
 // Every byte slice passed into or received from a view method must be treated as immutable: safe to
 // read, never safe to modify in place.
-type StateView interface {
-	EVMStateView
-
+type RawStateView interface {
 	// GetBlockHeight returns the block height of this view.
 	GetBlockHeight() int64
 
-	// Get returns the value stored under key in this view, and whether it
-	// was found. It never observes writes made after the view was opened.
-	//
-	// Get reports what is stored, not what EVM semantics substitute for it: a code-hash key for an
-	// account that exists with no code is not found, where GetCodeHash reports EmptyCodeHash.
-	Get(module string, key []byte) ([]byte, bool)
-
 	// GetRaw returns the bytes the store holds under a physical key, and whether the key was found. The
-	// bytes are the stored row as is, metadata included, and are not decoded.
+	// bytes are the stored value as is, metadata included, and are not decoded.
 	//
 	// Some view implementations do not support this method and may panic.
 	GetRaw(
@@ -64,6 +55,16 @@ type StateView interface {
 	// Caller is required to Close the view after using it.
 	// Not closing the view properly could lead to memory leak.
 	Close()
+}
+
+// StateView is a RawStateView that also decodes module keys and EVM state.
+type StateView interface {
+	RawStateView
+	EVMStateView
+
+	// Get returns the value stored under module's key, and whether it was found. The code-hash key of an
+	// account with no code is not found.
+	Get(module string, key []byte) ([]byte, bool)
 }
 
 // EVMStateView is the EVM-specific read surface embedded by StateView, and carries the same contract.

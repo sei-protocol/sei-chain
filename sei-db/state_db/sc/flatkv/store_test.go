@@ -21,15 +21,13 @@ import (
 // Interface Compliance Tests
 // =============================================================================
 
-// TestCommitStoreImplementsStore verifies that CommitStore implements gigatypes.LiveStateStore
+// TestCommitStoreImplementsStore verifies the runtime behavior of the store's version and hash methods.
 func TestCommitStoreImplementsStore(t *testing.T) {
-	// Compile-time check is in store.go: var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
-	// This test verifies runtime behavior of interface methods
+	// The compile-time check that CommitStore is a gigatypes.LiveStateStore is in store.go.
 
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Verify gigatypes.LiveStateStore interface methods
 	require.Equal(t, int64(0), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)
@@ -812,9 +810,9 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	require.ErrorIs(t, ro.ApplyChangeSets(ro.Version()+1, nil), errReadOnly)
 	_, err = ro.Commit(ro.Version() + 1)
 	require.ErrorIs(t, err, errReadOnly)
-	require.ErrorIs(t, ro.(*CommitStore).outOfBandSnapshot(), errReadOnly)
+	require.ErrorIs(t, ro.outOfBandSnapshot(), errReadOnly)
 	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
-	_, err = ro.(*CommitStore).Importer(1)
+	_, err = ro.Importer(1)
 	require.ErrorIs(t, err, errReadOnly)
 
 	_, err = ro.LoadVersionReadOnly(0)
@@ -932,8 +930,7 @@ func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
 	roStore, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 
-	roCommit := roStore.(*CommitStore)
-	tmpDir := roCommit.readOnlyWorkDir
+	tmpDir := roStore.readOnlyWorkDir
 	require.DirExists(t, tmpDir)
 
 	require.NoError(t, roStore.Close())
