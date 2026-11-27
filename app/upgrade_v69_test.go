@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -37,6 +39,11 @@ import (
 // refusal of every authz message after the upgrade, the stored parameter, a
 // proposal that disables MsgSend once v6.9 has run, and the upgrade on a live
 // chain that holds a grant.
+//
+// The v6.9 binary also runs Osaka and Sei's Amsterdam subset. Both are binary
+// constants rather than height-gated, so they switch on when validators restart
+// on v6.9 at the upgrade height. The cross-version test runs an Osaka opcode
+// (CLZ) and a Sei Amsterdam opcode (DUPN) on the same node before and after.
 
 const (
 	v69UpgradeName       = "v6.9"
@@ -54,6 +61,36 @@ const (
 	v69ParamsVersionBefore uint64 = 2
 	v69ParamsVersion       uint64 = 3
 )
+
+// v69ClzCode returns CLZ(1), 255, as a 32-byte word. CLZ is an Osaka opcode.
+var v69ClzCode = []byte{
+	0x60, 0x01, // PUSH1 1
+	0x1e,                                           // CLZ
+	0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3, // MSTORE at 0, RETURN 32 bytes
+}
+
+// v69DupnCode returns 42 as a 32-byte word by duplicating the 17th stack item
+// with DUPN, a Sei Amsterdam opcode (EIP-8024); immediate 0x80 encodes depth 17.
+var v69DupnCode = append(append(
+	[]byte{0x60, 0x2a}, // PUSH1 42
+	v69PushZeros(16)...),
+	0xe6, 0x80, // DUPN 17
+	0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3, // MSTORE at 0, RETURN 32 bytes
+)
+
+var (
+	v69ClzResult  = common.LeftPadBytes([]byte{0xff}, 32)
+	v69DupnResult = common.LeftPadBytes([]byte{0x2a}, 32)
+)
+
+// v69PushZeros returns n PUSH1 0 instructions.
+func v69PushZeros(n int) []byte {
+	code := make([]byte, 0, 2*n)
+	for range n {
+		code = append(code, 0x60, 0x00)
+	}
+	return code
+}
 
 // v69DisabledMsgTypeURLsKey is the params-store key of the disabled message type URLs.
 var v69DisabledMsgTypeURLsKey = []byte(paramstypes.ModuleName + "/" + string(paramstypes.ParamStoreKeyDisabledMsgTypeURLs))
@@ -138,6 +175,41 @@ func TestV69UnupgradedBinaryHaltsAtPlanHeight(t *testing.T) {
 	a.RunBlock(nil)
 	a.RunBlock(nil)
 	require.Panics(t, func() { a.RunBlock(nil) })
+}
+
+// TestV69RunsOsakaAndSeiAmsterdamOpcodes runs CLZ and DUPN on the v6.9 binary
+// after the upgrade.
+func TestV69RunsOsakaAndSeiAmsterdamOpcodes(t *testing.T) {
+	a := newV69Chain(t)
+	clz := common.HexToAddress("0x00000000000000000000000000000000006969c1")
+	dupn := common.HexToAddress("0x00000000000000000000000000000000006969d1")
+	a.EvmKeeper.SetCode(a.Ctx(), clz, v69ClzCode)
+	a.EvmKeeper.SetCode(a.Ctx(), dupn, v69DupnCode)
+	a.RunBlock([]signing.Tx{})
+	applyV69ToCommitStore(t, a)
+	a.RunBlock([]signing.Tx{})
+
+	caller := a.NewAccount()
+	for name, want := range map[string]struct {
+		addr   common.Address
+		result []byte
+	}{
+		"CLZ":  {clz, v69ClzResult},
+		"DUPN": {dupn, v69DupnResult},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// An undefined opcode consumes the whole gas limit, which the keeper
+			// reports by panicking out of gas.
+			ctx := a.Ctx().WithGasMeter(sdk.NewGasMeter(10_000_000, 1, 1))
+			var ret []byte
+			var err error
+			require.NotPanics(t, func() {
+				ret, err = a.EvmKeeper.StaticCallEVM(ctx, caller, &want.addr, nil)
+			}, "v6.9 does not run %s", name)
+			require.NoError(t, err, "v6.9 does not run %s", name)
+			require.Equal(t, want.result, ret)
+		})
+	}
 }
 
 // TestV69ChangesOnlyTheAuthzAndParamsModuleVersions applies v6.9 to the version
@@ -276,8 +348,8 @@ func TestV69CrossVersion(t *testing.T) {
 
 // seedV68State records the v6.8 version map, which carries authz and params at
 // consensus version 2, requires v6.8 not to store the disabled message type
-// URLs, and has the admin account grant node_admin a send authorization that
-// v6.8 serves.
+// URLs, requires v6.8 to refuse CLZ and DUPN, and has the admin account grant
+// node_admin a send authorization that v6.8 serves.
 func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v69UpgradeName, chain.UpgradeName(t))
 
@@ -288,6 +360,11 @@ func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v69DisabledMsgTypeURLsKey),
 		"v6.8 already stores the disabled message type URLs")
 	chain.Record(t, "module_versions", versions)
+
+	for name, code := range map[string][]byte{"CLZ": v69ClzCode, "DUPN": v69DupnCode} {
+		_, callErr := v69EthCallCreate(t, chain, code)
+		require.Contains(t, callErr, "invalid opcode", "v6.8 runs %s", name)
+	}
 
 	granter := chain.KeyAddress(t, "sei-node-0", "admin")
 	grantee := chain.KeyAddress(t, "sei-node-0", "node_admin")
@@ -312,8 +389,8 @@ func seedV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 // verifyV69State requires the upgrade to have applied at the planned height on
 // every validator, the authz version-map entry, store, and query command to be
 // gone, params to be at consensus version 3 with nothing else in the version map
-// changed, the disabled message type URLs to be stored as an empty list, and a
-// bank send to succeed.
+// changed, the disabled message type URLs to be stored as an empty list, CLZ and
+// DUPN to run, and a bank send to succeed.
 func verifyV69State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v69UpgradeName, chain.UpgradeName(t))
 
@@ -352,6 +429,15 @@ func verifyV69State(t *testing.T, chain *upgradetest.CrossVersion) {
 	authzStore := chain.Binary("", "curl", "-s",
 		"http://127.0.0.1:26657/abci_query?path=%2Fstore%2F"+retiredauthz.ModuleName+"%2Fkey")
 	require.Contains(t, authzStore.Combined(), "no such store: "+retiredauthz.ModuleName)
+
+	for name, want := range map[string]struct{ code, result []byte }{
+		"CLZ":  {v69ClzCode, v69ClzResult},
+		"DUPN": {v69DupnCode, v69DupnResult},
+	} {
+		result, callErr := v69EthCallCreate(t, chain, want.code)
+		require.Empty(t, callErr, "v6.9 does not run %s", name)
+		require.Equal(t, want.result, result, "%s result", name)
+	}
 
 	receiverBefore := v69UseiBalance(t, chain, v69PostUpgradeBankReceiver.String())
 	chain.RequireDeliverTxSuccess(t, "v6.9 bank send", chain.Seid(v69KeyringPassword,
@@ -419,4 +505,34 @@ func v69UseiBalance(t *testing.T, chain *upgradetest.CrossVersion, address strin
 	amount, ok := sdk.NewIntFromString(strings.Trim(string(coin.Amount), `"`))
 	require.True(t, ok, "invalid usei balance %s", coin.Amount)
 	return amount
+}
+
+// v69EthCallCreate simulates a contract creation with code as its initcode over
+// the validator's EVM RPC. It returns the returned bytes, or the RPC error
+// message when the call fails.
+func v69EthCallCreate(t *testing.T, chain *upgradetest.CrossVersion, code []byte) ([]byte, string) {
+	t.Helper()
+	request, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "eth_call",
+		"params":  []any{map[string]string{"data": hexutil.Encode(code), "gas": "0x100000"}, "latest"},
+	})
+	require.NoError(t, err)
+	result := chain.Binary("", "curl", "-s", "-X", "POST",
+		"-H", "content-type: application/json",
+		"--data", string(request),
+		"http://127.0.0.1:8545")
+	require.NoError(t, result.Err, result.Combined())
+	var response struct {
+		Result hexutil.Bytes `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &response), result.Stdout)
+	if response.Error != nil {
+		return nil, response.Error.Message
+	}
+	return response.Result, ""
 }
