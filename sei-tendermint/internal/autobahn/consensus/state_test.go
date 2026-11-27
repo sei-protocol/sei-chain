@@ -1413,7 +1413,7 @@ func TestPushPrepareQCRejectsAWrongParent(t *testing.T) {
 	spec := advancingSpec(e.keys, e.reg)
 	view := types.View{Height: spec.Height(), EpochIndex: spec.Epoch.EpochIndex()}
 	prepareQC := func(parentHash utils.Option[types.RoadBlockHeaderHash]) *types.PrepareQC {
-		return makePrepareQC(e.keys, types.ProposalWithParent(spec.Epoch, view, parentHash))
+		return makePrepareQC(e.keys, types.ProposalWithParentHash(spec.Epoch, view, spec.CommitQC, parentHash))
 	}
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runOutputs(ctx)) })
@@ -1440,10 +1440,10 @@ func TestPushPrepareQCRejectsAWrongParent(t *testing.T) {
 // The first road block of the chain names no parent, so a PrepareQC that names a parent is not accepted.
 func TestPushPrepareQCRejectsAParentOnTheFirstRoadBlock(t *testing.T) {
 	e := newLiveEnv(t, utils.TestRng())
-	forged := makePrepareQC(e.keys, types.ProposalWithParent(e.vs.Epoch, e.vs.View(), utils.Some(types.GenRoadBlockHeaderHash(e.rng))))
+	forged := makePrepareQC(e.keys, types.ProposalWithParentHash(e.vs.Epoch, e.vs.View(), e.vs.CommitQC, utils.Some(types.GenRoadBlockHeaderHash(e.rng))))
 	require.ErrorIs(t, e.s.pushPrepareQC(t.Context(), forged), types.ErrParentMismatch)
 	require.False(t, e.inner().CommitVote.IsPresent())
-	honest := makePrepareQC(e.keys, types.ProposalWithParent(e.vs.Epoch, e.vs.View(), utils.None[types.RoadBlockHeaderHash]()))
+	honest := makePrepareQC(e.keys, types.ProposalWithParent(e.vs.Epoch, e.vs.View(), e.vs.CommitQC))
 	require.NoError(t, e.s.pushPrepareQC(t.Context(), honest))
 	require.True(t, e.inner().CommitVote.IsPresent())
 }

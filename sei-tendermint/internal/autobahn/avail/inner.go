@@ -100,11 +100,8 @@ func newInner(anchor data.Anchor, genesisTimestamp time.Time, loaded *loadedStat
 		if !ok {
 			return nil, fmt.Errorf("persisted commitQC %d is outside anchor epochs", qc.Height())
 		}
-		if err := qc.Verify(ep); err != nil {
+		if err := qc.Verify(ep, i.lastCommitQC()); err != nil {
 			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Height(), err)
-		}
-		if err := qc.Header().VerifyParent(i.lastCommitQC().Map((*types.CommitQC).Header)); err != nil {
-			return nil, fmt.Errorf("persisted commitQC %d: %w", qc.Height(), err)
 		}
 		i.roads.pushBack(newRoad(qc, ep))
 	}

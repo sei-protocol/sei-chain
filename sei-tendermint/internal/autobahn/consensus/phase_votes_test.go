@@ -20,7 +20,7 @@ func TestPrepareVotes_QuorumFormsQC(t *testing.T) {
 	got, ok := pv.qc.Load().Get()
 	require.True(t, ok)
 	require.Equal(t, e.view, got.View())
-	require.NoError(t, got.Verify(e.ep))
+	require.NoError(t, got.Verify(e.ep, utils.None[*types.CommitQC]()))
 }
 
 func TestPrepareVotes_CountsAcceptedNotDuplicates(t *testing.T) {
@@ -84,7 +84,7 @@ func TestPrepareVotes_ReplacesQCAtNewerView(t *testing.T) {
 	got, ok = pv.qc.Load().Get()
 	require.True(t, ok)
 	require.Equal(t, view1, got.View())
-	require.NoError(t, got.Verify(e.ep))
+	require.NoError(t, got.Verify(e.ep, utils.None[*types.CommitQC]()))
 }
 
 // Prepare votes are bucketed by vote hash, so votes for conflicting proposals at the
@@ -119,7 +119,7 @@ func TestCommitVotes_QuorumFormsQC(t *testing.T) {
 	got, ok := cv.qc.Load().Get()
 	require.True(t, ok)
 	require.Equal(t, e.view, got.View())
-	require.NoError(t, got.Verify(e.ep))
+	require.NoError(t, got.Verify(e.ep, utils.None[*types.CommitQC]()))
 }
 
 // Commit votes are bucketed by vote hash, so votes for conflicting proposals at the same

@@ -936,7 +936,7 @@ func TestFullCommitQCAfterMismatchingLaneQC(t *testing.T) {
 		// b2 LaneQC gets constructed and finalized remotely. Then pushed to state.
 		remoteQC := data.TestLaneQC(epoch.EpochIndex(), b2keys, b2.Header())
 		qc := types.BuildCommitQC(epoch, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: remoteQC})
-		if err := qc.Verify(epoch); err != nil {
+		if err := qc.Verify(epoch, utils.None[*types.CommitQC]()); err != nil {
 			return err
 		}
 		if err := state.PushCommitQC(ctx, qc); err != nil {
@@ -955,7 +955,7 @@ func TestFullCommitQCAfterMismatchingLaneQC(t *testing.T) {
 		if err := utils.TestDiff(qc.Header(), fullQC.QC().Header()); err != nil {
 			return err
 		}
-		return fullQC.Verify(epoch)
+		return fullQC.Verify(epoch, utils.None[*types.CommitQC]())
 	}))
 }
 
@@ -983,7 +983,7 @@ func TestFullCommitQCCollectsPreviousEpochVotes(t *testing.T) {
 			lane: data.TestLaneQC(ep.EpochIndex(), keys, last),
 		})
 		require.Equal(t, registry.LastRoad(1), qc.Height())
-		require.NoError(t, qc.Verify(ep))
+		require.NoError(t, qc.Verify(ep, prev))
 
 		// Retain one header before persistence advances the applied epoch.
 		firstVote := keys[0].Sign(types.NewLaneVote(ep.EpochIndex(), first))
@@ -1038,7 +1038,7 @@ func TestFullCommitQCCollectsPreviousEpochVotes(t *testing.T) {
 			return nil
 		}))
 		require.Equal(t, []*types.LaneBlockHeader{first, last}, full.Headers())
-		require.NoError(t, full.Verify(ep))
+		require.NoError(t, full.Verify(ep, prev))
 
 		// Anchor pruning removes both epochs' collections for the executed blocks.
 		for inner, ctrl := range state.inner.Lock() {

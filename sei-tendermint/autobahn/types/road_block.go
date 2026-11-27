@@ -113,13 +113,43 @@ func (m *RoadBlockHeader) Height() RoadHeight { return m.height }
 // It is None only for the first road block of the chain.
 func (m *RoadBlockHeader) ParentHash() utils.Option[RoadBlockHeaderHash] { return m.parentHash }
 
-// VerifyParent checks that the header names parent as its parent. A header
-// whose parent is None must name no parent.
-func (m *RoadBlockHeader) VerifyParent(parent utils.Option[*RoadBlockHeader]) error {
-	want := parent.Map((*RoadBlockHeader).Hash)
-	if m.parentHash != want {
+// nextRoadHeight returns the height after the road block that parent finalizes, or the first road
+// height of ep when parent is None.
+func nextRoadHeight(ep *Epoch, parent utils.Option[*CommitQC]) RoadHeight {
+	if qc, ok := parent.Get(); ok {
+		return qc.Height() + 1
+	}
+	return ep.RoadRange().First
+}
+
+// VerifyWithParent checks that the RoadBlockHeader is valid in ep and directly follows parent, the
+// CommitQC of the previous road block. The RoadBlockHeader must name the hash of the header of
+// parent, sit at the height after parent, and start each lane of the committee of ep where parent
+// stopped. When parent is None, the RoadBlockHeader must name no parent hash, sit at the first road
+// height of ep, and start each lane at 0. VerifyWithParent does not check the signatures of parent.
+func (m *RoadBlockHeader) VerifyWithParent(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := m.Verify(ep); err != nil {
+		return err
+	}
+	return m.verifyParent(ep, parent)
+}
+
+// verifyParent checks that the RoadBlockHeader names the hash of the header of parent, sits at the
+// height after parent, and starts each lane of the committee of ep where parent stopped.
+func (m *RoadBlockHeader) verifyParent(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	wantHash := parent.Map(func(qc *CommitQC) RoadBlockHeaderHash { return qc.Header().Hash() })
+	if m.parentHash != wantHash {
 		show := func(h utils.Option[RoadBlockHeaderHash]) string { return h.Map(RoadBlockHeaderHash.String).Or("none") }
-		return fmt.Errorf("%w: parentHash = %v, want %v", ErrParentMismatch, show(m.parentHash), show(want))
+		return fmt.Errorf("%w: parentHash = %v, want %v", ErrParentMismatch, show(m.parentHash), show(wantHash))
+	}
+	if wantHeight := nextRoadHeight(ep, parent); m.height != wantHeight {
+		return fmt.Errorf("%w: height = %v, want %v", ErrParentMismatch, m.height, wantHeight)
+	}
+	// Each lane continues where the parent stopped, so no lane block is skipped or included twice.
+	for lane := range ep.Committee().Lanes().All() {
+		if got, want := m.LaneRange(lane).First(), LaneRangeOpt(parent, lane).Next(); got != want {
+			return fmt.Errorf("%w: laneRange[%v].First() = %v, want %v", ErrParentMismatch, lane, got, want)
+		}
 	}
 	return nil
 }
@@ -213,11 +243,28 @@ func (b *RoadBlock) SuperBlock() *SuperBlock {
 	return superBlock
 }
 
-// Verify verifies the QC against the epoch and checks its lane blocks in header order.
-func (b *RoadBlock) Verify(ep *Epoch) error {
-	if err := b.qc.Verify(ep); err != nil {
+// Verify runs VerifyWithoutParent and then checks that the RoadBlock follows parent, the CommitQC of
+// the previous road block, or None for the first road block of the chain.
+func (b *RoadBlock) Verify(ep *Epoch, parent utils.Option[*CommitQC]) error {
+	if err := b.VerifyWithoutParent(ep); err != nil {
+		return err
+	}
+	return b.Header().verifyParent(ep, parent)
+}
+
+// VerifyWithoutParent checks the FullCommitQC of the RoadBlock against ep without a parent, and
+// checks that the lane blocks of the RoadBlock are the ones that the FullCommitQC finalizes, in
+// header order. It does not check that the RoadBlock follows the previous road block.
+func (b *RoadBlock) VerifyWithoutParent(ep *Epoch) error {
+	if err := b.qc.verifyWithoutParent(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
+	return b.verifyBlocks()
+}
+
+// verifyBlocks checks that each lane block of the RoadBlock is valid and is the one that the
+// FullCommitQC of the RoadBlock finalizes, in header order.
+func (b *RoadBlock) verifyBlocks() error {
 	if len(b.blocks) != len(b.qc.Headers()) {
 		return ErrQCBlocksMismatch
 	}

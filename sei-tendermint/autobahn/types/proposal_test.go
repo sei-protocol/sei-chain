@@ -76,13 +76,13 @@ func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 
 	empty := &Proposal{viewNumber: vs.View().Number, header: newRoadBlockHeader(vs.View().EpochIndex, vs.View().Height, vs.ParentHeader().Map((*RoadBlockHeader).Hash), time.Now(), nil)}
 	require.Equal(t, uint64(0), empty.Header().NumBlocks())
-	require.NoError(t, empty.Verify(ep))
+	require.NoError(t, empty.Header().Verify(ep))
 
 	proposal, err := NewProposal(leaderKey(committee, keys, vs.View()), vs, vs.NextTimestamp(), nil)
 	require.NoError(t, err)
 	require.NoError(t, proposal.Verify(vs, testViewTimeout))
 	qc := NewFullCommitQC(makeCommitQCFromProposal(keys, proposal), nil)
-	require.NoError(t, qc.Verify(ep))
+	require.NoError(t, qc.Verify(ep, vs.CommitQC))
 	require.NoError(t, FullCommitQCConv.Test(qc))
 	block := NewRoadBlock(qc, nil).SuperBlock()
 	require.Equal(t, qc.Height(), block.Height)
@@ -485,8 +485,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 		proposal: proposerKey.Sign(tamperedProposal),
 		laneQCs:  map[LaneID]*LaneQC{target: badQC},
 	}
-	err := tamperedFP.Verify(vs, testViewTimeout)
-	require.Error(t, err)
+	require.ErrorIs(t, tamperedFP.Verify(vs, testViewTimeout), ErrParentMismatch)
 }
 
 func TestProposalVerifyRejectsMissingLaneQC(t *testing.T) {
@@ -584,7 +583,7 @@ func TestProposalVerifyRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testi
 	lane := committee.Lane(leaderKey(committee, keys, view).Public()).OrPanic("missing lane")
 	// Bypass NewProposal's check by constructing the proposal directly.
 	oversized := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, utils.None[RoadBlockHeaderHash](), time.Now(), []*LaneRange{NewLaneRange(lane, 0, utils.Some(NewLaneBlock(lane, MaxLaneRangeInProposal, GenLaneBlockHeaderHash(rng), GenPayload(rng)).Header()))})}
-	require.Error(t, oversized.Verify(ep))
+	require.Error(t, oversized.Header().Verify(ep))
 }
 
 func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
@@ -872,7 +871,7 @@ func TestTimeoutQCVerifyRejectsALockedHeaderWithAWrongParent(t *testing.T) {
 	prev := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil)
 	view := View{Height: prev.Height() + 1, Number: 0, EpochIndex: ep.EpochIndex()}
 	timeoutQC := func(parentHash utils.Option[RoadBlockHeaderHash]) *TimeoutQC {
-		locked := &Proposal{viewNumber: view.Number, header: newRoadBlockHeader(view.EpochIndex, view.Height, parentHash, prev.Header().NextTimestamp(), nil)}
+		locked := ProposalWithParentHash(ep, view, utils.Some(prev), parentHash)
 		prepareQC := BuildPrepareQC(keys, locked)
 		var votes []*FullTimeoutVote
 		for _, k := range keys {

@@ -64,10 +64,7 @@ type ConsensusSpec struct {
 // Height is the RoadHeight of the next view: CommitQC.Height()+1, or the start of
 // the genesis epoch if there is no tip.
 func (s ConsensusSpec) Height() RoadHeight {
-	if qc, ok := s.CommitQC.Get(); ok {
-		return qc.Height() + 1
-	}
-	return s.Epoch.RoadRange().First
+	return nextRoadHeight(s.Epoch, s.CommitQC)
 }
 
 // ParentHeader returns the header of the road block before the next view's, or None
@@ -138,12 +135,6 @@ func (m *Proposal) View() View { return m.header.view(m.viewNumber) }
 
 // Header returns the road block header.
 func (m *Proposal) Header() *RoadBlockHeader { return m.header }
-
-// Verify checks epoch binding and lane-range bounds, lengths, committee membership,
-// and empty-range hashes. FullProposal.Verify additionally checks QC-chain continuity.
-func (m *Proposal) Verify(ep *Epoch) error {
-	return m.header.Verify(ep)
-}
 
 // FullProposal is a proposal with justification.
 type FullProposal struct {
@@ -300,8 +291,8 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 		if err := m.proposal.VerifySig(); err != nil {
 			return fmt.Errorf("proposal signature: %w", err)
 		}
-		// Does the proposal, new or reproposed, name the previous road block as its parent?
-		if err := m.Header().VerifyParent(vs.ParentHeader()); err != nil {
+		// Does the proposal, new or reproposed, follow the previous road block?
+		if err := m.Header().VerifyWithParent(vs.Epoch, vs.CommitQC); err != nil {
 			return fmt.Errorf("proposal: %w", err)
 		}
 		// Do we have the required timeoutQC?
@@ -328,18 +319,9 @@ func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 				return nil
 			}
 		}
-		// Verify the proposal's epoch binding, road range, lane structure, and membership.
-		proposal := m.proposal.Msg()
-		if err := proposal.Verify(vs.Epoch); err != nil {
-			return fmt.Errorf("proposal: %w", err)
-		}
-		// Verify each lane range against the previous commitQC and its laneQC justification.
+		// Verify the laneQC justification of each lane range.
 		for lane := range c.Lanes().All() {
-			r := proposal.Header().LaneRange(lane)
-			// Verify that range matches previous commitQC.
-			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
-				return fmt.Errorf("laneRange[%v].First() = %v, want %v", r.Lane(), got, want)
-			}
+			r := m.Header().LaneRange(lane)
 			// Verify that the necessary laneQC is present and valid.
 			if r.First() < r.Next() {
 				qc, ok := m.LaneQC(r.Lane())

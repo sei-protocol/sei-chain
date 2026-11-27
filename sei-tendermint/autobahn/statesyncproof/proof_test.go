@@ -50,6 +50,21 @@ func TestVerifyAcceptsAProofOfTheEpochCommittee(t *testing.T) {
 	require.NoError(t, proof.Verify(epoch))
 }
 
+func TestVerifyAcceptsAProofAboveTheFirstRoad(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+	epoch := types.GenEpochWithCommittee(rng, committee)
+	parent, _ := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
+	qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.Some(parent.QC()))
+	appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().View(), []byte{1, 2, 3}))
+	encoded, err := Encode(types.NewRoadBlock(qc, blocks), appQC)
+	require.NoError(t, err)
+	proof, err := Decode(encoded, qc.Height())
+	require.NoError(t, err)
+
+	require.NoError(t, proof.Verify(epoch))
+}
+
 func TestVerifyRejectsAProofOfAnotherCommittee(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
