@@ -220,6 +220,9 @@ in the Giga undo-log state store. It publishes its EVM RPC on host ports 8555
 through `SEI_EVM_RPC_URL` and `SEI_EVM_WS_URL`. Node 0's EVM RPC stays on 8545,
 and `seid` sends the suites' funding and seed transactions through it.
 
+Autobahn only produces non-empty blocks. The legacy `allow_empty_blocks` JSON
+field is deprecated and accepted for compatibility, but its value is ignored.
+
 Inspect the generated local inputs with:
 
 ```sh
@@ -236,7 +239,6 @@ docker exec sei-node-0 jq '{
   validators: (.validators | length),
   max_txs_per_block,
   max_txs_per_second,
-  allow_empty_blocks,
   block_interval,
   persistent_state_dir,
   block_db

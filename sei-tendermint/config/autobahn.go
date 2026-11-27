@@ -153,11 +153,10 @@ type AutobahnBlockDBConfig struct {
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
 	// EVMRPC is this validator's advertised WebSocket RPC endpoint. Fullnodes omit it.
-	EVMRPC           utils.Option[URL]    `json:"evmrpc,omitzero"`
-	Validators       []AutobahnValidator  `json:"validators"`
-	MaxTxsPerBlock   uint64               `json:"max_txs_per_block"`
-	MaxTxsPerSecond  utils.Option[uint64] `json:"max_txs_per_second"`
-	AllowEmptyBlocks bool                 `json:"allow_empty_blocks"`
+	EVMRPC          utils.Option[URL]    `json:"evmrpc,omitzero"`
+	Validators      []AutobahnValidator  `json:"validators"`
+	MaxTxsPerBlock  uint64               `json:"max_txs_per_block"`
+	MaxTxsPerSecond utils.Option[uint64] `json:"max_txs_per_second"`
 	// PersistentStateDir is the on-disk root for Autobahn's durable state
 	// (Giga storage, BlockDB, hashvault, epoch snapshots, and the validator's
 	// consensus persister, each in a subdirectory). A relative path is

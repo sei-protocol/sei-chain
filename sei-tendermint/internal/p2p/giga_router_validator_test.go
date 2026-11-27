@@ -119,7 +119,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerBlock:          maxTxsPerBlock,
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
-					AllowEmptyBlocks:        false,
 				},
 			}, cfg.nodeKey, dataState, signer)
 			if err != nil {
