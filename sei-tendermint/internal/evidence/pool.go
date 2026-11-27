@@ -83,13 +83,14 @@ func NewPool(evidenceDB dbm.DB, stateStore sm.Store, blockStore BlockStore, even
 }
 
 // PendingEvidence is used primarily as part of block proposal and returns the
-// oldest uncommitted evidence, up to maxBytes and types.MaxEvidenceEntriesPerBlock entries.
+// oldest uncommitted evidence, up to maxBytes (at most types.MaxEvidenceBytesPerBlock)
+// and types.MaxEvidenceEntriesPerBlock entries. A maxBytes of -1 removes the byte limit.
 func (evpool *Pool) PendingEvidence(maxBytes int64) ([]types.Evidence, int64) {
 	if evpool.Size() == 0 {
 		return []types.Evidence{}, 0
 	}
 
-	evidence, size, err := evpool.listEvidence(prefixPending, maxBytes, types.MaxEvidenceEntriesPerBlock)
+	evidence, size, err := evpool.listEvidence(prefixPending, min(maxBytes, types.MaxEvidenceBytesPerBlock), types.MaxEvidenceEntriesPerBlock)
 	if err != nil {
 		logger.Error("failed to retrieve pending evidence", "err", err)
 	}

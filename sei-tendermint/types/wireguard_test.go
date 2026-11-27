@@ -18,6 +18,7 @@ const (
 	maxValidators       = types.MaxVotesCount
 	txKeySize           = crypto.HashSize
 	maxEvidenceEntries  = types.MaxEvidenceEntriesPerBlock
+	maxEvidenceBytes    = types.MaxEvidenceBytesPerBlock
 )
 
 func marshal(t *testing.T, m gogoproto.Message) []byte {
@@ -214,4 +215,32 @@ func TestSchemaForEvidence_AcceptsConflictingValidatorSetAtCap(t *testing.T) {
 
 func TestSchemaForEvidence_RejectsConflictingValidatorSetOverCap(t *testing.T) {
 	require.Error(t, protoutils.Scan[*tmproto.Evidence](marshal(t, lcaeWithValidatorSet(maxValidators+1))))
+}
+
+func TestMaxEvidenceBytesCoversDefaultEvidenceBudget(t *testing.T) {
+	require.LessOrEqual(t, types.DefaultEvidenceParams().MaxBytes, int64(maxEvidenceBytes))
+}
+
+// blockWithRepeatedEvidence returns a block whose evidence holds as many copies of an
+// entry as fit in the evidence byte cap, plus extra. Every copy is within the per-list
+// caps, so only the byte cap can reject the block.
+func blockWithRepeatedEvidence(t *testing.T, extra int) *tmproto.Block {
+	t.Helper()
+	entry := evidenceWithCommit(commitWith(maxCommitSignatures))
+	fit := maxEvidenceBytes / (&tmproto.EvidenceList{Evidence: []tmproto.Evidence{entry}}).Size()
+	require.Greater(t, fit, 1)
+	require.Less(t, fit+extra, maxEvidenceEntries)
+	evs := make([]tmproto.Evidence, fit+extra)
+	for i := range evs {
+		evs[i] = entry
+	}
+	return &tmproto.Block{Evidence: tmproto.EvidenceList{Evidence: evs}}
+}
+
+func TestSchemaForBlock_AcceptsEvidenceAtByteCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*tmproto.Block](marshal(t, blockWithRepeatedEvidence(t, 0))))
+}
+
+func TestSchemaForBlock_RejectsEvidenceOverByteCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*tmproto.Block](marshal(t, blockWithRepeatedEvidence(t, 1))))
 }

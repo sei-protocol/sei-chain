@@ -18,7 +18,10 @@ const maxCommitSignatures = types.MaxVotesCount
 // maxBlockTxs mirrors the max_count on tendermint.types.Data.txs.
 const maxBlockTxs = 1_000_000
 
-const maxEvidenceEntries = types.MaxEvidenceEntriesPerBlock
+const (
+	maxEvidenceEntries = types.MaxEvidenceEntriesPerBlock
+	maxEvidenceBytes   = types.MaxEvidenceBytesPerBlock
+)
 
 func marshal(t *testing.T, m gogoproto.Message) []byte {
 	t.Helper()
@@ -167,4 +170,26 @@ func TestSchemaForMessage_AcceptsEvidenceEntriesAtCap(t *testing.T) {
 func TestSchemaForMessage_RejectsEvidenceEntriesOverCap(t *testing.T) {
 	require.Error(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponseWithEvidenceEntries(maxEvidenceEntries+1))))
+}
+
+// blocksyncResponseWithRepeatedEvidence returns a response whose evidence holds as many
+// copies of a maximal commit entry as fit in the evidence byte cap, plus extra.
+func blocksyncResponseWithRepeatedEvidence(t *testing.T, extra int) *bcproto.Message {
+	t.Helper()
+	fit := maxEvidenceBytes / (&tmproto.EvidenceList{Evidence: evidenceList(commitWith(maxCommitSignatures))}).Size()
+	require.Greater(t, fit, 1)
+	require.Less(t, fit+extra, maxEvidenceEntries)
+	commits := make([]*tmproto.Commit, fit+extra)
+	for i := range commits {
+		commits[i] = commitWith(maxCommitSignatures)
+	}
+	return blocksyncResponse(nil, commits...)
+}
+
+func TestSchemaForMessage_AcceptsEvidenceAtByteCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t, blocksyncResponseWithRepeatedEvidence(t, 0))))
+}
+
+func TestSchemaForMessage_RejectsEvidenceOverByteCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*bcproto.Message](marshal(t, blocksyncResponseWithRepeatedEvidence(t, 1))))
 }
