@@ -69,13 +69,15 @@ interface IStaking {
     }
 
     /// @notice An operation staged to take effect at the end of epoch. A
-    /// delegation stages amount; an undelegation stages shares of the
-    /// delegation to validator, worth amount at its current exchange rate.
+    /// delegation stages amount; an undelegation or redelegation stages shares
+    /// of the delegation to validator, worth amount at its current exchange
+    /// rate.
     struct StagedOperation {
         uint64 epoch;
-        uint8 kind; // 1=Delegate, 2=Undelegate
+        uint8 kind; // 1=Delegate, 2=Undelegate, 3=Redelegate
         address delegator;
-        address validator;
+        address validator; // a redelegation's source
+        address dstValidator; // a redelegation's destination; zero otherwise
         uint256 amount; // wei
         uint256 shares; // zero for a delegation
     }
@@ -99,6 +101,15 @@ interface IStaking {
     /// at the end of epoch.
     event Delegate(address indexed delegator, address indexed validator, uint256 amount, uint64 epoch);
 
+    /// @notice The caller staged moving stake worth amount now from srcValidator
+    /// to dstValidator. It takes effect at the end of epoch.
+    event Redelegate(
+        address indexed delegator,
+        address indexed srcValidator,
+        address indexed dstValidator,
+        uint256 amount,
+        uint64 epoch
+    );
 
     /// @notice The caller staged undelegating stake worth amount now from
     /// validator. It takes effect at the end of epoch.
@@ -107,11 +118,18 @@ interface IStaking {
     /// @notice Delegates msg.value to validator at the end of the epoch after
     /// this one. Until then staking holds msg.value, and a delegation that can no
     /// longer be made then is refunded.
-    /// @dev Once 10,000 operations have been staged in an epoch, staging one
-    /// charges 100,000 gas, doubling every 2,000 operations up to a quarter of
-    /// the block's gas limit. Undelegate charges the same.
+    /// @dev Once 10,000 units of work have been staged in an epoch, staging
+    /// charges 100,000 gas a unit, doubling every 2,000 units up to a quarter of
+    /// the block's gas limit. A delegate or undelegate is one unit, and a
+    /// redelegate two.
     function delegate(address validator) external payable returns (bool success);
 
+    /// @notice Moves amount of the caller's delegation from srcValidator to
+    /// dstValidator at the end of the epoch after this one, as x/staking's
+    /// MsgBeginRedelegate does then. From now until it completes it blocks a
+    /// redelegation out of dstValidator and counts toward maxEntries; until it
+    /// takes effect, it counts toward every destination's.
+    function redelegate(address srcValidator, address dstValidator, uint256 amount) external returns (bool success);
 
     /// @notice Undelegates amount from validator at the end of the epoch after
     /// this one, as x/staking's MsgUndelegate does then. The tokens are paid
@@ -188,8 +206,7 @@ interface IStaking {
     /// @notice Reverts: use delegate(address).
     function delegate(string memory valAddress) external payable returns (bool success);
 
-    /// @notice Reverts: redelegation is not supported; undelegate, then delegate
-    /// the tokens once they are paid.
+    /// @notice Reverts: use redelegate(address,address,uint256).
     function redelegate(string memory srcAddress, string memory dstAddress, uint256 amount)
         external
         returns (bool success);

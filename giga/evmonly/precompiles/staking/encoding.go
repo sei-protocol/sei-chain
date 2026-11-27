@@ -63,12 +63,13 @@ type (
 	}
 
 	StagedOperation struct {
-		Epoch     uint64
-		Kind      uint8
-		Delegator common.Address
-		Validator common.Address
-		Amount    *big.Int
-		Shares    *big.Int
+		Epoch        uint64
+		Kind         uint8
+		Delegator    common.Address
+		Validator    common.Address
+		DstValidator common.Address
+		Amount       *big.Int
+		Shares       *big.Int
 	}
 
 	Pool struct {

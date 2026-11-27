@@ -77,6 +77,18 @@ contract StakingStorage {
         address validator;
     }
 
+    /// @dev A redelegation entry's only record: V2's queue triplet and its
+    /// RedelegationEntry together.
+    struct RedelegationQueueEntry {
+        uint64 completionTime;
+        address delegator;
+        uint64 creationHeight;
+        address srcValidator;
+        address dstValidator;
+        uint256 initialBalance;
+        uint256 sharesDst;
+    }
+
     /// @dev completionTime and unbondingHeight are the operator's validator's
     /// unbondingTime and unbondingHeight when it began unbonding.
     struct ValidatorQueueEntry {
@@ -91,22 +103,25 @@ contract StakingStorage {
         uint64 tail;
     }
 
-    /// @dev A delegate or undelegate staged in one epoch, which takes effect at
-    /// the end of the next. An entry's epoch is never earlier than the one before
-    /// it.
+    /// @dev A delegate, undelegate or redelegate staged in one epoch, which takes
+    /// effect at the end of the next. An entry's epoch is never earlier than the
+    /// one before it.
     struct StagedOperation {
         uint64 epoch; // the epoch it takes effect at the end of
-        uint8 kind; // 1=Delegate, 2=Undelegate
+        uint8 kind; // 1=Delegate, 2=Undelegate, 3=Redelegate
         address delegator;
-        address validator; // delegated to, or undelegated from
-        uint256 amount; // tokens delegated, or shares undelegated
+        address validator; // delegated to, or undelegated or redelegated from
+        address dstValidator; // redelegated to
+        uint256 amount; // tokens delegated, or shares undelegated or redelegated
     }
 
-    /// @dev What a delegation's staged undelegations will take once they take
+    /// @dev What a delegation's staged operations will take or add once they take
     /// effect.
     struct StagedDelegation {
-        uint256 sharesOut;
+        uint256 sharesOut; // undelegated or redelegated away
         uint64 undelegations;
+        uint64 redelegationsOut;
+        uint64 redelegationsIn; // redelegated to this delegation's validator
     }
 
     /// @dev ParamsStorage.Staking's members.
@@ -136,19 +151,24 @@ contract StakingStorage {
 
     mapping(address => mapping(address => UnbondingDelegationEntry[])) internal unbondingDelegations; // 0x32: delegator => validator => entries, at most maxEntries
 
+    mapping(address => mapping(address => mapping(address => uint256))) internal redelegationEntryCounts; // 0x34: delegator => src => dst => open entries, at most maxEntries
+    mapping(address => mapping(address => uint256)) internal redelegationsByValDst; // 0x36: dst => delegator => open entries into dst
+
     QueueBounds internal unbondingQueueBounds;
     mapping(uint64 => UnbondingQueueEntry) internal unbondingQueue; // 0x41: index =>
+    QueueBounds internal redelegationQueueBounds;
+    mapping(uint64 => RedelegationQueueEntry) internal redelegationQueue; // 0x42: index =>
     QueueBounds internal validatorQueueBounds;
     mapping(uint64 => ValidatorQueueEntry) internal validatorQueue; // 0x43: index =>
 
-    /// @dev Delegates and undelegates wait here from the epoch they are called
-    /// in until the end of the next.
+    /// @dev Delegates, undelegates and redelegates wait here from the epoch they
+    /// are called in until the end of the next.
     uint64 internal currentEpoch; // the epoch in progress as of the last EndBlock, 0 before any
     QueueBounds internal stagedQueueBounds;
     mapping(uint64 => StagedOperation) internal stagedQueue; // index =>
     mapping(address => mapping(address => StagedDelegation)) internal stagedDelegations; // delegator => validator =>
-    mapping(address => uint64) internal stagedInbound; // validator => staged delegates to it
-    uint64 internal stagedThisEpoch; // operations staged during the current epoch
+    mapping(address => uint64) internal stagedInbound; // validator => staged delegates and redelegates to it
+    uint64 internal stagedWork; // units of work staged during the current epoch: one per delegation an operation changes
 
     /// @dev ParamsStorage.staking as of the latest epoch's end, or as genesis
     /// wrote it before any.

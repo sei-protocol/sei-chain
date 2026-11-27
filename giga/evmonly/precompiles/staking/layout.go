@@ -21,17 +21,21 @@ const (
 	slotDelegationsByDelegator      = 9
 	slotDelegationsByValidator      = 10
 	slotUnbondingDelegations        = 11
-	slotUnbondingQueueBounds        = 12
-	slotUnbondingQueue              = 13
-	slotValidatorQueueBounds        = 14
-	slotValidatorQueue              = 15
-	slotCurrentEpoch                = 16
-	slotStagedQueueBounds           = 17
-	slotStagedQueue                 = 18
-	slotStagedDelegations           = 19
-	slotStagedInbound               = 20
-	slotStagedThisEpoch             = 21
-	slotParams                      = 22
+	slotRedelegationEntryCounts     = 12
+	slotRedelegationsByValDst       = 13
+	slotUnbondingQueueBounds        = 14
+	slotUnbondingQueue              = 15
+	slotRedelegationQueueBounds     = 16
+	slotRedelegationQueue           = 17
+	slotValidatorQueueBounds        = 18
+	slotValidatorQueue              = 19
+	slotCurrentEpoch                = 20
+	slotStagedQueueBounds           = 21
+	slotStagedQueue                 = 22
+	slotStagedDelegations           = 23
+	slotStagedInbound               = 24
+	slotStagedWork                  = 25
+	slotParams                      = 26
 )
 
 // member is a struct member's position relative to the struct's base slot.
@@ -106,6 +110,16 @@ var (
 	unbondingQueueValidator = member{1, 0}
 )
 
+// StakingStorage.RedelegationQueueEntry members.
+var (
+	redelegationQueueDelegator      = member{0, 8}
+	redelegationQueueCreationHeight = member{1, 0}
+	redelegationQueueSrcValidator   = member{1, 8}
+	redelegationQueueDstValidator   = member{2, 0}
+	redelegationQueueInitialBalance = member{3, 0}
+	redelegationQueueSharesDst      = member{4, 0}
+)
+
 // StakingStorage.ValidatorQueueEntry members.
 var (
 	validatorQueueUnbondingHeight = member{0, 8}
@@ -115,23 +129,27 @@ var (
 // StakingStorage.StagedOperation members after its epoch, which is the
 // completionTime member every queue entry begins with.
 var (
-	stagedOperationKind      = member{0, 8}
-	stagedOperationDelegator = member{0, 9}
-	stagedOperationValidator = member{1, 0}
-	stagedOperationAmount    = member{2, 0}
+	stagedOperationKind         = member{0, 8}
+	stagedOperationDelegator    = member{0, 9}
+	stagedOperationValidator    = member{1, 0}
+	stagedOperationDstValidator = member{2, 0}
+	stagedOperationAmount       = member{3, 0}
 )
 
 // How many slots each queue's entries take.
 const (
-	unbondingQueueEntrySlots = 2
-	validatorQueueEntrySlots = 2
-	stagedQueueEntrySlots    = 3
+	unbondingQueueEntrySlots    = 2
+	redelegationQueueEntrySlots = 5
+	validatorQueueEntrySlots    = 2
+	stagedQueueEntrySlots       = 4
 )
 
 // StakingStorage.StagedDelegation members.
 var (
-	stagedSharesOut     = member{0, 0}
-	stagedUndelegations = member{1, 0}
+	stagedSharesOut        = member{0, 0}
+	stagedUndelegations    = member{1, 0}
+	stagedRedelegationsOut = member{1, 8}
+	stagedRedelegationsIn  = member{1, 16}
 )
 
 // stagedDelegationSlots is how many slots a StakingStorage.StagedDelegation takes.

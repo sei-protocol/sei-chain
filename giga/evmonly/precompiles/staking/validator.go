@@ -198,7 +198,7 @@ func (p Precompile) removeValidator(block precompiles.BlockContext, s store, op 
 }
 
 // removeIfVacant removes op's validator when it is unbonded, holds no shares and
-// has no staged delegation to it.
+// no staged delegate or redelegate moves stake to it.
 func (p Precompile) removeIfVacant(block precompiles.BlockContext, s store, op common.Address, v validator) error {
 	if v.status != statusUnbonded || v.delegatorShares.Sign() != 0 {
 		return nil

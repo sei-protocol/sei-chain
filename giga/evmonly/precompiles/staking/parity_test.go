@@ -51,15 +51,20 @@ func (pr *pair) v2UnbondingEntries(delegator, op common.Address) int {
 	return len(ubd.Entries)
 }
 
+func (pr *pair) v2Redelegations(delegator common.Address) []stakingtypes.Redelegation {
+	return pr.v2.keeper.GetAllRedelegations(pr.v2.ctx, sdk.AccAddress(delegator[:]), nil, nil)
+}
+
 func (pr *pair) v2Status(op common.Address) stakingtypes.BondStatus {
 	v, ok := pr.v2.validator(op)
 	require.True(pr.t, ok, "%s exists", op)
 	return v.Status
 }
 
-// TestDelegationMatchesV2 takes delegate and undelegate through each of
-// x/staking's rules on the precompile and on x/staking, checking after every
-// step that both end it alike, call the same hooks and hold the same state.
+// TestDelegationMatchesV2 takes delegate, undelegate and redelegate through
+// each of x/staking's rules on the precompile and on x/staking, checking after
+// every step that both end it alike, call the same hooks and hold the same
+// state.
 func TestDelegationMatchesV2(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -85,19 +90,37 @@ func TestDelegationMatchesV2(t *testing.T) {
 			_, found := pr.v2.keeper.GetDelegation(pr.v2.ctx, sdk.AccAddress(alice[:]), sdk.ValAddress(val2[:]))
 			require.False(t, found)
 		}},
-		{"unbonding entries stop at the max entries", func(t *testing.T, pr *pair) {
+		{"unbonding and redelegation entries stop at the max entries", func(t *testing.T, pr *pair) {
 			require.NoError(t, pr.delegate(alice, val1, 10*seiInUsei))
 			for range parityParams.MaxEntries {
 				require.NoError(t, pr.undelegate(alice, val1, seiInUsei))
 			}
 			require.ErrorIs(t, pr.undelegate(alice, val1, seiInUsei), stakingtypes.ErrMaxUnbondingDelegationEntries)
+			for range parityParams.MaxEntries {
+				require.NoError(t, pr.redelegate(alice, val1, val2, seiInUsei))
+			}
+			require.ErrorIs(t, pr.redelegate(alice, val1, val2, seiInUsei), stakingtypes.ErrMaxRedelegationEntries)
 			pr.wait(parityParams.UnbondingTime)
 			pr.endBlock()
 			require.NoError(t, pr.undelegate(alice, val1, seiInUsei))
+			require.NoError(t, pr.redelegate(alice, val1, val2, seiInUsei))
 		}},
-		{"the voting power ratio caps delegations", func(t *testing.T, pr *pair) {
+		{"a redelegation out of a validator waits on the ones into it", func(t *testing.T, pr *pair) {
+			require.NoError(t, pr.delegate(alice, val1, 5*seiInUsei))
+			require.NoError(t, pr.redelegate(alice, val1, val2, 2*seiInUsei))
+			require.ErrorIs(t, pr.redelegate(alice, val2, val3, seiInUsei), stakingtypes.ErrTransitiveRedelegation)
+			require.NoError(t, pr.redelegate(alice, val1, val3, seiInUsei))
+			pr.wait(parityParams.UnbondingTime)
+			pr.endBlock()
+			require.Empty(t, pr.v2Redelegations(alice))
+			require.NoError(t, pr.redelegate(alice, val2, val3, seiInUsei))
+		}},
+		{"the voting power ratio caps delegations and redelegations", func(t *testing.T, pr *pair) {
 			require.ErrorIs(t, pr.delegate(alice, val1, 20*seiInUsei), stakingtypes.ErrExceedMaxVotingPowerRatio, "50 of 95")
 			require.NoError(t, pr.delegate(alice, val1, 10*seiInUsei), "40 of 85")
+			require.NoError(t, pr.delegate(bob, val2, 5*seiInUsei))
+			require.ErrorIs(t, pr.redelegate(bob, val2, val1, 5*seiInUsei), stakingtypes.ErrExceedMaxVotingPowerRatio, "45 of 80")
+			require.NoError(t, pr.redelegate(bob, val2, val3, 5*seiInUsei), "25 of 80")
 		}},
 		{"a delegation is refused by each of its checks", func(t *testing.T, pr *pair) {
 			require.ErrorIs(t, pr.delegate(alice, unknownValidator, seiInUsei), stakingtypes.ErrNoValidatorFound)
@@ -105,6 +128,10 @@ func TestDelegationMatchesV2(t *testing.T) {
 			require.ErrorIs(t, pr.undelegate(alice, unknownValidator, seiInUsei), stakingtypes.ErrNoValidatorFound)
 			require.NoError(t, pr.delegate(alice, val1, seiInUsei))
 			require.ErrorIs(t, pr.undelegate(alice, val1, seiInUsei+1), sdkerrors.ErrInvalidRequest)
+			require.ErrorIs(t, pr.redelegate(alice, val1, val1, seiInUsei), stakingtypes.ErrSelfRedelegation)
+			require.ErrorIs(t, pr.redelegate(alice, val1, unknownValidator, seiInUsei), stakingtypes.ErrBadRedelegationDst)
+			require.ErrorIs(t, pr.redelegate(alice, unknownValidator, val1, seiInUsei), stakingtypes.ErrNoValidatorFound)
+			require.ErrorIs(t, pr.redelegate(bob, val1, val2, seiInUsei), stakingtypes.ErrNoDelegation)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,6 +193,32 @@ func TestValidatorLifecycleMatchesV2(t *testing.T) {
 			_, ok := pr.v2.validator(val3)
 			require.False(t, ok)
 		}},
+		{"redelegations out of unbonding and unbonded validators", func(t *testing.T, pr *pair) {
+			require.NoError(t, pr.delegate(alice, val3, 4*seiInUsei))
+			require.NoError(t, pr.delegate(bob, val4, 15*seiInUsei))
+			pr.endBlock()
+			require.Equal(t, stakingtypes.Unbonding, pr.v2Status(val3), "val4 outranks val3")
+			require.False(t, pr.clampsRedelegation(val3))
+			require.NoError(t, pr.redelegate(alice, val3, val1, seiInUsei), "completes when val3's unbonding does")
+			pr.wait(parityParams.UnbondingTime)
+			pr.endBlock()
+			require.Equal(t, stakingtypes.Unbonded, pr.v2Status(val3))
+			require.Empty(t, pr.v2Redelegations(alice))
+			require.NoError(t, pr.redelegate(alice, val3, val2, seiInUsei), "completes at once")
+			require.Empty(t, pr.v2Redelegations(alice))
+			require.NoError(t, pr.redelegate(alice, val1, val3, seiInUsei), "into an unbonded validator")
+			pr.endBlock()
+		}},
+		{"the last shares out of an unbonded validator remove it and redelegate as from a bonded one", func(t *testing.T, pr *pair) {
+			require.Equal(t, stakingtypes.Unbonded, pr.v2Status(val4))
+			require.NoError(t, pr.redelegate(val4, val4, val3, 15*seiInUsei))
+			_, ok := pr.v2.validator(val4)
+			require.False(t, ok)
+			require.Len(t, pr.v2Redelegations(val4), 1, "x/staking finds no source and waits a full unbonding period")
+			pr.wait(parityParams.UnbondingTime)
+			pr.endBlock()
+			require.Empty(t, pr.v2Redelegations(val4))
+		}},
 		{"a validator bonded again while unbonding stays bonded when that unbonding would end", func(t *testing.T, pr *pair) {
 			require.NoError(t, pr.delegate(alice, val4, 10*seiInUsei))
 			pr.endBlock()
@@ -186,10 +239,11 @@ func TestValidatorLifecycleMatchesV2(t *testing.T) {
 	}
 }
 
-// TestRandomOperationsMatchV2 runs random delegations, undelegations and
-// EndBlocks on the precompile and on x/staking, checking after every step, and
-// requires the runs between them to reach each rule. x/staking's jailing is
-// undone, since the precompile never jails.
+// TestRandomOperationsMatchV2 runs random delegations, undelegations,
+// redelegations and EndBlocks on the precompile and on x/staking, checking
+// after every step, and requires the runs between them to reach each rule.
+// Redelegations the precompile's queue would complete later than x/staking are
+// left out, and x/staking's jailing is undone, since the precompile never jails.
 func TestRandomOperationsMatchV2(t *testing.T) {
 	const seeds = 6
 	outcomes, ran := map[string]int{}, 0
@@ -216,6 +270,11 @@ func TestRandomOperationsMatchV2(t *testing.T) {
 		"undelegate: " + stakingtypes.ErrNoDelegation.Error(),
 		"undelegate: " + sdkerrors.ErrInvalidRequest.Error(),
 		"undelegate: " + stakingtypes.ErrMaxUnbondingDelegationEntries.Error(),
+		"redelegate: ok",
+		"redelegate: " + stakingtypes.ErrSelfRedelegation.Error(),
+		"redelegate: " + stakingtypes.ErrBadRedelegationDst.Error(),
+		"redelegate: " + stakingtypes.ErrTransitiveRedelegation.Error(),
+		"redelegate: " + stakingtypes.ErrMaxRedelegationEntries.Error(),
 		"hook: AfterValidatorBonded",
 		"hook: AfterValidatorBeginUnbonding",
 		"hook: BeforeDelegationRemoved",
@@ -225,18 +284,29 @@ func TestRandomOperationsMatchV2(t *testing.T) {
 }
 
 // randomOperations runs steps random operations on pr. val1's operator never
-// acts, so val1 keeps its power and the bonded set never has none.
+// acts, so val1 keeps its power and the bonded set never has none. An actor
+// often repeats its last redelegation, as reaching the max entries takes.
 func randomOperations(pr *pair, rng *rand.Rand, steps int) {
 	actors := []common.Address{alice, bob, carol, val2, val3, val4}
 	targets := append(slices.Clone(pr.validators), unknownValidator)
+	lastRedelegation := map[common.Address][2]common.Address{}
 	for range steps {
 		d := pick(rng, actors)
 		switch n := rng.Intn(100); {
-		case n < 40:
+		case n < 30:
 			_ = pr.delegate(d, pick(rng, targets), randomDelegation(rng))
-		case n < 80:
+		case n < 55:
 			op := pr.randomSource(rng, d, targets)
 			_ = pr.undelegate(d, op, randomUnbond(rng, pr.v2.delegatedTokens(d, op)))
+		case n < 80:
+			src, dst := pr.randomSource(rng, d, targets), pick(rng, targets)
+			if last, ok := lastRedelegation[d]; ok && rng.Intn(3) != 0 {
+				src, dst = last[0], last[1]
+			}
+			lastRedelegation[d] = [2]common.Address{src, dst}
+			if !pr.clampsRedelegation(src) {
+				_ = pr.redelegate(d, src, dst, randomUnbond(rng, pr.v2.delegatedTokens(d, src)))
+			}
 		case n < 95:
 			pr.endBlock()
 		default:
