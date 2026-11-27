@@ -37,14 +37,14 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx1, tx2})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx1, tx2})),
 		Height: 3})
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 	require.Equal(t, uint64(52_000), res.GasUsed)
 
 	decoded := utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(tx2))
-	_, checkErr := app.CheckTx(decoded)
+	_, checkErr := app.CheckTx(decoded.EvmTx())
 	require.NoError(t, checkErr)
 	require.Equal(t, addr, decoded.Sender())
 }
@@ -83,14 +83,14 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx0, tx2, tx1})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx0, tx2, tx1})),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(62_000), res.GasUsed)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
 
 	duplicate, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx1})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx1})),
 		Height: 2})
 	require.NoError(t, err)
 	require.Zero(t, duplicate.GasUsed)
@@ -110,7 +110,7 @@ func TestMockAppFinalizeBlockSkipsInvalidTransactions(t *testing.T) {
 	invalid, _, _ := buildFastCheckTxBytesForKey(t, key, 0, math.MaxUint64)
 
 	res, err := app.FinalizeBlock(t.Context(), abevm.FinalizeBlockReq{
-		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([][]byte{tx0, invalid, tx1})),
+		Txs:    utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTxs([]abevm.RawTx{tx0, invalid, tx1})),
 		Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, uint64(52_000), res.GasUsed)
@@ -219,16 +219,12 @@ func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
 	require.Equal(t, int64(2), app.LastBlockHeight())
 }
 
-func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
-	app := NewMockApp(mockAppInfoTarget{})
+func TestMockAppInfoReportsMockState(t *testing.T) {
+	app := NewMockApp(mockAppFixture{})
 	err := app.InitChain(abevm.InitConfig{InitialHeight: 9})
 	require.NoError(t, err)
 
 	info := app.Info()
-	require.Equal(t, "wrapped-data", info.Data)
-	require.Equal(t, "wrapped-version", info.Version)
-	require.Equal(t, uint64(17), info.AppVersion)
-	require.Equal(t, "1usei", info.MinimumGasPrices)
 	require.Equal(t, int64(8), info.LastBlockHeight)
 	require.Empty(t, info.LastBlockAppHash)
 }
@@ -306,21 +302,6 @@ func (app *mockAppForwardTarget) RestoreBlockTime(lastHeader time.Time) {
 	app.lastHeader = utils.Some(lastHeader)
 }
 
-type mockAppInfoTarget struct {
-	mockAppFixture
-}
-
-func (mockAppInfoTarget) Info() *abevm.ResponseInfo {
-	return &abevm.ResponseInfo{
-		Data:             "wrapped-data",
-		Version:          "wrapped-version",
-		AppVersion:       17,
-		LastBlockHeight:  123,
-		LastBlockAppHash: []byte("wrapped-hash"),
-		MinimumGasPrices: "1usei",
-	}
-}
-
 func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint64, gas uint64) ([]byte, *ethtypes.Transaction, common.Address) {
 	t.Helper()
 
@@ -347,7 +328,7 @@ func TestCheckMockTxEVMTransaction(t *testing.T) {
 	raw, ethTx := buildFastCheckTxBytes(t)
 	app := NewMockApp(mockAppFixture{})
 	decoded := utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw))
-	res, err := checkMockTx(decoded)
+	res, err := checkMockTx(decoded.EvmTx())
 	require.NoError(t, err)
 	require.Equal(t, uint64(123456), res.GasEstimated)
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(ethTx.ChainId()), ethTx)
@@ -356,14 +337,14 @@ func TestCheckMockTxEVMTransaction(t *testing.T) {
 	require.NotEqual(t, common.Address{}, decoded.Sender())
 }
 
-func TestMockAppRejectsUnprotectedTransaction(t *testing.T) {
+func TestMockAppSignerRejectsUnprotectedTransaction(t *testing.T) {
 	wrapped := NewMockApp(mockAppFixture{})
 	key, err := ethcrypto.GenerateKey()
 	require.NoError(t, err)
 	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{}), ethtypes.HomesteadSigner{}, key)
 	require.NoError(t, err)
-	_, _, err = abevm.CheckTx(abevm.NewProxy(wrapped), newTestSigner(wrapped.EvmChainID(), 0), utils.OrPanic1(signed.MarshalBinary()))
-	require.ErrorIs(t, err, abevm.ErrTxRejected)
+	_, err = newTestSigner(wrapped.EvmChainID(), 0).ParseTx(utils.OrPanic1(signed.MarshalBinary()))
+	require.Error(t, err)
 }
 
 func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
@@ -371,7 +352,7 @@ func TestMockAppChecksTransactionsWithoutCallingWrappedApp(t *testing.T) {
 	txBytes, _ := buildFastCheckTxBytes(t)
 
 	wrapped := NewMockApp(app)
-	res, checkErr := wrapped.CheckTx(utils.OrPanic1(newTestSigner(wrapped.EvmChainID(), 0).ParseTx(txBytes)))
+	res, checkErr := wrapped.CheckTx(utils.OrPanic1(newTestSigner(wrapped.EvmChainID(), 0).ParseTx(txBytes)).EvmTx())
 	require.False(t, app.called)
 	require.Equal(t, uint64(123456), res.GasEstimated)
 	require.NoError(t, checkErr)
@@ -392,7 +373,6 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 
 	mock, ok := app.(*MockApp)
 	require.True(t, ok)
-	require.Equal(t, "evmonly", mock.Info().Data)
 
 	err = mock.InitChain(abevm.InitConfig{InitialHeight: 1, GasLimit: 30_000_000})
 	require.NoError(t, err)
@@ -493,7 +473,7 @@ func TestABCINodeIgnoresMockAppSetting(t *testing.T) {
 
 	env := node.RPCEnvironment()
 	require.True(t, env.App.IsPresent())
-	require.False(t, env.EVM.IsPresent())
+	require.False(t, node.gigaRPCEnv.IsPresent())
 }
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {

@@ -28,7 +28,7 @@ type Config struct {
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
 	MaxTxsPerSecond utils.Option[uint64]
-	// Max number of CheckTx calls executed concurrently by InsertTx/TryInsertTx.
+	// Max number of CheckTx calls executed concurrently by InsertTx.
 	// None or Some(0) means half of GOMAXPROCS, at least 1.
 	MaxConcurrentCheckTx utils.Option[uint64]
 }
@@ -50,7 +50,6 @@ func (c *Config) maxTxsPerBlock() uint64 {
 type State struct {
 	cfg             *Config
 	app             *abevm.Proxy
-	signer          *abevm.Signer
 	mempool         utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus       *consensus.State
 	checkTxSem      *utils.Semaphore // bounds CheckTx calls.
@@ -60,7 +59,7 @@ type State struct {
 
 // NewState constructs a new block producer state.
 // Mempool starts None; alignMempool creates it for each produce session.
-func NewState(cfg *Config, consensus *consensus.State, app *abevm.Proxy, signer *abevm.Signer) *State {
+func NewState(cfg *Config, consensus *consensus.State, app *abevm.Proxy) *State {
 	limit := rate.Inf
 	burst := 1
 	if l, ok := cfg.MaxTxsPerSecond.Get(); ok {
@@ -70,7 +69,6 @@ func NewState(cfg *Config, consensus *consensus.State, app *abevm.Proxy, signer 
 	return &State{
 		cfg:             cfg,
 		app:             app,
-		signer:          signer,
 		mempool:         utils.NewAtomicSend(utils.None[*mempool]()),
 		consensus:       consensus,
 		checkTxSem:      utils.NewSemaphore(cfg.maxConcurrentCheckTx()),

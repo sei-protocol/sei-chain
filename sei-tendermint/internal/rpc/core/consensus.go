@@ -2,13 +2,10 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"slices"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -20,43 +17,7 @@ import (
 // for the validators in the set as used in computing their Merkle root.
 //
 // More: https://docs.tendermint.com/master/rpc/#/Info/validators
-//
-// Under Autobahn, height and ResultValidators.BlockHeight are global block
-// numbers. The returned validator set is the committee that certified the block.
-// An omitted height before the first app block is InitialHeight (FirstBlock).
 func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestValidators) (*coretypes.ResultValidators, error) {
-	if giga, ok := env.gigaRouter().Get(); ok {
-		height, err := env.autobahnCheckAndGetHeight((*int64)(req.Height))
-		if err != nil {
-			return nil, err
-		}
-		if height == 0 {
-			height = env.GenDoc.InitialHeight
-		}
-		gbn, ok := utils.SafeCast[atypes.RoadHeight](height)
-		if !ok {
-			return nil, fmt.Errorf("invalid height %d", height)
-		}
-		vs, err := giga.Validators(gbn)
-		if err != nil {
-			return nil, err
-		}
-		totalCount := len(vs)
-		perPage := env.validatePerPage(req.PerPage.IntPtr())
-		page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)
-		if err != nil {
-			return nil, err
-		}
-		skipCount := validateSkipCount(page, perPage)
-		v := vs[skipCount : skipCount+tmmath.MinInt(perPage, totalCount-skipCount)]
-		return &coretypes.ResultValidators{
-			BlockHeight: height,
-			Validators:  v,
-			Count:       len(v),
-			Total:       totalCount,
-		}, nil
-	}
-
 	// The latest validator that we know is the NextValidator of the last block.
 	height, err := env.getHeight(env.latestUncommittedHeight(), (*int64)(req.Height))
 	if err != nil {

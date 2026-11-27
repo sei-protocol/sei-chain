@@ -46,10 +46,7 @@ func (api *subscribeAPI) Logs(ctx context.Context, crit *filters.FilterCriteria)
 	if err != nil {
 		return nil, err
 	}
-	executed, err := api.backend.ExecutedBlocks()
-	if err != nil {
-		return nil, err
-	}
+	executed := api.backend.ExecutedBlocks()
 	connection := ethrpc.PeerInfoFromContext(ctx).RemoteAddr
 	if err := api.limits.acquireLogs(connection); err != nil {
 		return nil, err
@@ -165,10 +162,7 @@ func (api *subscribeAPI) NewHeads(ctx context.Context) (*ethrpc.Subscription, er
 	if !ok {
 		return nil, ethrpc.ErrNotificationsUnsupported
 	}
-	executed, err := api.backend.ExecutedBlocks()
-	if err != nil {
-		return nil, err
-	}
+	executed := api.backend.ExecutedBlocks()
 	// A WebSocket peer's address is unique among open connections.
 	connection := ethrpc.PeerInfoFromContext(ctx).RemoteAddr
 	if err := api.limits.acquireNewHeads(connection); err != nil {
@@ -229,7 +223,7 @@ func (api *subscribeAPI) streamHeads(
 // receipt store is read instead, yielding zero until its receipts land.
 func (api *subscribeAPI) header(ctx context.Context, height atypes.RoadHeight, window atypes.ExecutedBlocks) (map[string]any, error) {
 	h := coretypes.Int64(utils.Clamp[int64](height))
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &h})
+	block, err := loadBackendBlock(ctx, api.backend, &h)
 	if err != nil {
 		return nil, err
 	}

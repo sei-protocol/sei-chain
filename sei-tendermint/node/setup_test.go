@@ -395,7 +395,6 @@ func TestMakeEVMApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.NotNil(t, manager.StateDB())
 	require.Nil(t, manager.StateDB().HistoricalStateDB())
 	require.NotNil(t, manager.ReceiptDB())
-	require.Equal(t, "evmonly", app.Info().Data)
 	registry, err := app.EpochRegistry()
 	require.NoError(t, err)
 	committee := registry.Epochs()[0].Committee()

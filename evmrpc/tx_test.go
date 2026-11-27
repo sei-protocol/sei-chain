@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -47,19 +46,11 @@ func waitForReceipt(t *testing.T, ctx sdk.Context, txHash common.Hash) *types.Re
 
 type pendingNonceClient struct {
 	*MockClient
-	nextNonce   uint64
-	proxyClient *rpc.Client
+	nextNonce uint64
 }
 
 func (c *pendingNonceClient) EvmNextPendingNonce(common.Address) uint64 {
 	return c.nextNonce
-}
-
-func (c *pendingNonceClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	if c.proxyClient == nil {
-		return utils.None[*rpc.Client]()
-	}
-	return utils.Some(c.proxyClient)
 }
 
 func TestGetTransactionCount(t *testing.T) {
@@ -178,10 +169,6 @@ func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 
 func (c *lowLatestTMClient) GenesisInitialHeight() int64               { return 1 }
 
 func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
-
-func (c *lowLatestTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
-}
 
 func (c *lowLatestTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	return &coretypes.ResultStatus{
@@ -841,61 +828,7 @@ func TestGetTransactionCountPending(t *testing.T) {
 	require.NotNil(t, resObj["result"])
 }
 
-func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
-	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
-	var gotMethod string
-	var gotAddress string
-	var gotBlockTag map[string]string
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-
-		var req struct {
-			Method string            `json:"method"`
-			Params []json.RawMessage `json:"params"`
-		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		require.Len(t, req.Params, 2)
-
-		gotMethod = req.Method
-		require.NoError(t, json.Unmarshal(req.Params[0], &gotAddress))
-		require.NoError(t, json.Unmarshal(req.Params[1], &gotBlockTag))
-
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"jsonrpc": "2.0",
-			"id":      1,
-			"result":  "0x2a",
-		}))
-	}))
-	defer server.Close()
-
-	proxyClient, err := rpc.DialContext(t.Context(), server.URL)
-	require.NoError(t, err)
-	t.Cleanup(proxyClient.Close)
-
-	api := evmrpc.NewTransactionAPI(
-		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7, proxyClient: proxyClient},
-		nil,
-		nil,
-		nil,
-		"",
-		evmrpc.ConnectionTypeHTTP,
-		utils.None[time.Duration](),
-		&evmrpc.WatermarkManager{},
-		evmrpc.NewBlockCache(1),
-		&sync.Mutex{},
-	)
-
-	nonce, err := api.GetTransactionCount(context.Background(), address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
-	require.NoError(t, err)
-	require.Equal(t, hexutil.Uint64(42), *nonce)
-	require.Equal(t, "eth_getTransactionCount", gotMethod)
-	require.Equal(t, address.Hex(), gotAddress)
-	require.Equal(t, map[string]string{"blockNumber": "pending"}, gotBlockTag)
-}
-
-func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
+func TestGetTransactionCountPendingUsesLocalNonce(t *testing.T) {
 	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	api := evmrpc.NewTransactionAPI(
 		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7},

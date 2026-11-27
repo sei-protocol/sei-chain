@@ -73,7 +73,11 @@ func (tx *txSpec) asResponse() abevm.AdmittedTx {
 	return abevm.AdmittedTx{GasEstimated: tx.GasEstimated}
 }
 
-func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txSpec {
+func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) abevm.EvmTxRaw {
+	return env.parseTx(env.genTxSpec(rng, addr, nonce).encode())
+}
+
+func (env *testEnv) genTxSpec(rng utils.Rng, addr common.Address, nonce uint64) *txSpec {
 	gasBase := int(env.state.cfg.MaxGasWantedPerBlock / env.state.cfg.maxTxsPerBlock())
 	gasJitter := min(gasBase, 10)
 	return &txSpec{
@@ -268,7 +272,11 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Mark block as executed.
-			txs := utils.OrPanic1(env.signer.ParseTxs(b.Txs))
+			raw := make([]abevm.RawTx, len(b.Txs))
+			for i, tx := range b.Txs {
+				raw[i] = tx
+			}
+			txs := utils.OrPanic1(env.signer.ParseTxs(raw))
 			env.signer.ForgetTxs(txs)
 			_, err = env.app.FinalizeBlock(ctx, abevm.FinalizeBlockReq{Txs: txs, Hash: common.BytesToHash(b.Hash[:])})
 			if err != nil {
@@ -304,7 +312,7 @@ func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app accountApp
 		executionPaused: utils.NewWatch(new(bool)),
 		data:            dataState,
 		consensus:       consensusState,
-		state:           NewState(cfg, consensusState, evm, signer),
+		state:           NewState(cfg, consensusState, evm),
 		app:             evm,
 		signer:          signer,
 		accounts:        app,
@@ -335,13 +343,17 @@ func TestInsertTx_TooLargeTx(t *testing.T) {
 		}
 
 		// Tx with size exceeding block limit.
-		tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerLaneBlock+1))
+		key := utils.OrPanic1(crypto.ToECDSA(utils.GenBytes(rng, 32)))
+		signed := utils.OrPanic1(ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+			Data: utils.GenBytes(rng, int(types.MaxTxsBytesPerLaneBlock+1)),
+		}), ethtypes.LatestSignerForChainID(big.NewInt(1)), key))
+		tx := utils.OrPanic1(signed.MarshalBinary())
 		// Should be rejected by mempool.
-		_, err := env.state.InsertTx(ctx, tx)
+		err := env.state.InsertTx(ctx, env.parseTx(tx))
 		if !errors.Is(err, errTooLarge) {
 			return fmt.Errorf("unexpected error: got %v, want %v", err, errTooLarge)
 		}
-		if len(env.state.UnconfirmedTxs()) != 0 {
+		if pendingTxCount(env.state) != 0 {
 			return fmt.Errorf("expected no unconfirmed transactions")
 		}
 		return nil
@@ -362,14 +374,14 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 
 		// Tx with gas wanted exceeding block limit
 		addr, nonce := app.NewAccount(rng)
-		tx := env.genTx(rng, addr, nonce)
+		tx := env.genTxSpec(rng, addr, nonce)
 		tx.GasWanted = cfg.MaxGasWantedPerBlock + 1
 		// Should be rejected by mempool.
-		_, err := env.state.InsertTx(ctx, tx.encode())
+		err := env.state.InsertTx(ctx, env.parseTx(tx.encode()))
 		if !errors.Is(err, errTooLarge) {
 			return fmt.Errorf("unexpected error: got %v, want %v", err, errTooLarge)
 		}
-		if len(env.state.UnconfirmedTxs()) != 0 {
+		if pendingTxCount(env.state) != 0 {
 			return fmt.Errorf("expected no unconfirmed transactions")
 		}
 		return nil
@@ -392,15 +404,15 @@ func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
 
 		// Tx with gas wanted exceeding block limit
 		addr, nonce := app.NewAccount(rng)
-		tx := env.genTx(rng, addr, nonce)
+		tx := env.genTxSpec(rng, addr, nonce)
 		tx.GasEstimated = cfg.MaxGasEstimatedPerBlock + 1
 		tx.GasWanted = tx.GasEstimated
 		// Should be rejected by mempool.
-		_, err := env.state.InsertTx(ctx, tx.encode())
+		err := env.state.InsertTx(ctx, env.parseTx(tx.encode()))
 		if !errors.Is(err, errTooLarge) {
 			return fmt.Errorf("unexpected error: got %v, want %v", err, errTooLarge)
 		}
-		if len(env.state.UnconfirmedTxs()) != 0 {
+		if pendingTxCount(env.state) != 0 {
 			return fmt.Errorf("expected no unconfirmed transactions")
 		}
 		return nil
@@ -427,14 +439,14 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 			return fmt.Errorf("expected an error")
 		}
 		// Should be rejected by app.
-		_, err = env.state.InsertTx(ctx, tx)
+		err = env.state.InsertTx(ctx, env.parseTx(tx))
 		if !errors.Is(err, abevm.ErrTxRejected) {
 			return fmt.Errorf("unexpected successful CheckTx response")
 		}
 		if app.checked.Load() != 1 {
 			return fmt.Errorf("expected application rejection")
 		}
-		if len(env.state.UnconfirmedTxs()) != 0 {
+		if pendingTxCount(env.state) != 0 {
 			return fmt.Errorf("expected no unconfirmed transactions")
 		}
 		return nil
@@ -471,7 +483,7 @@ func TestInsertTx_ConcurrentSequentialNonces(t *testing.T) {
 			for _, account := range accounts {
 				s.Spawn(func() error {
 					for nonce := account.start; nonce < account.start+txCount; nonce++ {
-						if _, err := env.state.InsertTx(ctx, env.genTx(account.rng, account.addr, nonce).encode()); err != nil {
+						if err := env.state.InsertTx(ctx, env.genTx(account.rng, account.addr, nonce)); err != nil {
 							return fmt.Errorf("InsertTx(): %w", err)
 						}
 					}
@@ -506,18 +518,18 @@ func TestInsertTx_BadNonceRejected(t *testing.T) {
 		addr, nonce := app.NewAccount(rng)
 
 		for _, txNonce := range []uint64{nonce - 1, nonce + 1} {
-			_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+			err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce))
 			if !errors.Is(err, errBadNonce) {
 				return fmt.Errorf("unexpected error: got %v, want %v", err, errBadNonce)
 			}
 		}
-		_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode())
+		err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce))
 		if err != nil {
 			return err
 		}
 
 		for _, txNonce := range []uint64{nonce, nonce + 2} {
-			_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+			err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce))
 			if !errors.Is(err, errBadNonce) {
 				return fmt.Errorf("unexpected error: got %v, want %v", err, errBadNonce)
 			}
@@ -538,30 +550,27 @@ func TestInsertTx_ResubmissionAlreadyKnown(t *testing.T) {
 		}
 
 		addr, nonce := app.NewAccount(rng)
-		tx := env.genTx(rng, addr, nonce).encode()
-		if _, err := env.state.InsertTx(ctx, tx); err != nil {
+		tx := env.genTx(rng, addr, nonce)
+		if err := env.state.InsertTx(ctx, tx); err != nil {
 			return err
 		}
-		if _, err := env.state.InsertTx(ctx, tx); !errors.Is(err, errAlreadyKnown) {
+		if err := env.state.InsertTx(ctx, tx); !errors.Is(err, errAlreadyKnown) {
 			return fmt.Errorf("InsertTx() of the same transaction: got %v, want %v", err, errAlreadyKnown)
 		}
-		if _, err := env.state.TryInsertTx(ctx, tx); !errors.Is(err, errAlreadyKnown) {
-			return fmt.Errorf("TryInsertTx() of the same transaction: got %v, want %v", err, errAlreadyKnown)
-		}
 		// A different transaction at the same nonce is still a bad nonce.
-		if _, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode()); !errors.Is(err, errBadNonce) {
+		if err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce)); !errors.Is(err, errBadNonce) {
 			return fmt.Errorf("unexpected error: got %v, want %v", err, errBadNonce)
 		}
 		return nil
 	}))
 }
 
-// waitUntilPruned waits until the mempool no longer holds the transaction with the given hash.
-func waitUntilPruned(ctx context.Context, mp *mempool, hash common.Hash) error {
+// waitUntilPruned waits until the transaction nonce leaves its pending range.
+func waitUntilPruned(ctx context.Context, mp *mempool, tx abevm.EvmTx) error {
 	for inner, ctrl := range mp.inner.Lock() {
 		return ctrl.WaitUntil(ctx, func() bool {
-			_, ok := inner.evmTxs[hash]
-			return !ok
+			r, ok := inner.evmNonces[tx.Sender()]
+			return !ok || tx.Nonce() < r.first || tx.Nonce() >= r.next
 		})
 	}
 	panic("unreachable")
@@ -590,14 +599,14 @@ func TestInsertTx_ResendAfterPruneBadNonce(t *testing.T) {
 
 		addr, nonce := app.NewAccount(rng)
 		tx := env.genTx(rng, addr, nonce)
-		if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
+		if err := env.state.InsertTx(ctx, tx); err != nil {
 			return err
 		}
-		if err := waitUntilPruned(ctx, mp, tx.transaction().Hash()); err != nil {
+		if err := waitUntilPruned(ctx, mp, tx.EvmTx()); err != nil {
 			return err
 		}
 		// Once executed and pruned, the transaction's nonce is spent.
-		if _, err := env.state.InsertTx(ctx, tx.encode()); !errors.Is(err, errBadNonce) {
+		if err := env.state.InsertTx(ctx, tx); !errors.Is(err, errBadNonce) {
 			return fmt.Errorf("InsertTx() after pruning: got %v, want %v", err, errBadNonce)
 		}
 		return nil
@@ -617,18 +626,18 @@ func TestInsertTx_ResendAfterNonceGapAccepted(t *testing.T) {
 		}
 
 		addr, nonce := app.NewAccount(rng)
-		failing := env.genTx(rng, addr, nonce)
+		failing := env.genTxSpec(rng, addr, nonce)
 		failing.ShouldFail = true
-		next := env.genTx(rng, addr, nonce+1)
+		next := env.genTxSpec(rng, addr, nonce+1)
 		// Hold execution so both transactions are admitted before the failing one executes.
 		env.pauseExecution()
 		for _, tx := range []*txSpec{failing, next} {
-			if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
+			if err := env.state.InsertTx(ctx, env.parseTx(tx.encode())); err != nil {
 				return err
 			}
 		}
 		env.resumeExecution()
-		if err := waitUntilPruned(ctx, mp, failing.transaction().Hash()); err != nil {
+		if err := waitUntilPruned(ctx, mp, env.parseTx(failing.encode()).EvmTx()); err != nil {
 			return err
 		}
 		// The failed transaction left a nonce gap, which resets the expected nonce.
@@ -636,13 +645,13 @@ func TestInsertTx_ResendAfterNonceGapAccepted(t *testing.T) {
 			return fmt.Errorf("EvmNextPendingNonce() = %v, want %v", got, want)
 		}
 		// Until the gap is filled, the transaction after it is a bad nonce, not already known.
-		if _, err := env.state.InsertTx(ctx, next.encode()); !errors.Is(err, errBadNonce) {
+		if err := env.state.InsertTx(ctx, env.parseTx(next.encode())); !errors.Is(err, errBadNonce) {
 			return fmt.Errorf("InsertTx() before filling the gap: got %v, want %v", err, errBadNonce)
 		}
-		if _, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode()); err != nil {
+		if err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce)); err != nil {
 			return fmt.Errorf("InsertTx() filling the gap: %w", err)
 		}
-		if _, err := env.state.InsertTx(ctx, next.encode()); err != nil {
+		if err := env.state.InsertTx(ctx, env.parseTx(next.encode())); err != nil {
 			return fmt.Errorf("InsertTx() after filling the gap: %w", err)
 		}
 		return nil
@@ -693,7 +702,7 @@ func TestMempool_HappyPath(t *testing.T) {
 					failAt := nonce + uint64(rng.Intn(20))
 					for ; ; nonce += 1 {
 						// Generate tx.
-						tx := env.genTx(rng, addr, nonce)
+						tx := env.genTxSpec(rng, addr, nonce)
 						tx.ShouldFail = nonce == failAt
 
 						if nonce <= failAt {
@@ -701,18 +710,15 @@ func TestMempool_HappyPath(t *testing.T) {
 							if got, want := env.state.EvmNextPendingNonce(tx.Address), nonce; got != want {
 								return fmt.Errorf("EvmNextPendingNonce() = %v, want %v", got, want)
 							}
-							// Insert tx and check response.
-							resp, err := env.state.InsertTx(ctx, tx.encode())
+							// Insert tx.
+							err := env.state.InsertTx(ctx, env.parseTx(tx.encode()))
 							if err != nil {
 								return fmt.Errorf("env.state.InsertTx(): %w", err)
-							}
-							if err := utils.TestDiff(tx.asResponse(), resp); err != nil {
-								return err
 							}
 						} else {
 							// As soon as execution reaches failAt tx (which may be multiple blocks after sequencing it)
 							// the mempool will reset the expected nonce back to the current app state (i.e. to failAt).
-							resp, err := env.state.InsertTx(ctx, tx.encode())
+							err := env.state.InsertTx(ctx, env.parseTx(tx.encode()))
 							if errors.Is(err, errBadNonce) {
 								// Check that nonce was reverted to the last executed tx.
 								nonce = failAt
@@ -723,9 +729,6 @@ func TestMempool_HappyPath(t *testing.T) {
 							}
 							if err != nil {
 								return fmt.Errorf("env.state.InsertTx(): %w", err)
-							}
-							if err := utils.TestDiff(tx.asResponse(), resp); err != nil {
-								return err
 							}
 						}
 						// At this point the tx is expected to be sequenced, no matter if it is executed or not.
@@ -749,76 +752,6 @@ func TestMempool_HappyPath(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestMempool_EvmTxByHash(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	app := newTestApp()
-	cfg := app.Cfg()
-	// 1ms interval can seal between InsertTx calls; MaxTxsPerBlock=1 makes
-	// single-tx blocks expected so env.Run's "sealed too early" check stays quiet.
-	cfg.BlockInterval = time.Millisecond
-	cfg.MaxTxsPerBlock = 1
-	env := newTestEnv(t, rng, cfg, app)
-	addr, nonce := app.NewAccount(rng)
-
-	txs := utils.Slice(
-		env.genTx(rng, addr, nonce),
-		env.genTx(rng, addr, nonce+1),
-	)
-
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
-		if _, err := env.waitForMempool(ctx); err != nil {
-			return err
-		}
-		for _, tx := range txs {
-			if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
-				return err
-			}
-			got, ok := env.state.EvmTxByHash(tx.transaction().Hash())
-			if !ok {
-				return fmt.Errorf("EvmTxByHash(%v) missing", tx.transaction().Hash())
-			}
-			if err := utils.TestDiff(tx.encode(), got); err != nil {
-				return err
-			}
-		}
-		for {
-			mp, ok := env.state.mempool.Load().Get()
-			if !ok {
-				break
-			}
-			done := false
-			for m, ctrl := range mp.inner.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool {
-					if m.closed {
-						return true
-					}
-					for _, tx := range txs {
-						if _, ok := m.evmTxs[tx.transaction().Hash()]; ok {
-							return false
-						}
-					}
-					return true
-				}); err != nil {
-					return err
-				}
-				done = true
-			}
-			if done {
-				break
-			}
-		}
-		return nil
-	}))
-
-	for _, tx := range txs {
-		_, ok := env.state.EvmTxByHash(tx.transaction().Hash())
-		require.False(t, ok)
-	}
-	require.Equal(t, nonce+uint64(len(txs)), app.EvmNonce(addr))
 }
 
 func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
@@ -849,7 +782,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 
 		addr, _ := app.NewAccount(rng)
 		stuck := env.genTx(rng, addr, app.EvmNonce(addr))
-		if _, err := env.state.InsertTx(ctx, stuck.encode()); err != nil {
+		if err := env.state.InsertTx(ctx, stuck); err != nil {
 			return err
 		}
 
@@ -874,8 +807,8 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			}
 		}
 
-		if _, err := env.state.TryInsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode()); !errors.Is(err, ErrNotProducing) {
-			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
+		if err := env.state.InsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr))); !errors.Is(err, ErrNotProducing) {
+			return fmt.Errorf("InsertTx after leave: got %v, want ErrNotProducing", err)
 		}
 
 		if err := registry.TestPushEpoch(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
@@ -892,7 +825,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if _, err = availState.Block(ctx, got, 0); err != nil {
 			return err
 		}
-		_, err = env.state.InsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode())
+		err = env.state.InsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)))
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -905,16 +838,14 @@ func TestInsertTx_WithoutSession(t *testing.T) {
 	app := newTestApp()
 	env := newTestEnv(t, rng, app.Cfg(), app)
 	tx := env.fullTx(rng, app).encode()
-	_, err := env.state.InsertTx(t.Context(), tx)
-	require.ErrorIs(t, err, ErrNotProducing)
-	_, err = env.state.TryInsertTx(t.Context(), tx)
+	err := env.state.InsertTx(t.Context(), env.parseTx(tx))
 	require.ErrorIs(t, err, ErrNotProducing)
 }
 
 // fullTx returns a tx that alone fills a block, so every admitted one seals the previous block.
 func (env *testEnv) fullTx(rng utils.Rng, app *testApp) *txSpec {
 	addr, nonce := app.NewAccount(rng)
-	tx := env.genTx(rng, addr, nonce)
+	tx := env.genTxSpec(rng, addr, nonce)
 	tx.GasWanted = env.state.cfg.MaxGasWantedPerBlock
 	tx.GasEstimated = tx.GasWanted
 	return tx
@@ -924,13 +855,11 @@ func (env *testEnv) fullTx(rng utils.Rng, app *testApp) *txSpec {
 func (env *testEnv) fillMempool(ctx context.Context, rng utils.Rng, app *testApp) error {
 	env.pauseExecution()
 	for range avail.BlocksPerLane + 1 {
-		if _, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode()); err != nil {
+		if err := env.state.InsertTx(ctx, env.parseTx(env.fullTx(rng, app).encode())); err != nil {
 			return err
 		}
 	}
-	if _, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode()); !errors.Is(err, errMempoolFull) {
-		return fmt.Errorf("TryInsertTx on full mempool: got %v, want errMempoolFull", err)
-	}
+
 	return nil
 }
 
@@ -956,7 +885,7 @@ func (env *testEnv) enqueueInserters(ctx context.Context, s scope.Scope, rng uti
 	for range n {
 		tx := env.fullTx(rng, app)
 		s.Spawn(func() error {
-			_, err := env.state.InsertTx(ctx, tx.encode())
+			err := env.state.InsertTx(ctx, env.parseTx(tx.encode()))
 			if !errors.Is(err, want) {
 				return fmt.Errorf("InsertTx(): got %v, want %v", err, want)
 			}
@@ -989,7 +918,7 @@ func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 			for range n {
 				tx := env.fullTx(rng, app)
 				s.Spawn(func() error {
-					if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
+					if err := env.state.InsertTx(ctx, env.parseTx(tx.encode())); err != nil {
 						return err
 					}
 					return utils.Send(ctx, admitted, tx)
@@ -1004,15 +933,8 @@ func TestInsertTx_AdmissionAfterExecution(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				got, ok := env.state.EvmTxByHash(tx.transaction().Hash())
-				if !ok {
-					if app.EvmNonce(tx.Address) != tx.Nonce+1 {
-						return fmt.Errorf("admitted transaction neither pending nor executed")
-					}
-					continue
-				}
-				if err := utils.TestDiff(tx.encode(), got); err != nil {
-					return err
+				if got, want := env.state.EvmNextPendingNonce(tx.Address), tx.Nonce+1; got != want {
+					return fmt.Errorf("admitted transaction nonce: got %v, want %v", got, want)
 				}
 			}
 			return nil
@@ -1060,4 +982,22 @@ func (a *testApp) Info() *abevm.ResponseInfo {
 
 func newTestSigner(chainID uint64, workers int) *abevm.Signer {
 	return abevm.NewSigner(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), 1024, workers)
+}
+
+func pendingTxCount(s *State) int {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
+		return 0
+	}
+	for m := range mp.inner.Lock() {
+		if m.closed {
+			return 0
+		}
+		return len(m.nextBlock.rawTxs)
+	}
+	panic("unreachable")
+}
+
+func (env *testEnv) parseTx(raw []byte) abevm.EvmTxRaw {
+	return utils.OrPanic1(env.signer.ParseTx(raw))
 }

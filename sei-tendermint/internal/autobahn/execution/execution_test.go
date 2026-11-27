@@ -198,12 +198,16 @@ func (env *testEnv) write(from, to int, flush bool) error {
 }
 
 func (env *testEnv) executor(app abevm.Application) *Executor {
+	return env.executorWithSigner(app, newTestSigner(app.EvmChainID(), 0))
+}
+
+func (env *testEnv) executorWithSigner(app abevm.Application, signer *abevm.Signer) *Executor {
 	return New(&Config{
 		GenDoc:            env.genDoc,
 		App:               abevm.NewProxy(app),
 		AppHashBuilder:    recordingBuilder{events: env.events},
 		BlockStore:        env.store,
-		Signer:            newTestSigner(app.EvmChainID(), 0),
+		Signer:            signer,
 		MaxBlocksInFlight: gigaconfig.DefaultConfig.Execution.MaxBlocksInFlight,
 	})
 }
@@ -421,7 +425,8 @@ func TestExecutionReusesAndEvictsInjectedSignerCache(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 1)
 	app := newRecordingApp(env.events, 0)
-	executor := env.executor(app)
+	recoverer := &abevm.TestCountingSigner{Signer: ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(app.EvmChainID()))}
+	executor := env.executorWithSigner(app, abevm.NewSigner(recoverer, 1024, 1))
 	_, err := executor.initApp(t.Context())
 	require.NoError(t, err)
 	block := env.blocks[0].SuperBlock()
@@ -429,14 +434,15 @@ func TestExecutionReusesAndEvictsInjectedSignerCache(t *testing.T) {
 	raw := block.Txs[0]
 	verified, err := executor.cfg.Signer.ParseTx(raw)
 	require.NoError(t, err)
-	claimed := common.Address{1}
-	executor.cfg.Signer.Remember(verified.Hash(), claimed)
+	executor.cfg.Signer.Remember(verified.EvmTx())
 	_, err = executor.executeBlock(t.Context(), block)
 	require.NoError(t, err)
-	require.Equal(t, claimed, app.finalized()[0].Txs[0].Sender())
+	require.Equal(t, verified.Sender(), app.finalized()[0].Txs[0].Sender())
+	require.Equal(t, uint64(len(block.Txs)), recoverer.Calls.Load())
 	reparsed, err := executor.cfg.Signer.ParseTx(raw)
 	require.NoError(t, err)
 	require.Equal(t, verified.Sender(), reparsed.Sender())
+	require.Equal(t, uint64(len(block.Txs)+1), recoverer.Calls.Load())
 }
 
 // The next block's FinalizeBlock is entered while the current one is still inside it.
