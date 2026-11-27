@@ -81,6 +81,22 @@ func newLaneRing(seed laneSeed, c *atypes.Committee) *laneRing {
 	return r
 }
 
+// Serves reports whether committee c has the same validators as the committee r
+// was built for, whatever their weights and join epochs.
+func (r *laneRing) Serves(c *atypes.Committee) bool {
+	lanes := c.Lanes()
+	if lanes.Len() != len(r.validators) {
+		return false
+	}
+	for i, v := range r.validators {
+		// Committee.Lanes is sorted by validator key, and r.validators follows that order.
+		if lanes.At(i).Validator != v {
+			return false
+		}
+	}
+	return true
+}
+
 // senderPosition returns the ring position of sender.
 func (r *laneRing) senderPosition(sender common.Address) uint64 {
 	var buf [len(laneRingSenderTag) + len(laneSeed{}) + common.AddressLength]byte

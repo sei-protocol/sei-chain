@@ -15,6 +15,9 @@ type laneAssigner interface {
 	// Lane returns the validator of the first lane, in this assigner's order for
 	// sender, that reachable accepts, or None when reachable accepts no lane.
 	Lane(sender common.Address, reachable func(atypes.PublicKey) bool) utils.Option[atypes.PublicKey]
+	// Serves reports whether this assigner, built for one committee, assigns the
+	// same lanes for committee c.
+	Serves(c *atypes.Committee) bool
 }
 
 // committeeLaneAssigner is a laneAssigner together with the committee it was built for.
@@ -43,8 +46,8 @@ func (a *laneAssignments) For(c *atypes.Committee) laneAssigner {
 		return latest.assigner
 	}
 	next := &committeeLaneAssigner{committee: c}
-	if latest != nil && latest.committee.Equal(c) {
-		// An equal committee under a new pointer keeps its assigner, so senders keep
+	if latest != nil && latest.assigner.Serves(c) {
+		// A committee that the assigner serves keeps that assigner, so senders keep
 		// their lanes and the next lookup takes the pointer fast path.
 		next.assigner = latest.assigner
 	} else {

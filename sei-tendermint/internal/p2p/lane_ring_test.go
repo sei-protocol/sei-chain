@@ -55,6 +55,15 @@ func committeeWith(c *atypes.Committee, v atypes.PublicKey) *atypes.Committee {
 	return utils.OrPanic1(atypes.NewCommittee(weights))
 }
 
+// committeeWithWeightsPlusOne returns committee c with each weight raised by one.
+func committeeWithWeightsPlusOne(c *atypes.Committee) *atypes.Committee {
+	weights := map[atypes.PublicKey]uint64{}
+	for lane := range c.Lanes().All() {
+		weights[lane.Validator] = c.Weight(lane.Validator) + 1
+	}
+	return utils.OrPanic1(atypes.NewCommittee(weights))
+}
+
 func allReachable(atypes.PublicKey) bool { return true }
 
 // assignLanes returns the lane that a assigns to each sender.
@@ -186,12 +195,23 @@ func TestLaneRing_NoReachableLaneGivesNone(t *testing.T) {
 	require.False(t, got.IsPresent())
 }
 
-func TestLaneAssignments_RebuildsOnlyWhenCommitteeChanges(t *testing.T) {
+func TestLaneRing_ServesOnlyCommitteesWithItsValidators(t *testing.T) {
 	rng := utils.TestRng()
-	c := genEqualStakeCommittee(rng, 10)
-	v := c.Lanes().At(0).Validator
-	changed := committeeWithout(c, v)
-	equal := committeeWith(changed, v)
+	c, _ := atypes.GenCommittee(rng, 40)
+	r := newLaneRing(genLaneSeed(rng), c)
+	v := c.Lanes().At(5).Validator
+
+	require.True(t, r.Serves(committeeWithWeightsPlusOne(c)))
+	require.False(t, r.Serves(committeeWithout(c, v)))
+	require.False(t, r.Serves(committeeWith(c, atypes.GenPublicKey(rng))))
+	require.False(t, r.Serves(committeeWith(committeeWithout(c, v), atypes.GenPublicKey(rng))))
+}
+
+func TestLaneAssignments_RebuildsOnlyWhenValidatorsChange(t *testing.T) {
+	rng := utils.TestRng()
+	c, _ := atypes.GenCommittee(rng, 10)
+	reweighted := committeeWithWeightsPlusOne(c)
+	changed := committeeWithout(c, c.Lanes().At(0).Validator)
 	seed := genLaneSeed(rng)
 	var built []*atypes.Committee
 	a := newLaneAssignments(func(c *atypes.Committee) laneAssigner {
@@ -199,13 +219,13 @@ func TestLaneAssignments_RebuildsOnlyWhenCommitteeChanges(t *testing.T) {
 		return newLaneRing(seed, c)
 	})
 
-	// The same committee builds once, and an equal committee under a new
-	// pointer reuses that build.
+	// The same committee builds once, and a committee with the same validators
+	// and other weights reuses that build.
 	first := a.For(c)
 	require.Equal(t, first, a.For(c))
-	require.Equal(t, first, a.For(equal))
+	require.Equal(t, first, a.For(reweighted))
 	require.Equal(t, []*atypes.Committee{c}, built)
-	// A different committee builds again.
+	// A committee with other validators builds again.
 	a.For(changed)
 	require.Equal(t, []*atypes.Committee{c, changed}, built)
 }
