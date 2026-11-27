@@ -89,22 +89,21 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// App is required for execution but isn't exercised by this test.
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
+	senders := genSenders(rng, 200)
 	// With no lane client yet, EvmProxy forwards nowhere.
-	require.False(t, router.EvmProxy(common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))).IsPresent())
-	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
-	for validator, rpcURL := range urlByValidator {
-		clientByValidator[validator] = registerEvmProxyForTest(t, router.gigaRouterCommon, validator, rpcURL)
-	}
+	require.False(t, router.EvmProxy(senders[0]).IsPresent())
 
-	// EvmProxy: for every sender, the fullnode router resolves to one of the
-	// connected lane clients, and to the same client on every call.
+	// With a client for every lane but one, every sender resolves to one of
+	// those clients, the same one on every call.
+	late := validatorKeys[0].Public()
 	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
-	for _, client := range clientByValidator {
-		expectedRemoteClients[client] = struct{}{}
+	for validator, rpcURL := range urlByValidator {
+		if validator != late {
+			expectedRemoteClients[registerEvmProxyForTest(t, router.gigaRouterCommon, validator, rpcURL)] = struct{}{}
+		}
 	}
-	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
-	for range 200 {
-		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+	before := make([]*ethrpc.Client, len(senders))
+	for i, sender := range senders {
 		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)
 		_, known := expectedRemoteClients[proxyClient]
@@ -112,6 +111,20 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		again, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)
 		require.Equal(t, proxyClient, again)
+		before[i] = proxyClient
+	}
+
+	// When the client of the last lane arrives, the senders of that lane move to
+	// it and every other sender keeps its client.
+	lateClient := registerEvmProxyForTest(t, router.gigaRouterCommon, late, urlByValidator[late])
+	expectedRemoteClients[lateClient] = struct{}{}
+	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
+	for i, sender := range senders {
+		proxyClient, ok := router.EvmProxy(sender).Get()
+		require.True(t, ok)
+		if proxyClient != before[i] {
+			require.Equal(t, lateClient, proxyClient)
+		}
 		returnedRemoteClients[proxyClient] = struct{}{}
 	}
 	// Sanity: with 200 random senders mapped uniformly over 5 lanes we
