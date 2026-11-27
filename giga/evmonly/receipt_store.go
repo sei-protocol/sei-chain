@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"fmt"
+	"math/big"
 	"sort"
 	"sync"
 
@@ -158,17 +159,24 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipttypes
 	for _, record := range stored {
 		byBlock[record.Receipt.BlockNumber] = append(byBlock[record.Receipt.BlockNumber], record)
 	}
+	baseFee := receiptdb.BlockBaseFee(ctx)
+	if baseFee != nil {
+		baseFee = new(big.Int).Set(baseFee)
+	}
+	height := uint64(ctx.BlockHeight()) //nolint:gosec // guarded non-negative above
 	s.mu.Lock()
 	for blockNumber, blockRecords := range byBlock {
-		s.blockStats[blockNumber] = receiptmetrics.ComputeBlockStats(
-			blockRecords, receiptmetrics.DefaultRewardPercentiles)
+		stats := receiptmetrics.ComputeBlockStats(blockRecords, receiptmetrics.DefaultRewardPercentiles)
+		if blockNumber == height {
+			stats.BaseFee = baseFee
+		}
+		s.blockStats[blockNumber] = stats
 	}
 	if len(byBlock) == 0 && ctx.BlockHeight() > 0 {
 		// An empty block still executed; record it as a real, zero-stat block rather than leaving
 		// it unrecorded, which GetBlockStats would otherwise report as ErrBlockStatsNotSupported.
-		blockNumber := uint64(ctx.BlockHeight()) //nolint:gosec // guarded non-negative above
-		if _, exists := s.blockStats[blockNumber]; !exists {
-			s.blockStats[blockNumber] = receipttypes.BlockStats{}
+		if _, exists := s.blockStats[height]; !exists {
+			s.blockStats[height] = receipttypes.BlockStats{BaseFee: baseFee}
 		}
 	}
 	s.mu.Unlock()

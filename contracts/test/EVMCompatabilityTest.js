@@ -393,9 +393,7 @@ describe("EVM Test", function () {
           }
         ];
 
-        // EVM-only fixes the base fee at 0, so a zero tip pays nothing and is refused.
-        const cases = await isEvmOnlyChain() ? testCases.filter((c) => c.maxPriorityFeePerGas > 0n) : testCases;
-        for (const testCase of cases) {
+        for (const testCase of testCases) {
           // send a tx with a gas to elevate the base fee
           const heavyTxResponse = await evmTester.useGas(9500000, { 
             maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
@@ -631,18 +629,14 @@ describe("EVM Test", function () {
 
       it("Should fail if insufficient gas is provided", async function () {
         const zero = ethers.parseUnits('0', 'ether')
-        // 1 wei << 1 gwei minimum, so the transaction is refused; the await is load-bearing.
-        // The two chains refuse it at different steps. On v2 the base fee is above 1 wei, so the
-        // pre-flight estimateGas fails first. EVM-only has no base fee yet, so estimateGas passes
-        // and the transaction is refused when it is submitted, with v2's admission message.
-        // Once EVM-only has a base fee (CON-598), both fail in estimateGas and this can be one message.
-        const message = await isEvmOnlyChain() ? /insufficient fee/ : /max fee per gas less than block base fee/;
+        // 1 wei is below the base fee, so the pre-flight estimateGas refuses the transaction; the
+        // await is load-bearing.
         await expect(owner.sendTransaction({
           to: owner.address,
           gasPrice: 1,
           value: zero,
           type: 1,
-        })).to.be.rejectedWith(message);
+        })).to.be.rejectedWith(/max fee per gas less than block base fee/);
       });
 
       it("Should deduct correct amount even if higher gas price is used", async function () {
@@ -683,7 +677,8 @@ describe("EVM Test", function () {
         ];
 
         it("Check base fee on the right block", async function () {
-          // EVM-only fixes the base fee at 0; the dynamic base fee is not ported (CON-598).
+          // EVM-only sets a block's base fee from the gas use of the block KeyBaseFeeLag before it,
+          // two at genesis, so the heavy block's child does not yet run at a raised base fee.
           if (await isEvmOnlyChain()) {
             this.skip();
           }
@@ -746,10 +741,6 @@ describe("EVM Test", function () {
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
             it(`EIP-1559 test: ${name}`, async function() {
-              // EVM-only fixes the base fee at 0, so a zero tip pays nothing and is refused.
-              if (maxPriorityFeePerGas === 0n && await isEvmOnlyChain()) {
-                this.skip();
-              }
               const balanceBefore = await ethers.provider.getBalance(owner);
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({

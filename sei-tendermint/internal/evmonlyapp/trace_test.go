@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -20,6 +21,7 @@ func traceTestHeader(height int64, parentHash common.Hash) abevm.BlockRef {
 		Height:     atypes.RoadHeight(height),
 		Time:       uint64(evmOnlyTestBlockTime(height).Unix()), //nolint:gosec // G115: test times are positive.
 		ParentHash: parentHash,
+		BaseFee:    big.NewInt(evmOnlyGenesisMinFeePerGas),
 	}
 }
 
@@ -73,15 +75,15 @@ func TestEVMOnlyApplicationReplaysTheStateBeforeEachTransaction(t *testing.T) {
 		})
 	}
 
-	// Replaying the whole block reaches the state the block committed, fees credited to the coinbase
-	// included.
+	// Replaying the whole block reaches the state the block committed, fees credited to the fee
+	// collector included.
 	replayed, err := app.EvmStateBeforeTx(t.Context(), header, block)
 	require.NoError(t, err)
 	defer replayed.Close()
 	committed, err := app.EvmStateAt(t.Context(), 2)
 	require.NoError(t, err)
 	defer committed.Close()
-	for _, address := range []common.Address{sender, recipient, {}} {
+	for _, address := range []common.Address{sender, recipient, evmonly.FeeCollectorAddress} {
 		require.Equal(t, committed.GetNonce(address), replayed.GetNonce(address))
 		require.Equal(t, 0, committed.GetBalance(address).Cmp(replayed.GetBalance(address)))
 	}
@@ -100,8 +102,8 @@ func TestEVMOnlyApplicationRebuildsABlockContext(t *testing.T) {
 	require.Equal(t, uint64(2), got.BlockNumber.Uint64())
 	require.Equal(t, header.Time, got.Time)
 	require.Equal(t, uint64(30_000_000), got.GasLimit)
-	require.Equal(t, common.Address{}, got.Coinbase)
-	require.Equal(t, 0, got.BaseFee.Sign())
+	require.Equal(t, evmonly.FeeCollectorAddress, got.Coinbase)
+	require.Equal(t, header.BaseFee, got.BaseFee)
 	require.Equal(t, evmOnlyPrevRandao(header.Time), *got.Random)
 	require.Equal(t, first.Hash, got.GetHash(1))
 	require.Equal(t, common.Hash{}, got.GetHash(0))

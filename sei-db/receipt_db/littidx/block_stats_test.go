@@ -1,6 +1,7 @@
 package littidx
 
 import (
+	"math/big"
 	"testing"
 
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
@@ -33,6 +34,20 @@ func TestEncodeDecodeBlockStatsRoundTrip(t *testing.T) {
 			name:  "empty block",
 			stats: receipttypes.BlockStats{},
 		},
+		{
+			name: "with a base fee",
+			stats: receipttypes.BlockStats{
+				TotalGasUsed:      21_000,
+				TxCount:           1,
+				RewardGasUsed:     21_000,
+				RewardPercentiles: []receipttypes.RewardPercentile{{Percentile: 50, Reward: 5}},
+				BaseFee:           big.NewInt(1_000_000_000),
+			},
+		},
+		{
+			name:  "empty block with the largest base fee",
+			stats: receipttypes.BlockStats{BaseFee: new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -42,6 +57,7 @@ func TestEncodeDecodeBlockStatsRoundTrip(t *testing.T) {
 			require.Equal(t, tc.stats.TxCount, got.TxCount)
 			require.Equal(t, tc.stats.RewardGasUsed, got.RewardGasUsed)
 			require.Equal(t, tc.stats.RewardPercentiles, got.RewardPercentiles)
+			require.Equal(t, tc.stats.BaseFee.String(), got.BaseFee.String())
 		})
 	}
 }
@@ -62,4 +78,16 @@ func TestDecodeBlockStatsRejectsMalformedInput(t *testing.T) {
 
 	_, err = decodeBlockStats(append(valid, 0x00))
 	require.Error(t, err)
+
+	withBaseFee := encodeBlockStats(receipttypes.BlockStats{BaseFee: big.NewInt(1)})
+	_, err = decodeBlockStats(withBaseFee[:len(withBaseFee)-1])
+	require.Error(t, err)
+}
+
+func TestCheckBlockBaseFee(t *testing.T) {
+	require.NoError(t, checkBlockBaseFee(nil))
+	require.NoError(t, checkBlockBaseFee(new(big.Int)))
+	require.NoError(t, checkBlockBaseFee(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))))
+	require.Error(t, checkBlockBaseFee(big.NewInt(-1)))
+	require.Error(t, checkBlockBaseFee(new(big.Int).Lsh(big.NewInt(1), 256)))
 }
