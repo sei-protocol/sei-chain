@@ -86,11 +86,11 @@ func TestGetBlockReceipts(t *testing.T) {
 		{name: "pending", arg: byNumber(ethrpc.PendingBlockNumber), wantHeight: heightOf(9), block: twoTxBlock, want: both},
 		{name: "tag behind a committed head the receipts have not reached", arg: byNumber(ethrpc.LatestBlockNumber), head: 12, wantHeight: heightOf(9), block: twoTxBlock, want: both},
 		{name: "explicit height", arg: byNumber(9), wantHeight: heightOf(9), block: twoTxBlock, want: both},
-		{name: "known hash", arg: byHash, block: twoTxBlock, want: both},
+		{name: "known hash", arg: byHash, wantHeight: heightOf(9), block: twoTxBlock, want: both},
 		{name: "empty block is an empty list, not null", arg: byNumber(4), wantHeight: heightOf(4), block: emptyBlock, want: []common.Hash{}},
 		// Requests with no block, or with receipts not yet indexed, answer null, not an error.
 		{name: "height not yet indexed", arg: byNumber(10), wantHeight: heightOf(10), block: unindexedBlock},
-		{name: "hash not yet indexed", arg: byHash, block: unindexedBlock},
+		{name: "hash not yet indexed", arg: byHash, wantHeight: heightOf(10), block: unindexedBlock},
 		{name: "future height", arg: byNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
 		// earliest and 0x0 resolve to the earliest block the receipt store retains.
 		{name: "earliest", arg: byNumber(ethrpc.EarliestBlockNumber), floors: []int64{9}, wantHeight: heightOf(9), block: twoTxBlock, want: both},

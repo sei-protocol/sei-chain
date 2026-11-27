@@ -125,6 +125,13 @@ func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	}
 }
 
+// testGasPriceBackend is testInfoBackend whose next block's base fee is the admission floor.
+func testGasPriceBackend(gasLimit uint64, minGasPrice int64) *testBackend {
+	backend := testInfoBackend(gasLimit, minGasPrice)
+	backend.nextBaseFee = func() *big.Int { return big.NewInt(minGasPrice) }
+	return backend
+}
+
 type uncachedMedianBlockStatsStore struct {
 	receiptdb.ReceiptStore
 	stats receipttypes.BlockStats
@@ -144,6 +151,13 @@ func emptyBlockBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	return backend
 }
 
+// setBlockBaseFee writes block blockNumber with no receipts, recording baseFee as its base fee.
+func setBlockBaseFee(t *testing.T, store receiptdb.ReceiptStore, blockNumber, baseFee int64) {
+	t.Helper()
+	ctx := receiptdb.WithBlockBaseFee(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(blockNumber), big.NewInt(baseFee))
+	require.NoError(t, store.SetReceipts(ctx, nil))
+}
+
 // setBlockReceipt writes one block with a single reward-eligible tx, so its stored BlockStats has
 // GasUsed=gasUsed and every default percentile equal to reward.
 func setBlockReceipt(t *testing.T, store receiptdb.ReceiptStore, blockNumber, gasUsed uint64, reward int64) {
@@ -159,7 +173,7 @@ func setBlockReceipt(t *testing.T, store receiptdb.ReceiptStore, blockNumber, ga
 func TestGasPriceScalesFloorUp(t *testing.T) {
 	// No latest block at all: congestionReward has nothing to escalate from, so GasPrice falls
 	// back to the fixed margin over the admission floor.
-	api := &infoAPI{backend: testInfoBackend(0, 1_000_000_000), store: evmonly.NewMemoryReceiptStore()}
+	api := &infoAPI{backend: testGasPriceBackend(0, 1_000_000_000), store: evmonly.NewMemoryReceiptStore()}
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(1_100_000_000), price.ToInt())
@@ -167,44 +181,63 @@ func TestGasPriceScalesFloorUp(t *testing.T) {
 
 func TestGasPriceEscalatesWithCongestion(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// gasLimit 1000, TotalGasUsed 900 -> 90% > the 80% congestion threshold -> median reward,
-	// which is above the floor here so the escalation is what's under test, not the floor clamp.
+	// gasLimit 1000, TotalGasUsed 900 -> 90% > the 80% congestion threshold -> the next base fee
+	// plus the median priority fee, which is above the margin here so the escalation is what's
+	// under test.
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(500)},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+	api := &infoAPI{backend: testGasPriceBackend(1000, 100), store: store}
 
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, big.NewInt(500), price.ToInt())
+	require.Equal(t, big.NewInt(600), price.ToInt())
 }
 
-// TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor verifies GasPrice falls back to the margin
-// when the congested-block median is below the current floor.
-func TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor(t *testing.T) {
+// TestGasPriceAddsTheMedianToTheBaseFeeNotTheFloor verifies a node MinGasPrice above the base fee
+// raises only the margin, and is not counted again under the median priority fee.
+func TestGasPriceAddsTheMedianToTheBaseFeeNotTheFloor(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// gasLimit 1000, TotalGasUsed 900 -> congested, but the one included tx's reward (50) is
-	// below the current floor (100).
+	// gasLimit 1000, TotalGasUsed 900 -> congested; the base fee (0) plus the one included tx's
+	// priority fee (2000) clears the margin (1100) over the MinGasPrice floor (1000).
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
-		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(50)},
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(2000)},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 100), store: store}
+	backend := testGasPriceBackend(1000, 1000)
+	backend.nextBaseFee = func() *big.Int { return new(big.Int) }
+	api := &infoAPI{backend: backend, store: store}
+
+	price, err := api.GasPrice(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(2000), price.ToInt())
+}
+
+// TestGasPriceFallsBackWhenTheMedianIsBelowTheMargin verifies GasPrice falls back to the margin
+// when the next base fee plus the congested-block median is below it.
+func TestGasPriceFallsBackWhenTheMedianIsBelowTheMargin(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	// gasLimit 1000, TotalGasUsed 900 -> congested, but the base fee (100) plus the one included
+	// tx's priority fee (5) is below the floor's 10% margin (110).
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(5)},
+	}))
+	api := &infoAPI{backend: testGasPriceBackend(1000, 100), store: store}
 
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(110), price.ToInt())
 }
 
-// TestGasPriceCongestionNeverAnswersBelowTheMargin verifies a congested reward equal to the
-// floor falls back to the margin instead of answering below it.
+// TestGasPriceCongestionNeverAnswersBelowTheMargin verifies a congested suggestion one wei short
+// of the margin falls back to the margin instead of answering below it.
 func TestGasPriceCongestionNeverAnswersBelowTheMargin(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// gasLimit 1000, TotalGasUsed 900 -> congested; the one included tx's reward (1000) equals
-	// the floor (1000), which is below the floor's own 10% margin (1100).
+	// gasLimit 1000, TotalGasUsed 900 -> congested; the base fee (1000) plus the one included tx's
+	// priority fee (99) is one below the floor's own 10% margin (1100).
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
-		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(1000)},
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(99)},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 1000), store: store}
+	api := &infoAPI{backend: testGasPriceBackend(1000, 1000), store: store}
 
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
@@ -219,7 +252,7 @@ func TestGasPriceNotCongestedAtExactlyTheThreshold(t *testing.T) {
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 800}, Reward: big.NewInt(500)},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+	api := &infoAPI{backend: testGasPriceBackend(1000, 1_000_000_000), store: store}
 
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
@@ -233,7 +266,7 @@ func TestGasPriceFallsBackWhenTheMedianIsntStored(t *testing.T) {
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipttypes.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+	api := &infoAPI{backend: testGasPriceBackend(1000, 1_000_000_000), store: store}
 
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
@@ -347,12 +380,32 @@ func TestFeeHistoryUsesStoredGasUsedRatio(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(1), result.OldestBlock.ToInt())
 	require.Equal(t, []float64{0.01, 0.02}, result.GasUsedRatio)
-	// baseFeePerGas is always zero for giga, one entry more than gasUsedRatio.
+	// No base fee is recorded, so each is the backend's, zero here; one entry more than gasUsedRatio.
 	require.Len(t, result.BaseFee, 3)
 	for _, bf := range result.BaseFee {
 		require.Equal(t, big.NewInt(0), bf.ToInt())
 	}
 	require.Nil(t, result.Reward)
+}
+
+// eth_feeHistory reports each block's recorded base fee, then the base fee of the block after the
+// newest one: recorded once that block has run, and the backend's next base fee before.
+func TestFeeHistoryReportsEachBlocksBaseFee(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	setBlockBaseFee(t, store, 1, 7)
+	setBlockBaseFee(t, store, 2, 8)
+	backend := testInfoBackend(1000, 1)
+	backend.blockNumber = func() uint64 { return 2 }
+	backend.nextBaseFee = func() *big.Int { return big.NewInt(9) }
+	api := &infoAPI{backend: backend, store: store}
+
+	latest, err := api.FeeHistory(t.Context(), 2, ethrpc.LatestBlockNumber, nil)
+	require.NoError(t, err)
+	require.Equal(t, []*big.Int{big.NewInt(7), big.NewInt(8), big.NewInt(9)}, toBigInts(latest.BaseFee))
+
+	past, err := api.FeeHistory(t.Context(), 1, ethrpc.BlockNumber(1), nil)
+	require.NoError(t, err)
+	require.Equal(t, []*big.Int{big.NewInt(7), big.NewInt(8)}, toBigInts(past.BaseFee))
 }
 
 func TestFeeHistorySkipsPrunedHeights(t *testing.T) {
@@ -560,6 +613,29 @@ func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
 	require.Equal(t, []*big.Int{big.NewInt(999)}, toBigInts(result.Reward[0]))
+}
+
+// A recomputed reward is a receipt's priority fee above its block's recorded base fee.
+func TestFeeHistoryRecomputesRewardsAboveTheBaseFee(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	tx, raw := testSignedTransaction(t)
+	ctx := receiptdb.WithBlockBaseFee(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(1), big.NewInt(400))
+	require.NoError(t, store.SetReceipts(ctx, []receipttypes.ReceiptRecord{{
+		TxHash:  tx.Hash(),
+		Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 999},
+		Reward:  big.NewInt(599),
+	}}))
+	backend := testInfoBackend(1000, 1)
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{Block: &tmtypes.Block{Data: tmtypes.Data{Txs: tmtypes.Txs{tmtypes.Tx(raw)}}}}, nil
+	}
+	api := &infoAPI{backend: backend, store: store}
+
+	// 33 is not in receiptmetrics.DefaultRewardPercentiles, so this recomputes from receipts.
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
+	require.NoError(t, err)
+	require.Equal(t, []*big.Int{big.NewInt(599)}, toBigInts(result.Reward[0]))
+	require.Equal(t, big.NewInt(400), result.BaseFee[0].ToInt())
 }
 
 // TestFeeHistoryRecomputesWholeRowWhenOnePercentileIsUncached guards the coverage rule: a miss on

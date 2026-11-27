@@ -13,6 +13,7 @@ import (
 	gmath "github.com/ethereum/go-ethereum/common/math"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
@@ -69,18 +70,20 @@ const gasPriceCongestionPercentile = 50
 const defaultPriorityFeePerGas = 1_000_000_000
 
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
-// admission floor, or the latest congested block's median reward when that's higher and available.
+// admission floor, or the next block's base fee plus the latest congested block's median priority
+// fee when that's higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
-	floor := api.backend.EvmMinGasPrice()
-	margin := suggestedGasPrice(floor)
-	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
-		return (*hexutil.Big)(reward), nil
+	margin := suggestedGasPrice(api.backend.EvmMinGasPrice())
+	if reward, ok := api.congestionReward(ctx); ok {
+		if price := reward.Add(reward, api.backend.EvmNextBaseFee()); price.Cmp(margin) >= 0 {
+			return (*hexutil.Big)(price), nil
+		}
 	}
 	return (*hexutil.Big)(margin), nil
 }
 
-// congestionReward answers GasPrice's escalated suggestion: the latest block's median reward, but
-// only once its gasUsedRatio exceeds gasPriceCongestionThresholdPercent.
+// congestionReward returns the latest block's median priority fee, once its gasUsedRatio exceeds
+// gasPriceCongestionThresholdPercent.
 func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	current := api.store.LatestVersion()
 	if current <= 0 {
@@ -148,7 +151,7 @@ func emptyFeeHistoryResult() *FeeHistoryResult {
 }
 
 // FeeHistory returns gas-used ratios, base fees, and reward percentiles for the blockCount blocks
-// ending at lastBlock. baseFeePerGas is always zero; see rewardRow for reward.
+// ending at lastBlock, and the base fee of the block after them; see rewardRow for reward.
 func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock ethrpc.BlockNumber, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	if blockCount < 1 {
 		return emptyFeeHistoryResult(), nil
@@ -230,7 +233,11 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 			result.OldestBlock = (*hexutil.Big)(big.NewInt(height))
 		}
 		result.GasUsedRatio = append(result.GasUsedRatio, gasUsedRatio(stats.TotalGasUsed, gasLimit))
-		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(new(big.Int)))
+		baseFee := stats.BaseFee
+		if baseFee == nil {
+			baseFee = unrecordedBaseFee(api.backend, height)
+		}
+		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
 		if len(rewardPercentiles) > 0 {
 			result.Reward = append(result.Reward, rewardRow(stats, rewardPercentiles))
 		}
@@ -245,9 +252,14 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 			return nil, rpcerr.ResourceUnavailable(fmt.Errorf("block %d is no longer available", end))
 		}
 	}
-	// baseFeePerGas carries one more entry than gasUsedRatio: the projected fee for the block
-	// after end. Always zero here.
-	result.BaseFee = append(result.BaseFee, (*hexutil.Big)(new(big.Int)))
+	// baseFeePerGas carries one more entry than gasUsedRatio: the base fee of the block after the
+	// newest one reported, which is set before that block runs.
+	newest := result.OldestBlock.ToInt().Int64() + int64(len(result.GasUsedRatio)) - 1
+	next, err := blockBaseFee(ctx, api.backend, api.store, newest+1)
+	if err != nil {
+		return nil, err
+	}
+	result.BaseFee = append(result.BaseFee, (*hexutil.Big)(next))
 	return result, nil
 }
 
@@ -289,13 +301,25 @@ func coversRewardPercentiles(stats receipttypes.BlockStats, rewardPercentiles []
 }
 
 // recomputeBlockStats answers height's BlockStats by reading its receipts directly and running
-// receiptmetrics.ComputeBlockStats over exactly rewardPercentiles.
+// receiptmetrics.ComputeBlockStats over exactly rewardPercentiles, with each receipt's reward its
+// priority fee above the block's base fee.
 func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewardPercentiles []float64) (receipttypes.BlockStats, error) {
+	baseFee, err := blockBaseFee(ctx, api.backend, api.store, height)
+	if err != nil {
+		return receipttypes.BlockStats{}, err
+	}
 	records, err := api.receiptRecordsForHeight(ctx, height)
 	if err != nil {
 		return receipttypes.BlockStats{}, err
 	}
-	return receiptmetrics.ComputeBlockStats(records, rewardPercentiles), nil
+	for i := range records {
+		if price := records[i].Receipt.EffectiveGasPrice; price != 0 {
+			records[i].Reward = evmonly.PriorityFee(new(big.Int).SetUint64(price), baseFee)
+		}
+	}
+	stats := receiptmetrics.ComputeBlockStats(records, rewardPercentiles)
+	stats.BaseFee = baseFee
+	return stats, nil
 }
 
 // receiptRecordsForHeight answers height's receipts via IterateReceipts when the store supports
@@ -377,14 +401,9 @@ func receiptRecordsFromBlock(ctx context.Context, store receiptdb.ReceiptStore, 
 	return records, nil
 }
 
-// receiptRecordFor builds the ReceiptRecord ComputeBlockStats expects from a stored receipt.
+// receiptRecordFor builds the ReceiptRecord of a stored receipt, without a reward.
 func receiptRecordFor(hash common.Hash, stored *evmtypes.Receipt) receipttypes.ReceiptRecord {
-	var reward *big.Int
-	if stored.EffectiveGasPrice != 0 {
-		// giga's base fee is always zero, so the priority fee is the raw effective gas price.
-		reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
-	}
-	return receipttypes.ReceiptRecord{TxHash: hash, Receipt: stored, Reward: reward}
+	return receipttypes.ReceiptRecord{TxHash: hash, Receipt: stored}
 }
 
 // rewardRow formats stats into the reward row eth_feeHistory returns for rewardPercentiles. stats
