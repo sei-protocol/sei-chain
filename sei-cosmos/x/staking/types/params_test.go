@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestParamsEqual(t *testing.T) {
@@ -35,5 +36,16 @@ func Test_validateParams(t *testing.T) {
 	require.Error(t, params.Validate())
 
 	params.MinCommissionRate = sdk.NewDec(2)
+	require.Error(t, params.Validate())
+}
+
+func TestValidateMaxValidatorsBound(t *testing.T) {
+	require.NoError(t, types.DefaultParams().Validate())
+
+	params := types.DefaultParams()
+	params.MaxValidators = tmtypes.MaxValidatorSetSize
+	require.NoError(t, params.Validate())
+
+	params.MaxValidators = tmtypes.MaxValidatorSetSize + 1
 	require.Error(t, params.Validate())
 }

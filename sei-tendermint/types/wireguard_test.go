@@ -15,7 +15,7 @@ import (
 
 const (
 	maxCommitSignatures = types.MaxVotesCount
-	maxValidators       = 100
+	maxValidators       = types.MaxValidatorSetSize
 	txKeySize           = crypto.HashSize
 	maxEvidenceEntries  = types.MaxEvidenceEntriesPerBlock
 )
