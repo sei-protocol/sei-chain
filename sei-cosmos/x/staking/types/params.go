@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Staking params default values
@@ -184,10 +183,6 @@ func validateMaxValidators(i interface{}) error {
 
 	if v == 0 {
 		return fmt.Errorf("max validators must be positive: %d", v)
-	}
-
-	if v > tmtypes.MaxValidatorSetSize {
-		return fmt.Errorf("max validators must be at most %d: %d", tmtypes.MaxValidatorSetSize, v)
 	}
 
 	return nil

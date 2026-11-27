@@ -150,7 +150,7 @@ func init() {
 	runtime.MustRegister[*LightClientAttackEvidence](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LightBlock]())},
 		2: {MaxCount: 1},
-		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Validator]())},
+		3: {MaxCount: 10000, Nested: utils.Some(reflect.TypeFor[*Validator]())},
 		4: {MaxCount: 1},
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*timestamppb.Timestamp]())},
 	})

@@ -79,10 +79,6 @@ func (vals *ValidatorSet) Ordered() iter.Seq[*Validator] {
 // Note the validator set size has an implied limit equal to that of the
 // MaxVotesCount - commits by a validator set larger than this will fail
 // validation.
-// MaxValidatorSetSize is the largest validator set a legacy message may carry.
-// The staking module refuses a max_validators above it, which bounds the bonded set.
-const MaxValidatorSetSize = 100
-
 func NewValidatorSet(valz []*Validator) *ValidatorSet {
 	vals := &ValidatorSet{Validators: []*Validator{}}
 	err := vals.updateWithChangeSet(valz, false)
