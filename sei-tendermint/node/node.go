@@ -189,13 +189,15 @@ func makeNode(
 		evmApp             utils.Option[*abevm.Proxy]
 		evmSigner          utils.Option[*abevm.Signer]
 		gigaStorageManager utils.Option[*bootstrap.GigaStorageManager]
+		gigaStart          stateSyncStart
 	)
 	gigaEnabled := cfg.AutobahnConfigFile != ""
 	if gigaEnabled {
-		evm, storage, err := makeEVMApplication(ctx, cfg, opts.giga, genDoc)
+		evm, storage, start, err := makeEVMApplication(ctx, cfg, opts.giga, genDoc)
 		if err != nil {
 			return nil, err
 		}
+		gigaStart = start
 		evmApp = utils.Some(abevm.NewProxy(evm))
 		// The cap bounds each generation of senders retained for admitted transactions.
 		const senderCacheCapacity = 1 << 22
@@ -332,6 +334,7 @@ func makeNode(
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
 	router, peerCloser, _, err := createRouter(
+		ctx,
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -342,6 +345,7 @@ func makeNode(
 		dbProvider,
 		gigaStorageManager,
 		opts.giga.StateSync,
+		gigaStart,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

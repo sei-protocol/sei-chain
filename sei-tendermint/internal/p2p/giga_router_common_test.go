@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
@@ -330,6 +331,133 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
 }
 
+<<<<<<< HEAD
+=======
+func TestGigaRouterCommon_TranslateSuperBlockNamesTheParentAsLastBlockID(t *testing.T) {
+	rng := utils.TestRng()
+	router := &gigaRouterCommon{cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+	block := atypes.GenSuperBlock(rng)
+
+	block.ParentHash = utils.None[atypes.RoadBlockHeaderHash]()
+	require.True(t, router.translateSuperBlock(block).Block.LastBlockID.IsNil())
+
+	parent := atypes.GenRoadBlockHeaderHash(rng)
+	block.ParentHash = utils.Some(parent)
+	got := router.translateSuperBlock(block).Block.LastBlockID.Hash
+	require.Equal(t, common.Hash(parent).Bytes(), []byte(got))
+}
+
+// The block RPC of a later road block names the previous road block as its parent, and that of the
+// first road block names none.
+func TestGigaRouterCommon_BlockByNumberLinksConsecutiveRoadBlocks(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := atypes.GenCommittee(rng, 3)
+	state, registry := testDataState(t, committee)
+	ep := registry.MustEpoch(0)
+	first, firstBlocks := data.TestCommitQCOnLane(ep, keys, utils.None[*atypes.CommitQC](), ep.Committee().Lanes().At(0))
+	second, secondBlocks := data.TestCommitQCOnLane(ep, keys, utils.Some(first.QC()), ep.Committee().Lanes().At(1))
+	require.NoError(t, state.PushPartialBlock(t.Context(), first, data.TestBlockMap(firstBlocks)))
+	require.NoError(t, state.PushPartialBlock(t.Context(), second, data.TestBlockMap(secondBlocks)))
+	router := &gigaRouterCommon{data: state, cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+
+	gotFirst, err := router.BlockByNumber(t.Context(), first.Height())
+	require.NoError(t, err)
+	gotSecond, err := router.BlockByNumber(t.Context(), second.Height())
+	require.NoError(t, err)
+	require.True(t, gotFirst.Block.LastBlockID.IsNil())
+	require.Equal(t, gotFirst.BlockID.Hash, gotSecond.Block.LastBlockID.Hash)
+}
+
+func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
+	rng := utils.TestRng()
+	low := atypes.GenSecretKey(rng)
+	mid := atypes.GenSecretKey(rng)
+	high := atypes.GenSecretKey(rng)
+	keys := []atypes.SecretKey{low, mid, high}
+	router, registry := testGigaRouterWithData(t, map[atypes.PublicKey]GigaNodeAddr{
+		low.Public():  {},
+		mid.Public():  {},
+		high.Public(): {},
+	})
+	first := router.data.Anchor().Load().Epochs[0].RoadRange().First
+
+	got, err := router.Validators(first)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
+
+	_, err = router.Validators(0)
+	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
+
+	_, err = router.Validators(first + 100)
+	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
+
+	weights := map[atypes.PublicKey]uint64{
+		low.Public():  1,
+		mid.Public():  5,
+		high.Public(): 10,
+	}
+	require.NoError(t, registry.TestPushEpoch(0, weights))
+	ep2 := registry.MustEpoch(2)
+	got, err = router.Validators(first)
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
+
+	require.NoError(t, registry.TestPushEpoch(1, weights))
+	n := ep2.RoadRange().First
+	router = testRouterAtRoad(t, registry, keys, ep2, n)
+	got, err = router.Validators(n)
+	require.NoError(t, err)
+	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
+	require.Equal(t, high.Public().Bytes(), got[0].PubKey.Bytes())
+	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
+	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
+	_, err = router.Validators(n + 1)
+	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
+
+	require.NoError(t, registry.TestPushEpoch(2, weights))
+	require.NoError(t, registry.TestPushEpoch(3, weights))
+	ep4 := registry.MustEpoch(4)
+	router = testRouterAtRoad(t, registry, keys, ep4, ep4.RoadRange().First)
+	_, err = router.Validators(n)
+	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
+}
+
+func testRouterAtRoad(t *testing.T, registry *epoch.TestRegistry, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadHeight) *gigaRouterCommon {
+	t.Helper()
+	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Height: road, Number: 0}, 1)
+	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
+	prepareQC := atypes.BuildPrepareQC(keys, proposal)
+	for _, k := range keys {
+		votes = append(votes, k.Sign(atypes.NewCommitVote(prepareQC)))
+	}
+	headers := make([]*atypes.LaneBlockHeader, len(blocks))
+	for i, b := range blocks {
+		headers[i] = b.Header()
+	}
+	qc := atypes.NewFullCommitQC(atypes.NewCommitQC(votes), headers)
+	store := blockstore.NewTestStore(t)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
+	require.NoError(t, store.Flush())
+	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
+	require.NoError(t, err)
+	return &gigaRouterCommon{data: state}
+}
+
+func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr) (*gigaRouterCommon, *epoch.TestRegistry) {
+	t.Helper()
+	weights := make(map[atypes.PublicKey]uint64, len(addrs))
+	for key := range addrs {
+		weights[key] = 1
+	}
+	committee, err := atypes.NewCommittee(weights)
+	require.NoError(t, err)
+	state, registry := testDataState(t, committee)
+	return &gigaRouterCommon{data: state}, registry
+}
+
+>>>>>>> origin/main
 func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.TestRegistry) {
 	t.Helper()
 	registry, err := epoch.TestGenesisRegistry(committee, 1, epoch.DefaultEpochLength)
@@ -716,7 +844,8 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsNextEpoch(t *testing.T) {
 			}
 		}
 		// The first road of ep3 moves Anchor to (ep3, ep4): b leaves, d joins.
-		qc3, blocks3 := testRoadQC(registry.MustEpoch(3), []atypes.SecretKey{keyA, keyC}, registry.MustEpoch(3).RoadRange().First)
+		ep3 := registry.MustEpoch(3)
+		qc3, blocks3 := data.TestCommitQCOnLane(ep3, []atypes.SecretKey{keyA, keyC}, utils.Some(qc2.QC()), ep3.Committee().Lanes().At(0))
 		if err := testCertifyRoad(ctx, state, rng, []atypes.SecretKey{keyA, keyC}, qc3, blocks3); err != nil {
 			return err
 		}

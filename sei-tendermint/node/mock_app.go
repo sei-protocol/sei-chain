@@ -239,6 +239,8 @@ func (app *MockApp) EvmCreateAccessListAt(context.Context, *ethcore.Message, abe
 
 func (app *MockApp) EvmBaseFee() *big.Int { return new(big.Int) }
 
+func (app *MockApp) EvmNextBaseFee() *big.Int { return new(big.Int) }
+
 // EvmGasLimit returns 0: the mock app does not meter block gas.
 func (app *MockApp) EvmGasLimit() uint64 { return 0 }
 

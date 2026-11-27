@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/stateview"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -56,8 +58,8 @@ const commitPhaseTimerName = "giga_state_commit"
 const gigaMeterName = "seidb_giga"
 
 // NewStateDB assembles a StateDB over stores that are already open, so that it commits the block after the WAL's
-// head. It errors unless the live state DB stands at that head, and attaches the historical state DB to the live
-// state DB's current block.
+// head. It errors unless the live state DB stands at that head, then replays the WAL blocks the historical state DB
+// lacks into it and attaches it to the live state DB's current block.
 //
 // The returned StateDB owns the three stores and closes them on Close. A failed call leaves them with the caller.
 func NewStateDB(
@@ -72,6 +74,9 @@ func NewStateDB(
 	budHasher bud.BUDHasher,
 ) (*StateDB, error) {
 	if err := requireLiveStateDBAtTheWALHead(liveStateDB, wal); err != nil {
+		return nil, err
+	}
+	if err := catchUpHistoricalStateDB(liveStateDB, historicalStateDB, wal); err != nil {
 		return nil, err
 	}
 	if err := resumeHistoricalStateDBOverHeldState(liveStateDB, historicalStateDB); err != nil {
@@ -104,6 +109,53 @@ func requireLiveStateDBAtTheWALHead(liveStateDB gigatypes.LiveStateStore, wal st
 		return fmt.Errorf("the live state DB is at %d but the state WAL ends at %d; roll the live state DB "+
 			"back to align them", version, last)
 	}
+	return nil
+}
+
+// catchUpHistoricalStateDB replays the WAL's blocks after historicalStateDB's latest block, up to liveStateDB's
+// version, into historicalStateDB. It skips a historical state DB that is disabled, empty, not behind, or behind
+// further than the WAL reaches.
+func catchUpHistoricalStateDB(
+	liveStateDB gigatypes.LiveStateStore,
+	historicalStateDB gigatypes.HistoricalStateStore,
+	wal statewal.StateWAL,
+) error {
+	if historicalStateDB == nil {
+		return nil
+	}
+	latest, target := historicalStateDB.GetLatestVersion(), liveStateDB.Version()
+	if latest == 0 || latest >= target {
+		return nil
+	}
+	stored, first, _, err := wal.GetStoredRange()
+	if err != nil {
+		return fmt.Errorf("read state WAL range: %w", err)
+	}
+	from, to := uint64(latest)+1, uint64(target) //nolint:gosec // versions are never negative
+	if !stored || first > from {
+		return nil
+	}
+	start := time.Now()
+	it, err := wal.Iterator(from, to)
+	if err != nil {
+		return fmt.Errorf("state WAL iterator [%d,%d]: %w", from, to, err)
+	}
+	defer func() { _ = it.Close() }()
+	for {
+		hasNext, err := it.Next()
+		if err != nil {
+			return fmt.Errorf("iterate state WAL: %w", err)
+		}
+		if !hasNext {
+			break
+		}
+		block, mutations := it.Entry()
+		if err := historicalStateDB.ReplayBlock(int64(block), mutations); err != nil { //nolint:gosec // block heights fit in an int64
+			return fmt.Errorf("replay block %d into the historical state DB: %w", block, err)
+		}
+	}
+	logger.Info("Replayed the state WAL into the historical state DB",
+		"from", from, "to", to, "elapsed", time.Since(start).Truncate(time.Millisecond))
 	return nil
 }
 
@@ -154,16 +206,16 @@ func (s *StateDB) Close() error {
 	// Before the live state DB: the historical state DB holds a view of the live state DB's current block until
 	// it closes.
 	if s.historicalStateDB != nil {
-		timer.SetPhase("ss")
+		timer.SetPhase("historical_state_db")
 		if err := s.historicalStateDB.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close the historical state DB: %w", err))
 		}
 	}
-	timer.SetPhase("sc")
+	timer.SetPhase("live_state_db")
 	if err := s.liveStateDB.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close the live state DB: %w", err))
 	}
-	timer.SetPhase("wal")
+	timer.SetPhase("state_wal")
 	if err := s.wal.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 	}
@@ -234,14 +286,14 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changes *gigatypes.StateCha
 	// so what is timed here is the wait to hand the block over.
 	if s.historicalStateDB != nil {
 		s.commitPhases.SetPhase("enqueue_ss")
-		s.historicalStateDB.ApplyBlock(blockNum, changes, s.liveStateDB.OpenView())
+		s.historicalStateDB.ApplyBlock(blockNum, mutations, s.liveStateDB.OpenView())
 	}
 
 	return nil
 }
 
 func (s *StateDB) OpenView() gigatypes.StateView {
-	return s.liveStateDB.OpenView()
+	return stateview.New(s.liveStateDB.OpenView())
 }
 
 // OpenViewAt returns a view of the state after blockNum served from the historical state DB, and false
@@ -253,15 +305,18 @@ func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 	if s.historicalStateDB == nil {
 		return nil, false
 	}
-	return s.historicalStateDB.OpenView(blockNum)
+	raw, ok := s.historicalStateDB.OpenView(blockNum)
+	if !ok {
+		return nil, false
+	}
+	return stateview.New(raw), true
 }
 
-// RegisterHashListener forwards to the state commit store, which is the layer that hashes blocks and
-// so is the layer that dispatches them.
+// RegisterHashListener registers listener for the block hashes the live state DB produces.
 func (s *StateDB) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
 	mostRecentHash, err := s.liveStateDB.RegisterHashListener(listener)
 	if err != nil {
-		return mostRecentHash, fmt.Errorf("register hash listener on the state commit store: %w", err)
+		return mostRecentHash, fmt.Errorf("register hash listener on the live state DB: %w", err)
 	}
 	return mostRecentHash, nil
 }

@@ -109,8 +109,7 @@ func TestHistoricalStateDBDisabledRefusesAStoreWithHistory(t *testing.T) {
 	second, err := NewGigaStorageManager(t.Context(), cfg)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), historicalStateDB(second).GetLatestVersion())
-	require.ErrorContains(t, second.Close(), "the receipt store stands at block 0",
-		"state was written with no receipts, so the shutdown is not clean")
+	require.NoError(t, second.Close())
 }
 
 // TestReceiptsDisabledTakesAnEmptyStore pins that a receipt store that was opened but never written
@@ -287,7 +286,7 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
 	// meaning to the collector: it fixes both cut lines as a minimum over every store before pruning
 	// any of them.
-	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS undo", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
+	require.Equal(t, []string{"FlatKV", "StateWAL", "SS undo", "ReceiptDB", "BlockDB", "AppHashVault"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered

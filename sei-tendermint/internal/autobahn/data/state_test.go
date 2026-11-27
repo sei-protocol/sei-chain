@@ -149,7 +149,7 @@ func TestAnchorEpochs_CommitQCLeavesAnchorUnchanged(t *testing.T) {
 	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
 	require.Equal(t, ep1, state.Anchor().Load().NextHeightEpoch())
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qcMid.Height(), qcMid.Height()+1))
-	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1))
+	qcLast, blocksLast := TestCommitQCOnLane(ep1, keys, utils.Some(qcMid.QC()), ep1.Committee().Lanes().At(0))
 	require.NoError(t, state.PushPartialBlock(ctx, qcLast, TestBlockMap(blocksLast)))
 	require.Equal(t, [2]*types.Epoch{ep1, registry.MustEpoch(2)}, state.Anchor().Load().Epochs)
 	require.False(t, state.Anchor().Load().First.IsPresent())
@@ -528,7 +528,7 @@ func TestCommitteeFill_DivergentLastRoadKeepsExecutionDerivedEpoch(t *testing.T)
 	store := newTestStore(t)
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc0}, [][]*types.LaneBlock{blocks0})
 	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, store)
-	qc1, blocks1 := commitQCAtRoad(ep1, keys, ep1.RoadRange().First)
+	qc1, blocks1 := TestCommitQCOnLane(ep1, keys, utils.Some(qc0.QC()), ep1.Committee().Lanes().At(0))
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -1669,13 +1669,16 @@ func TestRoadBlockCacheManySmallRoads(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 1)
 	ep := registry.MustEpoch(0)
 	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
-	for i := range maxRoadBlocks {
-		qc, _ := commitQCAtRoad(ep, keys, ep.RoadRange().First+types.RoadHeight(i))
+	lane := ep.Committee().Lanes().At(0)
+	prev := utils.None[*types.CommitQC]()
+	for range maxRoadBlocks {
+		qc, _ := TestCommitQCOnLane(ep, keys, prev, lane)
 		require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
+		prev = utils.Some(qc.QC())
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	nextQC, _ := commitQCAtRoad(ep, keys, state.NextQC())
+	nextQC, _ := TestCommitQCOnLane(ep, keys, prev, lane)
 	require.ErrorIs(t, state.PushPartialBlock(ctx, nextQC, nil), context.Canceled)
 }
 
@@ -1726,4 +1729,83 @@ func TestAnchorEpochAt(t *testing.T) {
 	} {
 		require.Equal(t, tc.want, anchor.EpochAt(tc.road))
 	}
+}
+
+// Road blocks B, C and B', C' finalize the same lane blocks, split differently across the two roads,
+// so C and C' end every lane at the same lane block. D, certified after C, is not admitted after C'.
+func TestPushPartialBlockRejectsARoadFromAnotherHistory(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane0, lane1 := ep.Committee().Lanes().At(0), ep.Committee().Lanes().At(1)
+	none := utils.None[*types.CommitQC]()
+	push := func(state *State, qc *types.FullCommitQC, blocks []*types.LaneBlock) error {
+		return state.PushPartialBlock(ctx, qc, TestBlockMap(blocks))
+	}
+
+	b, bBlock := TestCommitQCOnLane(ep, keys, none, lane0)
+	c, cBlock := TestCommitQCOnLane(ep, keys, utils.Some(b.QC()), lane1)
+	bFork, bForkBlock := TestCommitQCOnLane(ep, keys, none, lane1)
+	cFork, cForkBlock := TestCommitQCOnLane(ep, keys, utils.Some(bFork.QC()), lane0)
+	d, dBlock := TestCommitQCOnLane(ep, keys, utils.Some(c.QC()), lane0)
+	for lane := range ep.Committee().Lanes().All() {
+		require.Equal(t, c.Header().LaneRange(lane).Next(), cFork.Header().LaneRange(lane).Next())
+	}
+
+	honest := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	require.NoError(t, push(honest, b, bBlock))
+	require.NoError(t, push(honest, c, cBlock))
+	require.NoError(t, push(honest, d, dBlock))
+
+	fork := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	require.NoError(t, push(fork, bFork, bForkBlock))
+	require.NoError(t, push(fork, cFork, cForkBlock))
+	require.ErrorIs(t, push(fork, d, dBlock), types.ErrParentMismatch)
+	require.Equal(t, cFork.Height()+1, fork.NextQC())
+}
+
+// firstRoadWithParent returns a road block at the first road height of ep whose header names a
+// parent, which no honest road block at that height does.
+func firstRoadWithParent(ep *types.Epoch, keys []types.SecretKey) (*types.FullCommitQC, []*types.LaneBlock) {
+	r := ep.RoadRange()
+	before := types.NewEpoch(ep.EpochIndex(), types.RoadRange{First: r.First - 1, Next: r.Next}, ep.Committee())
+	return TestCommitQCOnLane(ep, keys, utils.Some(types.CommitQCAt(before, keys)), ep.Committee().Lanes().At(0))
+}
+
+func TestPushPartialBlockRejectsAFirstRoadWithAParent(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	bad, _ := firstRoadWithParent(ep, keys)
+	first, _ := TestCommitQCOnLane(ep, keys, utils.None[*types.CommitQC](), ep.Committee().Lanes().At(0))
+	state := newTestState(t, &Config{App: abevm.TestEpochApp(registry)}, newTestStore(t))
+	require.ErrorIs(t, state.PushPartialBlock(t.Context(), bad, nil), types.ErrParentMismatch)
+	require.NoError(t, state.PushPartialBlock(t.Context(), first, nil))
+}
+
+func TestLoadFromBlockStoreRejectsAFirstRoadWithAParent(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	bad, badBlocks := firstRoadWithParent(registry.MustEpoch(0), keys)
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{bad}, [][]*types.LaneBlock{badBlocks})
+	_, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, store)
+	require.ErrorIs(t, err, types.ErrParentMismatch)
+}
+
+func TestLoadFromBlockStoreRejectsAStoredRoadWithTheWrongParent(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane0, lane1 := ep.Committee().Lanes().At(0), ep.Committee().Lanes().At(1)
+	a, aBlocks := TestCommitQCOnLane(ep, keys, utils.None[*types.CommitQC](), lane0)
+	b, bBlocks := TestCommitQCOnLane(ep, keys, utils.Some(a.QC()), lane0)
+	bFork, _ := TestCommitQCOnLane(ep, keys, utils.Some(a.QC()), lane1)
+	// c is at the height after b, but names bFork as its parent.
+	c, cBlocks := TestCommitQCOnLane(ep, keys, utils.Some(bFork.QC()), lane0)
+	store := newTestStore(t)
+	writeToBlockStore(t, store, []*types.FullCommitQC{a, b, c}, [][]*types.LaneBlock{aBlocks, bBlocks, cBlocks})
+	_, err := NewState(&Config{App: abevm.TestEpochApp(registry)}, store)
+	require.ErrorIs(t, err, types.ErrParentMismatch)
 }

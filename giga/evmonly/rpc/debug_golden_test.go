@@ -311,8 +311,8 @@ type traceReplayBackend struct {
 	parent   *coretypes.ResultBlock
 }
 
-// replayForTrace executes an empty block and then fixture's blocks from its prestate, as an EVM-only
-// node executes them: at a zero base fee with a zero coinbase.
+// replayForTrace executes an empty block and then fixture's blocks from its prestate on an EVM-only
+// executor, at the contexts evmOnlyReplayContext returns.
 func replayForTrace(t *testing.T, fixture *parity.Fixture) *traceReplayBackend {
 	t.Helper()
 	chainID := uint64(fixture.ChainID)
@@ -370,8 +370,7 @@ func replayForTrace(t *testing.T, fixture *parity.Fixture) *traceReplayBackend {
 	return backend
 }
 
-// evmOnlyReplayContext returns the context v2 executed block at, with the zero base fee and coinbase
-// an EVM-only node executes every block with.
+// evmOnlyReplayContext returns the context v2 executed block at, with a zero base fee and coinbase.
 func evmOnlyReplayContext(chainID uint64, block parity.Block) evmonly.BlockContext {
 	blockCtx := replayBlockContext(chainID, block)
 	blockCtx.BaseFee = new(big.Int)

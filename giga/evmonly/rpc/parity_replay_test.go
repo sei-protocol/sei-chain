@@ -226,6 +226,10 @@ func (b *replayBackend) EvmBaseFee() *big.Int {
 	return new(big.Int).Set(b.tip.BaseFee)
 }
 
+func (b *replayBackend) EvmNextBaseFee() *big.Int {
+	return new(big.Int).Set(b.tip.BaseFee)
+}
+
 func (*replayBackend) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
 	return vm.BlockContext{}, errNotReplayed
 }

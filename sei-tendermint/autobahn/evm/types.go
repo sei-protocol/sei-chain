@@ -1,7 +1,11 @@
 package evm
 
 import (
+<<<<<<< HEAD
 	"errors"
+=======
+	"math/big"
+>>>>>>> origin/main
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -53,6 +57,8 @@ type BlockRef struct {
 	Height     types.RoadHeight
 	Time       uint64
 	ParentHash common.Hash
+	// BaseFee is the base fee the block ran at.
+	BaseFee *big.Int
 }
 
 // Private alias for private embedding.

@@ -20,3 +20,6 @@ var ErrPruned = errors.New("pruned: below retention watermark")
 
 // ErrQCBlocksMismatch indicates inconsistent SuperBlock metadata, hash, or lane blocks.
 var ErrQCBlocksMismatch = errors.New("QC blocks do not match headers")
+
+// ErrParentMismatch indicates a road block header whose parent hash does not name the road block before it.
+var ErrParentMismatch = errors.New("road block parent mismatch")

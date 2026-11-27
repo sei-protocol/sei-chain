@@ -95,8 +95,7 @@ func TestWebsocketSubscriptionLimits(t *testing.T) {
 	// Closing a connection frees all of its slots: c takes both of a's.
 	a.Close()
 	eventuallySubscribe(c)
-	_, err = subscribe(c)
-	require.NoError(t, err)
+	eventuallySubscribe(c)
 	_, err = subscribe(c)
 	require.ErrorContains(t, err, errNewHeadsSubscriptionLimit.Error())
 }

@@ -46,6 +46,14 @@ type testBackend struct {
 	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
 	gasLimit         func() uint64
 	minGasPrice      func() *big.Int
+<<<<<<< HEAD
+=======
+	nextBaseFee      func() *big.Int
+	proxy            utils.Option[*ethrpc.Client]
+	proxyCalls       int
+	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
+	senders          map[common.Hash]common.Address
+>>>>>>> origin/main
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() utils.AtomicRecv[atypes.ExecutedBlocks]
 	transactionCount func(common.Address) uint64
@@ -153,11 +161,27 @@ func (b *testBackend) EvmNonceAt(address common.Address, height int64) (uint64, 
 	return b.transactionCountAt(address, height)
 }
 
+// EvmBaseFee answers baseFee, or zero when the test sets none.
 func (b *testBackend) EvmBaseFee() *big.Int {
+	if b.baseFee == nil {
+		return new(big.Int)
+	}
 	return b.baseFee()
 }
 
+// EvmNextBaseFee answers nextBaseFee, or EvmBaseFee when the test sets none.
+func (b *testBackend) EvmNextBaseFee() *big.Int {
+	if b.nextBaseFee == nil {
+		return b.EvmBaseFee()
+	}
+	return b.nextBaseFee()
+}
+
+// EvmBlockNumber answers blockNumber, or zero when the test sets none.
 func (b *testBackend) EvmBlockNumber() uint64 {
+	if b.blockNumber == nil {
+		return 0
+	}
 	return b.blockNumber()
 }
 
