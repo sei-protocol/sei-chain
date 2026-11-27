@@ -49,28 +49,25 @@ func (r *GigaRouterCommon) evmBlock(block *atypes.SuperBlock) *abevm.EvmBlock {
 	}
 }
 
-// evmProxy returns the connected shard owner's client, or None for local admission.
+// evmProxy returns the EVM RPC client of the lane that this node assigns to
+// sender, skipping lanes it has no EVM RPC client for. It returns None on a
+// validator, and on a fullnode that has a client for no lane of the committee.
 func (r *GigaRouterCommon) evmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	self, isValidator := r.validatorKey.Get()
-	if isValidator && !r.cfg.EnableEvmProxy {
+	lanes, ok := r.lanes.Get()
+	if !ok {
 		return utils.None[*ethrpc.Client]()
 	}
-	// TODO: this will cause a mess at the epoch boundary (inconsistent anchor => inconsistent proxying).
-	// But once we remove proxying from validator nodes it should be fine.
-	validator := r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
-	if isValidator && self == validator {
-		return utils.None[*ethrpc.Client]()
-	}
+	assigner := lanes.For(r.data.Anchor().Load().NextHeightEpoch().Committee())
 	for proxies := range r.proxies.RLock() {
-		client, ok := proxies[validator]
-		if ok {
-			return utils.Some(client)
+		reachable := func(v atypes.PublicKey) bool { _, ok := proxies[v]; return ok }
+		if v, ok := assigner.Lane(sender, reachable).Get(); ok {
+			return utils.Some(proxies[v])
 		}
 	}
 	return utils.None[*ethrpc.Client]()
 }
 
-// InsertTx submits input to its sender's shard and returns the transaction hash.
+// InsertTx submits input to the lane of its sender and returns the transaction hash.
 func (r *GigaRouterCommon) InsertTx(ctx context.Context, input abevm.RawTx) (common.Hash, error) {
 	tx, err := r.signer.ParseTx(input)
 	if err != nil {
@@ -92,7 +89,7 @@ func (r *GigaRouterCommon) InsertTx(ctx context.Context, input abevm.RawTx) (com
 	return hash, nil
 }
 
-// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+// EvmPendingNonce returns the next nonce admitted by the lane of the sender.
 func (r *GigaRouterCommon) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
 	if client, ok := r.evmProxy(address).Get(); ok {
 		var nonce hexutil.Uint64

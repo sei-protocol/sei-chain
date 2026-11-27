@@ -46,7 +46,7 @@ func (s *nonceProxyService) GetTransactionCount(ctx context.Context, address com
 	return hexutil.Uint64(s.nonce), nil
 }
 
-func runNonceProxy(ctx context.Context, env *gigaEvmTestFixture, address common.Address, service *nonceProxyService, f func(context.Context, scope.Scope) error) error {
+func runNonceProxy(ctx context.Context, env *gigaEvmTestFixture, service *nonceProxyService, f func(context.Context, scope.Scope) error) error {
 	server := ethrpc.NewServer()
 	defer server.Stop()
 	if err := server.RegisterName("eth", service); err != nil {
@@ -68,49 +68,43 @@ func runNonceProxy(ctx context.Context, env *gigaEvmTestFixture, address common.
 			_ = clientConn.Close()
 			client.Close()
 		}()
-		env.setEvmProxy(address, client)
+		env.setEvmProxy(client)
 		return f(ctx, s)
 	})
 }
 
-func TestGigaPendingNonceForwardsToShardOwner(t *testing.T) {
-	for _, validator := range []bool{false, true} {
-		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
-			address := common.Address{1}
-			app := abevm.NewProxy(broadcastEVMApp{})
-			env := newAutobahnRoutingEnv(t, utils.TestRng(), validator, app, newTestSigner(app.EvmChainID(), 0), utils.Some(address))
-			service := &nonceProxyService{requests: make(chan nonceProxyRequest, 1), nonce: 9}
-			require.NoError(t, runNonceProxy(t.Context(), env, address, service, func(ctx context.Context, _ scope.Scope) error {
-				nonce, err := env.Router.EvmPendingNonce(ctx, address)
-				if err != nil {
-					return err
-				}
-				if err := utils.TestDiff(uint64(9), nonce); err != nil {
-					return err
-				}
-				request, err := utils.Recv(ctx, service.requests)
-				if err != nil {
-					return err
-				}
-				if err := utils.TestDiff(address, request.address); err != nil {
-					return err
-				}
-				number, ok := request.block.Number()
-				if !ok {
-					return fmt.Errorf("proxy request has no block number")
-				}
-				return utils.TestDiff(ethrpc.PendingBlockNumber, number)
-			}))
-		})
-	}
+func TestGigaPendingNonceForwardsToLane(t *testing.T) {
+	address := common.Address{1}
+	env := newAutobahnEnvWithApp(t, utils.TestRng(), false, abevm.NewProxy(broadcastEVMApp{}))
+	service := &nonceProxyService{requests: make(chan nonceProxyRequest, 1), nonce: 9}
+	require.NoError(t, runNonceProxy(t.Context(), env, service, func(ctx context.Context, _ scope.Scope) error {
+		nonce, err := env.Router.EvmPendingNonce(ctx, address)
+		if err != nil {
+			return err
+		}
+		if err := utils.TestDiff(uint64(9), nonce); err != nil {
+			return err
+		}
+		request, err := utils.Recv(ctx, service.requests)
+		if err != nil {
+			return err
+		}
+		if err := utils.TestDiff(address, request.address); err != nil {
+			return err
+		}
+		number, ok := request.block.Number()
+		if !ok {
+			return fmt.Errorf("proxy request has no block number")
+		}
+		return utils.TestDiff(ethrpc.PendingBlockNumber, number)
+	}))
 }
 
 func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	address := common.Address{1}
-	app := abevm.NewProxy(broadcastEVMApp{})
-	env := newAutobahnRoutingEnv(t, utils.TestRng(), true, app, newTestSigner(app.EvmChainID(), 0), utils.Some(address))
+	env := newAutobahnEnvWithApp(t, utils.TestRng(), false, abevm.NewProxy(broadcastEVMApp{}))
 	service := &nonceProxyService{requests: make(chan nonceProxyRequest, 1), err: utils.Some[error](sendProxyError{})}
-	require.NoError(t, runNonceProxy(t.Context(), env, address, service, func(ctx context.Context, _ scope.Scope) error {
+	require.NoError(t, runNonceProxy(t.Context(), env, service, func(ctx context.Context, _ scope.Scope) error {
 		nonce, err := env.Router.EvmPendingNonce(ctx, address)
 		rpcErr, ok := errors.AsType[ethrpc.Error](err)
 		if !ok {
@@ -130,8 +124,7 @@ func TestGigaPendingNonceReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 func TestGigaPendingNoncePropagatesCanceledRequest(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		address := common.Address{1}
-		app := abevm.NewProxy(broadcastEVMApp{})
-		env := newAutobahnRoutingEnv(t, utils.TestRng(), true, app, newTestSigner(app.EvmChainID(), 0), utils.Some(address))
+		env := newAutobahnEnvWithApp(t, utils.TestRng(), false, abevm.NewProxy(broadcastEVMApp{}))
 		gate := make(chan struct{})
 		service := &nonceProxyService{
 			requests:     make(chan nonceProxyRequest, 1),
@@ -139,7 +132,7 @@ func TestGigaPendingNoncePropagatesCanceledRequest(t *testing.T) {
 			responseGate: utils.Some((<-chan struct{})(gate)),
 		}
 		var callErr error
-		require.NoError(t, runNonceProxy(t.Context(), env, address, service, func(ctx context.Context, s scope.Scope) error {
+		require.NoError(t, runNonceProxy(t.Context(), env, service, func(ctx context.Context, s scope.Scope) error {
 			defer close(gate)
 			callCtx, cancel := context.WithCancel(ctx)
 			defer cancel()

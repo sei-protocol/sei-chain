@@ -51,8 +51,6 @@ type GigaRouterCommonConfig struct {
 	// p2p.blocksync-peers. They do not consume MaxInboundFullnodePeers.
 	PersistentPeerIDs map[types.NodeID]struct{}
 
-	// Whether validator should proxy txs which do not belong to the local node.
-	EnableEvmProxy bool
 	// AllowLocalAddrs permits loopback and link-local EVM RPC URLs in tests.
 	AllowLocalAddrs bool
 }

@@ -21,6 +21,9 @@ type gigaFullnodeRouter struct {
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State, signer *abevm.Signer) (*gigaFullnodeRouter, error) {
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
+	// A new seed at each start gives each full node, and each restart, its own
+	// sender-to-lane mapping. The seed is never stored or exposed.
+	seed := newLaneSeed()
 	return &gigaFullnodeRouter{
 		GigaRouterCommon: &GigaRouterCommon{
 			cfg:                  cfg,
@@ -31,6 +34,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			poolInCommittee:      giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:              giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:              utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
+			lanes:                utils.Some(newLaneAssignments(func(c *atypes.Committee) laneAssigner { return newLaneRing(seed, c) })),
 			signer:               signer,
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
@@ -52,8 +56,11 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 func (r *gigaFullnodeRouter) runCommitteeConnections(ctx context.Context) error {
 	return r.runPerCommitteeMember(ctx, true, func(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error {
 		for {
-			err := r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-				return r.service.RunClient(ctx, client, validator, true)
+			err := r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API], peer validatorHandshake) error {
+				return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					s.Spawn(func() error { return r.runEvmProxy(ctx, peer) })
+					return r.service.RunClient(ctx, client, validator, true)
+				})
 			})
 			logger.Info("fullnode giga connection ended", "addr", addr, "err", err)
 			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {

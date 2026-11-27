@@ -267,7 +267,6 @@ func buildValidatorGigaConfig(
 			App:                     app,
 			GenDoc:                  genDoc,
 			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
-			EnableEvmProxy:          fc.GetEnableEvmProxy(),
 		},
 		ValidatorKey: validatorKey,
 		EVMRPC:       *endpoint.URL,
@@ -555,7 +554,7 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 
 // buildFullnodeGigaConfig assembles the common config for a fullnode
 // GigaRouter. No consensus/producer/mempool — fullnodes pull blocks rather
-// than producing them and forward every EVM tx to the shard owner.
+// than producing them and forward every EVM tx to the lane of its sender.
 func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
 	app *abevm.Proxy,

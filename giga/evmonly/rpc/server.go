@@ -99,7 +99,7 @@ type Backend interface {
 	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
 	EvmNonceAt(address common.Address, height int64) (uint64, error)
-	// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+	// EvmPendingNonce returns the next nonce admitted by the lane of the sender.
 	EvmPendingNonce(context.Context, common.Address) (uint64, error)
 }
 

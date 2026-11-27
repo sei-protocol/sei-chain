@@ -93,37 +93,28 @@ func newAutobahnEnvWithApp(t *testing.T, rng utils.Rng, validator bool, app *abe
 	return newAutobahnEnvWithSigner(t, rng, validator, app, newTestSigner(app.EvmChainID(), 0))
 }
 
-func newAutobahnEnvWithSigner(t *testing.T, rng utils.Rng, validator bool, app *abevm.Proxy, signer *abevm.Signer) *gigaEvmTestFixture {
-	t.Helper()
-	return newAutobahnRoutingEnv(t, rng, validator, app, signer, utils.None[common.Address]())
-}
-
-func newAutobahnProxyEnv(t *testing.T, rng utils.Rng, validator bool, address common.Address, client *ethrpc.Client) *gigaEvmTestFixture {
+func newAutobahnProxyEnv(t *testing.T, rng utils.Rng, validator bool, client *ethrpc.Client) *gigaEvmTestFixture {
 	t.Helper()
 	app := abevm.NewProxy(broadcastEVMApp{})
-	env := newAutobahnRoutingEnv(t, rng, validator, app, newTestSigner(app.EvmChainID(), 0), utils.Some(address))
-	env.setEvmProxy(address, client)
+	env := newAutobahnEnvWithApp(t, rng, validator, app)
+	env.setEvmProxy(client)
 	return env
 }
 
-func (env *gigaEvmTestFixture) setEvmProxy(address common.Address, client *ethrpc.Client) {
-	owner := env.common.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(address)
+// setEvmProxy registers client as the EVM RPC client of every committee member.
+func (env *gigaEvmTestFixture) setEvmProxy(client *ethrpc.Client) {
+	committee := env.common.data.Anchor().Load().NextHeightEpoch().Committee()
 	for proxies := range env.common.proxies.Lock() {
-		proxies[owner] = client
+		for lane := range committee.Lanes().All() {
+			proxies[lane.Validator] = client
+		}
 	}
 }
 
-func newAutobahnRoutingEnv(t *testing.T, rng utils.Rng, validator bool, app *abevm.Proxy, signer *abevm.Signer, remoteSender utils.Option[common.Address]) *gigaEvmTestFixture {
+func newAutobahnEnvWithSigner(t *testing.T, rng utils.Rng, validator bool, app *abevm.Proxy, signer *abevm.Signer) *gigaEvmTestFixture {
 	t.Helper()
-	size := 1
-	if remoteSender.IsPresent() {
-		size = 2
-	}
-	committee, keys := atypes.GenCommittee(rng, size)
+	committee, keys := atypes.GenCommittee(rng, 1)
 	valKey := keys[0]
-	if address, ok := remoteSender.Get(); ok && committee.EvmShard(address) == valKey.Public() {
-		valKey = keys[1]
-	}
 	nodeKey := NodeSecretKey(ed25519.TestSecretKey(utils.GenBytes(rng, 32)))
 	genDoc := &types.GenesisDoc{
 		ChainID:         "rpc-autobahn",
@@ -147,7 +138,6 @@ func newAutobahnRoutingEnv(t *testing.T, rng utils.Rng, validator bool, app *abe
 		App:                app,
 		AppHashBuilder:     newManualAppHashBuilder(),
 		GenDoc:             genDoc,
-		EnableEvmProxy:     true,
 	}
 	registry, err := epoch.TestGenesisRegistry(committee, atypes.RoadHeight(genDoc.InitialHeight), epoch.DefaultEpochLength)
 	require.NoError(t, err)

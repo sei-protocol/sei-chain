@@ -43,11 +43,13 @@ type GigaRouterCommon struct {
 	poolInCommittee *giga.Pool[atypes.PublicKey, rpc.Server[giga.API]]
 	poolOut         *giga.Pool[atypes.PublicKey, rpc.Client[giga.API]]
 	proxies         utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
-	validatorKey    utils.Option[atypes.PublicKey]
-	mempool         utils.Option[*producer.State]
-	signer          *abevm.Signer
-	gigaSpec        gigaHandshakeSpec
-	selfAddr        utils.Option[NodeAddress]
+	// lanes picks the lane that evmProxy forwards each sender's txs to. It is
+	// None on a validator, which admits every EVM tx into its own mempool.
+	lanes    utils.Option[*laneAssignments]
+	mempool  utils.Option[*producer.State]
+	signer   *abevm.Signer
+	gigaSpec gigaHandshakeSpec
+	selfAddr utils.Option[NodeAddress]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Persistent and block-sync peers do not consume it.
@@ -170,16 +172,16 @@ func RestoreProofFile(psd string) string {
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,
-// registers the rpc client in poolOut, and runs runClient for the
-// connection's lifetime. It verifies the p2p node key against the selected
-// address, requires a validator claim for expectedValidatorKey, and registers
-// the client under that validator.
+// registers the rpc client in poolOut, and runs runClient with the peer's
+// validator handshake for the connection's lifetime. It verifies the p2p node
+// key against the selected address, requires a validator claim for
+// expectedValidatorKey, and registers the client under that validator.
 func (r *GigaRouterCommon) dialAndRunConn(
 	ctx context.Context,
 	expectedValidatorKey atypes.PublicKey,
 	expectedNodeKey NodePublicKey,
 	hp tcp.HostPort,
-	runClient func(ctx context.Context, client rpc.Client[giga.API]) error,
+	runClient func(ctx context.Context, client rpc.Client[giga.API], validator validatorHandshake) error,
 ) error {
 	addrs, err := hp.Resolve(ctx)
 	if err != nil {
@@ -224,11 +226,10 @@ func (r *GigaRouterCommon) dialAndRunConn(
 		return r.poolOut.InsertAndRun(ctx, expectedValidatorKey, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
-				s.Spawn(func() error { return r.runEvmProxy(ctx, validator) })
 				Global.gigaNewConnsAt("out").Add(1)
 				Global.gigaConnsAt("out").Add(1)
 				defer Global.gigaConnsAt("out").Add(-1)
-				return runClient(ctx, client)
+				return runClient(ctx, client, validator)
 			})
 		})
 	})

@@ -21,10 +21,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// sendProxyError is a shard rejection with a distinct JSON-RPC code for testing error forwarding.
+// sendProxyError is a lane rejection with a distinct JSON-RPC code for testing error forwarding.
 type sendProxyError struct{}
 
-func (sendProxyError) Error() string  { return "shard owner rejected" }
+func (sendProxyError) Error() string  { return "lane rejected" }
 func (sendProxyError) ErrorCode() int { return -32012 }
 
 type sendProxyService struct {
@@ -105,31 +105,37 @@ func TestGigaInsertTxRejectsForeignChainTransaction(t *testing.T) {
 	}
 }
 
-func TestGigaInsertTxProxiesToShardOwner(t *testing.T) {
-	for _, validator := range []bool{false, true} {
-		t.Run(fmt.Sprintf("validator=%t", validator), func(t *testing.T) {
-			tx := signedEVMStateTestTx(t, 0)
-			raw := utils.OrPanic1(tx.MarshalBinary())
-			remoteHash := common.HexToHash("0x1234")
-			client, requests := newSendProxy(t, remoteHash, utils.None[error]())
-			sender := utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))
-			env := newAutobahnProxyEnv(t, utils.TestRng(), validator, sender, client)
-			router := env.Router
-			got, err := router.InsertTx(t.Context(), raw)
-			require.NoError(t, err)
-			require.Equal(t, remoteHash, got)
-			forwarded, err := utils.Recv(t.Context(), requests)
-			require.NoError(t, err)
-			require.Equal(t, hexutil.Bytes(raw), forwarded)
-		})
-	}
+func TestGigaInsertTxProxiesToLane(t *testing.T) {
+	tx := signedEVMStateTestTx(t, 0)
+	raw := utils.OrPanic1(tx.MarshalBinary())
+	remoteHash := common.HexToHash("0x1234")
+	client, requests := newSendProxy(t, remoteHash, utils.None[error]())
+	env := newAutobahnProxyEnv(t, utils.TestRng(), false, client)
+	router := env.Router
+	got, err := router.InsertTx(t.Context(), raw)
+	require.NoError(t, err)
+	require.Equal(t, remoteHash, got)
+	forwarded, err := utils.Recv(t.Context(), requests)
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Bytes(raw), forwarded)
+}
+
+func TestGigaInsertTxValidatorKeepsTxLocal(t *testing.T) {
+	tx := signedEVMStateTestTx(t, 0)
+	client, requests := newSendProxy(t, common.HexToHash("0x1234"), utils.None[error]())
+	env := newAutobahnProxyEnv(t, utils.TestRng(), true, client)
+	hash, err := env.Router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
+	// The validator's own mempool gets the tx and rejects it, because it is not producing yet.
+	require.ErrorIs(t, err, producer.ErrNotProducing)
+	require.Equal(t, tx.Hash(), hash)
+	// InsertTx returned, so a forwarded tx would already be in requests.
+	require.Equal(t, 0, len(requests))
 }
 
 func TestGigaInsertTxReturnsProxyErrorWithoutLocalFallback(t *testing.T) {
 	tx := signedEVMStateTestTx(t, 0)
 	client, requests := newSendProxy(t, common.Hash{}, utils.Some[error](sendProxyError{}))
-	sender := utils.OrPanic1(ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx))
-	env := newAutobahnProxyEnv(t, utils.TestRng(), true, sender, client)
+	env := newAutobahnProxyEnv(t, utils.TestRng(), false, client)
 	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	rpcErr, ok := errors.AsType[ethrpc.Error](err)
@@ -161,7 +167,7 @@ func TestGigaInsertTxFailsWithoutLocalMempool(t *testing.T) {
 func TestGigaInsertTxDoesNotProxyInvalidSignature(t *testing.T) {
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{V: big.NewInt(37), R: new(big.Int), S: new(big.Int)})
 	client, _ := newSendProxy(t, common.HexToHash("0x1234"), utils.None[error]())
-	env := newAutobahnProxyEnv(t, utils.TestRng(), false, common.Address{}, client)
+	env := newAutobahnProxyEnv(t, utils.TestRng(), false, client)
 	router := env.Router
 	hash, err := router.InsertTx(t.Context(), utils.OrPanic1(tx.MarshalBinary()))
 	require.Error(t, err)

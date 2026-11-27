@@ -45,7 +45,7 @@ func (env *GigaEnvironment) BlockByHash(ctx context.Context, hash common.Hash) (
 	return env.Router.BlockByHash(ctx, hash)
 }
 
-// InsertTx submits input to its sender's shard and returns the transaction hash.
+// InsertTx submits input to the lane of its sender and returns the transaction hash.
 func (env *GigaEnvironment) InsertTx(ctx context.Context, input abevm.RawTx) (common.Hash, error) {
 	return env.Router.InsertTx(ctx, input)
 }
@@ -55,7 +55,7 @@ func (env *GigaEnvironment) EvmTransactionCount(address common.Address) uint64 {
 	return env.EvmNonce(address)
 }
 
-// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+// EvmPendingNonce returns the next nonce admitted by the lane of the sender.
 func (env *GigaEnvironment) EvmPendingNonce(ctx context.Context, address common.Address) (uint64, error) {
 	return env.Router.EvmPendingNonce(ctx, address)
 }

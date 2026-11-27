@@ -8,7 +8,6 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
@@ -71,15 +70,6 @@ func (c *Committee) randomReplica(seed []byte) PublicKey {
 
 // Weight of validator k.
 func (c *Committee) Weight(k PublicKey) uint64 { return c.weights[k] }
-
-// Replica which is responsible for sequencing transactions from this addr.
-func (c *Committee) EvmShard(addr common.Address) PublicKey {
-	// TODO(gprusak): given that we currently do not have censorship-resistance,
-	// from correctness perspective if doesn't matter if shards are proportional to weights.
-	// For private testnet we need the load on each validator to be the same.
-	// For mainnet we need to resolve this issue somehow differently.
-	return c.randomReplica(addr[:])
-}
 
 // Leader for the consensus round with the given index.
 func (c *Committee) Leader(view View) PublicKey {

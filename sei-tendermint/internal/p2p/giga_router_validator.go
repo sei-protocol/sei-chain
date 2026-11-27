@@ -73,7 +73,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			signer:          signer,
 			mempool:         utils.Some(producerState),
-			validatorKey:    utils.Some(validatorKey),
 			gigaSpec: gigaHandshakeSpec{
 				ValidatorKey: utils.Some(cfg.ValidatorKey),
 				EVMRPC:       cfg.EVMRPC,
@@ -105,12 +104,12 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 // Self disables GetBlock: a loopback consumer always returns empty for missing
 // catch-up heights and can starve the contiguous prefix while higher gap-fills
 // keep retrying. Compare against the p2p node key (r.key.Public), not
-// validatorKey (consensus signing key used for shard selection): GigaNodeAddr.Key is a
+// validatorKey (consensus signing key): GigaNodeAddr.Key is a
 // NodePublicKey.
 func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
 	getBlock := addr.Key != r.key.Public()
 	for {
-		err := r.dialAndRunConn(ctx, validatorKey, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+		err := r.dialAndRunConn(ctx, validatorKey, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API], _ validatorHandshake) error {
 			return r.service.RunClient(ctx, client, validatorKey, getBlock)
 		})
 		logger.Info("giga connection failed", "addr", addr, "err", err)

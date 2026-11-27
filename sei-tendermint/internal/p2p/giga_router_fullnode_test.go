@@ -29,7 +29,7 @@ import (
 )
 
 // TestGigaRouter_Fullnode covers the construction shape of the non-validator
-// (fullnode) GigaRouter: routing always picks a remote shard owner (no
+// (fullnode) GigaRouter: routing always picks the EVM RPC client of a lane (no
 // local short-circuit because there is no validator key), data + service
 // are constructed but consensus/producer are not, and the read-path
 // passthrough methods source values from the local data.State + genesis
@@ -80,7 +80,6 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		App:                proxyApp,
 		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
-		EnableEvmProxy:     true,
 	}
 	registry := testGenesisEpochs(t, genDoc, addrs)
 	dataState, err := BuildDataState(cfg, blockStore, abevm.TestEpochApp(registry), genDoc.GenesisTime)
@@ -90,30 +89,46 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// App is required for execution but isn't exercised by this test.
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
-	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
-	for validator, rpcURL := range urlByValidator {
-		clientByValidator[validator] = registerEvmProxyForTest(t, router.GigaRouterCommon, validator, rpcURL)
-	}
+	senders := genSenders(rng, 200)
+	// With no lane client yet, evmProxy forwards nowhere.
+	require.False(t, router.evmProxy(senders[0]).IsPresent())
 
-	// EvmProxy: for every sender, the fullnode router resolves to the
-	// shard owner's connected client. No sender is ever proxied
-	// "to ourselves" — that short-circuit doesn't exist in fullnode mode.
+	// With a client for every lane but one, every sender resolves to one of
+	// those clients, the same one on every call.
+	late := validatorKeys[0].Public()
 	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
-	for _, client := range clientByValidator {
-		expectedRemoteClients[client] = struct{}{}
+	for validator, rpcURL := range urlByValidator {
+		if validator != late {
+			expectedRemoteClients[registerEvmProxyForTest(t, router.GigaRouterCommon, validator, rpcURL)] = struct{}{}
+		}
 	}
-	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
-	for range 200 {
-		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
-		expectedClient := clientByValidator[shardValidator]
+	before := make([]*ethrpc.Client, len(senders))
+	for i, sender := range senders {
 		proxyClient, ok := router.evmProxy(sender).Get()
 		require.True(t, ok)
-		require.Equal(t, expectedClient, proxyClient)
+		_, known := expectedRemoteClients[proxyClient]
+		require.True(t, known, "evmProxy returned a client of no lane")
+		again, ok := router.evmProxy(sender).Get()
+		require.True(t, ok)
+		require.Equal(t, proxyClient, again)
+		before[i] = proxyClient
+	}
+
+	// When the client of the last lane arrives, the senders of that lane move to
+	// it and every other sender keeps its client.
+	lateClient := registerEvmProxyForTest(t, router.GigaRouterCommon, late, urlByValidator[late])
+	expectedRemoteClients[lateClient] = struct{}{}
+	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
+	for i, sender := range senders {
+		proxyClient, ok := router.evmProxy(sender).Get()
+		require.True(t, ok)
+		if proxyClient != before[i] {
+			require.Equal(t, lateClient, proxyClient)
+		}
 		returnedRemoteClients[proxyClient] = struct{}{}
 	}
-	// Sanity: with 200 random senders mapped uniformly over 5 shards we
-	// expect to have hit every shard owner at least once.
+	// Sanity: 200 random senders mapped uniformly over 5 lanes hit every lane
+	// at least once.
 	require.Equal(t, expectedRemoteClients, returnedRemoteClients)
 
 	// BlockByHash returns None for an unknown hash on both router roles.
