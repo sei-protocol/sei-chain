@@ -313,6 +313,11 @@ func (params ConsensusParams) ValidateConsensusParams() error {
 			params.Evidence.MaxBytes)
 	}
 
+	if params.Evidence.MaxBytes > MaxEvidenceBytesPerBlock {
+		return fmt.Errorf("evidence.MaxBytes is greater than the per-block cap, %d > %d",
+			params.Evidence.MaxBytes, MaxEvidenceBytesPerBlock)
+	}
+
 	if params.Synchrony.MessageDelay <= 0 {
 		return fmt.Errorf("synchrony.MessageDelay must be greater than 0. Got: %d",
 			params.Synchrony.MessageDelay)

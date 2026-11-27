@@ -621,7 +621,8 @@ func LightClientAttackEvidenceFromProto(lpb *tmproto.LightClientAttackEvidence) 
 const MaxEvidenceEntriesPerBlock = 7384
 
 // MaxEvidenceBytesPerBlock is the largest EvidenceList, in bytes, that a block carries.
-// It matches the wire cap on tendermint.types.Block.evidence.
+// It matches the wire cap on tendermint.types.Block.evidence, and consensus parameter
+// validation rejects an evidence.max_bytes above it.
 const MaxEvidenceBytesPerBlock = 1048576
 
 // EvidenceList is a list of Evidence. Evidences is not a word.
