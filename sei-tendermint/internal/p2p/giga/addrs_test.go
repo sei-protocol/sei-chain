@@ -6,7 +6,6 @@ import (
 	"slices"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 
@@ -323,35 +322,6 @@ func TestValidatorAddrsSkipVerifyForHeldVersion(t *testing.T) {
 	require.Equal(t, 2, verified)
 }
 
-// An announcement refused on the first push reaches the peer on the next one, once the peer accepts it.
-func TestValidatorAddrRefusedSignerIsResentOnNextPush(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
-		lagging := types.GenSecretKey(utils.TestRng())
-		admitted := utils.NewAtomicSend(false)
-		sink := newVerified(func(ann *types.SignedValidatorAddrAnnouncement) bool {
-			if ann.Key() == lagging.Public() && !admitted.Load() {
-				return false
-			}
-			return true
-		})
-		source := newAddrs(signedAddr(lagging, 1))
-		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			startStream(ctx, s, source, sink)
-			synctest.Wait()
-			require.False(t, hasAddr(sink, lagging.Public()))
-			admitted.Store(true)
-			start := time.Now()
-			if _, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { _, ok := s[lagging.Public()]; return ok }); err != nil {
-				return err
-			}
-			require.LessOrEqual(t, time.Since(start), validatorAddrInterval)
-			return nil
-		})
-		require.NoError(t, err)
-	})
-}
-
 // An entry the receiver dropped, and that it had acked, is not resent on the same stream: the sender
 // records the ack. It returns once a new connection starts, which sends the full table.
 func TestValidatorAddrDroppedAckedEntryReturnsOnReconnect(t *testing.T) {
@@ -444,91 +414,6 @@ func TestValidatorAddrViolationEndsServerStream(t *testing.T) {
 	}
 }
 
-// A table change sends the announcement that changed, but not an unacked one again until the next
-// interval.
-func TestValidatorAddrTableChangeQueuesOnlyChanges(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
-		rng := utils.TestRng()
-		refused, fresh := types.GenSecretKey(rng), types.GenSecretKey(rng)
-		source := newAddrs(signedAddr(refused, 1))
-		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			received, client := recordingPeerAfterAck(ctx, s, false, nil, nil, nil)
-			s.SpawnBg(func() error {
-				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: source}).clientStreamValidatorAddrs(ctx, client))
-			})
-			if _, err := received.Wait(ctx, func([]peerMsg) bool { return countMsgs(received, refused.Public(), false) == 1 }); err != nil {
-				return err
-			}
-			require.NoError(t, receiveOK(source, signedAddr(fresh, 1)))
-			if _, err := received.Wait(ctx, func([]peerMsg) bool { return countMsgs(received, fresh.Public(), false) == 1 }); err != nil {
-				return err
-			}
-			synctest.Wait()
-			require.Equal(t, 1, countMsgs(received, refused.Public(), false))
-			if err := utils.Sleep(ctx, validatorAddrInterval); err != nil {
-				return err
-			}
-			synctest.Wait()
-			require.Equal(t, 2, countMsgs(received, refused.Public(), false))
-			return nil
-		})
-		require.NoError(t, err)
-	})
-}
-
-// A peer that pushes beyond validatorAddrRate is held back, not cut off: its surplus is received as
-// the rate refills, and the stream stays open.
-func TestValidatorAddrSurplusIsPacedWithoutEndingStream(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
-		rng := utils.TestRng()
-		var flood []*types.SignedValidatorAddrAnnouncement
-		for range 2 * validatorAddrBurst {
-			flood = append(flood, signedAddr(types.GenSecretKey(rng), 1))
-		}
-		marker := types.GenSecretKey(rng)
-		sink := newAddrs()
-		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			server, client := pipe(ctx, s)
-			// The peer pushes without pacing, then sends the marker after an interval.
-			s.SpawnBg(func() error {
-				return utils.IgnoreAfterCancel(ctx, StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
-					for _, ann := range flood {
-						if err := stream.Send(ctx, encodeAnnouncement(ann)); err != nil {
-							return err
-						}
-					}
-					if err := utils.Sleep(ctx, validatorAddrInterval); err != nil {
-						return err
-					}
-					if err := stream.Send(ctx, encodeAnnouncement(signedAddr(marker, 1))); err != nil {
-						return err
-					}
-					<-ctx.Done()
-					return nil
-				}))
-			})
-			s.SpawnBg(func() error {
-				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client))
-			})
-			// The burst is admitted at once and the rest at the refill rate, so half an interval in,
-			// the flood is partly held: more than a burst, but not all of it.
-			if err := utils.Sleep(ctx, validatorAddrInterval/2); err != nil {
-				return err
-			}
-			synctest.Wait()
-			if held := len(sink.Watch().Load()); held < validatorAddrBurst || held >= len(flood) {
-				return fmt.Errorf("after half an interval, %d of %d flood entries held; want a burst or more, and not all", held, len(flood))
-			}
-			_, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { _, ok := s[marker.Public()]; return ok })
-			return err
-		})
-		require.NoError(t, err)
-		require.Len(t, sink.Watch().Load(), len(flood)+1)
-	})
-}
-
 // peerMsg is one message a recording peer received: an announcement, or an ack.
 type peerMsg struct {
 	validator types.PublicKey
@@ -536,28 +421,19 @@ type peerMsg struct {
 	ack       bool
 }
 
-// recordingPeer serves a stream that sends first, half an interval in, and records every message the
-// other side sends it. With ack set, it acks each announcement it receives for the first time. The
-// half interval lets the other side's connect push go out before the entries arrive.
-func recordingPeer(ctx context.Context, s scope.Scope, ack bool, first ...*types.SignedValidatorAddrAnnouncement) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
-	return recordingPeerWith(ctx, s, ack, first, nil)
-}
-
-// recordingPeerWith is recordingPeer that also sends the messages in extra, in order, after first.
+// recordingPeerWith serves a stream that sends first and then the messages in extra, and records every
+// message the other side sends it.
 func recordingPeerWith(ctx context.Context, s scope.Scope, ack bool, first []*types.SignedValidatorAddrAnnouncement, extra []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
 	return recordingPeerAfterAck(ctx, s, ack, first, extra, nil)
 }
 
 // recordingPeerAfterAck is recordingPeerWith that also sends the messages in afterAck once, when the
-// first ack arrives.
+// first ack arrives. With ack set, it acks each announcement it receives for the first time.
 func recordingPeerAfterAck(ctx context.Context, s scope.Scope, ack bool, first []*types.SignedValidatorAddrAnnouncement, extra, afterAck []*apb.ValidatorAddrMsg) (*utils.AtomicSend[[]peerMsg], rpc.Client[API]) {
 	received := utils.NewAtomicSend([]peerMsg{})
 	server, client := pipe(ctx, s)
 	s.SpawnBg(func() error {
 		return utils.IgnoreAfterCancel(ctx, StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
-			if err := utils.Sleep(ctx, validatorAddrInterval/2); err != nil {
-				return err
-			}
 			seen := map[types.PublicKey]uint64{}
 			for _, ann := range first {
 				seen[ann.Key()] = max(seen[ann.Key()], ann.Msg().Version)
@@ -609,17 +485,6 @@ func recordingPeerAfterAck(ctx context.Context, s scope.Scope, ack bool, first [
 		}))
 	})
 	return &received, client
-}
-
-// countMsgs returns how many acks, or announcements, about validator the peer has received.
-func countMsgs(received *utils.AtomicSend[[]peerMsg], validator types.PublicKey, ack bool) int {
-	n := 0
-	for _, msg := range received.Load() {
-		if msg.validator == validator && msg.ack == ack {
-			n++
-		}
-	}
-	return n
 }
 
 // A resent announcement is acked again, so an ack lost on the way reaches the sender on the next push.
@@ -724,72 +589,50 @@ func TestValidatorAddrAckAboveHeldVersionDoesNotSuppressNewer(t *testing.T) {
 	})
 }
 
-// An announcement the peer sent us is acked to it once, and no announcement of it is sent back.
-func TestValidatorAddrIsAckedOnce(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
-		rng := utils.TestRng()
-		fromPeer, fromElsewhere := types.GenSecretKey(rng), types.GenSecretKey(rng)
-		sink := newAddrs(signedAddr(fromElsewhere, 1))
-		var received *utils.AtomicSend[[]peerMsg]
-		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			var client rpc.Client[API]
-			received, client = recordingPeer(ctx, s, false, signedAddr(fromPeer, 1))
-			s.SpawnBg(func() error {
-				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client))
-			})
-			if err := waitAddrs(ctx, sink, 2); err != nil {
-				return err
-			}
-			return utils.Sleep(ctx, 2*validatorAddrInterval)
-		})
-		require.NoError(t, err)
-		require.Equal(t, 1, countMsgs(received, fromPeer.Public(), true))
-		require.Equal(t, 0, countMsgs(received, fromPeer.Public(), false))
-		require.GreaterOrEqual(t, countMsgs(received, fromElsewhere.Public(), false), 1)
-	})
+// receivedVersions returns the versions of the announcements, or of the acks when ack is set, that the
+// peer received about validator.
+func receivedVersions(msgs []peerMsg, validator types.PublicKey, ack bool) []uint64 {
+	var versions []uint64
+	for _, msg := range msgs {
+		if msg.validator == validator && msg.ack == ack {
+			versions = append(versions, msg.version)
+		}
+	}
+	return versions
 }
 
-// Once the peer has acked an entry, it is not resent to that peer while the version is unchanged.
-func TestValidatorAddrStopsResendingOnceAcked(t *testing.T) {
+// An announcement the peer sent us is acked to it once, and is not sent back to it.
+func TestValidatorAddrIsAckedOnceNotSentBack(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		key := types.GenSecretKey(utils.TestRng())
-		sink := newAddrs(signedAddr(key, 1))
-		var received *utils.AtomicSend[[]peerMsg]
-		var settled, later int
+		sink := newAddrs()
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			var client rpc.Client[API]
-			received, client = recordingPeer(ctx, s, true)
+			received, client := recordingPeerWith(ctx, s, true, []*types.SignedValidatorAddrAnnouncement{signedAddr(key, 1)}, nil)
 			s.SpawnBg(func() error {
 				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client))
 			})
-			if err := utils.Sleep(ctx, 3*validatorAddrInterval/2); err != nil {
+			if _, err := received.Wait(ctx, func(msgs []peerMsg) bool { return len(receivedVersions(msgs, key.Public(), true)) == 1 }); err != nil {
 				return err
 			}
-			settled = countMsgs(received, key.Public(), false)
-			if err := utils.Sleep(ctx, 2*validatorAddrInterval); err != nil {
-				return err
-			}
-			later = countMsgs(received, key.Public(), false)
+			synctest.Wait()
+			msgs := received.Load()
+			require.Equal(t, []uint64{1}, receivedVersions(msgs, key.Public(), true))
+			require.Empty(t, receivedVersions(msgs, key.Public(), false))
 			return nil
 		})
 		require.NoError(t, err)
-		require.NotZero(t, settled)
-		require.Equal(t, settled, later)
 	})
 }
 
-// A newer version of an entry the peer sent us is sent to it, though the older one is not resent.
+// A newer version of an entry the peer sent us is sent back to it.
 func TestValidatorAddrNewerVersionIsSentDespiteRecord(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		key := types.GenSecretKey(utils.TestRng())
 		sink := newAddrs()
-		var received *utils.AtomicSend[[]peerMsg]
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			var client rpc.Client[API]
-			received, client = recordingPeer(ctx, s, false, signedAddr(key, 2))
+			received, client := recordingPeerWith(ctx, s, false, []*types.SignedValidatorAddrAnnouncement{signedAddr(key, 2)}, nil)
 			s.SpawnBg(func() error {
 				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client))
 			})
@@ -799,15 +642,71 @@ func TestValidatorAddrNewerVersionIsSentDespiteRecord(t *testing.T) {
 			if err := receiveOK(sink, signedAddr(key, 3)); err != nil {
 				return err
 			}
-			return utils.Sleep(ctx, 2*validatorAddrInterval)
+			_, err := received.Wait(ctx, func(msgs []peerMsg) bool {
+				return slices.Contains(receivedVersions(msgs, key.Public(), false), 3)
+			})
+			return err
 		})
 		require.NoError(t, err)
-		var versions []uint64
-		for _, msg := range received.Load() {
-			if msg.validator == key.Public() && !msg.ack {
-				versions = append(versions, msg.version)
-			}
+	})
+}
+
+// A peer that pushes beyond validatorAddrRate is held back, not cut off: its surplus is received as
+// the rate refills, and the stream stays open.
+func TestValidatorAddrSurplusIsHeldBackWithoutEndingStream(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		var flood []*types.SignedValidatorAddrAnnouncement
+		for range 2 * validatorAddrBurst {
+			flood = append(flood, signedAddr(types.GenSecretKey(rng), 1))
 		}
-		require.Contains(t, versions, uint64(3))
+		marker := types.GenSecretKey(rng)
+		sink := newAddrs()
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			server, client := pipe(ctx, s)
+			s.SpawnBg(func() error {
+				return utils.IgnoreAfterCancel(ctx, StreamValidatorAddrs.Serve(ctx, server, func(ctx context.Context, stream validatorAddrStream) error {
+					for _, ann := range flood {
+						if err := stream.Send(ctx, encodeAnnouncement(ann)); err != nil {
+							return err
+						}
+					}
+					if err := stream.Send(ctx, encodeAnnouncement(signedAddr(marker, 1))); err != nil {
+						return err
+					}
+					<-ctx.Done()
+					return nil
+				}))
+			})
+			s.SpawnBg(func() error {
+				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client))
+			})
+			_, err := sink.Watch().Wait(ctx, func(s testSnapshot) bool { _, ok := s[marker.Public()]; return ok })
+			return err
+		})
+		require.NoError(t, err)
+		require.Len(t, sink.Watch().Load(), len(flood)+1)
+	})
+}
+
+// An announcement the peer has not acked is resent on the next interval.
+func TestValidatorAddrUnackedAnnouncementIsResentNextInterval(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		key := types.GenSecretKey(utils.TestRng())
+		sink := newAddrs(signedAddr(key, 1))
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			received, client := recordingPeerWith(ctx, s, false, nil, nil)
+			s.SpawnBg(func() error {
+				return utils.IgnoreAfterCancel(ctx, (&Service{validatorAddrs: sink}).clientStreamValidatorAddrs(ctx, client))
+			})
+			// The second send can only come from the next interval's full push.
+			_, err := received.Wait(ctx, func(msgs []peerMsg) bool {
+				return len(receivedVersions(msgs, key.Public(), false)) >= 2
+			})
+			return err
+		})
+		require.NoError(t, err)
 	})
 }

@@ -259,6 +259,7 @@ func testPublishingRouter(t *testing.T, state *data.State, table *giga.Validator
 	t.Helper()
 	return &gigaValidatorRouter{
 		GigaRouterCommon: &GigaRouterCommon{
+			cfg:            &GigaRouterCommonConfig{},
 			data:           state,
 			validatorAddrs: table,
 			key:            nodeKey,
@@ -361,6 +362,8 @@ func TestGigaValidatorRouter_RunPublishValidatorAddrVersionRisesOnReentry(t *tes
 		}
 		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })
+			// Run also starts the committee pass, which drops this validator's entry once it leaves the Anchor.
+			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, false)) })
 			// synctest.Wait returns once the router is durably blocked, so each step below is observed in order.
 			synctest.Wait()
 			first, ok := heldVersion()

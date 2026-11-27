@@ -123,10 +123,8 @@ func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error
 			// version of the previous run. Peers hold that one and send it back, and the next
 			// publish goes above it.
 			version = max(uint64(time.Now().UnixNano()), version+1)
-			// A refused announcement is not an error: the Anchor may have moved since the wait,
-			// and peers drop an announcement the table rejects.
-			r.publishValidatorAddr(version)
-			superseding, err := r.awaitOwnAddrSuperseded(ctx, version)
+			stored := r.publishValidatorAddr(version)
+			superseding, err := r.awaitOwnAddrSuperseded(ctx, version, stored)
 			if err != nil {
 				return err
 			}
@@ -138,34 +136,41 @@ func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error
 	}
 }
 
-// awaitOwnAddrSuperseded blocks until this validator leaves the Anchor, which returns 0, or until
-// the table holds a version of its own announcement above published, which returns that version.
-func (r *gigaValidatorRouter) awaitOwnAddrSuperseded(ctx context.Context, published uint64) (uint64, error) {
+// awaitOwnAddrSuperseded waits on the table alone and returns the version of this validator's
+// announcement that the table holds above published, or 0 when the caller should publish again
+// from the Anchor. Once stored, the announcement is dropped from the table when this validator
+// leaves the Anchor, which returns 0. A refused announcement is not held, so it is retried on
+// the next table change.
+func (r *gigaValidatorRouter) awaitOwnAddrSuperseded(ctx context.Context, published uint64, stored bool) (uint64, error) {
 	addrs := r.validatorAddrs.Watch()
 	validatorKey := r.validatorKey.OrPanic("validator key")
-	inAnchor := func() bool { return inAnchorEpochs(r.data.Anchor().Load(), validatorKey) }
-	ownVersion := func() uint64 {
-		ann, ok := addrs.Load()[validatorKey]
-		if !ok {
-			return 0
+	if !stored {
+		before := addrs.Load()
+		if _, err := addrs.Wait(ctx, func(held giga.ValidatorAddrSnapshot) bool {
+			return !held.Same(before)
+		}); err != nil {
+			return 0, err
 		}
-		return ann.Msg().Version
-	}
-	if err := utils.WaitAny(ctx, func() bool {
-		return !inAnchor() || ownVersion() > published
-	}, r.data.Anchor(), addrs); err != nil {
-		return 0, err
-	}
-	if !inAnchor() {
 		return 0, nil
 	}
-	return ownVersion(), nil
+	if _, err := addrs.Wait(ctx, func(held giga.ValidatorAddrSnapshot) bool {
+		ann, ok := held[validatorKey]
+		return !ok || ann.Msg().Version > published
+	}); err != nil {
+		return 0, err
+	}
+	ann, ok := addrs.Load()[validatorKey]
+	if !ok {
+		return 0, nil
+	}
+	return ann.Msg().Version, nil
 }
 
 // publishValidatorAddr signs this validator's address announcement at version and offers it
-// to the table, which verifies it like any announcement from a peer.
-func (r *gigaValidatorRouter) publishValidatorAddr(version uint64) {
-	r.validatorAddrs.Receive(r.signValidatorAddr(version))
+// to the table, which verifies it like any announcement from a peer. It reports whether the
+// table stored the announcement.
+func (r *gigaValidatorRouter) publishValidatorAddr(version uint64) bool {
+	return r.validatorAddrs.Receive(r.signValidatorAddr(version))
 }
 
 // signValidatorAddr signs the announcement of this validator's dial address.
