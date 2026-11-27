@@ -20,8 +20,8 @@ interface IParams {
      *        docs/giga-storage/ParamsStorage.sol gives it; an unknown key reverts with an Error(string) naming it
      * @return value The 32-byte abi.encode of the param's value. Each param's type
      *         is its field's in docs/giga-storage/ParamsStorage.sol: Dec is a uint256 with 18
-     *         decimal places, Duration a uint64 of nanoseconds, and Coins a
-     *         uint256 of wei
+     *         decimal places, Duration a uint64 of nanoseconds, Coins a
+     *         uint256 of wei, and uint64 a uint64
      */
     function param(string calldata subspace, string calldata key) external view returns (bytes memory value);
 

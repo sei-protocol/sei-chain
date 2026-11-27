@@ -21,6 +21,7 @@ import (
 	tracerlogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -165,6 +166,86 @@ func newTraceChain(t *testing.T) *traceChain {
 		stateBeforeTx: replay,
 	}
 	return chain
+}
+
+// newGenesisTraceChain returns a chain whose only funds come from its genesis alloc, which the
+// executor applies at the start of block 1, and whose block 1 spends them. As on the EVM-only node,
+// the committed state after a block holds none of the next block's start.
+func newGenesisTraceChain(t *testing.T) (*traceChain, *ethtypes.Transaction) {
+	t.Helper()
+	tx, raw := testSignedTransactionWithNonce(t, 0)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(traceChainID)), tx)
+	require.NoError(t, err)
+	chain := &traceChain{
+		sender:   sender,
+		blocks:   map[int64]*coretypes.ResultBlock{1: traceResultBlock(1, tmtypes.Txs{raw})},
+		executed: []*ethtypes.Transaction{tx},
+		store:    evmonly.NewMemoryReceiptStore(),
+	}
+	ctx := sdk.Context{}.WithContext(t.Context())
+	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(1), []receipttypes.ReceiptRecord{{
+		TxHash: tx.Hash(),
+		Receipt: &evmtypes.Receipt{
+			TxHashHex: tx.Hash().Hex(), BlockNumber: 1, From: sender.Hex(), GasUsed: traceTransfer,
+		},
+	}}))
+
+	chainConfig := *params.AllDevChainProtocolChanges
+	chainConfig.ChainID = big.NewInt(traceChainID)
+	alloc := map[common.Address]evmonly.GenesisAccount{sender: {Balance: uint256.NewInt(1_000_000_000_000_000_000)}}
+	executor := evmonly.NewExecutor(evmonly.Config{ChainConfig: &chainConfig, RejectUnappliableTxs: true}, evmonly.WithGenesisAlloc(1, alloc))
+	blockContext := func(header *ethtypes.Header) evmonly.BlockContext {
+		return evmonly.BlockContext{
+			Number: header.Number.Uint64(), Time: header.Time, GasLimit: traceGasLimit, ChainID: big.NewInt(traceChainID),
+			BaseFee: new(big.Int), BlobBaseFee: new(big.Int), ParentHash: header.ParentHash,
+		}
+	}
+	// genesis is the state before block 1: empty, since the alloc lands at block 1's start.
+	genesis := evmonly.NewMemoryStore(evmonly.NewMemoryState())
+	replay := func(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error) {
+		view := genesis.OpenView()
+		stateDB, err := executor.ReplayState(ctx, view, evmonly.BlockRequest{Context: blockContext(header), Txs: txs})
+		return stateDB, view.Close, err
+	}
+	chain.backend = &testBackend{
+		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			height := int64(1)
+			if req.Height != nil {
+				height = int64(*req.Height)
+			}
+			if height <= 0 {
+				return nil, fmt.Errorf("%w: %d", coretypes.ErrZeroOrNegativeHeight, height)
+			}
+			block, ok := chain.blocks[height]
+			if !ok {
+				return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, height)
+			}
+			return block, nil
+		},
+		blockByHash: func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+			return chain.blocks[1], nil
+		},
+		blockNumber: func() uint64 { return 1 },
+		gasLimit:    func() uint64 { return traceGasLimit },
+		baseFee:     func() *big.Int { return new(big.Int) },
+		chainConfig: func() *params.ChainConfig { return &chainConfig },
+		chainID:     func() uint64 { return traceChainID },
+		blockContext: func(header *ethtypes.Header) (vm.BlockContext, error) {
+			return evmonly.EVMBlockContext(blockContext(header)), nil
+		},
+		stateAt: func(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {
+			switch height {
+			case 0:
+				view := genesis.OpenView()
+				return executor.ViewState(view), view.Close, nil
+			case 1, ethrpc.LatestBlockNumber.Int64():
+				return replay(ctx, chain.header(1), chain.blocks[1].Block.Txs.ToSliceOfBytes())
+			}
+			return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
+		},
+		stateBeforeTx: replay,
+	}
+	return chain, tx
 }
 
 // dynamicFeeTransfer signs, with testSignedTransaction's key, a dynamic-fee transfer of 1 wei to
@@ -388,6 +469,32 @@ func TestDebugTraceBlock(t *testing.T) {
 		var got json.RawMessage
 		err := client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.BlockNumber(3), tracer("callTracer"))
 		require.ErrorContains(t, err, errTraceBlockNotIndexed.Error())
+	})
+
+	// A block trace runs each transaction on the state it executed against, as a transaction trace
+	// does: here block 1 spends funds its genesis alloc credits at the block's start.
+	t.Run("block whose start funds its transactions", func(t *testing.T) {
+		chain, tx := newGenesisTraceChain(t)
+		client := chain.client(t, noRPCLimits)
+		var single callFrame
+		require.NoError(t, client.CallContext(t.Context(), &single, "debug_traceTransaction", tx.Hash(), tracer("callTracer")))
+		require.Empty(t, single.Error)
+		for _, tc := range []struct {
+			method string
+			arg    any
+		}{
+			{method: "debug_traceBlockByNumber", arg: ethrpc.BlockNumber(1)},
+			{method: "debug_traceBlockByHash", arg: traceBlockHash(1)},
+		} {
+			var got []struct {
+				Result callFrame `json:"result"`
+				Error  string    `json:"error"`
+			}
+			require.NoError(t, client.CallContext(t.Context(), &got, tc.method, tc.arg, tracer("callTracer")))
+			require.Len(t, got, 1, tc.method)
+			require.Empty(t, got[0].Error, tc.method)
+			require.Equal(t, single, got[0].Result, tc.method)
+		}
 	})
 }
 
