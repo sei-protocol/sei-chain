@@ -157,7 +157,8 @@ func TestLaneRing_JoiningValidatorTakesSendersOnlyForItself(t *testing.T) {
 func TestLaneRing_UnreachableLaneMovesOnlyItsSenders(t *testing.T) {
 	rng := utils.TestRng()
 	c, _ := atypes.GenCommittee(rng, 40)
-	r := newLaneRing(genLaneSeed(rng), c)
+	seed := genLaneSeed(rng)
+	r := newLaneRing(seed, c)
 	senders := genSenders(rng, 20000)
 	down := c.Lanes().At(3).Validator
 
@@ -170,6 +171,9 @@ func TestLaneRing_UnreachableLaneMovesOnlyItsSenders(t *testing.T) {
 			require.Equal(t, before[i], after[i])
 		}
 	}
+	// An unreachable lane sends each of its senders where the ring without that
+	// lane's validator sends it.
+	require.Equal(t, assignLanes(newLaneRing(seed, committeeWithout(c, down)), senders, allReachable), after)
 }
 
 func TestLaneRing_NoReachableLaneGivesNone(t *testing.T) {

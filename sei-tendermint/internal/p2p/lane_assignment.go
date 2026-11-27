@@ -52,6 +52,9 @@ func (a *laneAssignments) For(c *atypes.Committee) laneAssigner {
 	}
 	// Concurrent callers that see the same new committee may each build an
 	// assigner. The assigners are equal, so whichever Store lands last is correct.
+	// A caller that holds an older committee may replace a newer entry. Each
+	// caller still gets the assigner of its own committee, and the next caller
+	// with the newer committee builds again.
 	a.latest.Store(next)
 	return next.assigner
 }
