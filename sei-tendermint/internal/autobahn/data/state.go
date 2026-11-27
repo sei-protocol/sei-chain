@@ -361,9 +361,8 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 			return nil
 		}
 		updated := false
-		// No parent check is needed here. nextPartialBlock only grows and each road is inserted
-		// once, so while it is still n, the parent read in the first lock section is still the
-		// road block at n - 1, and qc.Verify above checked qc against it.
+		// qc.Verify above already checked qc against its parent, read under the first lock.
+		// The insert below runs only if nextPartialBlock is still n, so that parent has not changed.
 		if inner.nextPartialBlock == n {
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: epoch, blocks: make(map[uint64]*types.LaneBlock, len(qc.Headers()))}
