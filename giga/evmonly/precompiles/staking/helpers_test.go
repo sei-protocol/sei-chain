@@ -3,7 +3,7 @@ package staking
 import (
 	"errors"
 	"fmt"
-	"maps"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -18,21 +18,18 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/dec"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // memState is a map-backed precompiles.State and LogSink.
 type memState struct {
-	balances  map[common.Address]*big.Int
-	storage   map[common.Address]map[common.Hash]common.Hash
-	logs      []*ethtypes.Log
-	snapshots []memSnapshot
-}
-
-// memSnapshot is a copy of memState's balances, storage and log count.
-type memSnapshot struct {
 	balances map[common.Address]*big.Int
 	storage  map[common.Address]map[common.Hash]common.Hash
-	logs     int
+	logs     []*ethtypes.Log
+	// journal undoes each write, in the order they were made.
+	journal []func()
+	// snapshots is the journal's length at each snapshot still open.
+	snapshots []int
 }
 
 var (
@@ -48,21 +45,16 @@ func newMemState() *memState {
 }
 
 func (m *memState) Snapshot() int {
-	snap := memSnapshot{balances: map[common.Address]*big.Int{}, storage: map[common.Address]map[common.Hash]common.Hash{}, logs: len(m.logs)}
-	for a, b := range m.balances {
-		snap.balances[a] = new(big.Int).Set(b)
-	}
-	for a, slots := range m.storage {
-		snap.storage[a] = maps.Clone(slots)
-	}
-	m.snapshots = append(m.snapshots, snap)
+	m.snapshots = append(m.snapshots, len(m.journal))
 	return len(m.snapshots) - 1
 }
 
 func (m *memState) RevertToSnapshot(id int) {
-	snap := m.snapshots[id]
-	m.balances, m.storage, m.logs = snap.balances, snap.storage, m.logs[:snap.logs]
-	m.snapshots = m.snapshots[:id]
+	mark := m.snapshots[id]
+	for i := len(m.journal) - 1; i >= mark; i-- {
+		m.journal[i]()
+	}
+	m.journal, m.snapshots = m.journal[:mark], m.snapshots[:id]
 }
 
 func (m *memState) GetBalance(a common.Address) *big.Int {
@@ -73,7 +65,7 @@ func (m *memState) GetBalance(a common.Address) *big.Int {
 }
 
 func (m *memState) AddBalance(a common.Address, v *big.Int) {
-	m.balances[a] = new(big.Int).Add(m.GetBalance(a), v)
+	m.setBalance(a, new(big.Int).Add(m.GetBalance(a), v))
 }
 
 func (m *memState) SubBalance(a common.Address, v *big.Int) error {
@@ -81,15 +73,27 @@ func (m *memState) SubBalance(a common.Address, v *big.Int) error {
 	if b.Cmp(v) < 0 {
 		return errors.New("insufficient balance")
 	}
-	m.balances[a] = b.Sub(b, v)
+	m.setBalance(a, b.Sub(b, v))
 	return nil
+}
+
+// setBalance sets a's balance to b, journaling the balance it replaces.
+func (m *memState) setBalance(a common.Address, b *big.Int) {
+	prev, had := m.balances[a]
+	m.journal = append(m.journal, func() {
+		if had {
+			m.balances[a] = prev
+		} else {
+			delete(m.balances, a)
+		}
+	})
+	m.balances[a] = b
 }
 
 func (m *memState) GetNonce(common.Address) uint64  { return 0 }
 func (m *memState) SetNonce(common.Address, uint64) {}
 func (m *memState) GetCode(common.Address) []byte   { return nil }
 func (m *memState) Failed() bool                    { return false }
-func (m *memState) AddLog(l *ethtypes.Log)          { m.logs = append(m.logs, l) }
 
 func (m *memState) GetState(a common.Address, k common.Hash) common.Hash {
 	return m.storage[a][k]
@@ -99,11 +103,26 @@ func (m *memState) SetState(a common.Address, k, v common.Hash) {
 	if m.storage[a] == nil {
 		m.storage[a] = map[common.Hash]common.Hash{}
 	}
+	slots := m.storage[a]
+	prev, had := slots[k]
+	m.journal = append(m.journal, func() {
+		if had {
+			slots[k] = prev
+		} else {
+			delete(slots, k)
+		}
+	})
 	if v == (common.Hash{}) {
-		delete(m.storage[a], k)
+		delete(slots, k)
 		return
 	}
-	m.storage[a][k] = v
+	slots[k] = v
+}
+
+func (m *memState) AddLog(l *ethtypes.Log) {
+	n := len(m.logs)
+	m.journal = append(m.journal, func() { m.logs = m.logs[:n] })
+	m.logs = append(m.logs, l)
 }
 
 const (
@@ -134,20 +153,50 @@ var testParams = chainparams.Staking{
 	MaxVotingPowerEnforcementThreshold: new(big.Int),
 }
 
+// testGasLimit is the gas limit of the harness's blocks.
+const testGasLimit = 100_000_000
+
 type harness struct {
 	t       *testing.T
 	staking Precompile
 	state   *memState
 	time    uint64
 	number  uint64
+	// callGas is the gas each call has to pay through its context's meter.
+	callGas uint64
+	// surcharge is the gas the last call paid through its context's meter.
+	surcharge uint64
+	// epoch is the consensus epoch the current block is in.
+	epoch uint64
 	// failures are the last EndBlock's failures.
 	failures []error
 }
 
-// newHarness starts staking with params and val1, val2 and val3 self-delegating
-// 30, 20 and 10 SEI, then runs the first EndBlock, which bonds val1 and val2.
+// meter is a GasMeter that pays from left and adds what it pays to used.
+type meter struct{ left, used uint64 }
+
+func (m *meter) UseGas(gas uint64) bool {
+	if gas > m.left {
+		return false
+	}
+	m.left -= gas
+	m.used += gas
+	return true
+}
+
+// newHarness starts staking as newGenesisHarness does, then runs the first
+// EndBlock, which bonds val1 and val2.
 func newHarness(t *testing.T, params chainparams.Staking) *harness {
-	h := &harness{t: t, state: newMemState(), time: startTime}
+	h := newGenesisHarness(t, params)
+	h.endBlock()
+	require.Empty(t, h.failures)
+	return h
+}
+
+// newGenesisHarness writes params and adds val1, val2 and val3 self-delegating
+// 30, 20 and 10 SEI, before any EndBlock.
+func newGenesisHarness(t *testing.T, params chainparams.Staking) *harness {
+	h := &harness{t: t, state: newMemState(), time: startTime, callGas: math.MaxUint64}
 	require.NoError(t, SetParams(h.state, params))
 	for i, op := range []common.Address{val1, val2, val3} {
 		self := sei(int64(30 - 10*i))
@@ -159,38 +208,60 @@ func newHarness(t *testing.T, params chainparams.Staking) *harness {
 			MinSelfDelegation: sei(1),
 		}))
 	}
-	h.endBlock()
-	require.Empty(t, h.failures)
 	return h
 }
 
 func (h *harness) block() precompiles.BlockContext {
-	return precompiles.BlockContext{Number: h.number, UnixNano: h.time}
+	return precompiles.BlockContext{Number: h.number, UnixNano: h.time, GasLimit: testGasLimit, Epoch: utils.Some(h.epoch)}
 }
 
-// endBlock runs EndBlock at the current block, then starts the next block one
-// second later.
+// endBlock runs EndBlock at the current block, which closes no epoch, then
+// starts the next block one second later.
 func (h *harness) endBlock() {
-	failures, err := h.staking.EndBlock(h.block(), h.state)
+	h.endBlockWith(h.block())
+}
+
+// endEpoch ends the current block as the last block of epoch, and starts the
+// next block in the epoch after it.
+func (h *harness) endEpoch(epoch uint64) {
+	h.epoch = epoch
+	block := h.block()
+	block.ClosingEpoch = utils.Some(epoch)
+	h.endBlockWith(block)
+	h.epoch = epoch + 1
+}
+
+// endCurrentEpoch ends the current block as the last block of the epoch in
+// progress.
+func (h *harness) endCurrentEpoch() {
+	h.endEpoch(h.store().currentEpoch())
+}
+
+func (h *harness) endBlockWith(block precompiles.BlockContext) {
+	failures, err := h.staking.EndBlock(block, h.state)
 	require.NoError(h.t, err)
 	h.failures = failures
 	h.number++
 	h.time += second
 }
 
+// govern changes staking's param key to value in the params precompile, as a
+// passed proposal does.
+func (h *harness) govern(key string, value *big.Int) {
+	require.NoError(h.t, chainparams.Apply(h.state, []chainparams.Change{{Subspace: "staking", Key: key, Value: common.BigToHash(value).Bytes()}}))
+}
+
 // advance ends blocks until it has ended one at least d after the current
-// block, keeping every block's failures.
+// block, the last of them closing the epoch in progress, keeping every block's
+// failures.
 func (h *harness) advance(d uint64) {
 	var failures []error
-	for end := h.time + d; ; {
-		ended := h.time
+	for end := h.time + d; h.time < end; {
 		h.endBlock()
 		failures = append(failures, h.failures...)
-		if ended >= end {
-			break
-		}
 	}
-	h.failures = failures
+	h.endCurrentEpoch()
+	h.failures = append(failures, h.failures...)
 }
 
 type callOpts struct {
@@ -199,45 +270,72 @@ type callOpts struct {
 	delegateCall bool
 }
 
-// call runs method as caller. Like the EVM, it credits value to the precompile
-// before running it, and undoes the call's writes when it fails.
+// call runs method as caller, as run does.
 func (h *harness) call(caller common.Address, opts callOpts, method string, args ...interface{}) error {
 	input, err := ABI.Pack(method, args...)
 	require.NoError(h.t, err)
 	return h.run(caller, opts, input)
 }
 
+// run runs input as caller, requiring a transaction that succeeds to return
+// true.
 func (h *harness) run(caller common.Address, opts callOpts, input []byte) error {
+	values, err := h.exec(caller, opts, input)
+	if err == nil && !ABI.Methods[methodName(input)].IsConstant() {
+		require.Equal(h.t, []interface{}{true}, values)
+	}
+	return err
+}
+
+// query runs view method in a static call and returns its results.
+func (h *harness) query(method string, args ...interface{}) ([]interface{}, error) {
+	input, err := ABI.Pack(method, args...)
+	require.NoError(h.t, err)
+	return h.exec(common.Address{}, callOpts{readOnly: true}, input)
+}
+
+// exec runs input as caller and returns its results. Like the EVM, it credits
+// value to the precompile before running it, and undoes the call's writes
+// when it fails.
+func (h *harness) exec(caller common.Address, opts callOpts, input []byte) ([]interface{}, error) {
 	snap := h.state.Snapshot()
 	if opts.value != nil {
 		require.NoError(h.t, h.state.SubBalance(caller, opts.value))
 		h.state.AddBalance(Address, opts.value)
 	}
-	out, err := h.staking.Run(&precompiles.Context{
-		Caller:        caller,
-		Address:       Address,
-		ApparentValue: opts.value,
-		ReadOnly:      opts.readOnly,
-		DelegateCall:  opts.delegateCall,
-		Block:         h.block(),
-		State:         h.state,
-		Logs:          h.state,
-	}, input)
+	gas := &meter{left: h.callGas}
+	out, err := h.staking.Run(h.context(caller, opts, gas), input)
+	h.surcharge = gas.used
 	if err != nil {
 		h.state.RevertToSnapshot(snap)
 	}
 	if errors.Is(err, vm.ErrExecutionReverted) {
 		reason, unpackErr := abi.UnpackRevert(out)
 		require.NoError(h.t, unpackErr)
-		return fmt.Errorf("%w: %s", err, reason)
+		return nil, fmt.Errorf("%w: %s", err, reason)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	values, err := ABI.Methods[methodName(input)].Outputs.Unpack(out)
 	require.NoError(h.t, err)
-	require.Equal(h.t, []interface{}{true}, values)
-	return nil
+	return values, nil
+}
+
+// context returns the context of a call by caller at the current block, paying
+// through gas.
+func (h *harness) context(caller common.Address, opts callOpts, gas precompiles.GasMeter) *precompiles.Context {
+	return &precompiles.Context{
+		Caller:        caller,
+		Address:       Address,
+		ApparentValue: opts.value,
+		ReadOnly:      opts.readOnly,
+		DelegateCall:  opts.delegateCall,
+		Gas:           gas,
+		Block:         h.block(),
+		State:         h.state,
+		Logs:          h.state,
+	}
 }
 
 func methodName(input []byte) string {
@@ -253,17 +351,76 @@ func (h *harness) fund(addr common.Address, amount *big.Int) {
 	h.state.AddBalance(addr, amount)
 }
 
+// delegate funds delegator with amount and delegates it to op, applying the
+// staged delegation at once.
 func (h *harness) delegate(delegator, op common.Address, amount *big.Int) error {
+	return h.inEffect(h.stageDelegate(delegator, op, amount))
+}
+
+// undelegate undelegates amount from delegator's delegation to op, applying the
+// staged undelegation at once.
+func (h *harness) undelegate(delegator, op common.Address, amount *big.Int) error {
+	return h.inEffect(h.stageUndelegate(delegator, op, amount))
+}
+
+// stageDelegate funds delegator with amount and stages delegating it to op.
+func (h *harness) stageDelegate(delegator, op common.Address, amount *big.Int) error {
 	h.fund(delegator, amount)
 	return h.call(delegator, callOpts{value: amount}, DelegateMethod, op)
 }
 
-func (h *harness) undelegate(delegator, op common.Address, amount *big.Int) error {
+func (h *harness) stageUndelegate(delegator, op common.Address, amount *big.Int) error {
 	return h.call(delegator, callOpts{}, UndelegateMethod, op, amount)
 }
 
-func (h *harness) redelegate(delegator, src, dst common.Address, amount *big.Int) error {
-	return h.call(delegator, callOpts{}, RedelegateMethod, src, dst, amount)
+// inEffect returns err, the error of a call that stages operations, or when
+// it is nil applies every staged operation at the current block, as the end of
+// its epoch would, and returns the failures.
+func (h *harness) inEffect(err error) error {
+	if err != nil {
+		return err
+	}
+	var failures []error
+	var hookErr error
+	s := h.store()
+	h.staking.recordingHookErrors(&hookErr).applyStaged(h.block(), s, s.params(), math.MaxUint64, &failures)
+	return errors.Join(append(failures, hookErr)...)
+}
+
+// stagedTotals returns each delegation's staged totals, keyed by delegator and
+// validator, how many staged delegations are to each validator, and their
+// tokens, counted from the staged queue.
+func (h *harness) stagedTotals() (map[[2]common.Address]stagedDelegation, map[common.Address]uint64, *big.Int) {
+	s, q := h.store(), h.store().stagedQueue()
+	totals := map[[2]common.Address]stagedDelegation{}
+	inbound := map[common.Address]uint64{}
+	tokens := new(big.Int)
+	for i := q.head(); i < q.tail(); i++ {
+		switch op := s.stagedOperationAt(q.entry(i)); op.kind {
+		case stagedDelegate:
+			tokens.Add(tokens, op.amount)
+			inbound[op.validator]++
+		case stagedUndelegate:
+			key := [2]common.Address{op.delegator, op.validator}
+			t, ok := totals[key]
+			if !ok {
+				t.sharesOut = new(big.Int)
+			}
+			t.sharesOut = new(big.Int).Add(t.sharesOut, op.amount)
+			t.undelegations++
+			totals[key] = t
+		}
+	}
+	return totals, inbound, tokens
+}
+
+// formatStaged formats staged's totals for comparison.
+func formatStaged(staged stagedDelegation) string {
+	shares := "0"
+	if staged.sharesOut != nil {
+		shares = staged.sharesOut.String()
+	}
+	return fmt.Sprintf("%s shares out, %d undelegations", shares, staged.undelegations)
 }
 
 func (h *harness) store() store {
@@ -304,9 +461,11 @@ func requireReverts(t *testing.T, err error, want error, msgAndArgs ...interface
 }
 
 // requireInvariants checks that each validator's shares are its delegations'
-// shares, each escrow holds the tokens and balances it should, and the power
-// index holds every unjailed validator in order. delegators are every account
-// that may delegate.
+// shares, each delegation's and validator's staged totals are its staged
+// operations' and leave it no fewer than zero shares, each escrow holds the
+// tokens and balances it should, and the power index holds every unjailed
+// validator in order.
+// delegators are every account that may delegate.
 func (h *harness) requireInvariants(delegators ...common.Address) {
 	t, s := h.t, h.store()
 	delegators = append(delegators, val1, val2, val3)
@@ -345,6 +504,19 @@ func (h *harness) requireInvariants(delegators ...common.Address) {
 	}
 	require.Equal(t, bonded.String(), h.state.GetBalance(BondedEscrow).String(), "the bonded escrow holds the bonded validators' tokens")
 	require.Equal(t, notBonded.String(), h.state.GetBalance(NotBondedEscrow).String(), "the not-bonded escrow holds the other validators' tokens and every unbonding balance")
+
+	totals, inbound, stagedTokens := h.stagedTotals()
+	require.Equal(t, stagedTokens.String(), h.state.GetBalance(StagedEscrow).String(), "the staged escrow holds the staged delegations' tokens")
+	for _, d := range delegators {
+		for _, op := range []common.Address{val1, val2, val3} {
+			want, staged := totals[[2]common.Address{d, op}], s.stagedDelegation(d, op)
+			require.Equal(t, formatStaged(want), formatStaged(staged), "%s's staged totals for %s", d, op)
+			require.LessOrEqual(t, staged.sharesOut.Cmp(h.shares(d, op)), 0, "%s stages no more shares out of %s than it holds", d, op)
+		}
+	}
+	for _, op := range []common.Address{val1, val2, val3} {
+		require.Equal(t, inbound[op], s.stagedInbound(op), "the staged operations moving stake to %s", op)
+	}
 
 	index := h.powerIndex()
 	require.ElementsMatch(t, unjailed, index, "the power index holds every unjailed validator")

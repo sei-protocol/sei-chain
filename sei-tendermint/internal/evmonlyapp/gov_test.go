@@ -30,7 +30,6 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 	registry := NewGovRegistry(params, startingProposalID, gov.GenesisElectorate{common.HexToAddress("0xa1"): big.NewInt(1)}, GovUpgrades{Applied: testAppliedUpgrades})
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
-		nil,
 		storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,

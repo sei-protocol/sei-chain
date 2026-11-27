@@ -170,10 +170,7 @@ func (s store) removeDelegationShares(op common.Address, v *validator, shares *b
 	if remaining.Sign() < 0 {
 		return nil, fmt.Errorf("%w: removing %s of %s", errInsufficientShares, shares, v.delegatorShares)
 	}
-	issued := new(big.Int).Set(v.tokens)
-	if remaining.Sign() != 0 {
-		issued = dec.Truncate(v.tokensFromShares(shares))
-	}
+	issued := v.unbondedTokens(shares)
 	tokens := new(big.Int).Sub(v.tokens, issued)
 	if tokens.Sign() < 0 {
 		return nil, fmt.Errorf("%w: removing %s tokens of %s", errInsufficientShares, issued, v.tokens)
@@ -198,6 +195,34 @@ func (p Precompile) removeValidator(block precompiles.BlockContext, s store, op 
 		return err
 	}
 	return p.hooks().AfterValidatorRemoved(block, s.State, op)
+}
+
+// removeIfVacant removes op's validator when it is unbonded, holds no shares and
+// has no staged delegation to it.
+func (p Precompile) removeIfVacant(block precompiles.BlockContext, s store, op common.Address, v validator) error {
+	if v.status != statusUnbonded || v.delegatorShares.Sign() != 0 {
+		return nil
+	}
+	// The epoch snapshot counted the staged stake as taking effect here, so the
+	// validator stays until it does or is dropped.
+	if s.stagedInbound(op) > 0 {
+		return nil
+	}
+	return p.removeValidator(block, s, op, v)
+}
+
+// removeIfVacantReporting removes op's validator as removeIfVacant does,
+// reverting the removal and adding to failures why when it fails.
+func (p Precompile) removeIfVacantReporting(block precompiles.BlockContext, s store, op common.Address, failures *[]error) {
+	v, ok := s.validator(op)
+	if !ok {
+		return
+	}
+	snap := s.State.Snapshot()
+	if err := p.removeIfVacant(block, s, op, v); err != nil {
+		s.State.RevertToSnapshot(snap)
+		*failures = append(*failures, fmt.Errorf("%w: vacant validator %s kept: %w", precompiles.ErrDegraded, op, err))
+	}
 }
 
 // bond makes op's validator bonded, as x/staking's bondValidator does.

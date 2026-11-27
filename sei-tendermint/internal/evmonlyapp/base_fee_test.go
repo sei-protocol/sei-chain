@@ -10,6 +10,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -191,9 +192,9 @@ func TestEVMOnlyApplicationPaysFeesToTheFeeCollector(t *testing.T) {
 // A block executed at a base fee other than the one scheduled for it fails to finalize.
 func TestEVMOnlyApplicationRefusesABlockRunAtAnUnscheduledBaseFee(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
 		block.BaseFee = new(big.Int).Add(block.BaseFee, big.NewInt(1))
-		return app.encodeCursorChangeSet(block, state, result)
+		return app.encodeCursorChangeSet(block, state, result, after)
 	})
 
 	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(app, 1))

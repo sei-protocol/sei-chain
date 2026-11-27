@@ -150,7 +150,6 @@ func TestEpochRegistryRowSurvivesReopen(t *testing.T) {
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
-		nil,
 		storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
@@ -180,7 +179,6 @@ func TestEpochRegistryWritesOnGenesisAndClosingRoads(t *testing.T) {
 	epochs := openEVMOnlyTestEpochsWithLength(t, storage, nil, 1, 3)
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
-		nil,
 		storage,
 		epochs,
 		gigaconfig.DefaultConfig.Execution,
@@ -227,7 +225,6 @@ func TestEpochRegistryRestartReadsTheRowOfTheClosingRoad(t *testing.T) {
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
-		nil,
 		storage,
 		openEVMOnlyTestEpochsWithLength(t, storage, nil, 1, length),
 		gigaconfig.DefaultConfig.Execution,
@@ -284,8 +281,8 @@ func epochModuleKeyCount(misc []gigatypes.MiscChange, key string) int {
 // changes app encodes for each block, by block number.
 func installRecordingEVMExecutor(app *evmOnlyApplication) *utils.Mutex[map[uint64][]gigatypes.MiscChange] {
 	encoded := new(utils.NewMutex(map[uint64][]gigatypes.MiscChange{}))
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, state, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result, after)
 		if err != nil {
 			return nil, err
 		}
@@ -316,7 +313,6 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
-		nil,
 		storage,
 		openEVMOnlyTestEpochs(t, storage, nil, initialHeight),
 		gigaconfig.DefaultConfig.Execution,
@@ -360,7 +356,6 @@ func newEVMOnlyTestAppWithStorage(
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
-		validators,
 		storage,
 		openEVMOnlyTestEpochs(t, storage, validators, 1),
 		execution,
@@ -447,7 +442,7 @@ func reopenEVMOnlyTestAppWithEpochs(t *testing.T, app abevm.Application, storage
 	closeEVMOnlyTestApp(t, app, storage)
 	reopened := openEVMOnlyTestStorageAt(t, home)
 	resumed, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, reopened,
+		evmOnlyTestChainID, reopened,
 		openEVMOnlyTestEpochsWithLength(t, reopened, nil, 1, length),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -716,7 +711,7 @@ func TestEVMOnlyApplicationRestoreBlockTimeSeedsBlockTime(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -767,7 +762,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -805,7 +800,7 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -837,7 +832,7 @@ func TestEVMOnlyApplicationResumesFromFinalizedBlock(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -872,7 +867,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	storageConfig.AppHashBuilderConfig.GigaActivationHeight = 5
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -889,7 +884,7 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	require.Error(t, storage.Close())
 	storage = openEVMOnlyTestStorage(t, storageConfig)
 	app, err = NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
@@ -912,19 +907,6 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 		Time:   time.Unix(1_700_000_001, 0)})
 
 	require.Error(t, err)
-}
-
-func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng).Public()
-	configured := abevm.CommitteeWeights{key: 7}
-	app := newEVMOnlyTestApp(t, configured)
-	configured[key] = 11
-
-	first := app.GetValidators()
-	require.Equal(t, abevm.CommitteeWeights{key: 7}, first)
-	first[key] = 13
-	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
 }
 
 // evmGasLimiter is implemented by an application that exposes its committed
@@ -1304,8 +1286,8 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 // into the EVM module, which the state DB refuses to commit. Each block executes and encodes cleanly, and its commit
 // is the first thing that fails.
 func installUnwritableEVMExecutor(app *evmOnlyApplication) {
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, state, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result, after)
 		if err != nil {
 			return nil, fmt.Errorf("encode the cursor: %w", err)
 		}
@@ -1341,7 +1323,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	// The failed commits leave the receipt store ahead of the state, so the shutdown is not clean.
 	t.Cleanup(func() { require.Error(t, storage.Close()) })
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, openEVMOnlyTestEpochs(t, storage, nil, 1), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, storage, openEVMOnlyTestEpochs(t, storage, nil, 1), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry](), utils.None[GenesisAlloc](), utils.None[string]())
 	require.NoError(t, err)
 	err = app.InitChain(abevm.InitConfig{
 		InitialHeight: 1,
@@ -1434,7 +1416,7 @@ func newEVMOnlyTestAppWithAlloc(t *testing.T, alloc GenesisAlloc) abevm.Applicat
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -1489,7 +1471,7 @@ func TestEVMOnlyApplicationRefusesAnEmptyAlloc(t *testing.T) {
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	_, err = NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -1525,7 +1507,7 @@ func TestEVMOnlyApplicationResumesOnlyWithTheAllocItStartedWith(t *testing.T) {
 					initialHeight = a.InitialHeight
 				}
 				return NewEVMOnlyApplication(
-					evmOnlyTestChainID, nil, storage,
+					evmOnlyTestChainID, storage,
 					openEVMOnlyTestEpochs(t, storage, nil, initialHeight),
 					gigaconfig.DefaultConfig.Execution,
 					utils.None[precompiles.Registry](),
@@ -1590,7 +1572,7 @@ func TestEVMOnlyApplicationResumesOnlyOnTheChainIDItRanOn(t *testing.T) {
 func newEVMOnlyTestAppOnChain(t *testing.T, storage *bootstrap.GigaStorageManager, chainID uint64) (abevm.Application, error) {
 	t.Helper()
 	return NewEVMOnlyApplication(
-		chainID, nil, storage,
+		chainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),
@@ -1607,8 +1589,8 @@ func TestEVMOnlyApplicationRefusesToResumeWithoutARecordedChainID(t *testing.T) 
 	err = started.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	app := started.(*evmOnlyApplication)
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, state, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result, after)
 		return slices.DeleteFunc(misc, func(change gigatypes.MiscChange) bool {
 			return change.Module == evmOnlyCursorModule && string(change.Key) == evmOnlyChainIDKey
 		}), err

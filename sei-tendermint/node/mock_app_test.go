@@ -229,29 +229,6 @@ func TestMockAppInfoReportsMockState(t *testing.T) {
 	require.Empty(t, info.LastBlockAppHash)
 }
 
-func TestMockAppGetValidatorsCachesWrappedAppValidators(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng).Public()
-	inner := &mockAppValidatorsTarget{validators: abevm.CommitteeWeights{key: 7}}
-	app := NewMockApp(inner)
-
-	require.Empty(t, app.GetValidators())
-	require.Zero(t, inner.calls)
-
-	err := app.InitChain(abevm.InitConfig{InitialHeight: 1})
-	require.NoError(t, err)
-	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
-	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
-	require.Equal(t, 1, inner.calls)
-
-	inner.validators[key] = 11
-	returned := app.GetValidators()
-	returned[key] = 13
-	app.RestoreBlockTime(time.Unix(3, 0))
-	require.Equal(t, abevm.CommitteeWeights{key: 7}, app.GetValidators())
-	require.Equal(t, 1, inner.calls)
-}
-
 func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
 	app := NewMockApp(mockAppFixture{})
 	want := new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000))
@@ -307,9 +284,8 @@ type mockAppFixture struct {
 func (mockAppFixture) InitChain(abevm.InitConfig) error {
 	return nil
 }
-func (mockAppFixture) EvmChainID() uint64                    { return mockAppFixtureEVMChainID }
-func (mockAppFixture) GetValidators() abevm.CommitteeWeights { return nil }
-func (mockAppFixture) Info() *abevm.ResponseInfo             { return &abevm.ResponseInfo{} }
+func (mockAppFixture) EvmChainID() uint64        { return mockAppFixtureEVMChainID }
+func (mockAppFixture) Info() *abevm.ResponseInfo { return &abevm.ResponseInfo{} }
 
 type mockAppForwardTarget struct {
 	mockAppFixture
@@ -324,17 +300,6 @@ func (app *mockAppForwardTarget) InitChain(abevm.InitConfig) error {
 
 func (app *mockAppForwardTarget) RestoreBlockTime(lastHeader time.Time) {
 	app.lastHeader = utils.Some(lastHeader)
-}
-
-type mockAppValidatorsTarget struct {
-	mockAppFixture
-	validators abevm.CommitteeWeights
-	calls      int
-}
-
-func (app *mockAppValidatorsTarget) GetValidators() abevm.CommitteeWeights {
-	app.calls++
-	return app.validators
 }
 
 func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint64, gas uint64) ([]byte, *ethtypes.Transaction, common.Address) {
@@ -411,9 +376,11 @@ func TestMakeEVMApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 
 	err = mock.InitChain(abevm.InitConfig{InitialHeight: 1, GasLimit: 30_000_000})
 	require.NoError(t, err)
-	validators := mock.GetValidators()
-	require.Len(t, validators, 1)
-	require.Equal(t, uint64(1), validators[validator.ValidatorKey])
+	registry, err := mock.EpochRegistry()
+	require.NoError(t, err)
+	committee := registry.Epochs()[0].Committee()
+	require.Equal(t, 1, committee.Lanes().Len())
+	require.Equal(t, uint64(1), committee.Weight(validator.ValidatorKey))
 	var blockHash [32]byte
 	blockHash[0] = 1
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), 1, blockHash))

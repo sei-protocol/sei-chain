@@ -19,7 +19,6 @@ import (
 type Application interface {
 	// Application state and initialization.
 	Info() *ResponseInfo
-	GetValidators() CommitteeWeights
 	EpochRegistry() (*atypes.EpochRegistry, error)
 	LastBlockHeight() int64
 	InitChain(InitConfig) error

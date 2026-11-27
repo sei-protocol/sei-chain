@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"math/big"
 	"net/netip"
 	"net/url"
@@ -71,13 +70,6 @@ func (a *testApp) EvmNonce(common.Address) uint64 { return 0 }
 
 // EvmCommittedNonce matches EvmNonce: the test app has no commit in flight.
 func (a *testApp) EvmCommittedNonce(addr common.Address) uint64 { return a.EvmNonce(addr) }
-
-func (a *testApp) GetValidators() abevm.CommitteeWeights {
-	for state := range a.state.Lock() {
-		return maps.Clone(state.Validators)
-	}
-	panic("unreachable")
-}
 
 func (a *testApp) Info() *abevm.ResponseInfo {
 	for state := range a.state.Lock() {

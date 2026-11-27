@@ -10,6 +10,7 @@ import (
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
@@ -86,6 +87,11 @@ type BlockContext struct {
 	ParentHash  common.Hash
 	BlockHash   common.Hash
 	PrevRandao  common.Hash
+	// Epoch is the consensus epoch this block is in, when the app knows it.
+	Epoch utils.Option[uint64]
+	// ClosingEpoch is the consensus epoch this block is the last block of, if
+	// it is one.
+	ClosingEpoch utils.Option[uint64]
 }
 
 // BlockResult is the executor output consumed by the new runtime boundary.

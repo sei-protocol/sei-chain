@@ -52,6 +52,7 @@ func TestLayoutMatchesSolc(t *testing.T) {
 	require.Equal(t, map[string]uint64{
 		"lastValidators":              slotLastValidators,
 		"lastTotalPower":              slotLastTotalPower,
+		"epochValidators":             slotEpochValidators,
 		"validators":                  slotValidators,
 		"validatorSet":                slotValidatorSet,
 		"validatorsByConsensusPubkey": slotValidatorsByConsensusPubkey,
@@ -60,17 +61,20 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"delegationsByDelegator":      slotDelegationsByDelegator,
 		"delegationsByValidator":      slotDelegationsByValidator,
 		"unbondingDelegations":        slotUnbondingDelegations,
-		"redelegationEntryCounts":     slotRedelegationEntryCounts,
-		"redelegationsByValDst":       slotRedelegationsByValDst,
 		"unbondingQueueBounds":        slotUnbondingQueueBounds,
 		"unbondingQueue":              slotUnbondingQueue,
-		"redelegationQueueBounds":     slotRedelegationQueueBounds,
-		"redelegationQueue":           slotRedelegationQueue,
 		"validatorQueueBounds":        slotValidatorQueueBounds,
 		"validatorQueue":              slotValidatorQueue,
-		"migrating":                   19,
-		"migrationCursor":             20,
-		"migrationFailures":           21,
+		"currentEpoch":                slotCurrentEpoch,
+		"stagedQueueBounds":           slotStagedQueueBounds,
+		"stagedQueue":                 slotStagedQueue,
+		"stagedDelegations":           slotStagedDelegations,
+		"stagedInbound":               slotStagedInbound,
+		"stagedThisEpoch":             slotStagedThisEpoch,
+		"params":                      slotParams,
+		"migrating":                   25,
+		"migrationCursor":             26,
+		"migrationFailures":           27,
 	}, got)
 
 	// Each struct's Go members, and how many slots it takes. Description and
@@ -111,6 +115,11 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"operator": validatorPowerOperator,
 			"power":    validatorPowerPower,
 		}, 1},
+		"struct StakingStorage.EpochValidator": {map[string]member{
+			"operator":        epochValidatorOperator,
+			"power":           epochValidatorPower,
+			"consensusPubkey": epochValidatorConsensusPubkey,
+		}, epochValidatorSlots},
 		"struct StakingStorage.Delegation": {map[string]member{"shares": {0, 0}}, 1},
 		"struct StakingStorage.UnbondingDelegationEntry": {map[string]member{
 			"creationHeight": unbondingEntryCreationHeight,
@@ -123,15 +132,6 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"delegator":      unbondingQueueDelegator,
 			"validator":      unbondingQueueValidator,
 		}, unbondingQueueEntrySlots},
-		"struct StakingStorage.RedelegationQueueEntry": {map[string]member{
-			"completionTime": queueCompletionTime,
-			"delegator":      redelegationQueueDelegator,
-			"creationHeight": redelegationQueueCreationHeight,
-			"srcValidator":   redelegationQueueSrcValidator,
-			"dstValidator":   redelegationQueueDstValidator,
-			"initialBalance": redelegationQueueInitialBalance,
-			"sharesDst":      redelegationQueueSharesDst,
-		}, redelegationQueueEntrySlots},
 		"struct StakingStorage.ValidatorQueueEntry": {map[string]member{
 			"completionTime":  queueCompletionTime,
 			"unbondingHeight": validatorQueueUnbondingHeight,
@@ -141,6 +141,24 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"head": queueHead,
 			"tail": queueTail,
 		}, 1},
+		"struct StakingStorage.StagedOperation": {map[string]member{
+			"epoch":     queueCompletionTime,
+			"kind":      stagedOperationKind,
+			"delegator": stagedOperationDelegator,
+			"validator": stagedOperationValidator,
+			"amount":    stagedOperationAmount,
+		}, stagedQueueEntrySlots},
+		"struct StakingStorage.StagedDelegation": {map[string]member{
+			"sharesOut":     stagedSharesOut,
+			"undelegations": stagedUndelegations,
+		}, stagedDelegationSlots},
+		"struct StakingStorage.Params": {map[string]member{
+			"unbondingTime":                      paramsUnbondingTime,
+			"maxValidators":                      paramsMaxValidators,
+			"maxEntries":                         paramsMaxEntries,
+			"maxVotingPowerRatio":                paramsMaxVotingPowerRatio,
+			"maxVotingPowerEnforcementThreshold": paramsMaxVotingPowerEnforcementThreshold,
+		}, 3},
 		"struct AddressSet": {map[string]member{
 			"values":    {0, 0},
 			"positions": {1, 0},
@@ -198,6 +216,7 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []validatorPower{{op, 30}, {other, 20}}, set)
 	require.Equal(t, big.NewInt(50), s.lastTotalPower())
+	require.Equal(t, []BondedValidator{{Operator: other, ConsensusPubkey: pubkey, Power: 21}}, must(s.epochValidators()))
 
 	v, ok := s.validator(op)
 	require.True(t, ok)
@@ -237,8 +256,6 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 		{creationHeight: 51, completionTime: 52, initialBalance: big.NewInt(53), balance: big.NewInt(54)},
 		{creationHeight: 55, completionTime: 56, initialBalance: big.NewInt(57), balance: big.NewInt(58)},
 	}, must(s.unbondingEntries(delegator, op)))
-	require.Equal(t, big.NewInt(2), s.redelegationEntryCount(delegator, op, other))
-	require.Equal(t, big.NewInt(3), s.receivingRedelegations(other, delegator))
 
 	q := s.unbondingQueue()
 	require.Equal(t, uint64(1), q.head())
@@ -251,21 +268,24 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	_, due = q.due(60)
 	require.False(t, due)
 
-	e, due = s.redelegationQueue().due(71)
-	require.True(t, due)
-	require.Equal(t, delegator, s.AddressAt(at(e, redelegationQueueDelegator), redelegationQueueDelegator.offset))
-	require.Equal(t, uint64(72), s.Uint64(at(e, redelegationQueueCreationHeight), redelegationQueueCreationHeight.offset))
-	require.Equal(t, op, s.AddressAt(at(e, redelegationQueueSrcValidator), redelegationQueueSrcValidator.offset))
-	require.Equal(t, other, s.AddressAt(at(e, redelegationQueueDstValidator), redelegationQueueDstValidator.offset))
-	require.Equal(t, big.NewInt(73), s.Uint256(at(e, redelegationQueueInitialBalance)))
-	require.Equal(t, big.NewInt(74), s.Uint256(at(e, redelegationQueueSharesDst)))
-
 	vq := s.validatorQueue()
 	require.Equal(t, uint64(4), vq.head())
 	e, due = vq.due(81)
 	require.True(t, due)
 	require.Equal(t, uint64(82), s.Uint64(at(e, validatorQueueUnbondingHeight), validatorQueueUnbondingHeight.offset))
 	require.Equal(t, other, s.AddressAt(at(e, validatorQueueOperator), validatorQueueOperator.offset))
+
+	require.Equal(t, uint64(9), s.currentEpoch())
+	sq := s.stagedQueue()
+	require.Equal(t, uint64(2), sq.head())
+	_, due = sq.due(9)
+	require.False(t, due)
+	e, due = sq.due(10)
+	require.True(t, due)
+	require.Equal(t, stagedOperation{epoch: 10, kind: stagedUndelegate, delegator: delegator, validator: op, amount: big.NewInt(91)},
+		s.stagedOperationAt(e))
+	require.Equal(t, stagedDelegation{sharesOut: big.NewInt(92), undelegations: 93}, s.stagedDelegation(delegator, op))
+	require.Equal(t, uint64(96), s.stagedInbound(other))
 }
 
 var seedABI = func() abi.ABI {

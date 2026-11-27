@@ -52,7 +52,6 @@ type evmOnlyApplication struct {
 	storage     *bootstrap.GigaStorageManager
 	// epochRegistry is the epoch registry each executed block advances.
 	epochRegistry *EpochRegistry
-	validators    abevm.CommitteeWeights
 	// customPrecompiles are the native contracts every executor runs.
 	customPrecompiles utils.Option[precompiles.Registry]
 	// alloc, when set, funds the chain at its initial height, and every
@@ -126,7 +125,6 @@ var _ abevm.Application = (*evmOnlyApplication)(nil)
 // durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
-	validators abevm.CommitteeWeights,
 	storage *bootstrap.GigaStorageManager,
 	epochRegistry *EpochRegistry,
 	execution gigaconfig.ExecutionConfig,
@@ -154,7 +152,6 @@ func NewEVMOnlyApplication(
 		minGasPrice:       new(big.Int).SetUint64(execution.MinGasPrice),
 		storage:           storage,
 		epochRegistry:     epochRegistry,
-		validators:        maps.Clone(validators),
 		customPrecompiles: customPrecompiles,
 		alloc:             alloc,
 		upgradeInfoPath:   homeDir.Map(upgradeInfoPath),
@@ -228,6 +225,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 	block evmonly.BlockContext,
 	execState evmonly.StateReader,
 	result *evmonly.BlockResult,
+	after func() precompiles.State,
 ) ([]gigatypes.MiscChange, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
@@ -242,7 +240,9 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		if block.BaseFee == nil || block.BaseFee.Cmp(baseFee.ToBig()) != 0 {
 			return nil, fmt.Errorf("EVM-only block %d executed at base fee %v, not its scheduled %s", height, block.BaseFee, &baseFee)
 		}
-		epochChanges, err := a.epochRegistry.Changes(atypes.RoadHeight(block.Number))
+		epochChanges, err := a.epochRegistry.Changes(atypes.RoadHeight(block.Number), func() (map[atypes.PublicKey]uint64, error) {
+			return stakingWeights(after())
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -354,10 +354,6 @@ func (a *evmOnlyApplication) EvmGasLimit() uint64 {
 		return state.committed.gasLimit
 	}
 	panic("unreachable")
-}
-
-func (a *evmOnlyApplication) GetValidators() abevm.CommitteeWeights {
-	return maps.Clone(a.validators)
 }
 
 func (a *evmOnlyApplication) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
@@ -900,7 +896,14 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 			return abevm.FinalizeBlockResp{}, err
 		}
 		a.finalizePhases.SetPhase(finalizePhaseExecute)
-		prepared.Context = a.blockContext(number, timestamp, parent.gasLimit, parent.nextBaseFee(), parent.blockHash, blockHash)
+		block := a.blockContext(number, timestamp, parent.gasLimit, parent.nextBaseFee(), parent.blockHash, blockHash)
+		if epoch, ok := a.epochRegistry.EpochOf(atypes.RoadHeight(number)).Get(); ok {
+			block.Epoch = utils.Some(uint64(epoch))
+		}
+		if epoch, ok := a.epochRegistry.ClosingEpoch(atypes.RoadHeight(number)).Get(); ok {
+			block.ClosingEpoch = utils.Some(uint64(epoch))
+		}
+		prepared.Context = block
 		result, err := executor.ExecutePreparedBlock(ctx, prepared)
 		// Closed while executor is held: a deferred Reset would run after the next block's turn starts.
 		a.finalizePhases.Reset()

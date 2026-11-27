@@ -70,6 +70,12 @@ same result from the same block, so each rule below is a consensus rule.
   `endBlockBudget`). Each unit of that work is bounded by limits its write path
   enforces, such as gov's content size and depositor count, and by the
   validator set, so a block's cost cannot grow with user input.
+- The one exception is work the calls that queue it pay for: staking's staged
+  operations, which an epoch's end applies in full. Each call charges
+  `stagingGas` through `Context.Gas`, a price that rises with the operations
+  already staged that epoch, so the gas an epoch can spend bounds what its end does. A
+  new exception needs the same: a charge in `Run`, rising with what is queued,
+  up to a ceiling that still fits a block.
 
 ## EndBlock
 - `BeginBlock` follows every rule below for `EndBlock`. It runs before the
@@ -87,6 +93,10 @@ same result from the same block, so each rule below is a consensus rule.
 - One operation's failure holds up no other: the next due operation in the same
   EndBlock proceeds. An operation that returns success but leaves its queue
   entry in place is failed the same way.
+- Staking's hooks are the exception: a hook must not fail. Staking fails its
+  `EndBlock` on a hook's error, halting the chain until an upgrade fixes the
+  hook, since a staking change can neither go ahead without its hook nor be
+  dropped once the epoch snapshot has counted it.
 - Check a balance change before making it. A balance change that fails marks
   `ctx.State` failed, which reverting a snapshot does not undo: later writes are
   dropped and the block fails. Gov checks the escrow and the depositor's balance
@@ -108,7 +118,8 @@ same result from the same block, so each rule below is a consensus rule.
 - Chain params live in the params precompile's storage (0x1013), laid out by
   `docs/giga-storage/ParamsStorage.sol` and declared in `params`. Read them
   with the `params` package's Go readers, such as `ReadGov`; do not keep a copy
-  in another precompile's storage. They change only at genesis and through a
-  passed gov proposal (`params.Apply`). Read
+  in another precompile's storage. The one copy is staking's `params`, which it
+  adopts at each epoch's end so a change takes effect only there. They change
+  only at genesis and through a passed gov proposal (`params.Apply`). Read
   [`docs/giga-storage/params-design.md`](../../../docs/giga-storage/params-design.md)
   before adding a subspace or a param.

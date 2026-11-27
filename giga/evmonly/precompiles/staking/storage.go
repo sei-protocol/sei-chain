@@ -72,6 +72,16 @@ func (v validator) tokensFromShares(shares *big.Int) *big.Int {
 	return dec.Quo(new(big.Int).Mul(shares, v.tokens), v.delegatorShares)
 }
 
+// unbondedTokens returns the tokens taking shares out of v pays, truncated, as
+// x/staking's RemoveValidatorTokensAndShares does: the last shares out take
+// every token left.
+func (v validator) unbondedTokens(shares *big.Int) *big.Int {
+	if shares.Cmp(v.delegatorShares) == 0 {
+		return new(big.Int).Set(v.tokens)
+	}
+	return dec.Truncate(v.tokensFromShares(shares))
+}
+
 // store is StakingStorage at the staking precompile's address.
 type store struct {
 	solstorage.Store
@@ -85,9 +95,29 @@ func at(base common.Hash, m member) common.Hash {
 	return solstorage.Offset(base, m.slot)
 }
 
-// params returns staking's params from the params precompile.
+// params returns the params staking applies.
 func (s store) params() chainparams.Staking {
-	return chainparams.ReadStaking(s.State)
+	base := solstorage.Slot(slotParams)
+	return chainparams.Staking{
+		UnbondingTime:                      s.Uint64(at(base, paramsUnbondingTime), paramsUnbondingTime.offset),
+		MaxValidators:                      s.Uint32(at(base, paramsMaxValidators), paramsMaxValidators.offset),
+		MaxEntries:                         s.Uint32(at(base, paramsMaxEntries), paramsMaxEntries.offset),
+		MaxVotingPowerRatio:                s.Uint256(at(base, paramsMaxVotingPowerRatio)),
+		MaxVotingPowerEnforcementThreshold: s.Uint256(at(base, paramsMaxVotingPowerEnforcementThreshold)),
+	}
+}
+
+// adoptParams makes the params precompile's staking params the ones staking
+// applies, and returns them.
+func (s store) adoptParams() chainparams.Staking {
+	p := chainparams.ReadStaking(s.State)
+	base := solstorage.Slot(slotParams)
+	s.SetUint64(at(base, paramsUnbondingTime), paramsUnbondingTime.offset, p.UnbondingTime)
+	s.SetUint32(at(base, paramsMaxValidators), paramsMaxValidators.offset, p.MaxValidators)
+	s.SetUint32(at(base, paramsMaxEntries), paramsMaxEntries.offset, p.MaxEntries)
+	s.SetUint256(at(base, paramsMaxVotingPowerRatio), p.MaxVotingPowerRatio)
+	s.SetUint256(at(base, paramsMaxVotingPowerEnforcementThreshold), p.MaxVotingPowerEnforcementThreshold)
+	return p
 }
 
 func validatorBase(op common.Address) common.Hash {
@@ -143,6 +173,12 @@ func (s store) deleteValidator(op common.Address) error {
 // validatorPower returns the consensus power of op's stored tokens.
 func (s store) validatorPower(op common.Address) *big.Int {
 	return consensusPower(s.Uint256(at(validatorBase(op), validatorTokens)))
+}
+
+// consensusPubkey returns op's stored consensus key, zero when op has no
+// validator.
+func (s store) consensusPubkey(op common.Address) common.Hash {
+	return s.Word(at(validatorBase(op), validatorConsensusPubkey))
 }
 
 func (s store) validatorSet() solstorage.Set {
@@ -207,6 +243,66 @@ func (s store) setLastValidators(set []validatorPower) {
 	s.SetWord(base, solstorage.Slot(uint64(len(set))))
 }
 
+// epochValidators returns the latest epoch snapshot, or none before the first.
+// It fails on a set longer than any MaxValidators allows.
+func (s store) epochValidators() ([]BondedValidator, error) {
+	base := solstorage.Slot(slotEpochValidators)
+	n := s.Uint64(base, 0)
+	if n > uint64(chainparams.MaxBondedValidators) {
+		return nil, fmt.Errorf("%w: %d validators", errInvalidStoredSet, n)
+	}
+	data := solstorage.ArrayData(base)
+	out := make([]BondedValidator, n)
+	for i := range out {
+		e := solstorage.Offset(data, uint64(i)*epochValidatorSlots) //nolint:gosec // i is below n
+		out[i] = BondedValidator{
+			Operator:        s.AddressAt(at(e, epochValidatorOperator), epochValidatorOperator.offset),
+			ConsensusPubkey: s.Word(at(e, epochValidatorConsensusPubkey)),
+			Power:           s.Uint64(at(e, epochValidatorPower), epochValidatorPower.offset),
+		}
+	}
+	return out, nil
+}
+
+// setEpochValidators replaces the epoch snapshot, zeroing elements the new one
+// no longer covers.
+func (s store) setEpochValidators(set []BondedValidator) {
+	base := solstorage.Slot(slotEpochValidators)
+	old := min(s.Uint64(base, 0), uint64(chainparams.MaxBondedValidators))
+	data := solstorage.ArrayData(base)
+	for i, v := range set {
+		e := solstorage.Offset(data, uint64(i)*epochValidatorSlots) //nolint:gosec // i is non-negative
+		s.SetWord(at(e, epochValidatorOperator), common.Hash{})
+		s.SetAddressAt(at(e, epochValidatorOperator), epochValidatorOperator.offset, v.Operator)
+		s.SetUint64(at(e, epochValidatorPower), epochValidatorPower.offset, v.Power)
+		s.SetWord(at(e, epochValidatorConsensusPubkey), v.ConsensusPubkey)
+	}
+	for i := uint64(len(set)) * epochValidatorSlots; i < old*epochValidatorSlots; i++ {
+		s.SetWord(solstorage.Offset(data, i), common.Hash{})
+	}
+	s.SetWord(base, solstorage.Slot(uint64(len(set))))
+}
+
+// currentEpoch returns the epoch in progress as of the last EndBlock, or 0
+// before any.
+func (s store) currentEpoch() uint64 {
+	return s.Uint64(solstorage.Slot(slotCurrentEpoch), 0)
+}
+
+func (s store) setCurrentEpoch(epoch uint64) {
+	s.SetUint64(solstorage.Slot(slotCurrentEpoch), 0, epoch)
+}
+
+// stagedThisEpoch returns how many operations were staged during the current
+// epoch.
+func (s store) stagedThisEpoch() uint64 {
+	return s.Uint64(solstorage.Slot(slotStagedThisEpoch), 0)
+}
+
+func (s store) setStagedThisEpoch(n uint64) {
+	s.SetUint64(solstorage.Slot(slotStagedThisEpoch), 0, n)
+}
+
 // lastTotalPower returns the consensus power of the bonded set as last stored.
 func (s store) lastTotalPower() *big.Int {
 	return s.Uint256(solstorage.Slot(slotLastTotalPower))
@@ -214,6 +310,11 @@ func (s store) lastTotalPower() *big.Int {
 
 func (s store) setLastTotalPower(power *big.Int) {
 	s.SetUint256(solstorage.Slot(slotLastTotalPower), power)
+}
+
+// started reports whether staking has bonded a set.
+func (s store) started() bool {
+	return s.lastTotalPower().Sign() != 0
 }
 
 func delegationSlot(delegator, op common.Address) common.Hash {
@@ -324,34 +425,6 @@ func (s store) setUnbondingEntry(e common.Hash, entry unbondingEntry) {
 	s.SetUint256(at(e, unbondingEntryBalance), entry.balance)
 }
 
-func redelegationCountSlot(delegator, src, dst common.Address) common.Hash {
-	return solstorage.MapAddress(solstorage.MapAddress(solstorage.MapAddress(solstorage.Slot(slotRedelegationEntryCounts), delegator), src), dst)
-}
-
-// redelegationEntryCount returns how many of delegator's redelegations from
-// src to dst have not completed.
-func (s store) redelegationEntryCount(delegator, src, dst common.Address) *big.Int {
-	return s.Uint256(redelegationCountSlot(delegator, src, dst))
-}
-
-func (s store) setRedelegationEntryCount(delegator, src, dst common.Address, n *big.Int) {
-	s.SetUint256(redelegationCountSlot(delegator, src, dst), n)
-}
-
-func receivingSlot(dst, delegator common.Address) common.Hash {
-	return solstorage.MapAddress(solstorage.MapAddress(solstorage.Slot(slotRedelegationsByValDst), dst), delegator)
-}
-
-// receivingRedelegations returns how many of delegator's redelegations into dst
-// have not completed.
-func (s store) receivingRedelegations(dst, delegator common.Address) *big.Int {
-	return s.Uint256(receivingSlot(dst, delegator))
-}
-
-func (s store) setReceivingRedelegations(dst, delegator common.Address, n *big.Int) {
-	s.SetUint256(receivingSlot(dst, delegator), n)
-}
-
 // queue is one of StakingStorage's first-in first-out queues: the entries at
 // indexes [head, tail) of a mapping, each width slots and each beginning with
 // its completion time, which never decreases along the queue.
@@ -373,12 +446,77 @@ func unbondingQueueEntry(s store, e common.Hash) (delegator, op common.Address) 
 		s.AddressAt(at(e, unbondingQueueValidator), unbondingQueueValidator.offset)
 }
 
-func (s store) redelegationQueue() queue {
-	return queue{s, solstorage.Slot(slotRedelegationQueueBounds), solstorage.Slot(slotRedelegationQueue), redelegationQueueEntrySlots}
-}
-
 func (s store) validatorQueue() queue {
 	return queue{s, solstorage.Slot(slotValidatorQueueBounds), solstorage.Slot(slotValidatorQueue), validatorQueueEntrySlots}
+}
+
+// stagedQueue is the staged operations, each completing at the end of its
+// epoch.
+func (s store) stagedQueue() queue {
+	return queue{s, solstorage.Slot(slotStagedQueueBounds), solstorage.Slot(slotStagedQueue), stagedQueueEntrySlots}
+}
+
+// stagedOperation is StakingStorage.StagedOperation.
+type stagedOperation struct {
+	epoch     uint64
+	kind      uint8
+	delegator common.Address
+	validator common.Address
+	amount    *big.Int
+}
+
+// stagedOperationAt returns the staged operation at queue entry e.
+func (s store) stagedOperationAt(e common.Hash) stagedOperation {
+	return stagedOperation{
+		epoch:     s.Uint64(at(e, queueCompletionTime), queueCompletionTime.offset),
+		kind:      s.Uint8(at(e, stagedOperationKind), stagedOperationKind.offset),
+		delegator: s.AddressAt(at(e, stagedOperationDelegator), stagedOperationDelegator.offset),
+		validator: s.AddressAt(at(e, stagedOperationValidator), stagedOperationValidator.offset),
+		amount:    s.Uint256(at(e, stagedOperationAmount)),
+	}
+}
+
+// setStagedOperation writes op at queue entry e, whose epoch push wrote.
+func (s store) setStagedOperation(e common.Hash, op stagedOperation) {
+	s.SetUint8(at(e, stagedOperationKind), stagedOperationKind.offset, op.kind)
+	s.SetAddressAt(at(e, stagedOperationDelegator), stagedOperationDelegator.offset, op.delegator)
+	s.SetAddressAt(at(e, stagedOperationValidator), stagedOperationValidator.offset, op.validator)
+	s.SetUint256(at(e, stagedOperationAmount), op.amount)
+}
+
+// stagedDelegation is StakingStorage.StagedDelegation.
+type stagedDelegation struct {
+	sharesOut     *big.Int
+	undelegations uint64
+}
+
+func stagedDelegationBase(delegator, op common.Address) common.Hash {
+	return solstorage.MapAddress(solstorage.MapAddress(solstorage.Slot(slotStagedDelegations), delegator), op)
+}
+
+// stagedDelegation returns what delegator's staged undelegations will take from
+// its delegation to op.
+func (s store) stagedDelegation(delegator, op common.Address) stagedDelegation {
+	base := stagedDelegationBase(delegator, op)
+	return stagedDelegation{
+		sharesOut:     s.Uint256(at(base, stagedSharesOut)),
+		undelegations: s.Uint64(at(base, stagedUndelegations), stagedUndelegations.offset),
+	}
+}
+
+func (s store) setStagedDelegation(delegator, op common.Address, staged stagedDelegation) {
+	base := stagedDelegationBase(delegator, op)
+	s.SetUint256(at(base, stagedSharesOut), staged.sharesOut)
+	s.SetUint64(at(base, stagedUndelegations), stagedUndelegations.offset, staged.undelegations)
+}
+
+// stagedInbound returns how many staged delegations are to op.
+func (s store) stagedInbound(op common.Address) uint64 {
+	return s.Uint64(solstorage.MapAddress(solstorage.Slot(slotStagedInbound), op), 0)
+}
+
+func (s store) setStagedInbound(op common.Address, n uint64) {
+	s.SetUint64(solstorage.MapAddress(solstorage.Slot(slotStagedInbound), op), 0, n)
 }
 
 func (q queue) head() uint64 {

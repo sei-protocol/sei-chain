@@ -3,6 +3,7 @@ package evmonly
 import (
 	"errors"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -306,4 +308,48 @@ func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, n
 	result, err := executor.ExecutePreparedBlock(t.Context(), prepared)
 	require.NoError(t, err)
 	return result
+}
+
+// heldCommitStore holds every commit until release is closed.
+type heldCommitStore struct {
+	*recordingGigaStore
+	release chan struct{}
+}
+
+func (s *heldCommitStore) CommitStateChanges(blockNum int64, changes *gigatypes.StateChangeSet) error {
+	<-s.release
+	return s.recordingGigaStore.CommitStateChanges(blockNum, changes)
+}
+
+// An encoder reads the state its block left, over the block whose commit is still running.
+func TestBlockEncoderReadsTheStateItsBlockLeft(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &heldCommitStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}, release: make(chan struct{})}
+	var released sync.Once
+	release := func() { released.Do(func() { close(store.release) }) }
+	defer release()
+	var seen []*big.Int
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore()),
+		WithStoreIndependentBlockChangeSetEncoder(func(block BlockContext, _ StateReader, _ *BlockResult, after func() precompiles.State) ([]gigatypes.MiscChange, error) {
+			seen = append(seen, after().GetBalance(recipient))
+			if block.Number == 42 {
+				// Block 41's commit is held until block 42 has read past it.
+				release()
+			}
+			return nil, nil
+		}))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41, signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	executePipelinedBlock(t, executor, chainID, 42, signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(5), nil))
+	require.NoError(t, executor.AwaitCommits())
+	require.Equal(t, []*big.Int{big.NewInt(7), big.NewInt(12)}, seen)
+	require.Equal(t, []int64{41, 42}, store.commitBlock)
 }

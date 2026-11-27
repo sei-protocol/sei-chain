@@ -35,7 +35,7 @@ func TestEVMOnlyApplicationRefusesAnAllocThatFundsNoAccount(t *testing.T) {
 	storage := openEVMOnlyTestStorageAt(t, t.TempDir())
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	_, err := NewEVMOnlyApplication(
-		evmOnlyTestChainID, nil, storage,
+		evmOnlyTestChainID, storage,
 		openEVMOnlyTestEpochs(t, storage, nil, 1),
 		gigaconfig.DefaultConfig.Execution,
 		utils.None[precompiles.Registry](),

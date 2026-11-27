@@ -40,9 +40,8 @@ func logEvent(events *eventLog, format string, args ...any) {
 // recordingApp is an application that records each call execution makes.
 type recordingApp struct {
 	abevm.Application
-	events     *eventLog
-	state      utils.Watch[*recordingAppState]
-	validators abevm.CommitteeWeights
+	events *eventLog
+	state  utils.Watch[*recordingAppState]
 }
 
 type recordingAppState struct {
@@ -70,8 +69,6 @@ func newRecordingApp(events *eventLog, last int64) *recordingApp {
 }
 
 func (a *recordingApp) EvmChainID() uint64 { return 1 }
-
-func (a *recordingApp) GetValidators() abevm.CommitteeWeights { return a.validators }
 
 func (a *recordingApp) Info() *abevm.ResponseInfo {
 	return &abevm.ResponseInfo{LastBlockHeight: a.LastBlockHeight()}
@@ -247,8 +244,6 @@ func TestInitAppRestoresTheTipHeaderFromTheBlockStore(t *testing.T) {
 	require.NoError(t, env.write(0, 3, true))
 	tip := env.road(1)
 	app := newRecordingApp(env.events, int64(tip))
-	vals := abevm.CommitteeWeights{env.keys[0].Public(): 3}
-	app.validators = vals
 
 	next, err := env.executor(app).initApp(t.Context())
 	require.NoError(t, err)

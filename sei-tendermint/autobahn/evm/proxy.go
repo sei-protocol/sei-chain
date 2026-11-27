@@ -32,11 +32,6 @@ func (app *Proxy) Info() *ResponseInfo {
 	return app.app.Info()
 }
 
-func (app *Proxy) GetValidators() CommitteeWeights {
-	defer proxymetrics.Observe("get_validators", "sync")()
-	return app.app.GetValidators()
-}
-
 func (app *Proxy) LastBlockHeight() int64 {
 	defer proxymetrics.Observe("last_block_height", "sync")()
 	return app.app.LastBlockHeight()

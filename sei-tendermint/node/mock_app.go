@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"math/big"
 	"runtime"
@@ -62,7 +61,6 @@ type mockAppState struct {
 	nextNonce        map[common.Address]uint64
 	lastBlockHeight  int64
 	lastBlockAppHash []byte
-	validators       abevm.CommitteeWeights
 	nextTransition   mockAppTransition
 	// finalized is the height of the last block whose FinalizeBlock has finished.
 	finalized utils.AtomicSend[int64]
@@ -110,10 +108,8 @@ func (app *MockApp) InitChain(req abevm.InitConfig) error {
 		if err != nil {
 			return err
 		}
-		validators := app.app.GetValidators()
 		state.lastBlockHeight = initialHeight - 1
 		state.lastBlockAppHash = nil
-		state.validators = maps.Clone(validators)
 		state.nextTransition = mockAppTransitionFinalize
 		state.finalized.Store(state.lastBlockHeight)
 		return nil
@@ -129,13 +125,6 @@ func (app *MockApp) Info() *abevm.ResponseInfo {
 			LastBlockHeight:  state.lastBlockHeight,
 			LastBlockAppHash: slices.Clone(state.lastBlockAppHash),
 		}
-	}
-	panic("unreachable")
-}
-
-func (app *MockApp) GetValidators() abevm.CommitteeWeights {
-	for state := range app.state.RLock() {
-		return maps.Clone(state.validators)
 	}
 	panic("unreachable")
 }
@@ -303,7 +292,8 @@ func (app *MockApp) commitEmptyBlock(ctx context.Context, height int64) error {
 			return fmt.Errorf("mock app commit height = %d does not fit a road height", height)
 		}
 		var err error
-		misc, err = app.epochRegistry.Changes(road)
+		// A mock block runs no staking, so each closing road derives the configured validators.
+		misc, err = app.epochRegistry.Changes(road, func() (map[atypes.PublicKey]uint64, error) { return nil, nil })
 		if err != nil {
 			return err
 		}

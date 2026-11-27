@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/solstorage"
 )
 
@@ -27,7 +26,7 @@ func TestFirstEndBlockBondsTheTopValidators(t *testing.T) {
 func TestAValidatorOutrankedLeavesTheSetAndUnbonds(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Empty(t, h.failures)
 	require.Equal(t, []validatorPower{{val1, 30}, {val3, 25}}, h.lastValidators())
 	require.Equal(t, big.NewInt(55), h.store().lastTotalPower())
@@ -40,7 +39,7 @@ func TestAValidatorOutrankedLeavesTheSetAndUnbonds(t *testing.T) {
 
 	h.advance(testParams.UnbondingTime - 2*second)
 	require.Equal(t, statusUnbonding, h.validator(val2).status, "not before its unbonding time")
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Empty(t, h.failures)
 	require.Equal(t, statusUnbonded, h.validator(val2).status)
 	q := h.store().validatorQueue()
@@ -51,10 +50,10 @@ func TestAValidatorOutrankedLeavesTheSetAndUnbonds(t *testing.T) {
 func TestAValidatorThatBondsAgainSkipsItsOldQueueEntry(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val3, sei(15)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Equal(t, statusUnbonding, h.validator(val2).status)
 	require.NoError(t, h.delegate(bob, val2, sei(20)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Equal(t, statusBonded, h.validator(val2).status)
 
 	h.advance(testParams.UnbondingTime)
@@ -88,7 +87,7 @@ func TestAnUnbondedValidatorWithNoSharesIsRemoved(t *testing.T) {
 func TestAValidatorFinishingUnbondingWithNoSharesIsRemoved(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.undelegate(val2, val2, sei(20)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Equal(t, statusUnbonding, h.validator(val2).status)
 	h.advance(testParams.UnbondingTime)
 	require.Empty(t, h.failures)
@@ -131,44 +130,13 @@ func TestOneQueueEntryPaysEveryMaturedEntryOfItsDelegation(t *testing.T) {
 	h.requireInvariants(alice)
 }
 
-func TestRedelegationCompletesWithoutMovingTokens(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val1, sei(5)))
-	require.NoError(t, h.redelegate(alice, val1, val2, sei(2)))
-	bonded := h.state.GetBalance(BondedEscrow)
-	h.advance(testParams.UnbondingTime)
-	require.Empty(t, h.failures)
-	require.Zero(t, h.store().redelegationEntryCount(alice, val1, val2).Sign())
-	require.Zero(t, h.store().receivingRedelegations(val2, alice).Sign())
-	q := h.store().redelegationQueue()
-	require.Equal(t, q.head(), q.tail())
-	require.Equal(t, bonded, h.state.GetBalance(BondedEscrow))
-	h.requireInvariants(alice)
-}
-
-func TestARedelegationFromAnUnbondingValidatorEndsWithIt(t *testing.T) {
-	h := newHarness(t, testParams)
-	require.NoError(t, h.delegate(alice, val2, sei(5)))
-	require.NoError(t, h.delegate(bob, val3, sei(20)))
-	h.endBlock()
-	v2 := h.validator(val2)
-	require.Equal(t, statusUnbonding, v2.status)
-	h.advance(10 * second)
-
-	require.NoError(t, h.redelegate(alice, val2, val1, sei(5)))
-	e := h.store().redelegationQueue().entry(0)
-	require.Equal(t, v2.unbondingTime, h.store().Uint64(at(e, queueCompletionTime), queueCompletionTime.offset))
-	require.Equal(t, v2.unbondingHeight, h.store().Uint64(at(e, redelegationQueueCreationHeight), redelegationQueueCreationHeight.offset))
-	h.requireInvariants(alice, bob)
-}
-
 func TestAShorterUnbondingTimeQueuesBehindTheLongerOnes(t *testing.T) {
 	h := newHarness(t, testParams)
 	require.NoError(t, h.delegate(alice, val1, sei(5)))
 	require.NoError(t, h.undelegate(alice, val1, sei(1)))
 	first := h.time + testParams.UnbondingTime
-	require.NoError(t, chainparams.Apply(h.state, []chainparams.Change{{Subspace: "staking", Key: "UnbondingTime", Value: common.BigToHash(new(big.Int).SetUint64(10 * second)).Bytes()}}))
-	h.endBlock()
+	h.govern("UnbondingTime", new(big.Int).SetUint64(10*second))
+	h.endCurrentEpoch()
 	require.NoError(t, h.undelegate(alice, val1, sei(1)))
 	entries := must(h.store().unbondingEntries(alice, val1))
 	require.Equal(t, first, entries[1].completionTime, "the new entry waits for the one ahead of it")
@@ -206,7 +174,7 @@ func TestEndBlockBudgetDefersTheRest(t *testing.T) {
 		delegators[i] = d
 		h.fund(d, sei(1))
 		v := h.validator(val1)
-		_, err := h.staking.delegate(h.block(), s, testParams, d, val1, &v, sei(1), statusUnbonded, d)
+		_, err := h.staking.delegate(h.block(), s, testParams, s.lastTotalPower(), d, val1, &v, sei(1), d)
 		require.NoError(t, err)
 		_, _, err = h.staking.undelegate(h.block(), s, testParams, d, val1, h.shares(d, val1))
 		require.NoError(t, err)
@@ -229,7 +197,7 @@ func TestABondedSetWithNoPowerIsKept(t *testing.T) {
 	require.NoError(t, h.undelegate(val1, val1, sei(30)))
 	require.NoError(t, h.undelegate(val2, val2, sei(20)))
 	require.NoError(t, h.undelegate(val3, val3, sei(10)))
-	h.endBlock()
+	h.endCurrentEpoch()
 	require.Len(t, h.failures, 1)
 	require.ErrorIs(t, h.failures[0], precompiles.ErrDegraded)
 	require.ErrorIs(t, h.failures[0], errNoBondedPower)
@@ -251,10 +219,10 @@ func TestTake(t *testing.T) {
 
 func TestACorruptQueueIsReported(t *testing.T) {
 	h := newHarness(t, testParams)
-	q := h.store().redelegationQueue()
+	q := h.store().unbondingQueue()
 	h.store().SetUint64(at(q.bounds, queueHead), queueHead.offset, 5)
 	h.endBlock()
 	require.Len(t, h.failures, 1)
 	require.ErrorIs(t, h.failures[0], errQueueCorrupt)
-	require.ErrorContains(t, h.failures[0], "redelegation queue")
+	require.ErrorContains(t, h.failures[0], "unbonding queue")
 }
