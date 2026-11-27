@@ -155,6 +155,7 @@ func TestRejected(t *testing.T) {
 	res := blockgas.Rejected(pool.Admit(0))
 	require.Equal(t, evmtypes.ModuleName, res.Codespace)
 	require.Equal(t, evmtypes.ErrBlockGasLimitReached.ABCICode(), res.Code)
+	require.True(t, res.IsBlockGasLimitReached(), "the mempool keeps a tx with this result for a later block")
 	require.NotEmpty(t, res.Log)
 	require.Zero(t, res.GasWanted)
 	require.Zero(t, res.GasUsed)

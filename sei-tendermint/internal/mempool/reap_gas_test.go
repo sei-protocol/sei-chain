@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -89,4 +90,45 @@ func TestTxMempool_ReapSkipsTxsWhoseGasDoesNotFit(t *testing.T) {
 
 	reaped, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(100_000))}, false)
 	require.Equal(t, types.Txs{[]byte(a0), []byte(c0), []byte(smallCosmos)}, reaped)
+}
+
+func TestTxMempool_UpdateKeepsTxsRefusedForBlockGas(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	for _, tc := range []struct {
+		name   string
+		result *abci.ExecTxResult
+		kept   bool
+	}{
+		{
+			name:   "refused for block gas",
+			result: &abci.ExecTxResult{Codespace: abci.CodespaceEVM, Code: abci.CodeBlockGasLimitReached},
+			kept:   true,
+		},
+		{
+			name:   "failed with the same code in another codespace",
+			result: &abci.ExecTxResult{Code: abci.CodeBlockGasLimitReached},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newEVMNonceApp()
+			app.setNonce(sender, 7)
+			txmp := setup(TestConfig(), proxy.New(app), NopTxConstraintsFetcher)
+			tx := types.Tx(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 7, 10))
+			_, err := txmp.CheckTx(ctx, tx)
+			require.NoError(t, err)
+
+			txmp.Lock()
+			require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{tc.result},
+				utils.OrPanic1(txmp.txConstraintsFetcher()), true))
+			txmp.Unlock()
+
+			if !tc.kept {
+				require.Equal(t, 0, txmp.Size())
+				return
+			}
+			reaped, _ := txmp.ReapTxs(ReapLimits{}, false)
+			require.Equal(t, types.Txs{tx}, reaped, "the refused tx is reaped again for the next block")
+		})
+	}
 }

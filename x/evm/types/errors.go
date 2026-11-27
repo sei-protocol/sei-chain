@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 // ErrAssociateDeprecated is returned by the MsgAssociate handler.
@@ -18,7 +19,7 @@ var ErrPointerProposalDeprecated = sdkerrors.Register(ModuleName, 4, "pointer go
 
 // ErrBlockGasLimitReached is the result of an EVM transaction whose gas limit exceeds the EVM gas
 // its block has left, which the block records without executing it.
-var ErrBlockGasLimitReached = sdkerrors.Register(ModuleName, 5, "block gas limit reached")
+var ErrBlockGasLimitReached = sdkerrors.Register(ModuleName, abci.CodeBlockGasLimitReached, "block gas limit reached")
 
 type AssociationMissingErr struct {
 	Address string

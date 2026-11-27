@@ -441,7 +441,9 @@ func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64
 
 // Update iterates over all the transactions provided by the block producer,
 // removes them from the cache (if applicable), and removes
-// the transactions from the main transaction store and associated indexes.
+// the transactions from the main transaction store and associated indexes,
+// except those the block recorded without executing (see
+// abci.ExecTxResult.IsBlockGasLimitReached), which stay for a later block.
 // If recheck = true, CheckTx is called on all remaining transactions.
 //
 // NOTE:
@@ -465,6 +467,9 @@ func (txmp *TxMempool) Update(
 
 	txResults := map[types.TxHash]bool{}
 	for i, tx := range blockTxs {
+		if execTxResult[i].IsBlockGasLimitReached() {
+			continue
+		}
 		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK
 	}
 	newPriorities := map[types.TxHash]int64{}
