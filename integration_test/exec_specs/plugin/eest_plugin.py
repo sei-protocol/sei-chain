@@ -63,7 +63,7 @@ def _eip7623_admission(item: pytest.Item) -> bool:
 def _eip7623_floor_data_gas(item: pytest.Item) -> bool:
     return (
         "tests/berlin/eip2930_access_list/test_tx_intrinsic_gas.py" in item.nodeid
-        and "fork_Prague-" in item.name
+        and "fork_Osaka-" in item.name
         and "below_intrinsic_True" in item.name
         and any(case in item.name for case in EIP2930_FLOOR_GAS_CASES)
     )
@@ -121,6 +121,29 @@ def _eip7702_reused_nonce_ordering(item: pytest.Item) -> bool:
     )
 
 
+SEI_AMSTERDAM_INITCODE_CASES = (
+    "initcode_name_over_limit_",
+    "initcode_outcome_code-too-big-",
+)
+
+
+def _sei_amsterdam_initcode_limit(item: pytest.Item) -> bool:
+    if any(case in item.name for case in SEI_AMSTERDAM_INITCODE_CASES):
+        return True
+    return (
+        "tests/ported_static/stEIP3860_limitmeterinitcode/" in item.nodeid
+        and item.name.endswith("-invalid]")
+    )
+
+
+def _sei_amsterdam_selfdestruct(item: pytest.Item) -> bool:
+    return "tests/paris/security/test_selfdestruct_balance_bug.py" in item.nodeid
+
+
+def _sei_amsterdam_random_statetest(item: pytest.Item) -> bool:
+    return "tests/ported_static/stRandom2/test_random_statetest646.py" in item.nodeid
+
+
 SKIP_RULES: tuple[SkipRule, ...] = (
     SkipRule(
         id="eip7623-admission",
@@ -169,6 +192,21 @@ SKIP_RULES: tuple[SkipRule, ...] = (
             "live chain does not guarantee."
         ),
         matches=_eip7702_reused_nonce_ordering,
+    ),
+    SkipRule(
+        id="sei-amsterdam-initcode-limit",
+        reason="SeiAmsterdam raises the initcode limit to 128 KiB (EIP-7954).",
+        matches=_sei_amsterdam_initcode_limit,
+    ),
+    SkipRule(
+        id="sei-amsterdam-selfdestruct",
+        reason="SeiAmsterdam changes SELFDESTRUCT balance handling (EIP-8246).",
+        matches=_sei_amsterdam_selfdestruct,
+    ),
+    SkipRule(
+        id="sei-amsterdam-random-statetest",
+        reason="Expected post-state differs under SeiAmsterdam rules.",
+        matches=_sei_amsterdam_random_statetest,
     ),
 )
 

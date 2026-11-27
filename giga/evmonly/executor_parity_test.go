@@ -426,7 +426,7 @@ func TestExecutorLogOpcodeCorpusMatchesGeth(t *testing.T) {
 			key, err := crypto.GenerateKey()
 			require.NoError(t, err)
 			sender := crypto.PubkeyToAddress(key.PublicKey)
-			contract := common.BigToAddress(big.NewInt(int64(0x100 + topicCount)))
+			contract := common.BigToAddress(big.NewInt(int64(0x200 + topicCount)))
 			topics := make([]common.Hash, topicCount)
 			for i := range topics {
 				topics[i] = common.BigToHash(big.NewInt(int64(0x700 + i)))

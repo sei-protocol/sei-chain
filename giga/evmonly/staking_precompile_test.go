@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -82,11 +84,14 @@ func TestStakingPrecompileThroughExecutor(t *testing.T) {
 	block := blockContext(chainID)
 	result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: txs})
 	require.NoError(t, err)
+	// The delegate carries value, so EIP-7708 logs its transfer ahead of the staking event.
+	wantLogs := []int{2, 1, 1}
 	for i, tx := range result.Txs {
 		require.NoError(t, tx.Err, "tx %d", i)
 		require.Equal(t, uint64(1), tx.Status, "tx %d", i)
-		require.Len(t, result.Receipts[i].Logs, 1, "tx %d logs its event", i)
+		require.Len(t, result.Receipts[i].Logs, wantLogs[i], "tx %d logs", i)
 	}
+	require.Equal(t, ethtypes.EthTransferLog(sender, to, uint256.MustFromBig(seiWei(10))).Topics, result.Receipts[0].Logs[0].Topics)
 	state.ApplyChangeSet(result.ChangeSet)
 
 	require.Equal(t, seiWei(90), state.GetBalance(sender))

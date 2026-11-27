@@ -40,11 +40,7 @@ func bigFromString(t *testing.T, s string) *big.Int {
 }
 
 func TestBehaviorBlocktestIngesterDecodesFixture(t *testing.T) {
-	bz, err := os.ReadFile(blocktestFixture)
-	require.NoError(t, err)
-	path := filepath.Join(t.TempDir(), "fixture.json")
-	require.NoError(t, os.WriteFile(path, rewriteKey(bz, path+"::minimal"), 0o600))
-	bt := testIngester(path, "minimal")
+	bt := testIngester(blocktestFixture, "minimal")
 	require.NotNil(t, bt)
 
 	js := bt.JSON()
@@ -111,18 +107,17 @@ func TestBehaviorBlocktestIngesterDecodesFixture(t *testing.T) {
 func TestBehaviorBlocktestIngesterTestNameKey(t *testing.T) {
 	bz, err := os.ReadFile(blocktestFixture)
 	require.NoError(t, err)
-	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ethtests", "sub"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ethtests", "sub", "x.json"), rewriteKey(bz, "sub/x.json::minimal"), 0o600))
-	t.Chdir(dir)
+	const key = "tests/x/test_x.py::test_x[fork_Osaka-blockchain_test]"
+	path := filepath.Join(t.TempDir(), "x.json")
+	require.NoError(t, os.WriteFile(path, rewriteKey(bz, key), 0o600))
 
-	// "./ethtests/" prefix is stripped from the lookup key
-	bt := testIngester("./ethtests/sub/x.json", "minimal")
+	// the test name is the fixture key, unchanged
+	bt := testIngester(path, key)
 	require.Equal(t, btBlockHash, bt.JSON().Blocks[0].BlockHeader.Hash)
 
 	require.PanicsWithValue(t,
-		"Unable to find test name sub/x.json::other at test file path ./ethtests/sub/x.json",
-		func() { testIngester("./ethtests/sub/x.json", "other") })
+		"Unable to find test name test_x[fork_Osaka-blockchain_test] at test file path "+path,
+		func() { testIngester(path, "test_x[fork_Osaka-blockchain_test]") })
 }
 
 // rewriteKey replaces the fixture's top-level "minimal" key.

@@ -4,7 +4,7 @@ set -euo pipefail
 
 SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EEST_DIR="${EEST_DIR:-${SUITE_ROOT}/.cache/execution-specs}"
-EEST_FORK="${EEST_FORK:-Prague}"
+EEST_FORK="${EEST_FORK:-Osaka}"
 EEST_TEST_TARGET="${EEST_TEST_TARGET:-}"
 EEST_SWEEP_AMOUNT="${EEST_SWEEP_AMOUNT:-100000 ether}"
 EEST_MAX_FEE_PER_BLOB_GAS="${EEST_MAX_FEE_PER_BLOB_GAS:-1}"

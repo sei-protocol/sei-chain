@@ -194,8 +194,8 @@ describe('eth_getFilterChanges', function () {
             const id = await sei.send('eth_newFilter', [{ address }]);
 
             // ~14.5M gas: one block may hold it (max_gas 35M), but it is over the 10M eth_estimateGas
-            // may simulate, so the limit is set by hand.
-            const [oversized] = await emitBursts(contract, [FILTER_LIMITS.maxLogs + 1], 0, { gasLimit: 20_000_000n });
+            // may simulate, so the limit is set by hand, at the EIP-7825 cap.
+            const [oversized] = await emitBursts(contract, [FILTER_LIMITS.maxLogs + 1], 0, { gasLimit: 16_777_216n });
             await waitForLogsServed(sei, oversized.blockNumber);
             const capError = `query matches too many logs: result exceeds the maximum of ${FILTER_LIMITS.maxLogs} logs`;
 

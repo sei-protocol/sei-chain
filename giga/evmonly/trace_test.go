@@ -119,7 +119,11 @@ func TestReplayStateStopsATransactionWhenCanceled(t *testing.T) {
 		cancel()
 	}()
 
-	_, err = NewExecutor(Config{RejectUnappliableTxs: true}).ReplayState(ctx, view, BlockRequest{
+	// Pre-Osaka, so the EIP-7825 gas cap does not refuse the transaction.
+	cfg := DefaultChainConfig()
+	cfg.OsakaTime = nil
+	cfg.SeiAmsterdamTime = nil
+	_, err = NewExecutor(Config{RejectUnappliableTxs: true, ChainConfig: cfg}).ReplayState(ctx, view, BlockRequest{
 		Context: blockCtx,
 		Txs:     [][]byte{signLegacyTxWithGas(t, key, chainID, 0, &loop, big.NewInt(0), nil, gas)},
 	})

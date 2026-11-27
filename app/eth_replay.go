@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"math/big"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethcore "github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -128,13 +126,9 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		panic(err)
 	}
 
-	ethblocks := make([]*ethtypes.Block, len(bt.JSON().Blocks))
-	for i, btBlock := range bt.JSON().Blocks {
-		b, err := btBlock.Decode()
-		if err != nil {
-			panic(err)
-		}
-		ethblocks[i] = b
+	ethblocks := decodeBlockTestBlocks(bt)
+	if len(ethblocks) == 0 {
+		panic("no blocks found")
 	}
 	if bf := ethblocks[0].BaseFee(); bf != nil {
 		a.EvmKeeper.SetCurrBaseFeePerGas(a.GetContextForDeliverTx([]byte{}), sdk.NewDecFromBigInt(bf))
@@ -162,16 +156,8 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		a.EvmKeeper.SetParams(a.GetContextForDeliverTx([]byte{}), params)
 	}
 
-	if len(bt.JSON().Blocks) == 0 {
-		panic("no blocks found")
-	}
-
-	for i, btBlock := range bt.JSON().Blocks {
+	for i, b := range ethblocks {
 		h := int64(i + 1)
-		b, err := btBlock.Decode()
-		if err != nil {
-			panic(err)
-		}
 		blockHash := b.Hash()
 		parentHash := b.ParentHash()
 		txs := utils.Map(b.Transactions(), func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) })
@@ -232,12 +218,12 @@ func encodeTx(tx *ethtypes.Transaction, txConfig client.TxConfig) []byte {
 		txData, err = ethtx.NewAccessListTx(tx)
 	case ethtypes.BlobTxType:
 		txData, err = ethtx.NewBlobTx(tx)
+	case ethtypes.SetCodeTxType:
+		txData, err = ethtx.NewSetCodeTx(tx)
 	}
 	if err != nil {
-		if strings.Contains(err.Error(), ethcore.ErrTipAboveFeeCap.Error()) {
-			return nil
-		}
-		panic(err)
+		// The tx fails Sei's own validation, so no block can carry it.
+		return nil
 	}
 	msg, err := evmtypes.NewMsgEVMTransaction(txData)
 	if err != nil {
@@ -252,6 +238,23 @@ func encodeTx(tx *ethtypes.Transaction, txConfig client.TxConfig) []byte {
 		panic(encodeErr)
 	}
 	return txbz
+}
+
+// decodeBlockTestBlocks decodes the fixture's blocks, dropping blocks that are
+// expected to be rejected and do not decode.
+func decodeBlockTestBlocks(bt *ethtests.BlockTest) []*ethtypes.Block {
+	blocks := make([]*ethtypes.Block, 0, len(bt.JSON().Blocks))
+	for _, btBlock := range bt.JSON().Blocks {
+		b, err := btBlock.Decode()
+		if err != nil {
+			if btBlock.ExpectException != "" {
+				continue
+			}
+			panic(err)
+		}
+		blocks = append(blocks, b)
+	}
+	return blocks
 }
 
 func IsWithdrawalAddress(addr common.Address, blocks []*ethtypes.Block) bool {

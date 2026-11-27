@@ -145,7 +145,7 @@ func TestSelfDestructBehavior(t *testing.T) {
 		require.Equal(t, uint64(21000+2+5000), r.res.GasUsed)
 	})
 
-	t.Run("c_new_contract_selfdestruct_to_self_burns_into_surplus", func(t *testing.T) {
+	t.Run("c_new_contract_selfdestruct_to_self_keeps_balance", func(t *testing.T) {
 		e := newBehaviorEnv(t, false)
 		e.associateAndFund(key, 1_000_000)
 		childInit := initcodeFor(selfdestructToSelfCode(), [2]byte{0, 0x2a})
@@ -157,15 +157,13 @@ func TestSelfDestructBehavior(t *testing.T) {
 		r := e.runTx(key, e.legacyTx(0, &sdFactory, value, 500_000, bigGwei(1), nil), 0)
 		require.Empty(t, r.res.VmError)
 		require.Equal(t, uint64(1), e.slot(sdFactory, 1).Uint64())
-		require.Equal(t, int64(0), e.balanceWei(child).Int64(), "balance burned")
+		// EIP-8246: the balance stays as a balance-only account
+		require.Equal(t, value, e.balanceWei(child), "balance kept")
 		require.Empty(t, e.k.GetCode(e.ctx, child))
 		require.Equal(t, int64(0), e.slot(child, 0).Int64())
-		// burned value becomes surplus, not removed from bank supply
-		require.Equal(t, value.String(), r.totalSurplus().String())
-		require.Equal(t, mulU(500_000, bigGwei(1)).String(), r.anteSurplus.String())
-		require.Equal(t, new(big.Int).Sub(value, mulU(500_000, bigGwei(1))).String(), r.execSurplus.String())
-		require.True(t, supplyBefore.Equal(e.supply()), "bank supply unchanged by the burn")
-		// factory case with 2-byte runtime and SELFDESTRUCT to self
+		require.Equal(t, uint64(0), e.k.GetNonce(e.ctx, child))
+		require.True(t, r.totalSurplus().IsZero(), "surplus %s", r.totalSurplus())
+		require.True(t, supplyBefore.Equal(e.supply()))
 		require.Equal(t, uint64(124889), r.res.GasUsed)
 	})
 

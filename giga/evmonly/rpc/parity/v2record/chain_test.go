@@ -173,19 +173,23 @@ func (c *v2Chain) cosmosTx(tx *ethtypes.Transaction) []byte {
 }
 
 // finalize executes and commits txs as the next block, running initialize
-// against the block's state before the commit, and returns the block's header.
+// against the block's state before its transactions, and returns the block's header.
 func (c *v2Chain) finalize(txs [][]byte, initialize func(sdk.Context)) *tmtypes.Header {
 	height := c.client.latest() + 1
 	header := c.header(height)
+	blockHeader := tmproto.Header{ChainID: cosmosChainID, Height: height, Time: header.Time, LastBlockId: header.LastBlockID.ToProto()}
+	if initialize != nil {
+		// Writes made on the commit store before FinalizeBlock land in this height's working hash.
+		ctx, write := c.app.NewUncachedContext(false, blockHeader).CacheContext()
+		initialize(ctx)
+		write()
+	}
 	res, err := c.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Txs:    txs,
 		Hash:   header.Hash(),
-		Header: &tmproto.Header{ChainID: cosmosChainID, Height: height, Time: header.Time, LastBlockId: header.LastBlockID.ToProto()},
+		Header: &blockHeader,
 	})
 	require.NoError(c.t, err)
-	if initialize != nil {
-		initialize(c.app.GetContextForDeliverTx(nil))
-	}
 	_, err = c.app.Commit(context.Background())
 	require.NoError(c.t, err)
 	blockTxs := make(tmtypes.Txs, len(txs))

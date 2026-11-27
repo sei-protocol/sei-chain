@@ -14,9 +14,9 @@ func TestReceiptLogIndex(t *testing.T) {
 	SetupTestServer(t, [][][]byte{{tx1Bz, tx2Bz}}, erc20Initializer()).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionReceipt", tx2.Hash().Hex())
-			// both tx 1 and tx2 have 1 log. Log of tx 1 will have log index 0x0 and
-			// log of tx 2 will have log index 0x1.
-			require.Equal(t, "0x1", res["result"].(map[string]interface{})["logs"].([]interface{})[0].(map[string]interface{})["logIndex"])
+			// tx 1 has an EIP-7708 transfer log and a Deposit log (0x0, 0x1), so the
+			// log of tx 2 has log index 0x2.
+			require.Equal(t, "0x2", res["result"].(map[string]interface{})["logs"].([]interface{})[0].(map[string]interface{})["logIndex"])
 		},
 	)
 }

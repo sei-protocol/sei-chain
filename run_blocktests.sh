@@ -1,89 +1,118 @@
 #!/bin/bash
+# Runs the EEST Osaka blockchain fixtures through `seid blocktest`.
+#
+# usage: run_blocktests.sh <fixtures/blockchain_tests/for_osaka> [runner_index runner_total]
+# LIST_ONLY=1 prints the selected cases without running them.
 
-set -e
+set -eo pipefail
 
-# mode options are list, run, or all
-block_tests_path=$1
-runner_index=$2
-runner_total=$3
+fixtures_dir=$1
+runner_index=${2:-0}
+runner_total=${3:-1}
+case_timeout=${CASE_TIMEOUT:-600}
 
-if [ -z "$runner_index" ]; then
-    runner_index=0
-    runner_total=1
+if [ -z "$fixtures_dir" ] || [ ! -d "$fixtures_dir" ]; then
+    echo "usage: $0 <fixtures/blockchain_tests/for_osaka> [runner_index runner_total]" >&2
+    exit 2
 fi
 
-echo $mode
-echo $block_tests_path
+# Fixture directories not run, relative to the fixtures dir.
+declare -a skip_dirs=(
+    # Blobs (EIP-4844 family) are not supported
+    "cancun/eip4844_blobs/"
+    "cancun/eip7516_blobgasfee/"
+    "ported_static/stEIP4844_blobtransactions/"
+    "osaka/eip7594_peerdas/"
+    "osaka/eip7918_blob_reserve_price/"
 
-# Define an array of test directories to run
-declare -a test_path_run_list=(
-    # run all valid block tests
-    "ValidBlocks/"
+    # Beacon-chain system contracts and requests are not supported
+    "cancun/eip4788_beacon_root/"
+    "prague/eip6110_deposits/"
+    "prague/eip7002_el_triggerable_withdrawals/"
+    "prague/eip7251_consolidations/"
+    "prague/eip7685_general_purpose_el_requests/"
 
-    # run only certain invalid block tests
-    "InvalidBlocks/bcEIP1559/"
-    "InvalidBlocks/bcStateTests/"
+    # Withdrawals are not supported
+    "shanghai/eip4895_withdrawals/"
+    "mpt/withdrawals_trie_structure/"
+
+    # Block size is set by consensus
+    "osaka/eip7934_block_rlp_limit/"
+
+    # Forks after Osaka
+    "amsterdam/"
+
+    # Disabled: EIP-2935 is planned for Sei; enable when it ships
+    "prague/eip2935_historical_block_hashes_from_state/"
 )
 
-# Define an array of tests to skip
-declare -a test_name_skip_list=(
-    # valid block tests
-    "DelegateCallSpam" # passes, but takes super long
-    "blockhashTests" # failing
-    "blockhashNonConstArg" # failing
-    "BLOCKHASH_Bounds" # failing
-    "logRevert" # uses an invalid opcode (0xBA)
-    "blockWithAllTransactionTypes" # recently started failing
-    "tipInsideBlock" # failing after turning on eip-1559 and not burning base fee
-    "multimpleBalanceInstruction" # failing after turning on eip-1559 and not burning base fee
-    "tips" # failing after turning on eip-1559 and not burning base fee
-    "burnVerify" # failing after turning on eip-1559 and not burning base fee
-    "emptyPostTransfer" # failing after turning on eip-1559 and not burning base fee
-    "highDemand" # failing after increasing SSTORE gas limit to 72k
-    "randomStatetest319BC" # failing after increasing SSTORE gas limit to 72k
-    "refundReset" # failing after increasing SSTORE gas limit to 72k
-    "wallet2outOf3txs" # failing after increasing SSTORE gas limit to 72k
-    "wallet2outOf3txs2" # failing after increasing SSTORE gas limit to 72k
-    "wallet2outOf3txsRevoke" # failing after increasing SSTORE gas limit to 72k
-    "wallet2outOf3txsRevokeAndConfirmAgain" # failing after increasing SSTORE gas limit to 72k
-    "walletReorganizeOwners" # failing after increasing SSTORE gas limit to 72k
-    "eip2930" # failing after increasing SSTORE gas limit to 72k
-    "medDemand" # failing after increasing SSTORE gas limit to 72k
+# Test ids not run, matched as substrings.
+declare -a skip_tests=(
+    # SeiAmsterdam: EIP-7954 raises the initcode limit to 128 KiB
+    "initcode_name_over_limit_"
+    "init_code_size_limit[fork_Osaka-blockchain_test_from_state_test-invalid]"
+    "initcode_outcome_code-too-big-"
+    "test_random_statetest646["
 
-    # invalid block tests - state tests
-    "gasLimitTooHigh" # block header gas limit doesn't apply to us
-    "transactionFromSelfDestructedContract" # failing
-    "callcodeOutput2" # failing after increasing SSTORE gas limit to 72k
-    "createNameRegistratorPerTxsNotEnoughGasAfter" # failing after increasing SSTORE gas limit to 72k
-    "createNameRegistratorPerTxsNotEnoughGasAt" # failing after increasing SSTORE gas limit to 72k
-    "createNameRegistratorPerTxsNotEnoughGasBefore" # failing after increasing SSTORE gas limit to 72k
-    "createRevert" # failing after increasing SSTORE gas limit to 72k
-    "CreateTransactionReverted" # failing after increasing SSTORE gas limit to 72k
-    "dataTx" # failing after increasing SSTORE gas limit to 72k
+    # SeiAmsterdam: EIP-8246 changes SELFDESTRUCT
+    "test_tx_selfdestruct_balance_bug["
 
-    # InvaldBlockTests/bcEIP1559
-    "badBlocks" # failing after increasing SSTORE gas limit to 72k
-    "badUncles" # reorgs don't apply to us
-    "checkGasLimit" # not sure what issue is
-    "baseFee" # failing after increasing SSTORE gas limit to 72k
-    "feeCap" # failing after increasing SSTORE gas limit to 72k
-    "transFail" # failing after increasing SSTORE gas limit to 72k
-    "valCausesOOF" # failing after increasing SSTORE gas limit to 72k
-    "gasLimit40m" # failing after increasing SSTORE gas limit to 72k
-    "gasLimit20m" # failing after increasing SSTORE gas limit to 72k
+    # The block gas limit is a consensus parameter, not the header gas limit
+    "frontier/validation/test_transaction.py::test_tx_gas_limit["
+    "test_tx_gas_allowance_after_larger_tx["
+    "test_tx_gas_larger_than_block_gas_limit["
+    "eip7623_increase_calldata_cost/test_block_gas_limit.py::"
+
+    # Invalid txs are dropped one at a time; the rest of the block still runs
+    "test_invalid_transaction_after_authorization["
+    "stEIP1559/test_low_gas_limit.py::test_low_gas_limit[fork_Osaka-blockchain_test_from_state_test--g0]"
+
+    # The only block holds a set-code tx with no recipient, which does not decode
+    "eip7702_set_code_tx/test_set_code_txs.py::test_contract_create["
+
+    # Failing, also under plain Osaka rules
+    "test_multi_selfdestruct[fork_Osaka-blockchain_test_from_state_test-d4]"
+
+    # Pass, but take 7-9 minutes each
+    "stQuadraticComplexityTest/test_return50000.py::"
+    "stQuadraticComplexityTest/test_return50000_2.py::"
+    "stStaticCall/test_static_return50000_2.py::"
 )
 
-# Skip based on explicit relative paths when name filtering is insufficient
-declare -a test_path_skip_list=(
-    "./ethtests/BlockchainTests/ValidBlocks/bcStateTests/refundReset.json"
-)
-
-seid_wrapper_dir=$(mktemp -d)
-cleanup_wrapper() {
-    rm -rf "$seid_wrapper_dir"
+work_dir=$(mktemp -d)
+cleanup() {
+    rm -rf "$work_dir"
 }
-trap cleanup_wrapper EXIT
+trap cleanup EXIT
 
+# drop_matching drops stdin lines containing any line of the pattern file.
+drop_matching() {
+    grep -v -F -f "$1" || [ $? -eq 1 ]
+}
+
+# list_cases prints "<file>\t<test id>" for every selected case. Cases with
+# blob txs or with pre-state accounts in the Sei precompile range
+# (0x1001-0x10ff) are left out.
+list_cases() {
+    local dir_pattern=$work_dir/skip_dirs
+    local test_pattern=$work_dir/skip_tests
+    printf '%s\n' "${skip_dirs[@]}" | sed "s|^|$fixtures_dir/|" > "$dir_pattern"
+    printf '%s\n' "${skip_tests[@]}" > "$test_pattern"
+    find "$fixtures_dir" -name '*.json' | sort | drop_matching "$dir_pattern" | while read -r file; do
+        jq -r --arg file "$file" '
+            to_entries[]
+            | select(any(.value.pre | keys[];
+                (ascii_downcase | ltrimstr("0x")) as $a
+                | $a >= "0000000000000000000000000000000000001001"
+                  and $a <= "00000000000000000000000000000000000010ff") | not)
+            | select(any(.value.blocks[]?.transactions[]?; .type == "0x03") | not)
+            | [$file, .key] | @tsv' "$file"
+    done | drop_matching "$test_pattern"
+}
+
+# Wrap gentx so the local chain init binds to loopback.
+seid_wrapper_dir=$work_dir/bin
+mkdir -p "$seid_wrapper_dir"
 cat > "$seid_wrapper_dir/seid" <<'EOF'
 #!/bin/bash
 target_seid="$HOME/go/bin/seid"
@@ -109,63 +138,59 @@ EOF
 chmod +x "$seid_wrapper_dir/seid"
 export PATH="$seid_wrapper_dir:$PATH"
 
-# list out all paths to json files starting from the block_tests_dir
-block_tests=$(find "$block_tests_path" -name "*.json" | sort)
+if [ -n "$LIST_ONLY" ]; then
+    list_cases
+    exit 0
+fi
 
-i=0
+list_cases | awk -v idx="$runner_index" -v total="$runner_total" '(NR - 1) % total == idx' > "$work_dir/cases.tsv"
+case_count=$(wc -l < "$work_dir/cases.tsv" | tr -d ' ')
+if [ "$case_count" -eq 0 ]; then
+    echo "no cases selected on runner $runner_index of $runner_total" >&2
+    exit 1
+fi
+echo "running $case_count cases on runner $runner_index of $runner_total"
 
-# for each json file, run the block test
-for test_path in $block_tests; do
-    test_name=$(basename "$test_path" .json)
-    match_found=false
+# Initialize one chain home and copy it for each case.
+rm -rf ~/.sei || true
+NO_RUN=1 ./scripts/initialize_local_chain.sh
+template_home=$work_dir/template
+mkdir -p "$template_home"
+cp -R ~/.sei "$template_home/.sei"
 
-    # Iterate through the test_path_run_list to check for a match
-    for run_path in "${test_path_run_list[@]}"; do
-        if [[ "$test_path" == *"$run_path"* ]]; then
-            match_found=true
-            break
-        fi
-    done
+export SEID_BIN="$HOME/go/bin/seid"
+export TEMPLATE_HOME="$template_home"
+export FAILED_LIST="$work_dir/failed"
+export CASE_TIMEOUT="$case_timeout"
+touch "$FAILED_LIST"
 
-    # Skip the test if no match is found
-    if [ "$match_found" = false ]; then
-        continue
+run_case() {
+    local file=$1 test_id=$2
+    local home
+    home=$(mktemp -d)
+    cp -R "$TEMPLATE_HOME/.sei" "$home/.sei"
+    local timeout_cmd=""
+    if command -v timeout > /dev/null; then
+        timeout_cmd="timeout $CASE_TIMEOUT"
     fi
-
-    echo "test file: $test_path"
-    echo "test dir: $test_path"
-
-    # Check if the test name is in the skip list
-    if printf '%s\n' "${test_name_skip_list[@]}" | grep -qx "$test_name"; then
-        echo "Skipping test in skip list: $test_path"
-        continue
+    if HOME="$home" $timeout_cmd "$SEID_BIN" blocktest --home "$home/.sei" --block-test "$file" --test-name "$test_id" > "$home/log" 2>&1; then
+        echo "PASS $test_id"
+    else
+        echo "FAIL $test_id ($file)"
+        grep -m1 '^panic:' "$home/log" || tail -5 "$home/log"
+        echo "$test_id" >> "$FAILED_LIST"
     fi
+    rm -rf "$home"
+}
+export -f run_case
 
-    if printf '%s\n' "${test_path_skip_list[@]}" | grep -qx "$test_path"; then
-        echo "Skipping test in skip list: $test_path"
-        continue
-    fi
+jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
+tr '\t\n' '\0\0' < "$work_dir/cases.tsv" | xargs -0 -n 2 -P "$jobs" bash -c 'run_case "$1" "$2"' _ || true
 
-    # Check if "${test_name}_Prague" is not in the test file
-    if ! grep -q "${test_name}_Prague" "$test_path"; then
-        echo "Skipping test due to missing Prague tag: $test_path"
-        continue
-    fi
-
-    if [ $((i % runner_total)) -ne $runner_index ]; then
-        i=$((i+1))
-        runner_id=$((i % runner_total))
-        echo "Skipping test not in runner index: $test_path, runner index: $runner_id"
-        continue
-    fi
-
-    i=$((i+1))
-
-    echo -e "\n*********************************************************\n"
-    echo "Running block test: $test_path"
-    echo "test name: ${test_name}_Prague"
-    echo -e "\n*********************************************************\n"
-    rm -rf ~/.sei || true
-    NO_RUN=1 ./scripts/initialize_local_chain.sh
-    seid blocktest --block-test $test_path --test-name "${test_name}_Prague"
-done
+failed=$(wc -l < "$FAILED_LIST" | tr -d ' ')
+if [ "$failed" -ne 0 ]; then
+    echo "$failed failed:"
+    cat "$FAILED_LIST"
+    exit 1
+fi
+echo "all cases passed"

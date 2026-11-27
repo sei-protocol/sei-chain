@@ -15,7 +15,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -568,6 +570,87 @@ func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID+1, 0)
 	require.ErrorIs(t, admissionError(app, raw), ethtypes.ErrInvalidChainId)
+}
+
+// The executor refuses a tx over the EIP-7825 cap once Osaka is scheduled, so admission has to as well.
+func TestEVMOnlyApplicationAppliesTheEIP7825GasCap(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	for _, tc := range []struct {
+		name      string
+		osakaTime *uint64
+		gas       uint64
+		ok        bool
+	}{
+		{name: "at_cap", osakaTime: new(uint64), gas: params.MaxTxGas, ok: true},
+		{name: "over_cap", osakaTime: new(uint64), gas: params.MaxTxGas + 1},
+		{name: "over_cap_osaka_unscheduled", gas: params.MaxTxGas + 1, ok: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newInitializedEVMOnlyTestApp(t)
+			app.(*evmOnlyApplication).chainConfig.OsakaTime = tc.osakaTime
+			tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+				Gas:      tc.gas,
+				GasPrice: big.NewInt(evmOnlyMinGasPrice),
+				To:       &recipient,
+			})
+			signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+			require.NoError(t, err)
+			raw, err := signed.MarshalBinary()
+			require.NoError(t, err)
+
+			_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)))
+
+			if tc.ok {
+				require.NoError(t, checkErr)
+			} else {
+				require.ErrorIs(t, checkErr, ethcore.ErrGasLimitTooHigh)
+			}
+		})
+	}
+}
+
+func TestEVMOnlyApplicationAppliesTheInitCodeLimit(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	future := uint64(math.MaxUint64)
+	for _, tc := range []struct {
+		name             string
+		seiAmsterdamTime *uint64
+		size             int
+		ok               bool
+	}{
+		{name: "at_amsterdam_limit", seiAmsterdamTime: new(uint64), size: params.MaxInitCodeSizeAmsterdam, ok: true},
+		{name: "over_amsterdam_limit", seiAmsterdamTime: new(uint64), size: params.MaxInitCodeSizeAmsterdam + 1},
+		{name: "at_shanghai_limit_before_fork", seiAmsterdamTime: &future, size: params.MaxInitCodeSize, ok: true},
+		{name: "over_shanghai_limit_before_fork", seiAmsterdamTime: &future, size: params.MaxInitCodeSize + 1},
+		{name: "over_shanghai_limit_unscheduled", size: params.MaxInitCodeSize + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newInitializedEVMOnlyTestApp(t)
+			app.(*evmOnlyApplication).chainConfig.SeiAmsterdamTime = tc.seiAmsterdamTime
+			tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+				Gas:      2_000_000, // covers the EIP-7623 floor on the largest initcode
+				GasPrice: big.NewInt(evmOnlyMinGasPrice),
+				Data:     make([]byte, tc.size),
+			})
+			signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+			require.NoError(t, err)
+			raw, err := signed.MarshalBinary()
+			require.NoError(t, err)
+
+			_, checkErr := app.CheckTx(utils.OrPanic1(newTestSigner(app.EvmChainID(), 0).ParseTx(raw)))
+
+			if tc.ok {
+				require.NoError(t, checkErr)
+			} else {
+				require.ErrorIs(t, checkErr, vm.ErrMaxInitCodeSizeExceeded)
+			}
+		})
+	}
 }
 
 // A dynamic-fee tx pays the base fee plus at most its tip, so it is admitted on

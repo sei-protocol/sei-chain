@@ -65,16 +65,17 @@ func (c Config) WithDefaults() Config {
 // no key controls it and no contract can be deployed to it.
 var FeeCollectorAddress = crypto.CreateAddress(common.BytesToAddress([]byte{1}), 42)
 
-// DefaultChainConfig returns params.AllDevChainProtocolChanges through Prague, with the base fee paid to the coinbase.
+// DefaultChainConfig returns params.AllDevChainProtocolChanges through Osaka plus Sei's Amsterdam subset,
+// with the base fee paid to the coinbase.
 func DefaultChainConfig() *params.ChainConfig {
 	cfg := *params.AllDevChainProtocolChanges
-	cfg.OsakaTime = nil
 	cfg.BPO1Time = nil
 	cfg.BPO2Time = nil
 	cfg.BPO3Time = nil
 	cfg.BPO4Time = nil
 	cfg.BPO5Time = nil
 	cfg.AmsterdamTime = nil
+	cfg.SeiAmsterdamTime = cfg.OsakaTime
 	cfg.BogotaTime = nil
 	cfg.UBTTime = nil
 	cfg.SeiCoinbaseReceivesBaseFee = true

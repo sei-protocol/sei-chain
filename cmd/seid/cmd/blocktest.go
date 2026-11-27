@@ -6,7 +6,6 @@ import (
 	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/spf13/cast"
@@ -103,13 +102,9 @@ func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
 		panic(err)
 	}
 
-	fullTestname := fmt.Sprintf(
-		"%s::%s",
-		strings.TrimPrefix(testFilePath, "./ethtests/"), testName,
-	)
-	res, ok := tests[fullTestname]
+	res, ok := tests[testName]
 	if !ok {
-		panic(fmt.Sprintf("Unable to find test name %v at test file path %v", fullTestname, testFilePath))
+		panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
 	}
 
 	return &res

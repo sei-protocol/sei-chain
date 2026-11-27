@@ -1290,6 +1290,7 @@ func TestExecutorReceiptAndLogMetadata(t *testing.T) {
 	require.Equal(t, ctx.BlockHash, result.Receipts[0].BlockHash)
 	require.Equal(t, new(big.Int).SetUint64(ctx.Number), result.Receipts[0].BlockNumber)
 	require.Equal(t, result.Txs[0].GasUsed, result.Receipts[0].CumulativeGasUsed)
+	require.Len(t, result.Receipts[0].Logs, 1, "EIP-7708 transfer log")
 
 	require.Equal(t, emitLogTx.Hash(), result.Receipts[1].TxHash)
 	require.Equal(t, uint(1), result.Receipts[1].TransactionIndex)
@@ -1301,7 +1302,7 @@ func TestExecutorReceiptAndLogMetadata(t *testing.T) {
 	require.Equal(t, ctx.BlockHash, log.BlockHash)
 	require.Equal(t, emitLogTx.Hash(), log.TxHash)
 	require.Equal(t, uint(1), log.TxIndex)
-	require.Equal(t, uint(0), log.Index)
+	require.Equal(t, uint(1), log.Index)
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(3), state.GetBalance(recipient))

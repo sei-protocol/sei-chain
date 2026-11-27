@@ -147,7 +147,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		} else if res == nil {
 			err = errors.New("missing broadcast response")
 		} else if res.CheckTx.Code != 0 {
-			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.CheckTx.Code, "")
+			err = checkTxError(res.CheckTx.Codespace, res.CheckTx.Code, res.CheckTx.Log)
 		}
 	} else {
 		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
@@ -156,7 +156,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		} else if res == nil {
 			err = errors.New("missing broadcast response")
 		} else if res.Code != 0 {
-			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.Code, "")
+			err = checkTxError(res.Codespace, res.Code, res.Log)
 		}
 	}
 	return
@@ -176,6 +176,15 @@ func toEthBroadcastError(err error) error {
 	default:
 		return err
 	}
+}
+
+// checkTxError returns the error a rejected CheckTx reported: its log when it has one, otherwise
+// the registered error for its codespace and code.
+func checkTxError(codespace string, code uint32, log string) error {
+	if log == "" {
+		return sdkerrors.ABCIError(codespace, code, "")
+	}
+	return errors.New(log)
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {

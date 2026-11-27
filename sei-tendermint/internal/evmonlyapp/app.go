@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
@@ -367,6 +368,9 @@ func (a *evmOnlyApplication) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 	if err := a.checkAdmissionPolicy(tx); err != nil {
 		return abevm.AdmittedTx{}, err
 	}
+	if err := a.checkTxLimits(tx.Transaction()); err != nil {
+		return abevm.AdmittedTx{}, err
+	}
 	if tx.Gas() > math.MaxInt64 {
 		return abevm.AdmittedTx{}, errors.New("transaction gas limit exceeds int64")
 	}
@@ -377,6 +381,26 @@ func (a *evmOnlyApplication) CheckTx(tx abevm.EvmTx) (abevm.AdmittedTx, error) {
 		return abevm.AdmittedTx{}, err
 	}
 	return abevm.AdmittedTx{GasEstimated: tx.Gas()}, nil
+}
+
+// checkTxLimits refuses tx when its gas limit exceeds the EIP-7825 cap or its initcode exceeds the
+// committed block's size limit.
+func (a *evmOnlyApplication) checkTxLimits(tx *ethtypes.Transaction) error {
+	// Gated on Osaka being scheduled rather than active: a tx admitted before
+	// the fork can land in a block after it, where the executor refuses it.
+	if a.chainConfig.OsakaTime != nil && tx.Gas() > params.MaxTxGas {
+		return fmt.Errorf("%w (cap: %d, tx: %d)", ethcore.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+	}
+	if tx.To() == nil {
+		// The committed block's rules, not the next block's: a limit a fork raises
+		// stays at its old value until a block past the fork commits, so an admitted
+		// transaction is valid in the next block on either side of it.
+		rules := a.committedRules()
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data()))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkGasCoversIntrinsic refuses tx when its gas limit is below the intrinsic gas, or the EIP-7623
@@ -455,6 +479,14 @@ func (a *evmOnlyApplication) checkAdmissionPolicy(tx abevm.EvmTx) error {
 		return fmt.Errorf("insufficient fee: effective gas price is below %s", minGasPrice)
 	}
 	return nil
+}
+
+// committedRules returns the fork rules of the most recently committed block.
+func (a *evmOnlyApplication) committedRules() params.Rules {
+	for state := range a.cursor.Lock() {
+		return a.chainConfig.Rules(big.NewInt(state.committed.height), true, state.lastBlockTime)
+	}
+	panic("unreachable")
 }
 
 func evmOnlyStoreAddress(address common.Address) gigatypes.Address {

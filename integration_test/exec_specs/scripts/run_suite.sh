@@ -3,8 +3,8 @@
 set -euo pipefail
 
 SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_PATHS="${EEST_TEST_PATHS_FILE:-${SUITE_ROOT}/config/prague-paths.list}"
-IGNORED_PATHS="${EEST_IGNORED_PATHS_FILE:-${SUITE_ROOT}/config/prague-ignores.list}"
+TEST_PATHS="${EEST_TEST_PATHS_FILE:-${SUITE_ROOT}/config/osaka-paths.list}"
+IGNORED_PATHS="${EEST_IGNORED_PATHS_FILE:-${SUITE_ROOT}/config/osaka-ignores.list}"
 REMOTE_EXCLUSIONS="${EEST_REMOTE_EXCLUSIONS_FILE:-${SUITE_ROOT}/config/remote-exclusions.list}"
 EEST_SWEEP_AMOUNT="${EEST_SWEEP_AMOUNT:-100000 ether}"
 EEST_SHARD_COUNT="${EEST_SHARD_COUNT:-1}"

@@ -14,15 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFinalizeSweepsDestructedAccounts(t *testing.T) {
+// EIP-8246: Finalize clears a self-destructed account's code and leaves its balance in place.
+func TestFinalizeKeepsDestructedAccountBalances(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	baseCtx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 
 	accts := make([]common.Address, 16)
-	wantSpenders := make([]string, len(accts))
+	residuals := make([]*uint256.Int, len(accts))
 	for i := range accts {
 		_, accts[i] = testkeeper.MockAddressPair()
-		wantSpenders[i] = k.GetSeiAddressOrDefault(baseCtx, accts[i]).String()
 	}
 
 	ctx := baseCtx.WithMultiStore(baseCtx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
@@ -32,19 +32,19 @@ func TestFinalizeSweepsDestructedAccounts(t *testing.T) {
 		statedb.SetCode(acc, []byte("code"), tracing.CodeChangeUnspecified)
 		require.True(t, statedb.IsNewContract(acc))
 		statedb.SelfDestruct(acc)
-		residual := uint256.NewInt(1)
+		residuals[i] = uint256.NewInt(1)
 		if i%2 == 1 {
-			residual = uint256.NewInt(999_999_999_999)
+			residuals[i] = uint256.NewInt(999_999_999_999)
 		}
-		statedb.AddBalance(acc, residual, tracing.BalanceChangeTransfer)
+		statedb.AddBalance(acc, residuals[i], tracing.BalanceChangeTransfer)
 	}
 	_, err := statedb.Finalize()
 	require.NoError(t, err)
 
-	require.ElementsMatch(t, wantSpenders, weiSpenders(ctx.EventManager().Events()))
-	for _, acc := range accts {
+	require.Empty(t, weiSpenders(ctx.EventManager().Events()))
+	for i, acc := range accts {
 		require.Empty(t, k.GetCode(ctx, acc))
-		require.Zero(t, k.GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, acc)).Sign())
+		require.Equal(t, residuals[i].ToBig(), k.GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, acc)))
 	}
 }
 
