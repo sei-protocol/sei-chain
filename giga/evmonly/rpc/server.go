@@ -27,7 +27,6 @@ import (
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 const shutdownWait = 5 * time.Second
@@ -42,15 +41,11 @@ var wsAllowedOrigins = []string{"*"}
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
-// Backend submits transactions, reads committed EVM state and finalized
-// blocks, publishes new block heights, and returns the RPC client for an
-// Autobahn shard owner.
-// EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
-// is false every transaction is broadcast locally without recovering its sender.
+// Backend submits transactions, reads EVM state and finalized blocks, and publishes new block heights.
 type Backend interface {
-	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
-	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
-	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	BlockByNumber(context.Context, utils.Option[int64]) (*abevm.EvmBlock, error)
+	BlockByHash(context.Context, common.Hash) (utils.Option[*abevm.EvmBlock], error)
+	InsertTx(context.Context, abevm.RawTx) (common.Hash, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int
@@ -61,7 +56,7 @@ type Backend interface {
 	EvmBlockNumber() uint64
 	// GenesisInitialHeight returns the height of the chain's first block, or 0 when unknown.
 	GenesisInitialHeight() int64
-	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
+	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks]
 	EvmCall(ctx context.Context, msg *core.Message, overrides abevm.CallOverrides) (*core.ExecutionResult, error)
 	// EvmCallAt executes msg as a read-only call against the committed EVM state after header's
 	// block, in the context that block executed at, with overrides applied.
@@ -94,13 +89,6 @@ type Backend interface {
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
 	EvmMinGasPrice() *big.Int
-	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
-	EvmProxyEnabled() bool
-	// RememberEvmSender records the sender recovered for the transaction with this hash, for the
-	// application to use instead of recovering it again.
-	RememberEvmSender(hash common.Hash, sender common.Address)
-	// ForgetEvmSender drops the sender recorded for the transaction with this hash, if any.
-	ForgetEvmSender(hash common.Hash)
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	// EvmStateAt returns the committed EVM state after height, or the latest committed state when
@@ -111,9 +99,8 @@ type Backend interface {
 	EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.SeiStateDB, func(), error)
 	EvmTransactionCount(common.Address) uint64
 	EvmNonceAt(address common.Address, height int64) (uint64, error)
-	// EvmPendingNonce returns the nonce the local mempool admits next for address, or None when
-	// this node has no local mempool.
-	EvmPendingNonce(common.Address) utils.Option[uint64]
+	// EvmPendingNonce returns the next nonce admitted by the sender's shard.
+	EvmPendingNonce(context.Context, common.Address) (uint64, error)
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

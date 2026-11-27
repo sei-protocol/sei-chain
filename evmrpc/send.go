@@ -98,20 +98,9 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return
 	}
 	hash = tx.Hash()
-	// getSender fails for AccessListTx, in which case we are not able to proxy or simulate,
+	// getSender fails for AccessListTx, in which case we are not able to simulate,
 	// but we still need to handle it.
 	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
-	if senderErr == nil {
-		if client, ok := s.tmClient.EvmProxy(sender).Get(); ok {
-			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
-
-			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-				// No error wrapping, because evm server is too dumb to handle wrapped error.
-				return hash, err
-			}
-			return hash, nil
-		}
-	}
 
 	txData, err := ethtx.NewTxDataFromTx(tx)
 	if err != nil {

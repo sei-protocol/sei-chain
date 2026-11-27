@@ -35,9 +35,9 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
 	})
-	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
+	backend.executedBlocks = func() utils.AtomicRecv[atypes.ExecutedBlocks] {
 		subscribed <- struct{}{}
-		return executed.Subscribe(), nil
+		return executed.Subscribe()
 	}
 	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
@@ -85,9 +85,9 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 		}
 		return nil, fmt.Errorf("unexpected height %d", *req.Height)
 	})
-	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
+	backend.executedBlocks = func() utils.AtomicRecv[atypes.ExecutedBlocks] {
 		subscribed <- struct{}{}
-		return executed.Subscribe(), nil
+		return executed.Subscribe()
 	}
 	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)

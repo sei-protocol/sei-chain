@@ -3,12 +3,10 @@ package p2p
 import (
 	"context"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -16,7 +14,7 @@ import (
 )
 
 type gigaFullnodeRouter struct {
-	*gigaRouterCommon
+	*GigaRouterCommon
 }
 
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
@@ -24,7 +22,7 @@ type gigaFullnodeRouter struct {
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State, signer *abevm.Signer) (*gigaFullnodeRouter, error) {
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaFullnodeRouter{
-		gigaRouterCommon: &gigaRouterCommon{
+		GigaRouterCommon: &GigaRouterCommon{
 			cfg:                  cfg,
 			key:                  key,
 			data:                 dataState,
@@ -33,16 +31,11 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			poolInCommittee:      giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:              giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:              utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:                  cfg.App,
 			signer:               signer,
 			inboundFullnodeCount: utils.NewMutex(new(int64)),
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil
-}
-
-func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
-	return utils.None[*producer.State]()
 }
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
@@ -53,16 +46,6 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})
-}
-
-// EvmProxyEnabled is always true: fullnodes have no local mempool and proxy
-// every transaction.
-func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
-
-// EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
-// EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
-func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender))
 }
 
 // runCommitteeConnections maintains block-sync and EVM RPC connections to every committee member.

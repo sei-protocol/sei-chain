@@ -162,7 +162,11 @@ func (e *Executor) initApp(ctx context.Context) (atypes.RoadHeight, error) {
 // still be running for earlier blocks; the app finalizes them in road order.
 func (e *Executor) executeBlock(ctx context.Context, b *atypes.SuperBlock) (atypes.ExecutedBlock, error) {
 	app := e.cfg.App
-	txs, err := e.cfg.Signer.ParseTxs(b.Txs)
+	raw := make([]abevm.RawTx, len(b.Txs))
+	for i, tx := range b.Txs {
+		raw[i] = tx
+	}
+	txs, err := e.cfg.Signer.ParseTxs(raw)
 	if err != nil {
 		return atypes.ExecutedBlock{}, fmt.Errorf("decode block transactions: %w", err)
 	}

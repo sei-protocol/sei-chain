@@ -14,8 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 var (
@@ -119,14 +118,15 @@ func stateHeight(ctx context.Context, backend Backend, store receiptdb.ReceiptSt
 
 // blockHeightByHash returns the height of the stored block with hash.
 func blockHeightByHash(ctx context.Context, backend Backend, hash common.Hash) (int64, error) {
-	block, err := backend.BlockByHash(ctx, &coretypes.RequestBlockByHash{Hash: tmbytes.HexBytes(hash.Bytes())})
+	block, err := backend.BlockByHash(ctx, hash)
 	if err != nil {
 		return 0, err
 	}
-	if block == nil || block.Block == nil {
+	value, ok := block.Get()
+	if !ok {
 		return 0, fmt.Errorf("%w: %s", errBlockNotFound, hash)
 	}
-	return block.Block.Height, nil
+	return utils.Clamp[int64](value.Height), nil
 }
 
 // GetStorageAt returns the 32-byte value at hexKey in address's storage in the

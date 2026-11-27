@@ -92,7 +92,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, err)
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
 	for validator, rpcURL := range urlByValidator {
-		clientByValidator[validator] = registerEvmProxyForTest(t, router.gigaRouterCommon, validator, rpcURL)
+		clientByValidator[validator] = registerEvmProxyForTest(t, router.GigaRouterCommon, validator, rpcURL)
 	}
 
 	// EvmProxy: for every sender, the fullnode router resolves to the
@@ -107,7 +107,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
 		shardValidator := router.data.Anchor().Load().NextHeightEpoch().Committee().EvmShard(sender)
 		expectedClient := clientByValidator[shardValidator]
-		proxyClient, ok := router.EvmProxy(sender).Get()
+		proxyClient, ok := router.evmProxy(sender).Get()
 		require.True(t, ok)
 		require.Equal(t, expectedClient, proxyClient)
 		returnedRemoteClients[proxyClient] = struct{}{}
@@ -116,17 +116,10 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// expect to have hit every shard owner at least once.
 	require.Equal(t, expectedRemoteClients, returnedRemoteClients)
 
-	// Read-path methods source from local data.State + genesis doc — no
-	// sentinels. Before any block is pushed (and InitChain hasn't run),
-	// app.LastBlockHeight() is 0, so LastCommittedHeight returns 0.
-	// MaxGasEstimatedPerBlock reflects the genesis consensus param.
-	require.Equal(t, int64(0), router.LastCommittedHeight())
-	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
-	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
-	// same shape the validator path returns — no sentinel mode-check.
+	// BlockByHash returns None for an unknown hash on both router roles.
 	rb, err := router.BlockByHash(t.Context(), common.Hash{})
 	require.NoError(t, err)
-	require.Nil(t, rb.Block)
+	require.False(t, rb.IsPresent())
 }
 
 func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) {
@@ -191,7 +184,7 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 						return err
 					}
 					server := rpc.NewServer[giga.API]()
-					peerScope.SpawnBg(func() error { return server.Run(ctx, hConn.conn) })
+					peerScope.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, hConn.conn)) })
 					peerScope.SpawnBg(func() error {
 						return giga.StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *gigapb.StreamFullCommitQCsReq]) error {
 							if _, err := stream.Recv(ctx); err != nil {
@@ -239,6 +232,9 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 	_, err = utils.Recv(t.Context(), closed)
 	require.NoError(t, err)
 	for _, key := range keys {
-		require.False(t, router.evmProxy(key.Public()).IsPresent())
+		for proxies := range router.proxies.RLock() {
+			_, present := proxies[key.Public()]
+			require.False(t, present)
+		}
 	}
 }
