@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 183,
+      "astId": 227,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "communityPool",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 185,
+      "astId": 229,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "previousProposer",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_address"
     },
     {
-      "astId": 189,
+      "astId": 233,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "validatorOutstandingRewards",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 193,
+      "astId": 237,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "delegatorWithdrawAddr",
       "offset": 0,
@@ -33,31 +33,31 @@
       "type": "t_mapping(t_address,t_address)"
     },
     {
-      "astId": 200,
+      "astId": 244,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "delegatorStartingInfo",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(DelegatorStartingInfo)170_storage))"
+      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(DelegatorStartingInfo)198_storage))"
     },
     {
-      "astId": 207,
+      "astId": 251,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "validatorHistoricalRewards",
       "offset": 0,
       "slot": "5",
-      "type": "t_mapping(t_address,t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)158_storage))"
+      "type": "t_mapping(t_address,t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)186_storage))"
     },
     {
-      "astId": 212,
+      "astId": 256,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "validatorCurrentRewards",
       "offset": 0,
       "slot": "6",
-      "type": "t_mapping(t_address,t_struct(ValidatorCurrentRewards)163_storage)"
+      "type": "t_mapping(t_address,t_struct(ValidatorCurrentRewards)191_storage)"
     },
     {
-      "astId": 216,
+      "astId": 260,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "validatorAccumulatedCommission",
       "offset": 0,
@@ -65,15 +65,15 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 222,
+      "astId": 266,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "validatorSlashEvents",
       "offset": 0,
       "slot": "8",
-      "type": "t_mapping(t_address,t_array(t_struct(ValidatorSlashEvent)181_storage)dyn_storage)"
+      "type": "t_mapping(t_address,t_array(t_struct(ValidatorSlashEvent)209_storage)dyn_storage)"
     },
     {
-      "astId": 224,
+      "astId": 268,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "epochDAO",
       "offset": 0,
@@ -81,12 +81,28 @@
       "type": "t_address"
     },
     {
-      "astId": 226,
+      "astId": 270,
       "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
       "label": "nextSettlementEpoch",
       "offset": 20,
       "slot": "9",
       "type": "t_uint64"
+    },
+    {
+      "astId": 274,
+      "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+      "label": "releaseSchedule",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_array(t_struct(ReleasePeriod)217_storage)dyn_storage"
+    },
+    {
+      "astId": 277,
+      "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+      "label": "mint",
+      "offset": 0,
+      "slot": "11",
+      "type": "t_struct(Mint)225_storage"
     }
   ],
   "types": {
@@ -95,8 +111,14 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_struct(ValidatorSlashEvent)181_storage)dyn_storage": {
-      "base": "t_struct(ValidatorSlashEvent)181_storage",
+    "t_array(t_struct(ReleasePeriod)217_storage)dyn_storage": {
+      "base": "t_struct(ReleasePeriod)217_storage",
+      "encoding": "dynamic_array",
+      "label": "struct DistributionStorage.ReleasePeriod[]",
+      "numberOfBytes": "32"
+    },
+    "t_array(t_struct(ValidatorSlashEvent)209_storage)dyn_storage": {
+      "base": "t_struct(ValidatorSlashEvent)209_storage",
       "encoding": "dynamic_array",
       "label": "struct DistributionStorage.ValidatorSlashEvent[]",
       "numberOfBytes": "32"
@@ -114,40 +136,40 @@
       "numberOfBytes": "32",
       "value": "t_address"
     },
-    "t_mapping(t_address,t_array(t_struct(ValidatorSlashEvent)181_storage)dyn_storage)": {
+    "t_mapping(t_address,t_array(t_struct(ValidatorSlashEvent)209_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct DistributionStorage.ValidatorSlashEvent[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(ValidatorSlashEvent)181_storage)dyn_storage"
+      "value": "t_array(t_struct(ValidatorSlashEvent)209_storage)dyn_storage"
     },
-    "t_mapping(t_address,t_mapping(t_address,t_struct(DelegatorStartingInfo)170_storage))": {
+    "t_mapping(t_address,t_mapping(t_address,t_struct(DelegatorStartingInfo)198_storage))": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => mapping(address => struct DistributionStorage.DelegatorStartingInfo))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_struct(DelegatorStartingInfo)170_storage)"
+      "value": "t_mapping(t_address,t_struct(DelegatorStartingInfo)198_storage)"
     },
-    "t_mapping(t_address,t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)158_storage))": {
+    "t_mapping(t_address,t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)186_storage))": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => mapping(uint64 => struct DistributionStorage.ValidatorHistoricalRewards))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)158_storage)"
+      "value": "t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)186_storage)"
     },
-    "t_mapping(t_address,t_struct(DelegatorStartingInfo)170_storage)": {
+    "t_mapping(t_address,t_struct(DelegatorStartingInfo)198_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct DistributionStorage.DelegatorStartingInfo)",
       "numberOfBytes": "32",
-      "value": "t_struct(DelegatorStartingInfo)170_storage"
+      "value": "t_struct(DelegatorStartingInfo)198_storage"
     },
-    "t_mapping(t_address,t_struct(ValidatorCurrentRewards)163_storage)": {
+    "t_mapping(t_address,t_struct(ValidatorCurrentRewards)191_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct DistributionStorage.ValidatorCurrentRewards)",
       "numberOfBytes": "32",
-      "value": "t_struct(ValidatorCurrentRewards)163_storage"
+      "value": "t_struct(ValidatorCurrentRewards)191_storage"
     },
     "t_mapping(t_address,t_uint256)": {
       "encoding": "mapping",
@@ -156,19 +178,19 @@
       "numberOfBytes": "32",
       "value": "t_uint256"
     },
-    "t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)158_storage)": {
+    "t_mapping(t_uint64,t_struct(ValidatorHistoricalRewards)186_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct DistributionStorage.ValidatorHistoricalRewards)",
       "numberOfBytes": "32",
-      "value": "t_struct(ValidatorHistoricalRewards)158_storage"
+      "value": "t_struct(ValidatorHistoricalRewards)186_storage"
     },
-    "t_struct(DelegatorStartingInfo)170_storage": {
+    "t_struct(DelegatorStartingInfo)198_storage": {
       "encoding": "inplace",
       "label": "struct DistributionStorage.DelegatorStartingInfo",
       "members": [
         {
-          "astId": 165,
+          "astId": 193,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "previousPeriod",
           "offset": 0,
@@ -176,7 +198,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 167,
+          "astId": 195,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "height",
           "offset": 8,
@@ -184,7 +206,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 169,
+          "astId": 197,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "stake",
           "offset": 0,
@@ -194,12 +216,74 @@
       ],
       "numberOfBytes": "64"
     },
-    "t_struct(ValidatorCurrentRewards)163_storage": {
+    "t_struct(Mint)225_storage": {
+      "encoding": "inplace",
+      "label": "struct DistributionStorage.Mint",
+      "members": [
+        {
+          "astId": 220,
+          "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+          "label": "periodEnd",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 222,
+          "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+          "label": "lastMintTime",
+          "offset": 8,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 224,
+          "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+          "label": "remaining",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint256"
+        }
+      ],
+      "numberOfBytes": "64"
+    },
+    "t_struct(ReleasePeriod)217_storage": {
+      "encoding": "inplace",
+      "label": "struct DistributionStorage.ReleasePeriod",
+      "members": [
+        {
+          "astId": 212,
+          "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+          "label": "startTime",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 214,
+          "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+          "label": "endTime",
+          "offset": 8,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 216,
+          "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
+          "label": "amount",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint256"
+        }
+      ],
+      "numberOfBytes": "64"
+    },
+    "t_struct(ValidatorCurrentRewards)191_storage": {
       "encoding": "inplace",
       "label": "struct DistributionStorage.ValidatorCurrentRewards",
       "members": [
         {
-          "astId": 160,
+          "astId": 188,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "rewards",
           "offset": 0,
@@ -207,7 +291,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 162,
+          "astId": 190,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "period",
           "offset": 0,
@@ -217,12 +301,12 @@
       ],
       "numberOfBytes": "64"
     },
-    "t_struct(ValidatorHistoricalRewards)158_storage": {
+    "t_struct(ValidatorHistoricalRewards)186_storage": {
       "encoding": "inplace",
       "label": "struct DistributionStorage.ValidatorHistoricalRewards",
       "members": [
         {
-          "astId": 155,
+          "astId": 183,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "cumulativeRewardRatio",
           "offset": 0,
@@ -230,7 +314,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 157,
+          "astId": 185,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "referenceCount",
           "offset": 0,
@@ -240,12 +324,12 @@
       ],
       "numberOfBytes": "64"
     },
-    "t_struct(ValidatorSlashEvent)181_storage": {
+    "t_struct(ValidatorSlashEvent)209_storage": {
       "encoding": "inplace",
       "label": "struct DistributionStorage.ValidatorSlashEvent",
       "members": [
         {
-          "astId": 172,
+          "astId": 200,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "height",
           "offset": 0,
@@ -253,7 +337,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 174,
+          "astId": 202,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "validatorPeriod",
           "offset": 8,
@@ -261,7 +345,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 176,
+          "astId": 204,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "fraction",
           "offset": 0,
@@ -269,7 +353,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 180,
+          "astId": 208,
           "contract": "giga-storage/DistributionStorage.sol:DistributionStorage",
           "label": "__gap",
           "offset": 0,
