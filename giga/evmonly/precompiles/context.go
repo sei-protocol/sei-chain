@@ -101,6 +101,9 @@ type BlockContext struct {
 	// ClosingEpoch is the consensus epoch this block is the last block of, if
 	// it is one.
 	ClosingEpoch utils.Option[uint64]
+	// GasUsed is the gas the block's transactions used. Only EndBlock is given
+	// it.
+	GasUsed uint64
 }
 
 // State is the precompile-facing state API. Implementations must make these

@@ -58,3 +58,23 @@ func DelegatorValidators(state precompiles.State, delegator common.Address) []co
 	}
 	return out
 }
+
+// ValidatorPower is a member of the bonded set and its consensus power.
+type ValidatorPower struct {
+	Operator common.Address
+	Power    uint64
+}
+
+// BondedSet returns the bonded set the last EndBlock stored, in the order it
+// ranks them. It fails when the stored set does not add up.
+func BondedSet(state precompiles.State) ([]ValidatorPower, error) {
+	last, err := newStore(state).lastValidators()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ValidatorPower, len(last))
+	for i, v := range last {
+		out[i] = ValidatorPower{Operator: v.operator, Power: v.power}
+	}
+	return out, nil
+}

@@ -21,7 +21,7 @@ var (
 	errNegativeRewards       = errors.New("rewards would be negative")
 	errInvalidFraction       = errors.New("rate or fraction outside zero to one")
 	errOutstandingShort      = errors.New("outstanding rewards are less than what is taken from them")
-	errEscrowShort           = errors.New("distribution escrow holds less than it pays")
+	errBalanceShort          = errors.New("balance is less than the transfer")
 	errNoValidatorCommission = errors.New("no validator commission to withdraw")
 )
 
@@ -364,15 +364,20 @@ func (s store) takeOutstanding(val common.Address, amount *big.Int) error {
 
 // pay moves amount from the escrow to to.
 func (s store) pay(to common.Address, amount *big.Int) error {
+	return s.transfer(DistributionEscrow, to, amount)
+}
+
+// transfer moves amount from from to to.
+func (s store) transfer(from, to common.Address, amount *big.Int) error {
 	if amount.Sign() == 0 {
 		return nil
 	}
 	// A balance change that fails marks the state failed for the rest of the
-	// block, so the escrow is checked first.
-	if held := s.State.GetBalance(DistributionEscrow); held.Cmp(amount) < 0 {
-		return fmt.Errorf("%w: holds %s, paying %s", errEscrowShort, held, amount)
+	// block, so the balance is checked first.
+	if held := s.State.GetBalance(from); held.Cmp(amount) < 0 {
+		return fmt.Errorf("%w: %s holds %s, sending %s", errBalanceShort, from, held, amount)
 	}
-	if err := s.State.SubBalance(DistributionEscrow, amount); err != nil {
+	if err := s.State.SubBalance(from, amount); err != nil {
 		return err
 	}
 	s.State.AddBalance(to, amount)

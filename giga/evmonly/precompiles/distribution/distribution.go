@@ -3,6 +3,13 @@
 // held as contract storage at Address. Its params are the params precompile's
 // distribution subspace.
 //
+// Every block's fees are paid to FeeCollector. EndBlock sends each block's base
+// fees to the DAO and, at the end of each epoch, settles it as SIP-7 sets out:
+// the epoch's tips and its share of V2's token release schedule are paid to
+// the bonded set's validators by power, and the rest to the DAO. It runs
+// before staking's EndBlock, so an epoch is settled before staking applies the
+// changes of its end.
+//
 // It keeps x/distribution's F1 records of the rewards each delegation is owed,
 // and holds the rewards in DistributionEscrow until they are paid. Hooks keeps
 // the records in step with staking: a delegation's rewards are paid to its
