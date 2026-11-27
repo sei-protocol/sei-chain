@@ -12,18 +12,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/deque"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
 )
 
 var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
-<<<<<<< HEAD
-=======
 
-// errAlreadyKnown rejects a transaction the mempool still holds (see holdsPending). Its message
-// matches geth's txpool.ErrAlreadyKnown, which Ethereum clients recognise.
-var errAlreadyKnown = errors.New("already known")
-var errMempoolFull = errors.New("mempool is full")
->>>>>>> origin/main
+// errAlreadyKnown indicates a transaction held in its sender's current nonce range.
+var errAlreadyKnown = errors.New("already known") // Match geth's txpool.ErrAlreadyKnown for Ethereum clients.
 var ErrNotProducing = errors.New("not producing")
 
 type pendingTx struct {
@@ -54,9 +51,25 @@ type nonceRangeID uint64
 
 // range [first,next) of pending txs in lane + mempool
 type nonceRange struct {
-	id    nonceRangeID
-	first uint64
-	next  uint64
+	id     nonceRangeID
+	first  uint64
+	next   uint64
+	hashes deque.Deque[common.Hash]
+}
+
+type nonceRangeSnapshot struct {
+	id     nonceRangeID
+	first  uint64
+	next   uint64
+	hashes im.Slice[common.Hash]
+}
+
+// Snapshot returns the current nonce range with read-only transaction hashes.
+func (r *nonceRange) Snapshot() nonceRangeSnapshot {
+	return nonceRangeSnapshot{
+		id: r.id, first: r.first, next: r.next,
+		hashes: r.hashes.Snapshot(),
+	}
 }
 
 // mempoolInner is the lock-protected session state. The Watch value is fixed for
@@ -101,39 +114,30 @@ func (m *mempoolInner) SealBlock() {
 	m.nextBlock = &blockSpec{}
 }
 
-func (m *mempool) pendingNonces(addr common.Address) (nonceRange, bool) {
+func (m *mempool) pendingNonces(addr common.Address) (nonceRangeSnapshot, bool) {
 	for inner := range m.inner.Lock() {
 		if r, ok := inner.evmNonces[addr]; ok {
-			return *r, ok
+			return r.Snapshot(), ok
 		}
 	}
-	return nonceRange{}, false
+	return nonceRangeSnapshot{}, false
 }
 
-// holdsPending reports whether the mempool holds the transaction with the given hash in its
-// sender's current nonce range. The mempool holds a transaction from admission until its lane block
-// is pruned, after the block's AppHash is pushed, so this includes transactions already sealed,
-// finalized or executed.
-func (m *mempoolInner) holdsPending(hash common.Hash) bool {
-	tx, ok := m.evmTxs[hash]
-	if !ok {
-		return false
+// Verifies if tx is a valid next tx for this nonceRange.
+func (r nonceRangeSnapshot) VerifyNext(tx abevm.EvmTx) error {
+	n := tx.Nonce()
+	if r.first <= n && n < r.next {
+		if r.hashes.At(int(n-r.first)) == tx.Hash() {
+			return errAlreadyKnown
+		}
 	}
-	// A transaction from an invalidated range may be submitted again, so it no longer counts.
-	r, ok := m.evmNonces[tx.addr]
-	return ok && r.id == tx.nonceRangeID
-}
-
-// nonceError returns the error for tx, whose nonce is not want: errAlreadyKnown when the mempool
-// still holds tx (see holdsPending), and errBadNonce otherwise.
-func (m *mempoolInner) nonceError(tx abevm.EvmTx, want uint64) error {
-	if m.holdsPending(tx.Hash()) {
-		return errAlreadyKnown
+	if r.next != n {
+		return fmt.Errorf("%w: got %v, want %v", errBadNonce, tx.Nonce(), r.next)
 	}
-	return fmt.Errorf("%w: got %v, want %v", errBadNonce, tx.Nonce(), want)
+	return nil
 }
 
-func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
+func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) nonceRangeSnapshot {
 	// IMPORTANT: first snapshot the pending nonces THEN query app nonce.
 	// There would be a race condition otherwise.
 	pendingNonces, ok := m.pendingNonces(addr)
@@ -143,11 +147,11 @@ func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 
 	if !ok {
 		// no pending txs.
-		return appNonce
+		return nonceRangeSnapshot{first: appNonce, next: appNonce}
 	}
 	if pendingNonces.first <= appNonce {
 		// pending txs and no gap.
-		return pendingNonces.next
+		return pendingNonces
 	}
 	// Nonce gap detected, invalidate pending nonces.
 	for inner, ctrl := range m.inner.Lock() {
@@ -157,7 +161,7 @@ func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
 			ctrl.Updated()
 		}
 	}
-	return appNonce
+	return nonceRangeSnapshot{first: appNonce, next: appNonce}
 }
 
 func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
@@ -165,7 +169,7 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 	if !ok {
 		return s.app.EvmNonce(addr)
 	}
-	return s.evmNextPendingNonce(mp, addr)
+	return s.evmNextPendingNonce(mp, addr).next
 }
 
 // Removes txs from mempool assigned to lane blocks <n.
@@ -186,6 +190,7 @@ func (s *State) pruneMempool(mp *mempool, n types.LaneHeight) {
 					// blocks are constructed in nonce order, so
 					// nonce of tx is tx.nonceRange.first at this point.
 					r.first += 1
+					r.hashes.PopFront()
 					if r.Len() == 0 {
 						delete(m.evmNonces, tx.addr)
 					}
@@ -212,60 +217,6 @@ func (s *State) checkTx(ctx context.Context, tx abevm.EvmTx) (abevm.AdmittedTx, 
 	release, err := s.checkTxSem.Acquire(ctx)
 	metrics.ObserveCheckTxWait(time.Since(start))
 	if err != nil {
-<<<<<<< HEAD
-=======
-		return abevm.EvmTx{}, abevm.AdmittedTx{}, err
-	}
-	defer release()
-	return abevm.CheckTx(s.app, s.signer, tx)
-}
-
-// insertTx inserts a transaction and records its outcome.
-func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (abevm.AdmittedTx, error) {
-	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
-	var result string
-	switch {
-	case errors.Is(err, errTooLarge):
-		result = "too_large"
-	case errors.Is(err, errMempoolFull):
-		result = "full"
-	case errors.Is(err, ErrNotProducing):
-		result = "not_producing"
-	case errors.Is(err, errBadNonce):
-		result = "bad_nonce"
-	case errors.Is(err, errAlreadyKnown):
-		result = "already_known"
-	case errors.Is(err, abevm.ErrTxRejected):
-		result = "rejected"
-	case err != nil:
-		result = "error"
-	default:
-		result = "ok"
-	}
-	metrics.Global.InsertsAt(result).Add(1)
-	return resp, err
-}
-
-// Inserts transaction. Blocks until there is capacity in the mempool.
-func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (abevm.AdmittedTx, error) {
-	mp, ok := s.mempool.Load().Get()
-	if !ok {
-		return abevm.AdmittedTx{}, ErrNotProducing
-	}
-	if uint64(len(tx)) > types.MaxTxsBytesPerLaneBlock {
-		return abevm.AdmittedTx{}, errTooLarge
-	}
-	// Early exit if mempool is full and we won't wait.
-	if !waitIfFull {
-		for m := range mp.inner.Lock() {
-			if m.IsFull() {
-				return abevm.AdmittedTx{}, errMempoolFull
-			}
-		}
-	}
-	decoded, resp, err := s.checkTx(ctx, tx)
-	if err != nil {
->>>>>>> origin/main
 		return abevm.AdmittedTx{}, err
 	}
 	defer release()
@@ -305,17 +256,9 @@ func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTxRaw) (err error) {
 
 	// Quick check the evm pending nonce.
 	// It has a side effect of resetting the pending nonce, if gap is detected.
-<<<<<<< HEAD
 	addr := tx.Sender()
-	if got, want := tx.Nonce(), s.evmNextPendingNonce(mp, addr); got != want {
-		return fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
-=======
-	addr := decoded.Sender()
-	if want := s.evmNextPendingNonce(mp, addr); decoded.Nonce() != want {
-		for m := range mp.inner.Lock() {
-			return abevm.AdmittedTx{}, m.nonceError(decoded, want)
-		}
->>>>>>> origin/main
+	if err := s.evmNextPendingNonce(mp, addr).VerifyNext(tx.EvmTx()); err != nil {
+		return err
 	}
 	// Rate limiting for incoming transactions.
 	// This is lane throughput throttling, so it comes after tx validation.
@@ -346,19 +289,16 @@ func (s *State) InsertTx(ctx context.Context, tx abevm.EvmTxRaw) (err error) {
 		// This is fine, as our pending nonce tracking is always consistent,
 		// and converges to correct state if sender's txs are submitted sequentially in nonce order.
 		if r, ok := m.evmNonces[addr]; ok {
-<<<<<<< HEAD
-			if r.next != tx.Nonce() {
-				return fmt.Errorf("%w: got %v, want %v", errBadNonce, tx.Nonce(), r.next)
-=======
-			if r.next != decoded.Nonce() {
-				return abevm.AdmittedTx{}, m.nonceError(decoded, r.next)
->>>>>>> origin/main
+			if err := r.Snapshot().VerifyNext(tx.EvmTx()); err != nil {
+				return err
 			}
 			r.next += 1
 		} else {
-			m.evmNonces[addr] = &nonceRange{m.nextNonceRangeID, tx.Nonce(), tx.Nonce() + 1}
+			m.evmNonces[addr] = &nonceRange{id: m.nextNonceRangeID, first: tx.Nonce(), next: tx.Nonce() + 1}
 			m.nextNonceRangeID += 1
 		}
+		r := m.evmNonces[addr]
+		r.hashes.PushBack(tx.Hash())
 		// If any limit would be exceeded, then construct a payload.
 		// Note that we use subtraction in a way avoiding arithmetic overflows.
 		ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
@@ -394,6 +334,8 @@ func insertTxResult(err error) string {
 		return "too_large"
 	case errors.Is(err, ErrNotProducing):
 		return "not_producing"
+	case errors.Is(err, errAlreadyKnown):
+		return "already_known"
 	case errors.Is(err, errBadNonce):
 		return "bad_nonce"
 	case errors.Is(err, abevm.ErrTxRejected):

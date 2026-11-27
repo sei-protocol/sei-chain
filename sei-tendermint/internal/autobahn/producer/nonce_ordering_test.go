@@ -107,7 +107,7 @@ func TestEVMNextPendingNonce_race(t *testing.T) {
 		s.Spawn(func() error {
 			// WARNING: this call is blocking because we made EVMNonce blocking
 			// for test purposes.
-			if got, want := env.state.evmNextPendingNonce(mp, addr), nonce+2; got != want {
+			if got, want := env.state.evmNextPendingNonce(mp, addr).next, nonce+2; got != want {
 				return fmt.Errorf("evmNextPendingNonce() = %v, want %v", got, want)
 			}
 			return nil

@@ -1,11 +1,8 @@
 package evm
 
 import (
-<<<<<<< HEAD
 	"errors"
-=======
 	"math/big"
->>>>>>> origin/main
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"

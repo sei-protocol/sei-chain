@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"iter"
 	"maps"
 	"slices"
 
@@ -14,20 +13,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
 )
-
-// Immutable slice.
-type ImSlice[T any] struct{ s []T }
-
-func (s ImSlice[T]) Len() int         { return len(s.s) }
-func (s ImSlice[T]) At(i int) T       { return s.s[i] }
-func (s ImSlice[T]) All() iter.Seq[T] { return slices.Values(s.s) }
 
 // Committee represents the consensus committee.
 // Lanes carry membership (validator + joined); weights are voting stake.
 type Committee struct {
-	validators  ImSlice[PublicKey] // ordered list
-	laneIDs     ImSlice[LaneID]    // same order as validators
+	validators  im.Slice[PublicKey] // ordered list
+	laneIDs     im.Slice[LaneID]    // same order as validators
 	lanes       map[PublicKey]LaneID
 	weights     map[PublicKey]uint64
 	totalWeight uint64
@@ -53,7 +46,7 @@ func (c *Committee) Lane(v PublicKey) utils.Option[LaneID] {
 	return utils.Some(lane)
 }
 
-func (c *Committee) Lanes() ImSlice[LaneID] {
+func (c *Committee) Lanes() im.Slice[LaneID] {
 	return c.laneIDs
 }
 
@@ -229,8 +222,8 @@ func newCommittee(prev map[PublicKey]LaneID, weights map[PublicKey]uint64, e Epo
 		laneIDs[i] = lanes[v]
 	}
 	return &Committee{
-		validators:  ImSlice[PublicKey]{validators},
-		laneIDs:     ImSlice[LaneID]{laneIDs},
+		validators:  im.NewSlice(validators),
+		laneIDs:     im.NewSlice(laneIDs),
 		lanes:       lanes,
 		weights:     weights,
 		totalWeight: totalWeight,

@@ -168,13 +168,8 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 				if err != nil {
 					return err
 				}
-<<<<<<< HEAD
-				return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, peerScope scope.Scope) error {
-					peerScope.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, c.Run(ctx)) })
-=======
 				return utils.IgnoreAfterCancel(ctx, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, peerScope scope.Scope) error {
 					peerScope.SpawnBg(func() error { return c.Run(ctx) })
->>>>>>> origin/main
 					peerURL := endpoint
 					peerURL.Path = fmt.Sprintf("/%d", i)
 					hConn, err := handshake(ctx, c, handshakeSpec{
