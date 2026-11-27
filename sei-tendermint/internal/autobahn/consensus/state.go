@@ -323,11 +323,7 @@ func (s *State) runPropose(ctx context.Context) error {
 			s.myProposal.Store(utils.Some(fullProposal))
 			return nil
 		}
-		// Wait for laneQCs.
-		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.Height())
-		if err != nil {
-			return fmt.Errorf("s.avail.WaitForLaneQCs(): %w", err)
-		}
+		laneQCsMap := s.avail.GetLaneQCs(vs.Height())
 		// Construct a full proposal.
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
@@ -336,7 +332,7 @@ func (s *State) runPropose(ctx context.Context) error {
 			laneQCsMap,
 		)
 		if err != nil {
-			return fmt.Errorf("s.avail.WaitForProposal(): %w", err)
+			return fmt.Errorf("types.NewProposal(): %w", err)
 		}
 		s.myProposal.Store(utils.Some(fullProposal))
 		return nil

@@ -46,7 +46,7 @@ func TestReconstructRoadBlocksAcrossEpochs(t *testing.T) {
 			ds = isolated
 		}
 		state := utils.OrPanic1(NewState(&Config{
-			Key: key, ViewTimeout: viewTimeout, ProposalTimeout: time.Hour, MaxRate: rate.Inf,
+			Key: key, ViewTimeout: viewTimeout, ProposalTimeout: time.Hour, MaxRate: rate.Every(TestMinRoadBlockInterval),
 			PersistentStateDir: utils.None[string](),
 		}, ds))
 		t.Cleanup(func() { require.NoError(t, state.Close()) })

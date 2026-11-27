@@ -295,7 +295,7 @@ func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app accountApp
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
-		MaxRate:            rate.Inf,
+		MaxRate:            rate.Every(consensus.TestMinRoadBlockInterval),
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
 	evm := abevm.NewProxy(app)

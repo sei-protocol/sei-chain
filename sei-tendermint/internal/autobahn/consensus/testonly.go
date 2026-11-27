@@ -2,12 +2,16 @@ package consensus
 
 import (
 	"context"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
+
+// TestMinRoadBlockInterval is the consensus interval used by general test fixtures.
+const TestMinRoadBlockInterval = 50 * time.Millisecond
 
 func RunTestConn(ctx context.Context, from *State, to *State) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {

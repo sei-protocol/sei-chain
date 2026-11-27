@@ -322,10 +322,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Push a commit QC.")
-			laneQCs, err := state.WaitForLaneQCs(ctx, (types.ConsensusSpec{Epoch: ep0, CommitQC: prev}).Height())
-			if err != nil {
-				return fmt.Errorf("state.WaitForNewLaneQCs(): %w", err)
-			}
+			laneQCs := state.GetLaneQCs((types.ConsensusSpec{Epoch: ep0, CommitQC: prev}).Height())
 			qc := types.BuildCommitQC(ep0, keys, prev, laneQCs)
 			if err := state.PushCommitQC(ctx, qc); err != nil {
 				return fmt.Errorf("state.PushCommitQC(): %w", err)
@@ -472,10 +469,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 				}
 			}
 
-			laneQCs, err := state.WaitForLaneQCs(ctx, (types.ConsensusSpec{Epoch: ep0, CommitQC: prev}).Height())
-			if err != nil {
-				return fmt.Errorf("WaitForLaneQCs: %w", err)
-			}
+			laneQCs := state.GetLaneQCs((types.ConsensusSpec{Epoch: ep0, CommitQC: prev}).Height())
 			qc := types.BuildCommitQC(ep0, keys, prev, laneQCs)
 			if err := state.PushCommitQC(ctx, qc); err != nil {
 				return fmt.Errorf("PushCommitQC: %w", err)
@@ -641,7 +635,7 @@ func TestProductionAfterRestart(t *testing.T) {
 			}
 			// Finalize blocks.
 			prev := utils.None[*types.CommitQC]()
-			laneQCs := utils.OrPanic1(producer.WaitForLaneQCs(ctx, (types.ConsensusSpec{Epoch: ep, CommitQC: prev}).Height()))
+			laneQCs := producer.GetLaneQCs((types.ConsensusSpec{Epoch: ep, CommitQC: prev}).Height())
 			commitQC := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), laneQCs)
 			app = types.NewAppProposal(commitQC.View(), types.GenAppHash(rng))
 			for _, node := range utils.Slice(producer, peer) {
@@ -925,10 +919,7 @@ func TestFullCommitQCAfterMismatchingLaneQC(t *testing.T) {
 				return err
 			}
 		}
-		localQCs, err := state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Height())
-		if err != nil {
-			return err
-		}
+		localQCs := state.GetLaneQCs(state.ConsensusSpec().Load().Height())
 		if err := utils.TestDiff(b1.Header(), localQCs[lane].Header()); err != nil {
 			return err
 		}
@@ -1281,8 +1272,7 @@ func TestBlockVotes_EpochAdvance(t *testing.T) {
 	for _, vote := range oldVotes {
 		require.NoError(t, state.PushVote(ctx, vote))
 	}
-	qcs, err := state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Height())
-	require.NoError(t, err)
+	qcs := state.GetLaneQCs(state.ConsensusSpec().Load().Height())
 	require.Equal(t, header, qcs[lane].Header())
 	require.NoError(t, qcs[lane].Verify(registry.MustEpoch(0)))
 
@@ -1302,8 +1292,7 @@ func TestBlockVotes_EpochAdvance(t *testing.T) {
 	for _, vote := range makeLaneVotes(2, newKeys, header) {
 		require.NoError(t, state.PushVote(ctx, vote))
 	}
-	qcs, err = state.WaitForLaneQCs(ctx, state.ConsensusSpec().Load().Height())
-	require.NoError(t, err)
+	qcs = state.GetLaneQCs(state.ConsensusSpec().Load().Height())
 	require.Equal(t, header, qcs[lane].Header())
 	require.NoError(t, qcs[lane].Verify(registry.MustEpoch(2)))
 }
@@ -1439,4 +1428,27 @@ func TestPushCommitQCRejectsAWrongParentAfterTheAnchor(t *testing.T) {
 	require.Equal(t, anchorHeight+1, bad.Height())
 	require.ErrorIs(t, state.PushCommitQC(t.Context(), bad), types.ErrParentMismatch)
 	require.Equal(t, anchorHeight+1, nextRoad(state))
+}
+
+func TestGetLaneQCs(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	state := utils.OrPanic1(NewState(keys[0], newTestDataState(t, &data.Config{App: abevm.TestEpochApp(registry)}), utils.None[string]()))
+	defer func() { require.NoError(t, state.Close()) }()
+	height := state.ConsensusSpec().Load().Height()
+	require.Empty(t, state.GetLaneQCs(height))
+
+	lane := state.LocalLane().OrPanic("local lane")
+	header := types.NewLaneBlock(lane, 0, types.LaneBlockHeaderHash{}, types.GenPayload(rng)).Header()
+	for _, vote := range makeLaneVotes(ep.EpochIndex(), keys, header) {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	qcs := state.GetLaneQCs(height)
+	require.Len(t, qcs, 1)
+	require.Equal(t, header, qcs[lane].Header())
+	require.NoError(t, qcs[lane].Verify(ep))
+	require.Empty(t, state.GetLaneQCs(height-1))
+	require.Empty(t, state.GetLaneQCs(height+1))
 }

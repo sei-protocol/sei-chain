@@ -16,7 +16,6 @@ func init() {
 		Global.commitToCommitLatency,
 		Global.producedTxs,
 		Global.laneCapacityWaitLatency,
-		Global.laneQcWaitLatency,
 		Global.inFlight,
 		Global.laneQcs,
 		Global.laneVotesIngested,
@@ -58,18 +57,11 @@ func newMetrics() *metrics {
 			Help:      "Time a WaitForCapacity call spent blocked waiting for lane window.",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 2, 22),
 		}, nil),
-		laneQcWaitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "lane_qc_wait_latency",
-			Help:      "Time a WaitForLaneQCs call spent blocked waiting for a new LaneQC.",
-			Buckets:   prometheus.ExponentialBuckets(0.001, 2, 22),
-		}, nil),
 		inFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "in_flight",
-			Help:      "Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.",
+			Help:      "Number of WaitForCapacity calls currently blocked.",
 		}, []string{"wait"}),
 		laneQcs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
@@ -111,10 +103,6 @@ func (m *metrics) producedTxsAt() *tmprometheus.CounterInt {
 
 func (m *metrics) laneCapacityWaitLatencyAt() *tmprometheus.Histogram {
 	return m.laneCapacityWaitLatency.WithLabelValues()
-}
-
-func (m *metrics) laneQcWaitLatencyAt() *tmprometheus.Histogram {
-	return m.laneQcWaitLatency.WithLabelValues()
 }
 
 func (m *metrics) inFlightAt(wait string) *tmprometheus.GaugeInt {

@@ -60,6 +60,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		InitialHeight:   rng.Int63n(100000) + 1,
 		AppState:        testAppStateJSON(rng),
 		ConsensusParams: testGigaConsensusParams(),
+		Autobahn:        testAutobahnParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 	registry := testGenesisEpochs(t, genDoc, addrs)
@@ -175,11 +176,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				}
 			}
 		}
-		// Nodes should agree on the final state.
+		// Nodes should agree on block history through a common executed height.
 		want := apps[0].Snapshot()
 		for i, app := range apps {
 			t.Logf("app[%v]", i)
-			if err := utils.TestDiff(want, app.Snapshot()); err != nil {
+			if _, err := app.WaitForBlocks(ctx, len(want.Blocks)); err != nil {
+				return err
+			}
+			if err := checkAppStateExtension(want, app.Snapshot()); err != nil {
 				return fmt.Errorf("state mismatch app[%v]: %w", i, err)
 			}
 		}
@@ -320,6 +324,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		InitialHeight:   1,
 		AppState:        testAppStateJSON(rng),
 		ConsensusParams: testGigaConsensusParams(),
+		Autobahn:        testAutobahnParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 

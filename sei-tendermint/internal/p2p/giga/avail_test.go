@@ -57,7 +57,7 @@ func TestAvailClientServer(t *testing.T) {
 			Key:             activeKeys[0],
 			ViewTimeout:     defaultViewTimeout,
 			ProposalTimeout: time.Hour,
-			MaxRate:         rate.Inf,
+			MaxRate:         rate.Every(consensus.TestMinRoadBlockInterval),
 		})
 		corruptAvail := corrupt.consensus.Avail()
 		a2 := nodes[2].consensus.Avail()

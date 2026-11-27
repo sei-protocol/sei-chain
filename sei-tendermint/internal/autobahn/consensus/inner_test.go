@@ -1095,7 +1095,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
-		MaxRate:            rate.Inf,
+		MaxRate:            rate.Every(TestMinRoadBlockInterval),
 		PersistentStateDir: utils.Some(dir),
 	}, ds, pers, utils.None[*pb.PersistedInner]())
 	require.NoError(t, err)
@@ -1114,7 +1114,7 @@ func newConsensusState(t *testing.T, registry *epoch.TestRegistry, key types.Sec
 		Key:             key,
 		ViewTimeout:     func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout: time.Hour,
-		MaxRate:         rate.Inf,
+		MaxRate:         rate.Every(TestMinRoadBlockInterval),
 	}, newTestDataState(t, registry))
 	require.NoError(t, err)
 	return s

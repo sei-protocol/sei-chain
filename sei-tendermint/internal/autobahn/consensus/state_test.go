@@ -56,7 +56,7 @@ func newTestStateWith(
 		Key:                key,
 		ViewTimeout:        timeout.Or(hourTimeout),
 		ProposalTimeout:    time.Hour,
-		MaxRate:            rate.Inf,
+		MaxRate:            rate.Every(TestMinRoadBlockInterval),
 		PersistentStateDir: utils.None[string](),
 	}, newTestDataState(t, registry)))
 	return s, keys, registry
@@ -247,7 +247,7 @@ func TestNewStateRejectsNonPositiveProposalTimeout(t *testing.T) {
 			Key:                keys[0],
 			ViewTimeout:        hourTimeout,
 			ProposalTimeout:    timeout,
-			MaxRate:            rate.Inf,
+			MaxRate:            rate.Every(TestMinRoadBlockInterval),
 			PersistentStateDir: utils.None[string](),
 		}, newTestDataState(t, registry))
 		require.Error(t, err)
@@ -841,38 +841,45 @@ func weightedEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *ty
 // --- propose ---
 
 func TestRunPropose(t *testing.T) {
-	t.Run("fresh proposal", func(t *testing.T) {
-		rng := utils.TestRng()
-		e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.TestRegistry, keys []types.SecretKey) types.SecretKey {
-			return secretKeyForView(reg, keys, types.View{Height: reg.MustEpoch(0).RoadRange().First})
-		})), utils.None[ViewTimeoutFunc]())
-		require.Equal(t, e.s.cfg.Key.Public(), e.committee().Leader(e.vs.View()))
+	for _, withLaneQC := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fresh proposal with lane QC=%v", withLaneQC), func(t *testing.T) {
+			rng := utils.TestRng()
+			e := newLiveEnvWith(t, rng, utils.Some(testKeyPick(func(reg *epoch.TestRegistry, keys []types.SecretKey) types.SecretKey {
+				return secretKeyForView(reg, keys, types.View{Height: reg.MustEpoch(0).RoadRange().First})
+			})), utils.None[ViewTimeoutFunc]())
+			require.Equal(t, e.s.cfg.Key.Public(), e.committee().Leader(e.vs.View()))
 
-		err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
-			if err := e.seedLaneQC(ctx); err != nil {
-				return err
-			}
-			sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runPropose(ctx)) })
-			got, err := e.s.SubscribeProposal().Wait(ctx, func(o utils.Option[*types.FullProposal]) bool {
-				return o.IsPresent()
+			err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+				if withLaneQC {
+					if err := e.seedLaneQC(ctx); err != nil {
+						return err
+					}
+				}
+				sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runPropose(ctx)) })
+				got, err := e.s.SubscribeProposal().Wait(ctx, func(o utils.Option[*types.FullProposal]) bool {
+					return o.IsPresent()
+				})
+				if err != nil {
+					return err
+				}
+				p, ok := got.Get()
+				if !ok {
+					return fmt.Errorf("proposal missing")
+				}
+				if p.View() != e.vs.View() {
+					return fmt.Errorf("proposal view %v, want %v", p.View(), e.vs.View())
+				}
+				if got := p.Header().NumBlocks() > 0; got != withLaneQC {
+					return fmt.Errorf("proposal has lane blocks = %v, want %v", got, withLaneQC)
+				}
+				if err := p.Verify(e.vs, e.s.cfg.ProposalTimeout); err != nil {
+					return fmt.Errorf("proposal.Verify(): %w", err)
+				}
+				return nil
 			})
-			if err != nil {
-				return err
-			}
-			p, ok := got.Get()
-			if !ok {
-				return fmt.Errorf("proposal missing")
-			}
-			if p.View() != e.vs.View() {
-				return fmt.Errorf("proposal view %v, want %v", p.View(), e.vs.View())
-			}
-			if err := p.Verify(e.vs, e.s.cfg.ProposalTimeout); err != nil {
-				return fmt.Errorf("proposal.Verify(): %w", err)
-			}
-			return nil
+			require.NoError(t, err)
 		})
-		require.NoError(t, err)
-	})
+	}
 
 	t.Run("reproposal", func(t *testing.T) {
 		rng := utils.TestRng()
@@ -1222,7 +1229,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 			Key:                keys[0],
 			ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 			ProposalTimeout:    time.Hour,
-			MaxRate:            rate.Inf,
+			MaxRate:            rate.Every(TestMinRoadBlockInterval),
 			PersistentStateDir: utils.Some(dir),
 		}
 	}
@@ -1446,4 +1453,76 @@ func TestPushPrepareQCRejectsAParentOnTheFirstRoadBlock(t *testing.T) {
 	honest := makePrepareQC(e.keys, types.ProposalWithParent(e.vs.Epoch, e.vs.View(), utils.None[types.RoadBlockHeaderHash]()))
 	require.NoError(t, e.s.pushPrepareQC(t.Context(), honest))
 	require.True(t, e.inner().CommitVote.IsPresent())
+}
+
+func TestConsensusCommitsEmptyRoadsAcrossEpochs(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	registry := utils.OrPanic1(epoch.TestGenesisRegistry(committee, 1, 2))
+	weights := map[types.PublicKey]uint64{}
+	for _, key := range keys {
+		weights[key.Public()] = committee.Weight(key.Public())
+	}
+	require.NoError(t, registry.TestPushEpoch(0, weights))
+	var states []*State
+	for _, key := range keys {
+		state := utils.OrPanic1(NewState(&Config{
+			Key: key, ViewTimeout: hourTimeout, ProposalTimeout: time.Hour, MaxRate: rate.Every(TestMinRoadBlockInterval),
+		}, newTestDataState(t, registry)))
+		defer func() { require.NoError(t, state.Close()) }()
+		states = append(states, state)
+	}
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		for _, state := range states {
+			sc.SpawnBg(func() error { return utils.IgnoreCancel(state.Data().Run(ctx)) })
+			sc.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		}
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(RunTestNetwork(ctx, states)) })
+		previous := utils.None[*types.RoadBlockHeader]()
+		for height := types.RoadHeight(1); height <= 3; height++ {
+			ep := registry.MustEpoch(types.EpochIndex((height - 1) / 2))
+			appHash := types.GenAppHash(rng)
+			for _, state := range states {
+				qc, err := state.Data().QC(ctx, height)
+				if err != nil {
+					return err
+				}
+				if err := qc.Verify(ep); err != nil {
+					return err
+				}
+				if len(qc.Headers()) != 0 {
+					return fmt.Errorf("road %d contains lane blocks without production", height)
+				}
+				if err := qc.QC().Header().VerifyParent(previous); err != nil {
+					return err
+				}
+				block, err := state.Data().SuperBlock(ctx, height)
+				if err != nil {
+					return err
+				}
+				if len(block.Txs) != 0 || block.GasWanted != 0 {
+					return fmt.Errorf("road %d contains transactions or gas without production", height)
+				}
+				if err := state.Data().PushAppHash(ctx, height, appHash); err != nil {
+					return err
+				}
+			}
+			for _, state := range states {
+				qc, err := state.Data().AppQC(ctx, height)
+				if err != nil {
+					return err
+				}
+				if err := utils.TestDiff(appHash, qc.Proposal().AppHash()); err != nil {
+					return err
+				}
+			}
+			qc, err := states[0].Data().QC(ctx, height)
+			if err != nil {
+				return err
+			}
+			previous = utils.Some(qc.QC().Header())
+		}
+		return nil
+	}))
 }
