@@ -246,6 +246,8 @@ func executionBlockRef(header *ethtypes.Header) (BlockRef, error) {
 		Time:       header.Time,
 		ParentHash: header.ParentHash,
 		BaseFee:    header.BaseFee,
+		// As in go-ethereum, a post-merge header carries PREVRANDAO in its mix digest.
+		PrevRandao: header.MixDigest,
 	}, nil
 }
 

@@ -722,6 +722,8 @@ func TestEVMOnlyApplicationRestoreBlockTimeSeedsBlockTime(t *testing.T) {
 	var last abevm.FinalizeBlockReq
 	for height := range int64(blocks) {
 		last = evmOnlyTestBlock(app, height+1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height))) //nolint:gosec // G115: test heights are positive.
+		// A fraction of a second, which the restored PREVRANDAO must keep.
+		last.Time = last.Time.Add(250 * time.Millisecond)
 		finalizeEVMOnlyTestBlock(t, app, last)
 	}
 
@@ -737,6 +739,13 @@ func TestEVMOnlyApplicationRestoreBlockTimeSeedsBlockTime(t *testing.T) {
 	for state := range resumed.cursor.Lock() {
 		require.Equal(t, uint64(last.Time.Unix()), state.lastBlockTime) //nolint:gosec // G115: test times are positive.
 	}
+
+	// Verify: a call after the restart sees the PREVRANDAO the last block executed at.
+	contract := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	result, err := resumed.EvmCall(t.Context(), callMessage(common.Address{}, &contract), codeOverride(contract, prevRandaoCode))
+	require.NoError(t, err)
+	require.NoError(t, result.Err)
+	require.Equal(t, evmonly.PrevRandao(last.Time).Bytes(), result.Return())
 }
 
 // A restarted node must resume from the height and app hash its storage holds,

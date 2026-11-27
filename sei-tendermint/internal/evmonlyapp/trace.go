@@ -55,7 +55,7 @@ func (a *evmOnlyApplication) EvmStateBeforeTx(ctx context.Context, block abevm.B
 // only stamps receipts, is left zero.
 func (a *evmOnlyApplication) traceBlockContext(number uint64, block abevm.BlockRef) evmonly.BlockContext {
 	// The gas limit is fixed at InitChain, so the committed one is every block's.
-	return a.blockContext(number, block.Time, a.EvmGasLimit(), block.BaseFee, block.ParentHash, common.Hash{})
+	return a.blockContext(number, block.Time, a.EvmGasLimit(), block.BaseFee, block.PrevRandao, block.ParentHash, common.Hash{})
 }
 
 // openTraceState opens the committed EVM state after height, or the latest committed state when

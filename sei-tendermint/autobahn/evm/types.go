@@ -52,6 +52,8 @@ type BlockRef struct {
 	ParentHash common.Hash
 	// BaseFee is the base fee the block ran at.
 	BaseFee *big.Int
+	// PrevRandao is the PREVRANDAO the block executed with.
+	PrevRandao common.Hash
 }
 
 type tx = ethtypes.Transaction

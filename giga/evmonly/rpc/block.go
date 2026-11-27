@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -213,6 +214,8 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 		Time:       blockUnix,
 		Difficulty: new(big.Int),
 		BaseFee:    baseFee,
+		// The block's PREVRANDAO, which Time, in whole seconds, cannot derive.
+		MixDigest: evmonly.PrevRandao(block.Block.Time),
 	}, nil
 }
 

@@ -14,14 +14,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// traceTestHeader returns the header a test block at height carries, with parentHash the hash of
-// the block before it.
+// traceTestHeader returns the reference the RPC builds for a test block at height, with parentHash
+// the hash of the block before it.
 func traceTestHeader(height int64, parentHash common.Hash) abevm.BlockRef {
 	return abevm.BlockRef{
 		Height:     atypes.RoadHeight(height),
 		Time:       uint64(evmOnlyTestBlockTime(height).Unix()), //nolint:gosec // G115: test times are positive.
 		ParentHash: parentHash,
 		BaseFee:    big.NewInt(evmOnlyGenesisMinFeePerGas),
+		PrevRandao: evmonly.PrevRandao(evmOnlyTestBlockTime(height)),
 	}
 }
 
@@ -104,7 +105,7 @@ func TestEVMOnlyApplicationRebuildsABlockContext(t *testing.T) {
 	require.Equal(t, uint64(30_000_000), got.GasLimit)
 	require.Equal(t, evmonly.FeeCollectorAddress, got.Coinbase)
 	require.Equal(t, header.BaseFee, got.BaseFee)
-	require.Equal(t, evmOnlyPrevRandao(header.Time), *got.Random)
+	require.Equal(t, header.PrevRandao, *got.Random)
 	require.Equal(t, first.Hash, got.GetHash(1))
 	require.Equal(t, common.Hash{}, got.GetHash(0))
 }

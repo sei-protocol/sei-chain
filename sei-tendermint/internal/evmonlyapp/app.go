@@ -102,6 +102,10 @@ type evmOnlyCursorState struct {
 	lastBlockTime uint64
 	// pendingBlockTime is the timestamp of the block being finalized.
 	pendingBlockTime uint64
+	// lastPrevRandao is the PREVRANDAO of the most recently finalized block.
+	lastPrevRandao common.Hash
+	// pendingPrevRandao is the PREVRANDAO of the block being finalized.
+	pendingPrevRandao common.Hash
 }
 
 // newEVMOnlyCursorState returns the cursor state of an app that neither InitChain nor a stored
@@ -259,6 +263,7 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
+		state.pendingPrevRandao = block.PrevRandao
 		changes := append([]gigatypes.MiscChange{next.miscChange(), a.chainIDMiscChange()}, epochChanges...)
 		if alloc, ok := a.alloc.Get(); ok && height == alloc.InitialHeight {
 			changes = append(changes, alloc.miscChange())
@@ -330,13 +335,14 @@ func (a *evmOnlyApplication) Info() *abevm.ResponseInfo {
 	panic("unreachable")
 }
 
-// RestoreBlockTime sets the committed block time after restart.
+// RestoreBlockTime sets the committed block time, and the PREVRANDAO derived from it, after restart.
 func (a *evmOnlyApplication) RestoreBlockTime(blockTime time.Time) {
 	if blockTime.Unix() < 0 {
 		return
 	}
 	for state := range a.cursor.Lock() {
 		state.lastBlockTime = uint64(blockTime.Unix()) //nolint:gosec // The timestamp is non-negative above.
+		state.lastPrevRandao = evmonly.PrevRandao(blockTime)
 	}
 }
 
@@ -654,14 +660,9 @@ func (a *evmOnlyApplication) scheduledBaseFee(height int64) *big.Int {
 	panic("unreachable")
 }
 
-// evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
-func evmOnlyPrevRandao(timestamp uint64) common.Hash {
-	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
-}
-
 // blockContext returns the context this application executes a block at. Its coinbase is
 // evmonly.FeeCollectorAddress and its blob base fee is zero.
-func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, baseFee *big.Int, parentHash, blockHash common.Hash) evmonly.BlockContext {
+func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, baseFee *big.Int, prevRandao, parentHash, blockHash common.Hash) evmonly.BlockContext {
 	return evmonly.BlockContext{
 		Number:      number,
 		Time:        timestamp,
@@ -672,7 +673,7 @@ func (a *evmOnlyApplication) blockContext(number, timestamp, gasLimit uint64, ba
 		BlobBaseFee: new(big.Int),
 		ParentHash:  parentHash,
 		BlockHash:   blockHash,
-		PrevRandao:  evmOnlyPrevRandao(timestamp),
+		PrevRandao:  prevRandao,
 	}
 }
 
@@ -715,7 +716,7 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 			return evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
 		}
 		// ParentHash is left zero.
-		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, state.committed.baseFee(), common.Hash{}, state.committed.blockHash), nil
+		return a.blockContext(number, state.lastBlockTime, state.committed.gasLimit, state.committed.baseFee(), state.lastPrevRandao, common.Hash{}, state.committed.blockHash), nil
 	}
 	panic("unreachable")
 }
@@ -870,6 +871,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 	if !ok {
 		return abevm.FinalizeBlockResp{}, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Time)
 	}
+	prevRandao := evmonly.PrevRandao(req.Time)
 	blockHash := req.Hash
 	executor, ok := a.settler.Load().Get()
 	if !ok {
@@ -878,7 +880,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 	// Prepared before this block's turn, so it overlaps the previous block's execution.
 	parentHash, parentKnown := a.startBlock(height, blockHash)
 	prepared, err := executor.PrepareDecodedBlock(ctx,
-		a.blockContext(number, timestamp, a.EvmGasLimit(), a.scheduledBaseFee(height), parentHash, blockHash), req.Txs)
+		a.blockContext(number, timestamp, a.EvmGasLimit(), a.scheduledBaseFee(height), prevRandao, parentHash, blockHash), req.Txs)
 	if err != nil {
 		return abevm.FinalizeBlockResp{}, err
 	}
@@ -901,7 +903,7 @@ func (a *evmOnlyApplication) finalizeBlock(ctx context.Context, req abevm.Finali
 			return abevm.FinalizeBlockResp{}, err
 		}
 		a.finalizePhases.SetPhase(finalizePhaseExecute)
-		prepared.Context = a.blockContext(number, timestamp, parent.gasLimit, parent.nextBaseFee(), parent.blockHash, blockHash)
+		prepared.Context = a.blockContext(number, timestamp, parent.gasLimit, parent.nextBaseFee(), prevRandao, parent.blockHash, blockHash)
 		result, err := executor.ExecutePreparedBlock(ctx, prepared)
 		// Closed while executor is held: a deferred Reset would run after the next block's turn starts.
 		a.finalizePhases.Reset()
@@ -967,7 +969,7 @@ func (a *evmOnlyApplication) waitTurn(ctx context.Context, height int64) error {
 	panic("unreachable")
 }
 
-// finishBlock publishes the cursor and timestamp of the finalized block.
+// finishBlock publishes the cursor, timestamp and PREVRANDAO of the finalized block.
 func (a *evmOnlyApplication) finishBlock(height int64) error {
 	for state, ctrl := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
@@ -976,6 +978,7 @@ func (a *evmOnlyApplication) finishBlock(height int64) error {
 		}
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
+		state.lastPrevRandao = state.pendingPrevRandao
 		state.pending = utils.None[evmOnlyCursor]()
 		delete(state.started, height)
 		// Under the cursor lock, so it precedes the next block's turn and its PhaseExecution.
