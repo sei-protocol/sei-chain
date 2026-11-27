@@ -86,9 +86,11 @@ func (tx EvmTxRaw) Raw() RawTx   { return tx.raw }
 
 // EvmBlock contains finalized block data used by EVM RPCs.
 type EvmBlock struct {
-	Hash    common.Hash
-	Height  types.RoadHeight
-	Time    time.Time
-	Txs     [][]byte
-	ChainID string
+	// ParentHash is zero for the first road block.
+	ParentHash common.Hash
+	Hash       common.Hash
+	Height     types.RoadHeight
+	Time       time.Time
+	Txs        [][]byte
+	ChainID    string
 }

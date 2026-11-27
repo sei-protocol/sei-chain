@@ -46,14 +46,7 @@ type testBackend struct {
 	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
 	gasLimit         func() uint64
 	minGasPrice      func() *big.Int
-<<<<<<< HEAD
-=======
 	nextBaseFee      func() *big.Int
-	proxy            utils.Option[*ethrpc.Client]
-	proxyCalls       int
-	proxyEnabled     bool // reports proxies as enabled even when proxy is None.
-	senders          map[common.Hash]common.Address
->>>>>>> origin/main
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() utils.AtomicRecv[atypes.ExecutedBlocks]
 	transactionCount func(common.Address) uint64
@@ -125,11 +118,12 @@ func nativeTestBlock(result *coretypes.ResultBlock, err error) (*abevm.EvmBlock,
 		txs[i] = tx
 	}
 	return &abevm.EvmBlock{
-		Hash:    common.BytesToHash(result.BlockID.Hash),
-		Height:  utils.Clamp[atypes.RoadHeight](result.Block.Height),
-		Time:    result.Block.Time,
-		Txs:     txs,
-		ChainID: result.Block.ChainID,
+		Hash:       common.BytesToHash(result.BlockID.Hash),
+		ParentHash: common.BytesToHash(result.Block.LastBlockID.Hash),
+		Height:     utils.Clamp[atypes.RoadHeight](result.Block.Height),
+		Time:       result.Block.Time,
+		Txs:        txs,
+		ChainID:    result.Block.ChainID,
 	}, err
 }
 

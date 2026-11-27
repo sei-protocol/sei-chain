@@ -40,11 +40,12 @@ func (r *GigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (u
 
 func (r *GigaRouterCommon) evmBlock(block *atypes.SuperBlock) *abevm.EvmBlock {
 	return &abevm.EvmBlock{
-		Hash:    common.Hash(block.Hash),
-		Height:  block.Height,
-		Time:    block.Timestamp,
-		Txs:     block.Txs,
-		ChainID: r.cfg.GenDoc.ChainID,
+		Hash:       common.Hash(block.Hash),
+		ParentHash: common.Hash(block.ParentHash.Or(atypes.RoadBlockHeaderHash{})),
+		Height:     block.Height,
+		Time:       block.Timestamp,
+		Txs:        block.Txs,
+		ChainID:    r.cfg.GenDoc.ChainID,
 	}
 }
 

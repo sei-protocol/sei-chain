@@ -88,8 +88,6 @@ func BuildDataState(
 	return ds, nil
 }
 
-<<<<<<< HEAD
-=======
 // Validate returns an error when cfg cannot back a data.State.
 func (cfg *GigaRouterCommonConfig) Validate() error {
 	if cfg.GenDoc.InitialHeight < 1 {
@@ -110,88 +108,6 @@ func (cfg *GigaRouterCommonConfig) Validate() error {
 	return nil
 }
 
-func (r *gigaRouterCommon) LastCommittedHeight() int64 {
-	return r.app.LastBlockHeight()
-}
-
-// MaxGasEstimatedPerBlock reflects the network-wide block gas budget. Both
-// roles ultimately resolve to genDoc.ConsensusParams.Block.MaxGas — the
-// validator's producer.Config.MaxGasEstimatedPerBlock is also sourced from
-// it at setup time, so read directly from genDoc here and skip the cache.
-func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
-	return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
-}
-
-// BlockByNumber returns the finalized SuperBlock at road n as a CometBFT ResultBlock.
-// Its hash, height, timestamp, and transactions match the block passed to FinalizeBlock.
-func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error) {
-	gb, err := r.data.SuperBlock(ctx, n)
-	if err != nil {
-		// Map Autobahn's pruning sentinel to CometBFT's, so callers
-		// (env.Block, evmrpc, ops tooling) get the same error type they
-		// already handle on the CometBFT path. base is None because the
-		// active lower bound lives in BlockStore's prune watermark (internal
-		// to the store); both call sites format through the same helper.
-		if errors.Is(err, atypes.ErrPruned) {
-			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
-		}
-		return nil, fmt.Errorf("data.SuperBlock(%v): %w", n, err)
-	}
-	return r.translateSuperBlock(gb), nil
-}
-
-// BlockByHash returns a finalized SuperBlock as a CometBFT ResultBlock.
-// Unknown hashes return an empty ResultBlock with no error.
-func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
-	opt, err := r.data.SuperBlockByHash(atypes.RoadBlockHeaderHash(hash))
-	if err != nil {
-		return nil, fmt.Errorf("data.SuperBlockByHash: %w", err)
-	}
-	gb, ok := opt.Get()
-	if !ok {
-		return &coretypes.ResultBlock{}, nil
-	}
-	return r.translateSuperBlock(gb), nil
-}
-
-// translateSuperBlock converts a SuperBlock to the CometBFT result used by block RPCs.
-// LastBlockID holds the parent hash of the SuperBlock, and is empty for the first road block.
-// LastCommit has empty Signatures, matching executeBlock's empty CommitInfo.
-func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes.ResultBlock {
-	srcTxs := gb.Txs
-	tmTxs := make(types.Txs, len(srcTxs))
-	for i, tx := range srcTxs {
-		tmTxs[i] = tx
-	}
-	h := common.Hash(gb.Hash)
-	var lastBlockID types.BlockID
-	if parent, ok := gb.ParentHash.Get(); ok {
-		lastBlockID.Hash = tmbytes.HexBytes(common.Hash(parent).Bytes())
-	}
-	return &coretypes.ResultBlock{
-		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
-		Block: &types.Block{
-			Header: types.Header{
-				ChainID: r.cfg.GenDoc.ChainID,
-				// Clamp accepts any constraints.Integer for From, so
-				// gb.Height (a typed uint64) goes in directly — no
-				// intermediate uint64() conversion needed.
-				Height:      utils.Clamp[int64](gb.Height),
-				Time:        gb.Timestamp,
-				LastBlockID: lastBlockID,
-			},
-			Data: types.Data{Txs: tmTxs},
-			// Autobahn does not feed per-validator votes into the app. Filling N
-			// absent signatures would make trace replay's BeginBlock bump
-			// missed-block counters and diverge from production. ToReqBeginBlock
-			// skips the per-validator loop when Signatures is empty, so empty
-			// Votes flow into distribution/slashing on both paths.
-			LastCommit: &types.Commit{},
-		},
-	}
-}
-
->>>>>>> origin/main
 // runPushAppHashes pushes the app hash of each executed block to the data layer,
 // in road order from its next app proposal. It waits on the app hash builder for
 // each one, so it never runs ahead of execution.

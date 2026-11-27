@@ -50,12 +50,6 @@
   },
   {
     "method": "eth_getBlockByNumber",
-    "path": "result.parentHash",
-    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
-    "reason": "EvmBlock does not carry a parent hash; EVM-only block responses report the zero hash."
-  },
-  {
-    "method": "eth_getBlockByNumber",
     "path": "result.stateRoot",
     "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
     "reason": "Autobahn does not supply a state root for EvmBlock; EVM-only block responses report the zero hash."
@@ -77,12 +71,6 @@
     "path": "result.receiptsRoot",
     "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
     "reason": "Autobahn does not supply a receipt root for EvmBlock; EVM-only block responses report the zero hash."
-  },
-  {
-    "method": "eth_getBlockByHash",
-    "path": "result.parentHash",
-    "evmOnly": "\"0x0000000000000000000000000000000000000000000000000000000000000000\"",
-    "reason": "EvmBlock does not carry a parent hash; EVM-only block responses report the zero hash."
   },
   {
     "method": "eth_getBlockByHash",

@@ -405,13 +405,18 @@ func rpcBlock(block *abevm.EvmBlock) *coretypes.ResultBlock {
 	for i, tx := range block.Txs {
 		txs[i] = tx
 	}
+	var parent tmtypes.BlockID
+	if block.ParentHash != (common.Hash{}) {
+		parent.Hash = block.ParentHash.Bytes()
+	}
 	return &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{Hash: block.Hash.Bytes()},
 		Block: &tmtypes.Block{
 			Header: tmtypes.Header{
-				ChainID: block.ChainID,
-				Height:  utils.Clamp[int64](block.Height),
-				Time:    block.Time,
+				ChainID:     block.ChainID,
+				LastBlockID: parent,
+				Height:      utils.Clamp[int64](block.Height),
+				Time:        block.Time,
 			},
 			Data: tmtypes.Data{Txs: txs},
 			// Autobahn does not feed per-validator votes into the app. Filling N

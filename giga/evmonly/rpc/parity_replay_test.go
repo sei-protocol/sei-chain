@@ -153,8 +153,9 @@ func consensusBlock(block parity.Block) *coretypes.ResultBlock {
 		BlockID: tmtypes.BlockID{Hash: header.Hash.Bytes()},
 		Block: &tmtypes.Block{
 			Header: tmtypes.Header{
-				Height: int64(header.Number), //nolint:gosec // fixture heights fit int64.
-				Time:   header.Time,
+				Height:      int64(header.Number), //nolint:gosec // fixture heights fit int64.
+				Time:        header.Time,
+				LastBlockID: tmtypes.BlockID{Hash: header.ParentHash.Bytes()},
 			},
 			Data:       tmtypes.Data{Txs: txs},
 			LastCommit: &tmtypes.Commit{Height: int64(header.Number) - 1}, //nolint:gosec // fixture heights fit int64.
