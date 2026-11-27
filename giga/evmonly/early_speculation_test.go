@@ -1,6 +1,7 @@
 package evmonly
 
 import (
+	"crypto/ecdsa"
 	"maps"
 	"math/big"
 	"slices"
@@ -338,4 +339,75 @@ func TestEarlySpeculationKeepsChangesOnlyWhileASpeculationNeedsThem(t *testing.T
 	executor.stopEarlySpeculation()
 	executor.recordExecutedChanges(9, newPendingIndex(&StateChangeSet{}))
 	require.Equal(t, []uint64{9}, recorded())
+}
+
+// A block speculated before the blocks ahead of it start has no stored hashes for them, so a
+// transaction reading BLOCKHASH of any block but the parent runs again when the block executes.
+func TestEarlySpeculationRerunsABlockHashReadOfAnUnstartedBlock(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	recorder := testAddress(0xb1)
+	keys := make([]*ecdsa.PrivateKey, 2)
+	genesis := func() *MemoryStore {
+		g := NewMemoryState()
+		g.SetCode(recorder, blockHashRecorderCode)
+		for _, key := range keys {
+			g.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(testFundedBalanceWei))
+		}
+		return NewMemoryStore(g)
+	}
+	for i := range keys {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		keys[i] = key
+	}
+	cfg := Config{OCCWorkers: 4, MinGasPrice: big.NewInt(0)}
+	syncExecutor := NewExecutor(cfg, withTestStores(genesis(), NewMemoryReceiptStore()), WithGenesisAlloc(1, nil))
+	defer syncExecutor.Close()
+	cfg.EarlySpeculationWorkers = 3
+	earlyExecutor := NewExecutor(cfg, withTestStores(genesis(), NewMemoryReceiptStore()), WithGenesisAlloc(1, nil))
+	defer earlyExecutor.Close()
+
+	request := func(number uint64, txs [][]byte) BlockRequest {
+		ctx := blockContext(chainID)
+		ctx.Number = number
+		if number > 1 {
+			ctx.ParentHash = historyTestHash(number - 1)
+		}
+		return BlockRequest{Context: ctx, Txs: txs}
+	}
+	for number := uint64(1); number <= 8; number++ {
+		for _, executor := range []*Executor{syncExecutor, earlyExecutor} {
+			result, err := executor.ExecuteBlock(t.Context(), request(number, nil))
+			require.NoError(t, err)
+			result.Release()
+		}
+	}
+	requests := []BlockRequest{
+		request(9, nil),
+		request(10, [][]byte{
+			signLegacyTx(t, keys[0], chainID, 0, &recorder, big.NewInt(0), common.BigToHash(big.NewInt(9)).Bytes()),
+			// Block 9's start stores block 8's hash, after the speculation read its state.
+			signLegacyTx(t, keys[1], chainID, 0, &recorder, big.NewInt(0), common.BigToHash(big.NewInt(8)).Bytes()),
+		}),
+	}
+	prepared := make([]PreparedBlock, len(requests))
+	for i, req := range requests {
+		var err error
+		prepared[i], err = earlyExecutor.PrepareBlock(req)
+		require.NoError(t, err)
+	}
+	earlyExecutor.SpeculateEarly(t.Context(), prepared[1])
+	waitEarlySpeculation(earlyExecutor, 10)
+
+	for i, req := range requests {
+		want, err := syncExecutor.ExecuteBlock(t.Context(), req)
+		require.NoError(t, err)
+		got, err := earlyExecutor.ExecutePreparedBlock(t.Context(), prepared[i])
+		require.NoError(t, err)
+		require.Equalf(t, want.ChangeSet, got.ChangeSet, "block %d changeset", req.Context.Number)
+		want.Release()
+		got.Release()
+	}
+	require.NoError(t, syncExecutor.AwaitCommits())
+	require.NoError(t, earlyExecutor.AwaitCommits())
 }
