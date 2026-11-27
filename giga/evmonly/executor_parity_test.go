@@ -909,6 +909,42 @@ func TestExecutorOCCDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+// A block with a parent records its parent hash in the history storage contract, and BLOCKHASH
+// answers from it, as the reference processor does.
+func TestExecutorHistoryStorageMatchesGeth(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recorder := testAddress(0xd3)
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+	state.SetCode(recorder, blockHashRecorderCode)
+	state.SetNonce(params.HistoryStorageAddress, 1)
+	state.SetCode(params.HistoryStorageAddress, params.HistoryStorageCode)
+	state.SetState(params.HistoryStorageAddress, historySlot(8), historyTestHash(8))
+	ctx := blockContext(chainID)
+	ctx.Number = 10
+	ctx.ParentHash = historyTestHash(9)
+	rawTxs := [][]byte{
+		signLegacyTx(t, key, chainID, 0, &recorder, big.NewInt(0), common.BigToHash(big.NewInt(9)).Bytes()),
+		signLegacyTx(t, key, chainID, 1, &recorder, big.NewInt(0), common.BigToHash(big.NewInt(8)).Bytes()),
+	}
+	cfg := Config{MinGasPrice: big.NewInt(0)}
+
+	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, rawTxs)
+	require.NoError(t, err)
+	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{Context: ctx, Txs: rawTxs})
+	require.NoError(t, err)
+	state.ApplyChangeSet(execResult.ChangeSet)
+
+	requireExecutionParity(t, execResult, gethResult)
+	requireAddressParity(t, state, gethResult.state, params.HistoryStorageAddress, historySlot(8), historySlot(9))
+	requireAddressParity(t, state, gethResult.state, recorder, common.BigToHash(big.NewInt(8)), common.BigToHash(big.NewInt(9)))
+	require.Equal(t, historyTestHash(9), state.GetState(params.HistoryStorageAddress, historySlot(9)))
+	require.Equal(t, historyTestHash(8), state.GetState(recorder, common.BigToHash(big.NewInt(8))))
+}
+
 func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, ctx BlockContext, rawTxs [][]byte) (*gethReferenceResult, error) {
 	t.Helper()
 	chainConfig := chainConfigForTest(cfg, ctx)
@@ -916,7 +952,10 @@ func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, c
 		return nil, err
 	}
 	stateDB := newGethStateFromMemory(t, initial)
-	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(ctx, stateDB), stateDB, chainConfig, vm.Config{}, nil)
+	if ctx.ParentHash != (common.Hash{}) && chainConfig.IsPrague(new(big.Int).SetUint64(ctx.Number), ctx.Time) {
+		core.ProcessParentBlockHash(ctx.ParentHash, evm, nil)
+	}
 	gasPool := core.NewGasPool(ctx.GasLimit)
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(ctx.Number), ctx.Time)

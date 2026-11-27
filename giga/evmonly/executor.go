@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"sync"
@@ -88,10 +89,10 @@ func WithMissingAccountState(state StateReader) Option {
 	}
 }
 
-// WithGenesisAlloc sets up each account in alloc at the start of block height,
-// before any begin blocker runs. NewExecutor panics if it is combined with
-// WithMissingAccountState, whose balances the alloc would be credited on top
-// of.
+// WithGenesisAlloc sets up each account in alloc, and every protocol account,
+// at the start of block height, the chain's initial height. NewExecutor panics
+// if alloc sets a protocol account, or credits a balance and is combined with
+// WithMissingAccountState, whose balances it would be credited on top of.
 func WithGenesisAlloc(height uint64, alloc map[common.Address]GenesisAccount) Option {
 	return func(e *Executor) {
 		e.genesis = newGenesisAlloc(height, alloc)
@@ -118,7 +119,8 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 }
 
 // NewExecutor constructs an EVM-only executor. Call Close to disable future OCC
-// execution on this executor.
+// execution on this executor. It panics if a custom precompile is registered at a
+// protocol account.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
 		cfg:             cfg.WithDefaults(),
@@ -134,8 +136,13 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	for _, opt := range opts {
 		opt(e)
 	}
-	if len(e.genesis.accounts) > 0 && e.missingState != nil {
-		panic("a genesis alloc cannot be combined with a missing account state")
+	if e.genesis.creditsBalance() && e.missingState != nil {
+		panic("a genesis alloc that credits a balance cannot be combined with a missing account state")
+	}
+	for addr := range ProtocolAccounts() {
+		if _, ok := e.customContracts[addr]; ok {
+			panic(fmt.Sprintf("custom precompile registered at protocol account %s", addr))
+		}
 	}
 	if e.cfg.EarlySpeculationWorkers > 0 && e.stateStore != nil && e.occPool != nil {
 		e.speculationSlots = utils.NewSemaphore(e.cfg.EarlySpeculationWorkers)
@@ -299,7 +306,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	begin, err := e.runBeginBlockers(req.Context, source, false)
+	begin, err := e.runBlockStart(req.Context, source, false)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +384,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
-	blockCtx := EVMBlockContext(req.Context)
+	blockCtx := EVMBlockContext(req.Context, source)
 	evm := vm.NewEVMWithCustomPrecompiles(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
@@ -611,21 +618,22 @@ func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message
 	return msg, nil
 }
 
+// HistoryReader reads the EIP-2935 history storage contract's slots.
+type HistoryReader interface {
+	GetState(common.Address, common.Hash) common.Hash
+}
+
 // EVMBlockContext returns the go-ethereum block context the executor runs a block with context ctx
-// at. BLOCKHASH answers only for the parent block.
-func EVMBlockContext(ctx BlockContext) vm.BlockContext {
+// at. BLOCKHASH answers from ctx.ParentHash and the EIP-2935 history storage history holds; a nil
+// history answers only the parent.
+func EVMBlockContext(ctx BlockContext, history HistoryReader) vm.BlockContext {
 	prevRandao := ctx.PrevRandao
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee)
 	return vm.BlockContext{
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
-		GetHash: func(n uint64) common.Hash {
-			if ctx.Number > 0 && n == ctx.Number-1 {
-				return ctx.ParentHash
-			}
-			return common.Hash{}
-		},
+		GetHash:     newBlockHashes(ctx, history).get,
 		Coinbase:    ctx.Coinbase,
 		GasLimit:    ctx.GasLimit,
 		BlockNumber: new(big.Int).SetUint64(ctx.Number),
@@ -635,6 +643,55 @@ func EVMBlockContext(ctx BlockContext) vm.BlockContext {
 		BlobBaseFee: blobBaseFee,
 		Random:      &prevRandao,
 	}
+}
+
+// blockHashWindow is how many blocks back BLOCKHASH answers, as on V2 and Ethereum.
+const blockHashWindow = 256
+
+// blockHashes answers BLOCKHASH for the block with context ctx, reading each hash from history at
+// most once. It is safe for concurrent use.
+type blockHashes struct {
+	ctx     BlockContext
+	history HistoryReader
+	read    [blockHashWindow]atomic.Pointer[common.Hash]
+}
+
+func newBlockHashes(ctx BlockContext, history HistoryReader) *blockHashes {
+	return &blockHashes{ctx: ctx, history: history}
+}
+
+// get returns the hash of block n: zero unless n is one of the blockHashWindow blocks before ctx's.
+func (b *blockHashes) get(n uint64) common.Hash {
+	if n >= b.ctx.Number || b.ctx.Number-n > blockHashWindow {
+		return common.Hash{}
+	}
+	read := &b.read[b.ctx.Number-n-1]
+	if hash := read.Load(); hash != nil {
+		return *hash
+	}
+	hash := b.lookup(n)
+	read.Store(&hash)
+	return hash
+}
+
+// lookup returns the hash of block n, a block within blockHashWindow before ctx's. The parent comes
+// from ctx when ctx sets it, every other block from history. A block's history is fixed from its
+// start: only the system call at block start writes the contract's storage.
+func (b *blockHashes) lookup(n uint64) common.Hash {
+	if n == b.ctx.Number-1 && b.ctx.ParentHash != (common.Hash{}) {
+		return b.ctx.ParentHash
+	}
+	if b.history == nil {
+		return common.Hash{}
+	}
+	return b.history.GetState(params.HistoryStorageAddress, historySlot(n))
+}
+
+// historySlot returns the EIP-2935 history storage slot holding the hash of block n.
+func historySlot(n uint64) common.Hash {
+	var slot common.Hash
+	binary.BigEndian.PutUint64(slot[common.HashLength-8:], n%params.HistoryServeWindow)
+	return slot
 }
 
 type unresolvedCustomPrecompile struct{}

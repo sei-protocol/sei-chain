@@ -1317,7 +1317,7 @@ func installEVMExecutorEncoder(app *evmOnlyApplication, encode evmonly.BlockChan
 		if previous, ok := slot.Get(); ok {
 			previous.Close()
 		}
-		executor := app.newExecutor()
+		executor := app.newExecutor(utils.Some(int64(evmOnlyTestInitChain().InitialHeight))) //nolint:gosec // G115: a test height.
 		evmonly.WithStoreIndependentBlockChangeSetEncoder(encode)(executor)
 		*slot = utils.Some(executor)
 		app.settler.Store(utils.Some(executor))

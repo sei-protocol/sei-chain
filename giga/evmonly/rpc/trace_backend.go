@@ -282,12 +282,13 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 		}
 	}
 	header := block.Header()
-	blockCtx, err := b.backend.EvmBlockContext(header)
+	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, stored.Block.Txs[:txIndex].ToSliceOfBytes())
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
-	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, stored.Block.Txs[:txIndex].ToSliceOfBytes())
+	blockCtx, err := b.backend.EvmBlockContext(header, stateDB)
 	if err != nil {
+		release()
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
 	trackState(ctx, stateDB)
@@ -295,8 +296,8 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 }
 
 // GetBlockContext returns the block context block executed at.
-func (b *traceBackend) GetBlockContext(_ context.Context, block *ethtypes.Block, _ vm.StateDB, _ export.ChainContextBackend) (vm.BlockContext, error) {
-	return b.backend.EvmBlockContext(block.Header())
+func (b *traceBackend) GetBlockContext(_ context.Context, block *ethtypes.Block, statedb vm.StateDB, _ export.ChainContextBackend) (vm.BlockContext, error) {
+	return b.backend.EvmBlockContext(block.Header(), statedb)
 }
 
 // RPCGasCap is the gas a traced call may use, the same as eth_call's.

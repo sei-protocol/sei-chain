@@ -3,9 +3,12 @@ package evmonly
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/seilog"
 
@@ -49,18 +52,49 @@ func customBeginBlockers(registry precompiles.Registry) []beginBlocker {
 	return blockers
 }
 
-// runBeginBlockers applies the genesis alloc at its height, then runs every
-// begin blocker against source, the state before the block, and returns the
-// changes they made. replay marks a run that only rebuilds the block's state.
-func (e *Executor) runBeginBlockers(block BlockContext, source StateReader, replay bool) (StateChangeSet, error) {
-	genesis := e.genesis.appliesTo(block.Number)
-	if len(e.beginBlockers) == 0 && !genesis {
-		return StateChangeSet{}, nil
-	}
+// runBlockStart applies the genesis alloc at its height, records the parent
+// hash in the history storage contract, then runs every begin blocker, all
+// against source, the state before the block. It returns the changes they made.
+// replay marks a run that only rebuilds the block's state.
+func (e *Executor) runBlockStart(block BlockContext, source StateReader, replay bool) (StateChangeSet, error) {
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
-	if genesis {
+	if e.genesis.appliesTo(block.Number) {
 		e.genesis.apply(stateDB)
+	}
+	if err := e.storeParentHash(block, stateDB); err != nil {
+		return StateChangeSet{}, err
+	}
+	if err := e.runBeginBlockers(block, stateDB, replay); err != nil {
+		return StateChangeSet{}, err
+	}
+	stateDB.Finalise(params.Rules{IsEIP158: true})
+	var changes StateChangeSet
+	stateDB.ChangeSetInto(&changes)
+	return changes, nil
+}
+
+// storeParentHash makes the EIP-2935 system call that records block's parent hash. It does
+// nothing before Prague or when block.ParentHash is zero, which marks a block without a parent.
+func (e *Executor) storeParentHash(block BlockContext, stateDB *nativeStateDB) error {
+	chainConfig := e.chainConfig(block)
+	if block.ParentHash == (common.Hash{}) || !chainConfig.IsPrague(new(big.Int).SetUint64(block.Number), block.Time) {
+		return nil
+	}
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(block, stateDB), stateDB, chainConfig, vm.Config{}, e.customContracts)
+	stateDB.SetEVM(evm)
+	// No block access list: the chain config does not enable Amsterdam.
+	core.ProcessParentBlockHash(block.ParentHash, evm, nil)
+	if err := stateDB.Error(); err != nil {
+		return fmt.Errorf("store parent hash of block %d: %w", block.Number, err)
+	}
+	return nil
+}
+
+// runBeginBlockers runs every begin blocker against stateDB.
+func (e *Executor) runBeginBlockers(block BlockContext, stateDB *nativeStateDB, replay bool) error {
+	if len(e.beginBlockers) == 0 {
+		return nil
 	}
 	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
 	blockCtx.Replay = replay
@@ -69,20 +103,17 @@ func (e *Executor) runBeginBlockers(block BlockContext, source StateReader, repl
 		failures, err := blocker.contract.BeginBlock(blockCtx, state)
 		logBeginBlockFailures(block.Number, blocker.address, failures)
 		if err != nil {
-			return StateChangeSet{}, fmt.Errorf("begin block %d for custom precompile %s: %w", block.Number, blocker.address, err)
+			return fmt.Errorf("begin block %d for custom precompile %s: %w", block.Number, blocker.address, err)
 		}
 		if state.err != nil {
-			return StateChangeSet{}, fmt.Errorf("begin block %d for custom precompile %s: %w", block.Number, blocker.address, state.err)
+			return fmt.Errorf("begin block %d for custom precompile %s: %w", block.Number, blocker.address, state.err)
 		}
 		if err := stateDB.Error(); err != nil {
-			return StateChangeSet{}, fmt.Errorf("begin block %d for custom precompile %s: %w", block.Number, blocker.address, err)
+			return fmt.Errorf("begin block %d for custom precompile %s: %w", block.Number, blocker.address, err)
 		}
 		beginBlockLogger.Debug("custom precompile begin block", "height", block.Number, "address", blocker.address, "storage_gas", state.spent)
 	}
-	stateDB.Finalise(params.Rules{IsEIP158: true})
-	var changes StateChangeSet
-	stateDB.ChangeSetInto(&changes)
-	return changes, nil
+	return nil
 }
 
 // logBeginBlockFailures logs each of a begin blocker's failures, its message

@@ -74,13 +74,13 @@ type testBackend struct {
 	createAccessList        func(context.Context, *core.Message) (ethtypes.AccessList, *core.ExecutionResult, error)
 	createAccessListAt      func(context.Context, *core.Message, *ethtypes.Header) (ethtypes.AccessList, *core.ExecutionResult, error)
 
-	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
+	blockContext  func(*ethtypes.Header, vm.StateDB) (vm.BlockContext, error)
 	stateAt       func(context.Context, int64) (vm.SeiStateDB, func(), error)
 	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.SeiStateDB, func(), error)
 }
 
-func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
-	return b.blockContext(header)
+func (b *testBackend) EvmBlockContext(header *ethtypes.Header, state vm.StateDB) (vm.BlockContext, error) {
+	return b.blockContext(header, state)
 }
 
 func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {

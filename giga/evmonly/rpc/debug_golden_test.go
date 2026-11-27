@@ -396,12 +396,12 @@ func (b *traceReplayBackend) Block(ctx context.Context, req *coretypes.RequestBl
 	return b.replayBackend.Block(ctx, req)
 }
 
-func (b *traceReplayBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+func (b *traceReplayBackend) EvmBlockContext(header *ethtypes.Header, state vm.StateDB) (vm.BlockContext, error) {
 	blockCtx, err := b.contextFor(header)
 	if err != nil {
 		return vm.BlockContext{}, err
 	}
-	return evmonly.EVMBlockContext(blockCtx), nil
+	return evmonly.EVMBlockContext(blockCtx, state), nil
 }
 
 func (b *traceReplayBackend) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {

@@ -165,13 +165,13 @@ func (app *Proxy) EvmMinGasPrice() *big.Int {
 	return app.app.EvmMinGasPrice()
 }
 
-func (app *Proxy) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+func (app *Proxy) EvmBlockContext(header *ethtypes.Header, state vm.StateDB) (vm.BlockContext, error) {
 	defer proxymetrics.Observe("evm_block_context", "sync")()
 	block, err := executionBlockRef(header)
 	if err != nil {
 		return vm.BlockContext{}, err
 	}
-	return app.app.EvmBlockContext(block)
+	return app.app.EvmBlockContext(block, state)
 }
 
 func (app *Proxy) EvmStateAt(ctx context.Context, height int64) (vm.SeiStateDB, func(), error) {

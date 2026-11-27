@@ -98,7 +98,7 @@ func (app *testEVMApp) EvmNextBaseFee() *big.Int            { return testNextBas
 func (app *testEVMApp) EvmGasLimit() uint64                 { return 35_000_000 }
 func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasPrice }
 
-func (app *testEVMApp) EvmBlockContext(header abevm.BlockRef) (vm.BlockContext, error) {
+func (app *testEVMApp) EvmBlockContext(header abevm.BlockRef, _ vm.StateDB) (vm.BlockContext, error) {
 	app.gotHeader = header
 	return vm.BlockContext{BlockNumber: new(big.Int).SetUint64(uint64(header.Height))}, nil
 }
@@ -253,7 +253,7 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		txs := [][]byte{{1}, {2}}
 
 		// Test: the block context, the state after a block, and the state before a transaction.
-		blockCtx, blockCtxErr := env.EvmBlockContext(header)
+		blockCtx, blockCtxErr := env.EvmBlockContext(header, nil)
 		_, releaseAt, stateAtErr := env.EvmStateAt(t.Context(), 4)
 		gotHeight := app.gotHeight
 		_, releaseBefore, stateBeforeErr := env.EvmStateBeforeTx(t.Context(), header, txs)

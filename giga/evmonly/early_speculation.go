@@ -86,7 +86,9 @@ func (e *Executor) SpeculateEarly(ctx context.Context, b PreparedBlock) {
 // run speculates claimed chunks of the block until every transaction is claimed or ctx ends,
 // holding one of the executor's early slots per chunk.
 func (s *earlySpeculation) run(ctx context.Context, e *Executor, source StateReader) {
-	runner := newOCCSpeculativeRunner(e, s.block)
+	runner := newOCCSpeculativeRunner(e, s.block, nil)
+	hashes := &parentOnlyHashes{block: s.block.Context}
+	runner.blockCtx.GetHash = hashes.get
 	stateDB := e.acquireStateDB(nil)
 	defer e.releaseStateDB(stateDB)
 	evm := vm.NewEVMWithCustomPrecompiles(runner.blockCtx, stateDB, runner.chainConfig, vm.Config{}, e.customContracts)
@@ -109,13 +111,34 @@ func (s *earlySpeculation) run(ctx context.Context, e *Executor, source StateRea
 				source:      source,
 				gasLimit:    runner.blockGasLimit,
 			}
+			hashes.missed = false
 			if err := runner.executeTaskInto(ctx, evm, stateDB, task, s.results); err != nil {
 				break
+			}
+			// Left unfinished, so the transaction runs again when the block executes.
+			if hashes.missed {
+				continue
 			}
 			s.done[i].Store(true)
 		}
 		release()
 	}
+}
+
+// parentOnlyHashes answers BLOCKHASH during an early speculation of block. It answers the parent's
+// hash from block's context and records any other lookup as missed: the state a speculation reads
+// predates the block starts that store the hashes of the blocks before it.
+type parentOnlyHashes struct {
+	block  BlockContext
+	missed bool
+}
+
+func (h *parentOnlyHashes) get(n uint64) common.Hash {
+	if n+1 == h.block.Number && h.block.ParentHash != (common.Hash{}) {
+		return h.block.ParentHash
+	}
+	h.missed = true
+	return common.Hash{}
 }
 
 // recordExecutedChanges keeps the changes of the block whose commit just started, for checking early

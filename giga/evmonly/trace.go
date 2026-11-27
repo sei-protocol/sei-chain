@@ -27,11 +27,12 @@ func (e *Executor) ViewState(view gigatypes.EVMStateView) vm.SeiStateDB {
 // reverted snapshot.
 func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView, req BlockRequest) (vm.SeiStateDB, error) {
 	source, reads := e.recordingReader(view)
-	begin, err := e.runBeginBlockers(req.Context, source, true)
+	begin, err := e.runBlockStart(req.Context, source, true)
 	if err != nil {
 		return nil, err
 	}
-	stateDB := newNativeStateDB(newPendingOverlay(source, &begin))
+	started := newPendingOverlay(source, &begin)
+	stateDB := newNativeStateDB(started)
 	replayed := &replayedStateDB{nativeStateDB: stateDB, reads: reads}
 	if len(req.Txs) == 0 {
 		return replayed, nil
@@ -41,7 +42,7 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 		return nil, err
 	}
 	chainConfig := e.chainConfig(prepared.Context)
-	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, e.customContracts)
+	evm := vm.NewEVMWithCustomPrecompiles(EVMBlockContext(prepared.Context, started), stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	// executeTx does not watch ctx, so the EVM is stopped mid-transaction once ctx ends.
 	stop := context.AfterFunc(ctx, evm.Cancel)

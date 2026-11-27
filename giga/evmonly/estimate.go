@@ -64,13 +64,15 @@ func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.E
 	if err := ctx.Err(); err != nil {
 		return 0, nil, err
 	}
-	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx))
+	reader := gigaSnapshotStateReader{snapshot: view, missingState: e.missingState}
+	hashes := newBlockHashes(blockCtx, reader)
+	evmCtx, err := overrides.BlockContext(EVMBlockContext(blockCtx, reader))
 	if err != nil {
 		return 0, nil, err
 	}
 
 	// Unpooled: an estimate can hold this stateDB open far longer than a Call.
-	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: view, missingState: e.missingState})
+	stateDB := newNativeStateDB(reader)
 	if len(overrides.State) > 0 {
 		// As in go-ethereum's eth_estimateGas, a precompile move is validated against the active
 		// precompiles, but gasestimator runs its own EVM with the default precompiles, so the move
@@ -90,8 +92,8 @@ func (e *Executor) EstimateGasAfterCallsAt(ctx context.Context, view gigatypes.E
 
 	opts := &gasestimator.Options{
 		Config:            chainConfig,
-		Chain:             estimateChainContext{config: chainConfig},
-		Header:            estimateHeader(blockCtx, overrides),
+		Chain:             estimateChainContext{config: chainConfig, hashes: hashes},
+		Header:            estimateHeader(blockCtx, hashes, overrides),
 		State:             stateDB,
 		ErrorRatio:        estimateGasErrorRatio,
 		BlobBaseFee:       estimateBlobBaseFee(blockCtx, overrides),
@@ -132,10 +134,13 @@ func (e *Executor) applyCall(ctx context.Context, evmCtx vm.BlockContext, chainC
 	return nil
 }
 
-// estimateHeader returns the header gas estimation executes in: blockCtx's, with overrides' block
-// fields applied.
-func estimateHeader(blockCtx BlockContext, overrides abevm.CallOverrides) *ethtypes.Header {
+// estimateHeader returns the header gas estimation executes in: blockCtx's, with the parent hash
+// hashes answers and overrides' block fields applied.
+func estimateHeader(blockCtx BlockContext, hashes *blockHashes, overrides abevm.CallOverrides) *ethtypes.Header {
 	header := buildEstimateHeader(blockCtx)
+	if blockCtx.Number > 0 {
+		header.ParentHash = hashes.get(blockCtx.Number - 1)
+	}
 	if block, ok := overrides.Block.Get(); ok {
 		return block.MakeHeader(header)
 	}
@@ -180,14 +185,27 @@ func buildEstimateHeader(ctx BlockContext) *ethtypes.Header {
 	}
 }
 
-// estimateChainContext is the minimal core.ChainContext gasestimator.Estimate needs.
+// estimateChainContext is the minimal core.ChainContext gasestimator.Estimate needs. Its headers
+// carry only the number and the parent hash, which BLOCKHASH walks.
 type estimateChainContext struct {
 	config *params.ChainConfig
+	hashes *blockHashes
 }
 
 func (c estimateChainContext) Engine() consensus.Engine { return estimateEngine{} }
 
-func (estimateChainContext) GetHeader(common.Hash, uint64) *ethtypes.Header { return nil }
+// GetHeader returns block number's number and parent hash, or nil when BLOCKHASH does not answer
+// for its parent.
+func (c estimateChainContext) GetHeader(_ common.Hash, number uint64) *ethtypes.Header {
+	if number == 0 {
+		return nil
+	}
+	parent := c.hashes.get(number - 1)
+	if parent == (common.Hash{}) {
+		return nil
+	}
+	return &ethtypes.Header{Number: new(big.Int).SetUint64(number), ParentHash: parent}
+}
 
 func (estimateChainContext) CurrentHeader() *ethtypes.Header { return nil }
 
