@@ -1,7 +1,7 @@
 # evmonly params
 
-Governed chain parameters for the EVM-only chain, with gov as the first
-subspace.
+Governed chain parameters for the EVM-only chain: the gov, staking and evm
+subspaces.
 
 ## Model
 
@@ -37,12 +37,12 @@ subspace.
   signed type needs a decoder before a param can use it.
 
 - Owners read their params from 0x1013's storage with the `params` package's
-  Go readers (`ReadGov`, `ReadStaking`). Gov reads `gov` and staking reads
-  `staking`. Nothing keeps a second copy.
+  Go readers (`ReadGov`, `ReadStaking`, `ReadEVM`). Gov reads `gov`, staking
+  reads `staking` and evmonlyapp reads `evm`. Nothing keeps a second copy.
   Planned readers for other subspaces are in *Later subspaces*.
-- Params are written only at genesis (`WriteGov` and `WriteStaking`, which
-  refuse once their subspace's params exist) and by a passed gov proposal
-  (`Apply`). Both check the whole subspace first.
+- Params are written only at genesis (`WriteGov`, `WriteStaking` and
+  `WriteEVM`, which refuse once their subspace's params exist) and by a passed
+  gov proposal (`Apply`). Both check the whole subspace first.
 
 ## Declaration table
 
@@ -126,7 +126,9 @@ naming `param`.
     with an Error(string) naming the problem, and writes nothing, when it has no
     changes, a change names an undeclared subspace or key or a param another
     change names, a value is not a 32-byte word that fits its type, or it sets
-    `voting_period` below `MinChangedVotingPeriod`.
+    `voting_period` below `MinChangedVotingPeriod` or
+    `KeyMaxDynamicBaseFeeDownwardAdjustment` below
+    `MinBaseFeeDownwardAdjustment`.
   - Gov then checks the changes against the current params. A result that fails
     the whole-struct check fails the call with no revert data, and writes
     nothing.
@@ -197,6 +199,50 @@ naming `param`.
   gov's params are written.
 - `ParamChangeContent`'s encoding matches solc's `abi.encode`.
 
+## The evm subspace
+
+The params that schedule base fees. A block's target is half its gas limit `L`,
+and the gas `G(h)` block `h` uses sets the base fee `n` blocks later, where `n`
+is the lag, from `p`, the base fee already set for the block before:
+
+- above the target, `b(h+n) = p × (1 + up × (2G(h) − L) / L)`;
+- below it, `b(h+n) = p × (1 − down × (L − 2G(h)) / L)`;
+- and `b(h+n)` is never below `min`.
+
+A full block raises the base fee by `up` and an empty one lowers it by `down`,
+as EIP-1559 does with 12.5% each way.
+
+| Flat key | Stored as | Genesis |
+|---|---|---|
+| `KeyMaxDynamicBaseFeeUpwardAdjustment` | Dec, `up` | 0.006 |
+| `KeyMaxDynamicBaseFeeDownwardAdjustment` | Dec, `down` | 0.006 |
+| `KeyMinFeePerGas` | Dec wei per gas, `min` | 1,000,000,000 (1 gwei) |
+| `KeyBaseFeeLag` | uint32 blocks, `n` | 2 |
+
+- The first three are V2's keys, with V2's meaning; `KeyBaseFeeLag` is new. V2's
+  `KeyTargetGasUsedPerBlock` has no counterpart, since the target is half the
+  gas limit.
+- The check requires `up` above 0 and at most 1; `down` at least 0.01%
+  (`MinBaseFeeDownwardAdjustment`) and at most 1, so that empty blocks bring
+  the base fee down from a spike in hours rather than days; `min` a whole
+  number of wei; and `n` from 1 to 16 (`MinBaseFeeLag`, `MaxBaseFeeLag`).
+- Gas used past the gas limit counts as the limit. The change is rounded down
+  to the wei, and an increase is at least one wei.
+- A chain's first `n` blocks run at the genesis `min`.
+- A base fee once set never changes. A raised `min` applies to the base fees
+  set from then on. When `n` rises, each block that no gas use now sets holds
+  the base fee before it, but not below `min`. When `n` falls, the blocks
+  whose base fees are already set ignore their gas use until fewer than `n`
+  are set.
+- evmonlyapp reads the params from the state each block executes against, so a
+  change a proposal applies in a block's EndBlock first sets the base fee update
+  of the next block. That update sets the base fee `n` blocks later, so the
+  change reaches transactions `n + 1` blocks after the one that applied it.
+- Gov's first EndBlock writes the genesis values. Until then, and on a chain
+  without gov, base fees are set by the same values compiled into evmonlyapp.
+- The EVM-only cursor stores the base fee its block ran at and each one set
+  after it, `n + 1` in all once the schedule matches the lag.
+
 ## Later subspaces
 
 Planned, not decided: the expected shape, not a commitment. Each adds a struct
@@ -207,6 +253,6 @@ has eleven today.
 | Subspace | Params | Reader |
 |---|---|---|
 | baseapp | `BlockParams.max_gas` (and the other BlockParams fields) | evmonlyapp, per block |
-| evm | `KeyMinFeePerGas`, `KeySeiSstoreSetGasEIP2200`, later the EIP-1559 set | executor, per block |
+| evm | `KeySeiSstoreSetGasEIP2200`, next to the base fee params | executor, per block |
 | migration | `NumKeysToMigratePerBlock`, `MigrateCosmosEnabled` | as needed |
 | slashing | the slashing params | native slashing |

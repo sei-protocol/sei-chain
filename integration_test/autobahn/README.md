@@ -755,8 +755,9 @@ tag, `Number` and `GasLimit` are the actual current committed values, and
 `blockhash(current-1)` and further back are unavailable (only the current
 block's own hash is tracked outside of block execution). At a past block,
 `Number` and `Time` are that block's, `GasLimit` is the current limit, and
-`blockhash` answers only for its parent. `Coinbase` is always the zero address
-(this application never sets one, even for committed blocks). A view function
+`blockhash` answers only for its parent. `Coinbase` is always the fee
+collector, `0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F`, the account every block
+pays its fees to. A view function
 that depends on an unavailable value reads a placeholder rather than a real
 value.
 
