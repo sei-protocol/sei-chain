@@ -149,7 +149,12 @@ func TestSettleCostCoversEachParamChange(t *testing.T) {
 		{"gov", "votingparams.expedited_voting_period", secondsValue(60)},
 		{"gov", "tallyparams.quorum", uintValue(400_000_000_000_000_000)},
 	}
-	govParams := uint64(len(chainparams.Keys()))
+	var govParams uint64
+	for _, k := range chainparams.Keys() {
+		if k.Subspace == "gov" {
+			govParams++
+		}
+	}
 	for n := 1; n <= len(all); n++ {
 		h := newHarness(t)
 		id, err := h.submitParamChange(false, all[:n]...)

@@ -118,7 +118,8 @@ func flatChanges(v2 []v2ParamChange) ([]paramChange, error) {
 // encodeParam returns raw, a V2 JSON value, as the 32-byte abi.encode of k's
 // value. A Dec is a decimal string or number, a Duration nanoseconds or a Go
 // duration string such as "30s", Coins a usei coin string or V2's coin array,
-// and an Int a whole-number string or number.
+// an Int a whole-number string or number, a Bool true or false, and an Address
+// a 0x-prefixed hex string.
 func encodeParam(k chainparams.Key, raw json.RawMessage) ([]byte, error) {
 	var v *big.Int
 	var err error
@@ -131,6 +132,10 @@ func encodeParam(k chainparams.Key, raw json.RawMessage) ([]byte, error) {
 		v, err = parseCoinsValue(raw)
 	case chainparams.KindInt:
 		v, err = parseIntValue(raw)
+	case chainparams.KindBool:
+		v, err = parseBoolValue(raw)
+	case chainparams.KindAddress:
+		v, err = parseAddressValue(raw)
 	default:
 		err = fmt.Errorf("unknown param kind %d", k.Kind)
 	}
@@ -230,9 +235,32 @@ func parseIntValue(raw json.RawMessage) (*big.Int, error) {
 	return v, nil
 }
 
+func parseBoolValue(raw json.RawMessage) (*big.Int, error) {
+	var b bool
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return nil, fmt.Errorf("want true or false: %w", err)
+	}
+	if b {
+		return big.NewInt(1), nil
+	}
+	return new(big.Int), nil
+}
+
+func parseAddressValue(raw json.RawMessage) (*big.Int, error) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("want a 0x-prefixed address string: %w", err)
+	}
+	if !strings.HasPrefix(s, "0x") || !common.IsHexAddress(s) {
+		return nil, fmt.Errorf("address %q: want a 0x-prefixed 20-byte hex address", s)
+	}
+	return new(big.Int).SetBytes(common.HexToAddress(s).Bytes()), nil
+}
+
 // formatParam returns v, a value of k, as V2 JSON: a Dec as a decimal string,
-// a Duration as nanoseconds, Coins as a usei coin array, and an Int as a
-// number when it is a uint32 and a string otherwise.
+// a Duration as nanoseconds, Coins as a usei coin array, an Int as a number
+// when it is a uint32 and a string otherwise, a Bool as true or false, and an
+// Address as a checksummed hex string.
 func formatParam(k chainparams.Key, v *big.Int) (json.RawMessage, error) {
 	switch k.Kind {
 	case chainparams.KindDec:
@@ -250,6 +278,10 @@ func formatParam(k chainparams.Key, v *big.Int) (json.RawMessage, error) {
 			return json.Marshal(v.Uint64())
 		}
 		return json.Marshal(v.String())
+	case chainparams.KindBool:
+		return json.Marshal(v.Sign() != 0)
+	case chainparams.KindAddress:
+		return json.Marshal(common.BigToAddress(v).Hex())
 	default:
 		return nil, fmt.Errorf("unknown param kind %d", k.Kind)
 	}

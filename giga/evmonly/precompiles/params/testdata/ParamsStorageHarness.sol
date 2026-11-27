@@ -28,5 +28,10 @@ contract ParamsStorageHarness is ParamsStorage {
             maxVotingPowerEnforcementThreshold: 1_000_001,
             __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
         });
+        distribution = Distribution({
+            withdrawAddrEnabled: true,
+            daoAddress: address(0xda0da),
+            __gap: [uint256(0), 0, 0, 0, 0, 0, 0, 0]
+        });
     }
 }

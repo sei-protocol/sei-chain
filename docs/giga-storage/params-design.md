@@ -30,6 +30,8 @@ subspace.
   | Coins | `uint256` wei, a whole number of usei; only the usei denom exists |
   | Int | `uint256` |
   | uint32 | `uint32` |
+  | bool | `bool`, 1 for true; a change to any other value is rejected |
+  | Address, for a param with no V2 counterpart | `address` |
 
   Another V2 type gets a stored form when a param first needs one. A value of
   any unsigned width is stored in the bytes of its slot that solc gives its
@@ -37,13 +39,14 @@ subspace.
   signed type needs a decoder before a param can use it.
 
 - Owners read their params from 0x1013's storage with the `params` package's
-  Go readers (`ReadGov`, `ReadStaking`). Gov applies `gov` as it reads it.
-  Staking reads `staking` into a copy of its own at each epoch's end and
-  applies the copy (see *Staking*).
+  Go readers (`ReadGov`, `ReadStaking`, `ReadDistribution`). Gov applies
+  `gov` as it reads it, and distribution reads `distribution`. Staking reads
+  `staking` into a copy of its own at each epoch's end and applies the copy
+  (see *Staking*).
   Planned readers for other subspaces are in *Later subspaces*.
-- Params are written only at genesis (`WriteGov` and `WriteStaking`, which
-  refuse once their subspace's params exist) and by a passed gov proposal
-  (`Apply`). Both check the whole subspace first.
+- Params are written only at genesis (`WriteGov`, `WriteStaking` and
+  `WriteDistribution`, which refuse once their subspace's params exist) and by
+  a passed gov proposal (`Apply`). Both check the whole subspace first.
 
 ## Declaration table
 
@@ -185,6 +188,17 @@ naming `param`.
   latest epoch's end, so a passed change takes effect at the end of the epoch
   it passes in. Each epoch's snapshot is projected under the params the next
   epoch's end applies (`staking-design-rationale.md`, *Staged operations*).
+
+## Distribution
+
+- `distribution` holds x/distribution's `withdrawaddrenabled`, and
+  `daoaddress`, the account that receives the fees and rewards SIP-7 does not
+  pay to validators. The DAO address has no V2 counterpart.
+- x/distribution's `communitytax`, `baseproposerreward` and
+  `bonusproposerreward` are not declared: SIP-7 sends what V2 split by them to
+  the DAO.
+- Its check is a nonzero DAO address.
+- `HasDistribution` reads `daoaddress`, which the check keeps nonzero.
 
 ## Tests
 

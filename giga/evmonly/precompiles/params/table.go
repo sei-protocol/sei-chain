@@ -22,6 +22,10 @@ const (
 	KindCoins
 	// KindInt is an integer.
 	KindInt
+	// KindBool is a boolean, stored as 1 for true and 0 for false.
+	KindBool
+	// KindAddress is an account address.
+	KindAddress
 )
 
 // valueKind is how a param's value is stored and ABI-encoded: its unit,
@@ -38,7 +42,17 @@ var (
 	coinsKind    = valueKind{kind: KindCoins, solType: "uint256", bits: 256}
 	intKind      = valueKind{kind: KindInt, solType: "uint256", bits: 256}
 	uint32Kind   = valueKind{kind: KindInt, solType: "uint32", bits: 32}
+	boolKind     = valueKind{kind: KindBool, solType: "bool", bits: 8}
+	addressKind  = valueKind{kind: KindAddress, solType: "address", bits: 160}
 )
+
+// fits reports whether v is a value of k's Solidity type.
+func (k valueKind) fits(v *big.Int) bool {
+	if v.Sign() < 0 || v.BitLen() > k.bits {
+		return false
+	}
+	return k.kind != KindBool || v.Cmp(big.NewInt(1)) <= 0
+}
 
 // param is one declared param.
 type param struct {
@@ -65,7 +79,7 @@ type subspace struct {
 }
 
 // subspaces are the declared subspaces, in ParamsStorage order.
-var subspaces = []*subspace{&govSubspace, &stakingSubspace}
+var subspaces = []*subspace{&govSubspace, &stakingSubspace, &distributionSubspace}
 
 // Key is a declared param: its subspace, flat key, and the unit and Solidity
 // type of its value.
@@ -154,7 +168,7 @@ func (p param) decode(value []byte) (*big.Int, error) {
 		return nil, fmt.Errorf("%w: %d bytes, want %d", errInvalidValue, len(value), common.HashLength)
 	}
 	v := new(big.Int).SetBytes(value)
-	if v.BitLen() > p.kind.bits {
+	if !p.kind.fits(v) {
 		return nil, fmt.Errorf("%w: does not fit %s", errInvalidValue, p.kind.solType)
 	}
 	if p.least != nil && v.Cmp(p.least) < 0 {
@@ -178,7 +192,7 @@ func (ss *subspace) validate(v values) error {
 		if !ok || x == nil {
 			return fmt.Errorf("%w: %s has no value", errInvalidValue, p.key)
 		}
-		if x.Sign() < 0 || x.BitLen() > p.kind.bits {
+		if !p.kind.fits(x) {
 			return fmt.Errorf("%w: %s does not fit %s", errInvalidValue, p.key, p.kind.solType)
 		}
 	}

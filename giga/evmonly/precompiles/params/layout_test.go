@@ -43,7 +43,7 @@ func TestLayoutMatchesForge(t *testing.T) {
 	for _, e := range layout.Storage {
 		got[e.Label] = member{slot: mustUint(t, e.Slot), offset: e.Offset}
 	}
-	require.Equal(t, map[string]member{"gov": {slotGov, 0}, "staking": {slotStaking, 0}}, got)
+	require.Equal(t, map[string]member{"gov": {slotGov, 0}, "staking": {slotStaking, 0}, "distribution": {slotDistribution, 0}}, got)
 
 	structs := map[string]map[string]member{
 		"Gov": {
@@ -67,8 +67,13 @@ func TestLayoutMatchesForge(t *testing.T) {
 			"maxVotingPowerEnforcementThreshold": stakingMaxVotingPowerEnforcementThreshold,
 			"__gap":                              {3, 0},
 		},
+		"Distribution": {
+			"withdrawAddrEnabled": distributionWithdrawAddrEnabled,
+			"daoAddress":          distributionDAOAddress,
+			"__gap":               {1, 0},
+		},
 	}
-	subspaceOf := map[string]*subspace{"Gov": &govSubspace, "Staking": &stakingSubspace}
+	subspaceOf := map[string]*subspace{"Gov": &govSubspace, "Staking": &stakingSubspace, "Distribution": &distributionSubspace}
 	seen := 0
 	for typeID, typ := range layout.Types {
 		name, ok := strings.CutPrefix(typeID, "t_struct(")
@@ -106,6 +111,9 @@ func TestLayoutCoversEveryDeclaredParam(t *testing.T) {
 		&stakingSubspace: {
 			stakingUnbondingTime: true, stakingMaxValidators: true, stakingMaxEntries: true,
 			stakingMaxVotingPowerRatio: true, stakingMaxVotingPowerEnforcementThreshold: true,
+		},
+		&distributionSubspace: {
+			distributionWithdrawAddrEnabled: true, distributionDAOAddress: true,
 		},
 	} {
 		for _, p := range ss.params {
@@ -153,4 +161,8 @@ func TestReadsCompilerWrites(t *testing.T) {
 		MaxVotingPowerRatio:                big.NewInt(200_000_000_000_000_000),
 		MaxVotingPowerEnforcementThreshold: big.NewInt(1_000_001),
 	}, stakingFrom(stakingSubspace.read(s)))
+	require.Equal(t, Distribution{
+		WithdrawAddrEnabled: true,
+		DAOAddress:          common.HexToAddress("0x00000000000000000000000000000000000da0da"),
+	}, distributionFrom(distributionSubspace.read(s)))
 }
