@@ -158,7 +158,7 @@ func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	remoteHandler := ethrpc.NewServer()
 	require.NoError(t, remoteHandler.RegisterName("eth", &testRemoteSendAPI{
-		sendErr: errors.New("shard owner rejected"),
+		sendErr: errors.New("lane rejected"),
 	}))
 	t.Cleanup(remoteHandler.Stop)
 	remoteServer := httptest.NewServer(remoteHandler)
@@ -175,11 +175,11 @@ func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
 		proxy:   utils.Some(remoteClient),
 	}
 
-	// Test: the shard-owner eth_sendRawTransaction call fails.
+	// Test: the eth_sendRawTransaction call to the lane fails.
 	_, err = newSendAPI(backend, 1).SendRawTransaction(t.Context(), raw)
 
 	// Verify: that remote error is returned.
-	require.ErrorContains(t, err, "shard owner rejected")
+	require.ErrorContains(t, err, "lane rejected")
 }
 
 func TestRejectsUnprotectedTransaction(t *testing.T) {

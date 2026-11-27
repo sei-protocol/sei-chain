@@ -102,7 +102,7 @@ fi
 # Generate Autobahn (GigaRouter) config when the validators are running
 # Autobahn consensus. The RPC node uses mode = "full" (see config.toml),
 # which makes it an fullnode autobahn participant — loads the committee
-# for routing only and forwards eth_sendRawTransaction to the shard owner.
+# for routing only and forwards eth_sendRawTransaction to the lane of its sender.
 # Reuse the validator node directories under build/generated/ (mounted
 # into the container) so the committee description matches the cluster.
 AUTOBAHN=${AUTOBAHN:-false}

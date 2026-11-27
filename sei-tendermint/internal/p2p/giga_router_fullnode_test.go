@@ -29,7 +29,7 @@ import (
 )
 
 // TestGigaRouter_Fullnode covers the construction shape of the non-validator
-// (fullnode) GigaRouter: routing always picks a remote shard owner (no
+// (fullnode) GigaRouter: routing always picks the EVM RPC client of a lane (no
 // local short-circuit because there is no validator key), data + service
 // are constructed but consensus/producer are not, and the read-path
 // passthrough methods source values from the local data.State + genesis

@@ -56,7 +56,7 @@ func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 			return v.EvmTxByHash(hash)
 		}
 		// Fullnode: no local mempool. The tx (if it exists locally at all)
-		// would be at the shard owner; we can't easily query it from here.
+		// would be at the lane this fullnode forwarded it to; we can't easily query it from here.
 		return nil, false
 	}
 	if mp, ok := env.Mempool.Get(); ok {
