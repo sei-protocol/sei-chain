@@ -62,10 +62,11 @@ func (e *Executor) runBeginBlockers(block BlockContext, source StateReader, repl
 	if genesis {
 		e.genesis.apply(stateDB)
 	}
-	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
+	chainConfig := e.chainConfig(block)
+	blockCtx := endBlockContext(block, chainConfig.ChainID)
 	blockCtx.Replay = replay
 	for _, blocker := range e.beginBlockers {
-		state := &precompileState{db: stateDB}
+		state := &precompileState{db: stateDB, sstoreSetGas: chainConfig.SstoreSetGasEIP2200()}
 		failures, err := blocker.contract.BeginBlock(blockCtx, state)
 		logBeginBlockFailures(block.Number, blocker.address, failures)
 		if err != nil {

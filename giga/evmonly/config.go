@@ -65,7 +65,11 @@ func (c Config) WithDefaults() Config {
 // no key controls it and no contract can be deployed to it.
 var FeeCollectorAddress = crypto.CreateAddress(common.BytesToAddress([]byte{1}), 42)
 
-// DefaultChainConfig returns params.AllDevChainProtocolChanges through Prague, with the base fee paid to the coinbase.
+// SstoreSetGas is the gas an SSTORE charges to write a storage slot from zero to non-zero.
+const SstoreSetGas uint64 = 72_000
+
+// DefaultChainConfig returns params.AllDevChainProtocolChanges through Prague, with the base fee paid to the
+// coinbase and SstoreSetGas charged for a new storage slot.
 func DefaultChainConfig() *params.ChainConfig {
 	cfg := *params.AllDevChainProtocolChanges
 	cfg.OsakaTime = nil
@@ -78,5 +82,6 @@ func DefaultChainConfig() *params.ChainConfig {
 	cfg.BogotaTime = nil
 	cfg.UBTTime = nil
 	cfg.SeiCoinbaseReceivesBaseFee = true
+	cfg.SeiSstoreSetGasEIP2200 = new(SstoreSetGas)
 	return &cfg
 }

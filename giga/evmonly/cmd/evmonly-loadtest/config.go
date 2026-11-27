@@ -28,8 +28,8 @@ const (
 	defaultReportInterval           = 5 * time.Second
 	defaultQueueSize                = 64
 	defaultTxGasLimit               = 21_000
-	defaultERC20TxGasLimit          = 100_000
-	defaultSnapshotRevertTxGasLimit = 100_000
+	defaultERC20TxGasLimit          = 150_000
+	defaultSnapshotRevertTxGasLimit = 150_000
 	defaultTxsPerBlock              = 1_000
 	defaultPersistBuffer            = 4 << 20
 	defaultGenesisTimestamp         = scenarios.DefaultGenesisTimestamp

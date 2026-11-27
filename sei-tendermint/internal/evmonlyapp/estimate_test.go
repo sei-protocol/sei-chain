@@ -1,13 +1,16 @@
 package evmonlyapp
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -86,4 +89,42 @@ func TestEVMOnlyApplicationEvmEstimateGasRequiresInitChain(t *testing.T) {
 	_, _, err := evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0, abevm.CallOverrides{})
 
 	require.Error(t, err)
+}
+
+// A transaction writing a storage slot from zero to non-zero is charged evmonly.SstoreSetGas for the
+// write by a call, a gas estimate and block execution alike, and executes within its estimate.
+func TestEVMOnlyApplicationChargesSstoreSetGasForANewSlot(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	runtime := storeCode(common.BytesToHash([]byte{0x11}), common.BytesToHash([]byte{0x22}))
+	deployRaw, sender, contract := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
+	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 1, deployRaw))
+	// Intrinsic gas, runtime's two PUSH32s, the cold slot access, and the write to a new slot.
+	want := params.TxGas + 2*3 + params.ColdSloadCostEIP2929 + evmonly.SstoreSetGas
+
+	require.Equal(t, evmonly.SstoreSetGas, evmApp.EvmChainConfig().SstoreSetGasEIP2200())
+
+	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contract), abevm.CallOverrides{})
+	require.NoError(t, err)
+	require.NoError(t, result.Err)
+	require.Equal(t, want, result.UsedGas)
+
+	estimate, revert, err := evmApp.EvmEstimateGas(t.Context(), callMessage(sender, &contract), 0, abevm.CallOverrides{})
+	require.NoError(t, err)
+	require.Empty(t, revert)
+	// The estimate's binary search stops within a tolerance above the gas used.
+	require.GreaterOrEqual(t, estimate, want)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+		GasPrice: big.NewInt(evmOnlyMinGasPrice),
+		Gas:      estimate,
+		To:       &contract,
+		Value:    big.NewInt(0),
+	}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(evmOnlyTestChainID)), key)
+	require.NoError(t, err)
+	response, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(app, 2, utils.OrPanic1(signed.MarshalBinary())))
+	require.NoError(t, err)
+	require.Equal(t, want, response.GasUsed)
 }

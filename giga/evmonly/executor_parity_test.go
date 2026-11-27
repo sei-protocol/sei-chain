@@ -509,7 +509,7 @@ func TestExecutorCallOpcodeCorpusMatchesGeth(t *testing.T) {
 			target := common.BigToAddress(big.NewInt(int64(0x130 + i)))
 			state := NewMemoryState()
 			state.SetBalance(sender, big.NewInt(1_000_000_000_000))
-			state.SetCode(caller, callOpcodeRuntime(tc.op, target, successSlot))
+			state.SetCode(caller, callOpcodeRuntime(tc.op, target, 100_000, successSlot))
 			state.SetCode(target, storeCode(targetSlot, targetValue))
 			rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &caller, big.NewInt(0), nil, 500_000, big.NewInt(1))
 
@@ -558,7 +558,7 @@ func TestExecutorEnvironmentOpcodeCorpusMatchesGeth(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(1_000_000_000_000))
 	state.SetBalance(contract, contractBalance)
 	state.SetCode(contract, environmentRuntime(ctx.Number-1, slots))
-	rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &contract, big.NewInt(0), nil, 500_000, big.NewInt(20))
+	rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &contract, big.NewInt(0), nil, 1_000_000, big.NewInt(20))
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
@@ -1106,7 +1106,7 @@ func logRuntime(data common.Hash, topics []common.Hash) []byte {
 	return append(code, 0xa0+byte(len(topics)), 0x00)
 }
 
-func callOpcodeRuntime(op byte, target common.Address, successSlot common.Hash) []byte {
+func callOpcodeRuntime(op byte, target common.Address, callGas uint64, successSlot common.Hash) []byte {
 	code := appendPush1(nil, 0)
 	code = appendPush1(code, 0)
 	code = appendPush1(code, 0)
@@ -1115,7 +1115,7 @@ func callOpcodeRuntime(op byte, target common.Address, successSlot common.Hash) 
 		code = appendPush1(code, 0)
 	}
 	code = appendPush20(code, target)
-	code = appendPush2(code, 0xffff)
+	code = appendPushUint64(code, callGas)
 	code = append(code, op)
 	code = appendPush32(code, successSlot)
 	return append(code, 0x55, 0x00)

@@ -43,8 +43,8 @@ The `evmonly` package currently provides:
 
 The executor accepts config for nonce checks, gas-price checks, minimum gas
 price, chain config, parse workers, OCC workers, result pooling, and the custom
-precompile registry. A nil chain config defaults to geth's
-`params.AllDevChainProtocolChanges`, which is convenient for tests and scaffold
+precompile registry. A nil chain config defaults to `DefaultChainConfig()`,
+which is convenient for tests and scaffold
 wiring; production callers should provide the chain's explicit EVM config.
 
 ## Executor interface

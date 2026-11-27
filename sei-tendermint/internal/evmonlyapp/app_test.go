@@ -113,7 +113,7 @@ func signedEVMOnlyTestCreateTxWithInitCode(t *testing.T, chainID uint64, initCod
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(evmOnlyMinGasPrice),
-		Gas:      100_000,
+		Gas:      200_000,
 		Data:     initCode,
 	})
 	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)

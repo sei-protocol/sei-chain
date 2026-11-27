@@ -59,7 +59,7 @@ func beginBlockCall(t *testing.T) ([]byte, common.Address) {
 	key, err := crypto.HexToECDSA(behaviorAnvilKey0)
 	require.NoError(t, err)
 	to := beginBlockerAddress
-	return signLegacyTxWithGasPrice(t, key, big.NewInt(testChainID), 0, &to, big.NewInt(0), nil, 100_000, big.NewInt(1)),
+	return signLegacyTxWithGasPrice(t, key, big.NewInt(testChainID), 0, &to, big.NewInt(0), nil, 200_000, big.NewInt(1)),
 		crypto.PubkeyToAddress(key.PublicKey)
 }
 
