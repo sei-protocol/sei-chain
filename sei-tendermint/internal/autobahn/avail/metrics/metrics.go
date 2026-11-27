@@ -25,9 +25,7 @@ type metrics struct {
 	producedTxs prometheus.CounterIntVec
 	// Time a WaitForCapacity call spent blocked waiting for lane window.
 	laneCapacityWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.001, 2, 22)"`
-	// Time a WaitForLaneQCs call spent blocked waiting for a new LaneQC.
-	laneQcWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.001, 2, 22)"`
-	// Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.
+	// Number of WaitForCapacity calls currently blocked.
 	inFlight prometheus.GaugeIntVec `metrics_labels:"wait"`
 	// LaneQCs formed by lane votes reaching quorum.
 	laneQcs prometheus.CounterIntVec
@@ -78,9 +76,7 @@ func ObserveProducedTxs(n int) {
 type Metrics struct {
 	CommitRoadHeight     *prometheus.GaugeInt
 	LaneCapacityWait     *prometheus.Histogram
-	LaneQCWait           *prometheus.Histogram
 	LaneCapacityInFlight *prometheus.GaugeInt
-	LaneQCInFlight       *prometheus.GaugeInt
 	LaneQCs              *prometheus.CounterInt
 	LaneVotesIngested    *prometheus.CounterInt
 	// Latency from a lane block's creation to its arrival on this node.
@@ -92,9 +88,7 @@ func Get() *Metrics {
 	return &Metrics{
 		CommitRoadHeight:     Global.commitRoadHeightAt(),
 		LaneCapacityWait:     Global.laneCapacityWaitLatencyAt(),
-		LaneQCWait:           Global.laneQcWaitLatencyAt(),
 		LaneCapacityInFlight: Global.inFlightAt("lane_capacity"),
-		LaneQCInFlight:       Global.inFlightAt("lane_qc"),
 		LaneQCs:              Global.laneQcsAt(),
 		LaneVotesIngested:    Global.laneVotesIngestedAt(),
 		LaneBlockReceive:     Global.laneBlockReceiveLatencyAt(),

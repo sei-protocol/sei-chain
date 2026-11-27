@@ -637,8 +637,7 @@ func sendEvmTx(t *testing.T, container string) (common.Hash, []byte) {
 }
 
 // sendEvmTxAndWait submits a raw EVM-only transfer through container and waits
-// until the fullnode has a receipt. That is the liveness signal: height can
-// sit still under allow_empty_blocks=false until a tx seals a block.
+// until the fullnode has a receipt, proving that transactions are included.
 func sendEvmTxAndWait(t *testing.T, container string, timeout time.Duration) int64 {
 	t.Helper()
 	base := clusterHeight(t)
@@ -1708,8 +1707,8 @@ func deployBlockTrace(t *testing.T, method string, traces []evmOnlyBlockTrace, d
 }
 
 // assertEVMOnlyNewHeads subscribes to newHeads over every node's WebSocket
-// listener, seals a block with one transfer, and checks that each node pushes
-// a head that matches the block it serves at that height.
+// listener and checks that each node pushes a head without submitting a transfer.
+// The head must match the block the node serves at that height.
 func assertEVMOnlyNewHeads(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
 	t.Helper()
 	type head struct {
@@ -1731,8 +1730,6 @@ func assertEVMOnlyNewHeads(t *testing.T, ctx context.Context, clients []*ethrpc.
 		}
 		t.Cleanup(subs[nodeIndex].Unsubscribe)
 	}
-	// Empty blocks are not produced, so a transfer is what seals the next head.
-	sendEvmTx(t, "sei-node-0")
 	for nodeIndex, client := range clients {
 		select {
 		case got := <-heads[nodeIndex]:

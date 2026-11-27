@@ -63,7 +63,6 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 		EVMRPC:             utils.Some(config.URL{URL: utils.OrPanic1(url.Parse("ws://localhost:8546"))}),
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
-		AllowEmptyBlocks:   false,
 		PersistentStateDir: t.TempDir(),
 		DialInterval:       utils.Duration(10 * time.Second),
 		EVMChainID:         713700,
@@ -167,7 +166,6 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		EVMRPC:             utils.Some(config.URL{URL: utils.OrPanic1(url.Parse("ws://localhost:8546"))}),
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
-		AllowEmptyBlocks:   true,
 		PersistentStateDir: "/tmp/autobahn-state",
 		DialInterval:       utils.Duration(5 * time.Second),
 		EVMChainID:         713700,
@@ -204,7 +202,6 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	maxTps, ok := result.Producer.MaxTxsPerSecond.Get()
 	require.True(t, ok)
 	assert.Equal(t, uint64(1_000), maxTps)
-	assert.True(t, result.Producer.AllowEmptyBlocks)
 	assert.Equal(t, 200*time.Millisecond, result.Producer.BlockInterval)
 
 	assert.Equal(t, genDoc, result.GenDoc)

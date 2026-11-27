@@ -169,6 +169,7 @@ func newAppHashTestRouter(
 		GenesisTime:     time.Now(),
 		AppState:        testAppStateJSON(rng),
 		ConsensusParams: testGigaConsensusParams(),
+		Autobahn:        testAutobahnParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
@@ -298,6 +299,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
 		ConsensusParams: testGigaConsensusParams(),
+		Autobahn:        testAutobahnParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
@@ -1090,6 +1092,7 @@ func TestGigaRouter_InboundFullnodeCap(t *testing.T) {
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
 		ConsensusParams: testGigaConsensusParams(),
+		Autobahn:        testAutobahnParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 	db := blockstore.NewTestStore(t)
@@ -1235,7 +1238,7 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 	nodeKey := makeKey(rng)
 	localNodeKey := makeKey(rng)
 	localAddr := tcp.TestReserveAddr()
-	genDoc := &tmtypes.GenesisDoc{ChainID: "loopback-evmrpc", InitialHeight: 1}
+	genDoc := &tmtypes.GenesisDoc{ChainID: "loopback-evmrpc", InitialHeight: 1, Autobahn: testAutobahnParams()}
 	require.NoError(t, genDoc.ValidateAndComplete())
 	dir := t.TempDir()
 

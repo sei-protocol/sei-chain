@@ -58,6 +58,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		InitialHeight:   1,
 		AppState:        testAppStateJSON(rng),
 		ConsensusParams: cp,
+		Autobahn:        testAutobahnParams(),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 

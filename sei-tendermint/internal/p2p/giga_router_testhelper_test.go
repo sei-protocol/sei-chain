@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -260,4 +261,23 @@ func newTestSigner(chainID uint64, workers int) *abevm.Signer {
 
 func testEVMRPCURL() url.URL {
 	return url.URL{Scheme: "ws", Host: "127.0.0.1:1"}
+}
+
+// checkAppStateExtension checks that got extends want with the same block history and app hash chain.
+func checkAppStateExtension(want, got testAppState) error {
+	if len(got.Blocks) < len(want.Blocks) {
+		return fmt.Errorf("got %d blocks, want at least %d", len(got.Blocks), len(want.Blocks))
+	}
+	extra := got.Blocks[len(want.Blocks):]
+	for _, block := range extra {
+		want.AppHash = sha256.Sum256(slices.Concat(block.Hash[:], want.AppHash[:]))
+	}
+	want.Blocks = slices.Concat(want.Blocks, extra)
+	return utils.TestDiff(want, got)
+}
+
+func testAutobahnParams() utils.Option[tmtypes.AutobahnParams] {
+	params := tmtypes.DefaultAutobahnParams()
+	params.MinRoadBlockInterval = consensus.TestMinRoadBlockInterval
+	return utils.Some(params)
 }

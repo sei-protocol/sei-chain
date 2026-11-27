@@ -93,8 +93,8 @@ func (m *mempoolInner) IsFull() bool {
 	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
 }
 
-func (m *mempoolInner) CanSealBlock(allowEmpty bool) bool {
-	return uint64(m.next-m.first) < m.capacity && (allowEmpty || len(m.nextBlock.txs) > 0)
+func (m *mempoolInner) CanSealBlock() bool {
+	return uint64(m.next-m.first) < m.capacity && len(m.nextBlock.txs) > 0
 }
 
 func (m *mempoolInner) SealBlock() {

@@ -85,7 +85,7 @@ func (e *testEnv) AddNode(t testing.TB, key types.SecretKey) *testNode {
 			return 0
 		},
 		ProposalTimeout: time.Hour,
-		MaxRate:         rate.Inf,
+		MaxRate:         rate.Every(consensus.TestMinRoadBlockInterval),
 	})
 	e.nodes[key.Public()] = n
 	return n
@@ -93,8 +93,17 @@ func (e *testEnv) AddNode(t testing.TB, key types.SecretKey) *testNode {
 
 func (e *testEnv) Run(ctx context.Context) error {
 	return utils.IgnoreAfterCancel(ctx, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, node := range e.nodes {
+			s.SpawnNamed("node", func() error { return node.Run(ctx) })
+		}
+		return e.RunNetwork(ctx)
+	}))
+}
+
+// RunNetwork connects the nodes' services without starting their local consensus or data tasks.
+func (e *testEnv) RunNetwork(ctx context.Context) error {
+	return utils.IgnoreAfterCancel(ctx, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for xKey, x := range e.nodes {
-			s.SpawnNamed("node", func() error { return x.Run(ctx) })
 			for _, y := range e.nodes {
 				xConn, yConn := conn.NewTestConn()
 				server := rpc.NewServer[API]()
@@ -123,7 +132,12 @@ func TestDataClientServer(t *testing.T) {
 	notFound := serveCount(resBlock, "not_found")
 	unavailable := fetchCount(resBlock, "unavailable")
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return env.Run(ctx) })
+		for _, node := range []*testNode{server, client} {
+			node.service = NewFullNodeService(node.data)
+			s.SpawnBg(func() error { return utils.IgnoreCancel(node.data.Run(ctx)) })
+			s.SpawnBg(func() error { return utils.IgnoreCancel(node.service.Run(ctx)) })
+		}
+		s.SpawnBg(func() error { return env.RunNetwork(ctx) })
 
 		t.Logf("push data")
 		prev := utils.None[*types.CommitQC]()

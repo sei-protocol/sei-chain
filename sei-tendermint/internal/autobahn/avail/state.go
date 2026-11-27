@@ -530,50 +530,30 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 	return nil
 }
 
-// WaitForLaneQCs waits until there is at least 1 LaneQC that can be included in proposal at idx.
-// NOTE: waits indefinitely, even if State progressed past idx.
-func (s *State) WaitForLaneQCs(ctx context.Context, idx types.RoadHeight) (map[types.LaneID]*types.LaneQC, error) {
-	var blocked bool
-	var start time.Time
-	defer func() {
-		if blocked {
-			meters.LaneQCWait.Observe(time.Since(start).Seconds())
+// GetLaneQCs returns the available lane QCs for a proposal at idx.
+// It returns an empty map if idx is not the current consensus height.
+func (s *State) GetLaneQCs(idx types.RoadHeight) map[types.LaneID]*types.LaneQC {
+	laneQCs := map[types.LaneID]*types.LaneQC{}
+	for inner := range s.inner.Lock() {
+		spec := inner.consensusSpec.Load()
+		if spec.Height() != idx {
+			return laneQCs
 		}
-	}()
-	for inner, ctrl := range s.inner.Lock() {
-		laneQCs := map[types.LaneID]*types.LaneQC{}
-		for {
-			spec := inner.consensusSpec.Load()
-			if spec.Height() == idx {
-				for lane := range spec.Epoch.Committee().Lanes().All() {
-					first := types.LaneRangeOpt(spec.CommitQC, lane).Next()
-					votes := inner.lanes[lane].votes[spec.Epoch.EpochIndex()]
-					for i := range types.LaneHeight(types.MaxLaneRangeInProposal) {
-						if entry, ok := votes.q[first+i]; ok {
-							if qc, ok := entry.qc.Get(); ok {
-								laneQCs[lane] = qc
-								continue
-							}
-						}
-						break
+		for lane := range spec.Epoch.Committee().Lanes().All() {
+			first := types.LaneRangeOpt(spec.CommitQC, lane).Next()
+			votes := inner.lanes[lane].votes[spec.Epoch.EpochIndex()]
+			for i := range types.LaneHeight(types.MaxLaneRangeInProposal) {
+				if entry, ok := votes.q[first+i]; ok {
+					if qc, ok := entry.qc.Get(); ok {
+						laneQCs[lane] = qc
+						continue
 					}
 				}
-			}
-			if len(laneQCs) > 0 {
-				return laneQCs, nil
-			}
-			if !blocked {
-				meters.LaneQCInFlight.Add(1)
-				defer meters.LaneQCInFlight.Add(-1)
-				start = time.Now()
-				blocked = true
-			}
-			if err := ctrl.Wait(ctx); err != nil {
-				return nil, err
+				break
 			}
 		}
 	}
-	panic("unreachable")
+	return laneQCs
 }
 
 // LaneTip is how far one lane's blocks have reached on this node.

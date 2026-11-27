@@ -21,7 +21,6 @@ type Config struct {
 	MaxGasWantedPerBlock    uint64
 	MaxGasEstimatedPerBlock uint64
 	MaxTxsPerBlock          uint64
-	AllowEmptyBlocks        bool
 	// Delay after which a non-full block can be produced.
 	BlockInterval time.Duration
 	// TESTONLY: max rate at which lane is produced. It can be used to do
@@ -142,7 +141,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
-				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
+				// * BlockInterval since the last block passed AND mempool is non-empty
 				for m, ctrl := range mp.inner.Lock() {
 					// Wait for full payload with timeout.
 					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval
@@ -155,7 +154,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 						}
 						// Wait for non-empty payload.
 						if err := ctrl.WaitUntil(ctx, func() bool {
-							return toProduce < m.next || (toProduce == m.next && m.CanSealBlock(s.cfg.AllowEmptyBlocks))
+							return toProduce < m.next || (toProduce == m.next && m.CanSealBlock())
 						}); err != nil {
 							return err
 						}

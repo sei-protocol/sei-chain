@@ -295,7 +295,7 @@ func newTestEnvN(t testing.TB, rng utils.Rng, n int, cfg *Config, app accountApp
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		ProposalTimeout:    time.Hour,
-		MaxRate:            rate.Inf,
+		MaxRate:            rate.Every(consensus.TestMinRoadBlockInterval),
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
 	evm := abevm.NewProxy(app)
@@ -826,7 +826,6 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	cfg := app.Cfg()
-	cfg.AllowEmptyBlocks = true
 	cfg.BlockInterval = 10 * time.Millisecond
 	env, registry, keys := newTestEnvN(t, rng, 2, cfg, app)
 	a, b := keys[0], keys[1]
@@ -843,12 +842,18 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return utils.IgnoreCancel(env.state.Run(ctx))
 		})
 
+		if _, err := env.waitForMempool(ctx); err != nil {
+			return err
+		}
+		addr, nonce := app.NewAccount(rng)
+		if _, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode()); err != nil {
+			return err
+		}
 		if _, err := availState.Block(ctx, lane0, 0); err != nil {
 			return err
 		}
 
-		addr, _ := app.NewAccount(rng)
-		stuck := env.genTx(rng, addr, app.EvmNonce(addr))
+		stuck := env.genTx(rng, addr, nonce+1)
 		if _, err := env.state.InsertTx(ctx, stuck.encode()); err != nil {
 			return err
 		}
@@ -889,10 +894,13 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, err = availState.Block(ctx, got, 0); err != nil {
+		if _, err := env.waitForMempool(ctx); err != nil {
 			return err
 		}
-		_, err = env.state.InsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode())
+		if _, err := env.state.InsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode()); err != nil {
+			return err
+		}
+		_, err = availState.Block(ctx, got, 0)
 		return err
 	}); err != nil {
 		t.Fatal(err)

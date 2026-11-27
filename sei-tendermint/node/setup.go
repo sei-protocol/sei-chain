@@ -280,7 +280,6 @@ func buildValidatorGigaConfig(
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
 			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
 			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
-			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
 			BlockInterval:           params.LaneBlockInterval,
 			MaxConcurrentCheckTx:    fc.MaxConcurrentCheckTx,
 		},

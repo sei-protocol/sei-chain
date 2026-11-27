@@ -25,8 +25,8 @@ func TestConsensusClientServer(t *testing.T) {
 	firstBlock := nodes[0].data.Anchor().Load().Epochs[0].RoadRange().First
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		for offset := range types.RoadHeight(20) {
-			height := firstBlock + offset
+		height := firstBlock
+		for range 20 {
 			t.Logf("[%v] Push a block.", height)
 			node := nodes[rng.Intn(len(env.nodes))]
 			a := node.consensus.Avail()
@@ -36,38 +36,45 @@ func TestConsensusClientServer(t *testing.T) {
 				return fmt.Errorf("ds.ProduceLocalBlock(): %w", err)
 			}
 
-			wantAppProposal := utils.None[*types.AppProposal]()
-			for _, n := range nodes {
-				t.Logf("[%v] Wait for it to be final.", height)
-				got, err := n.data.SuperBlock(ctx, height)
-				if err != nil {
-					return fmt.Errorf("ds.Block(): %w", err)
+			for included := false; !included; height++ {
+				wantAppProposal := utils.None[*types.AppProposal]()
+				for _, n := range nodes {
+					t.Logf("[%v] Wait for it to be final.", height)
+					got, err := n.data.SuperBlock(ctx, height)
+					if err != nil {
+						return fmt.Errorf("ds.Block(): %w", err)
+					}
+					qc, err := n.data.QC(ctx, height)
+					if err != nil {
+						return fmt.Errorf("ds.QC(): %w", err)
+					}
+					var blocks []*types.LaneBlock
+					if len(qc.Headers()) > 0 {
+						blocks = []*types.LaneBlock{b.Msg().Block()}
+						included = true
+					}
+					want := types.NewRoadBlock(qc, blocks).SuperBlock()
+					if err := utils.TestDiff(want, got); err != nil {
+						return err
+					}
+					if !wantAppProposal.IsPresent() {
+						wantAppProposal = utils.Some(types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng)))
+					}
+					p := wantAppProposal.OrPanic("missing app proposal")
+					if err := n.data.PushAppHash(ctx, height, p.AppHash()); err != nil {
+						return fmt.Errorf("ds.PushAppProposal(): %w", err)
+					}
 				}
-				qc, err := n.data.QC(ctx, height)
-				if err != nil {
-					return fmt.Errorf("ds.QC(): %w", err)
-				}
-				want := types.NewRoadBlock(qc, []*types.LaneBlock{b.Msg().Block()}).SuperBlock()
-				if err := utils.TestDiff(want, got); err != nil {
-					return err
-				}
-				if !wantAppProposal.IsPresent() {
-					wantAppProposal = utils.Some(types.NewAppProposal(qc.QC().View(), types.GenAppHash(rng)))
-				}
-				p := wantAppProposal.OrPanic("missing app proposal")
-				if err := n.data.PushAppHash(ctx, height, p.AppHash()); err != nil {
-					return fmt.Errorf("ds.PushAppProposal(): %w", err)
-				}
-			}
-			for _, n := range nodes {
-				t.Logf("[%v] Wait for AppHash consensus.", height)
-				p := wantAppProposal.OrPanic("missing app proposal")
-				got, err := n.data.AppQC(ctx, height)
-				if err != nil {
-					return fmt.Errorf("cs.avail.WaitForAppQC(): %w", err)
-				}
-				if err := utils.TestDiff(p, got.Proposal()); err != nil {
-					return err
+				for _, n := range nodes {
+					t.Logf("[%v] Wait for AppHash consensus.", height)
+					p := wantAppProposal.OrPanic("missing app proposal")
+					got, err := n.data.AppQC(ctx, height)
+					if err != nil {
+						return fmt.Errorf("cs.avail.WaitForAppQC(): %w", err)
+					}
+					if err := utils.TestDiff(p, got.Proposal()); err != nil {
+						return err
+					}
 				}
 			}
 		}
