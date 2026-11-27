@@ -12,18 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testConfig returns a config for a throwaway database on the ClickHouse server named by
-// SEI_ARCHIVE_TEST_CLICKHOUSE, skipping the test when it is unset.
+func TestMain(m *testing.M) { os.Exit(RunTests(m)) }
+
+// testConfig returns a config for a throwaway database on the package's ClickHouse server.
 func testConfig(t *testing.T) Config {
-	addr := os.Getenv("SEI_ARCHIVE_TEST_CLICKHOUSE")
-	if addr == "" {
-		t.Skip("SEI_ARCHIVE_TEST_CLICKHOUSE is not set")
-	}
+	addr, password := TestServer(t)
 	cfg := Config{
 		Addr:     addr,
 		Database: "sei_clickhouse_test",
 		User:     "default",
-		Password: os.Getenv("SEI_ARCHIVE_TEST_PASSWORD"),
+		Password: password,
 	}
 	drop := []string{"DROP DATABASE IF EXISTS " + cfg.Database + " SYNC"}
 	require.NoError(t, run(context.Background(), cfg.options("default", Options{}), drop))
