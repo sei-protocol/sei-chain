@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -110,8 +110,7 @@ func TestNewFilterPollStart(t *testing.T) {
 				return
 			}
 			if tc.wantInvalid {
-				var invalid *invalidParamsError
-				require.ErrorAs(t, err, &invalid)
+				requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 				return
 			}
 			require.NoError(t, err)
@@ -427,9 +426,7 @@ func TestUnknownBlockHashEndToEnd(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			var logs []*ethtypes.Log
 			err := client.CallContext(t.Context(), &logs, tc.method, tc.param)
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, err, &rpcErr)
-			require.Equal(t, -32000, rpcErr.ErrorCode())
+			requireErrorCode(t, err, rpcerr.CodeResourceNotFound)
 			require.Equal(t, "unknown block", err.Error())
 		})
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
@@ -300,7 +301,5 @@ func TestGetBlockReceiptsEndToEnd(t *testing.T) {
 	require.Nil(t, missing)
 
 	err = client.CallContext(t.Context(), &missing, "eth_getBlockReceipts", map[string]any{})
-	var rpcErr ethrpc.Error
-	require.ErrorAs(t, err, &rpcErr)
-	require.Equal(t, -32602, rpcErr.ErrorCode())
+	requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 }

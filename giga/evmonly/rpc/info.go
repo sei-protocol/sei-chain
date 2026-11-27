@@ -13,8 +13,8 @@ import (
 	gmath "github.com/ethereum/go-ethereum/common/math"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -51,12 +51,12 @@ func (api *infoAPI) ChainId(_ context.Context) *hexutil.Big {
 
 // Syncing implements eth_syncing, matching v2: sync semantics are not exposed on this API.
 func (api *infoAPI) Syncing(_ context.Context) (any, error) {
-	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
+	return nil, rpcerr.ServerError(errors.New("eth_syncing is not supported on Sei EVM RPC"))
 }
 
 // BlobBaseFee implements eth_blobBaseFee, matching v2: Sei supports no blobs.
 func (*infoAPI) BlobBaseFee(context.Context) (*hexutil.Big, error) {
-	return nil, &evmrpc.ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+	return nil, rpcerr.ServerError(errors.New("blobs not supported on this chain"))
 }
 
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
@@ -187,14 +187,14 @@ func (api *infoAPI) resolveEndHeight(ctx context.Context, lastBlock ethrpc.Block
 	switch kind {
 	case headBlock:
 		if current <= 0 {
-			return 0, errors.New("no committed block available for fee history")
+			return 0, rpcerr.ResourceUnavailable(errors.New("no committed block available for fee history"))
 		}
 		return current, nil
 	case earliestBlock:
 		return earliestRetainedHeight(api.backend, api.store), nil
 	}
 	if int64(lastBlock) > current {
-		return 0, fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current)
+		return 0, rpcerr.ResourceUnavailable(fmt.Errorf("requested last block %d is not yet available; latest is %d", lastBlock, current))
 	}
 	return int64(lastBlock), nil
 }
@@ -249,7 +249,7 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		} else {
 			// end resolved successfully just before this call; only a store eviction racing that
 			// resolution reaches here.
-			return nil, fmt.Errorf("block %d is no longer available", end)
+			return nil, rpcerr.ResourceUnavailable(fmt.Errorf("block %d is no longer available", end))
 		}
 	}
 	// baseFeePerGas carries one more entry than gasUsedRatio: the base fee of the block after the
@@ -421,12 +421,12 @@ func rewardRow(stats receipttypes.BlockStats, rewardPercentiles []float64) []*he
 // the [0, 100] range.
 func validateRewardPercentiles(percentiles []float64) error {
 	if len(percentiles) > 100 {
-		return errors.New("rewardPercentiles length must be less than or equal to 100")
+		return rpcerr.InvalidParams(errors.New("rewardPercentiles length must be less than or equal to 100"))
 	}
 	previous := -1.0
 	for _, p := range percentiles {
 		if p < 0 || p > 100 || p <= previous {
-			return errors.New("invalid reward percentiles: must be ascending and between 0 and 100")
+			return rpcerr.InvalidParams(errors.New("invalid reward percentiles: must be ascending and between 0 and 100"))
 		}
 		previous = p
 	}

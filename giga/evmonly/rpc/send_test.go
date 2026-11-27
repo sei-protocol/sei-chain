@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -379,9 +380,7 @@ func TestSendConcurrencyLimitSharedByHTTPAndWebsocket(t *testing.T) {
 		}
 		require.NoError(t, client.BatchCallContext(t.Context(), batch))
 		for _, elem := range batch {
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, elem.Error, &rpcErr)
-			require.Equal(t, -32005, rpcErr.ErrorCode())
+			requireErrorCode(t, elem.Error, rpcerr.CodeLimitExceeded)
 		}
 	}
 	unblock()
@@ -444,9 +443,7 @@ func TestZeroSendConcurrencyDisablesSubmission(t *testing.T) {
 		for _, input := range []hexutil.Bytes{raw, {1}} {
 			var hash common.Hash
 			err := client.CallContext(t.Context(), &hash, "eth_sendRawTransaction", input)
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, err, &rpcErr)
-			require.Equal(t, -32005, rpcErr.ErrorCode())
+			requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 		}
 	}
 	require.Zero(t, broadcasts.Load())

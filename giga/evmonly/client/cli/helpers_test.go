@@ -24,6 +24,7 @@ import (
 	govprecompile "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	chainparams "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/params"
 	upgradeprecompile "github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/upgrade"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
@@ -97,7 +98,7 @@ func (s *rpcStub) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := map[string]any{"jsonrpc": "2.0", "id": req.ID}
 	if rpcErr != nil {
-		resp["error"] = map[string]any{"code": 3, "message": rpcErr.Error()}
+		resp["error"] = map[string]any{"code": rpcerr.CodeExecutionReverted, "message": rpcErr.Error()}
 	} else {
 		resp["result"] = result
 	}

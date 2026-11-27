@@ -16,12 +16,9 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
-
-// errcodeRequestTimeout is the JSON-RPC error code go-ethereum reports for a method that failed
-// after its deadline passed.
-const errcodeRequestTimeout = -32002
 
 // limitsWithDeadlines returns noRPCLimits with the given per-method deadlines.
 func limitsWithDeadlines(defaultTimeout time.Duration, methodTimeouts ...string) gigaconfig.RPCConfig {
@@ -70,9 +67,7 @@ func TestMethodDeadlineEndsBlockedCall(t *testing.T) {
 			var got hexutil.Bytes
 			err := client.CallContext(t.Context(), &got, "eth_call", map[string]any{"to": deadlineTestTo}, "latest")
 
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, err, &rpcErr)
-			require.Equal(t, errcodeRequestTimeout, rpcErr.ErrorCode())
+			requireErrorCode(t, err, rpcerr.CodeRequestTimeout)
 		})
 	}
 }
@@ -89,9 +84,7 @@ func TestDefaultDeadlineBoundsUnlistedMethod(t *testing.T) {
 			var got map[string]any
 			err := client.CallContext(t.Context(), &got, "eth_getBlockByNumber", "0x1", false)
 
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, err, &rpcErr)
-			require.Equal(t, errcodeRequestTimeout, rpcErr.ErrorCode())
+			requireErrorCode(t, err, rpcerr.CodeRequestTimeout)
 		})
 	}
 }
@@ -172,9 +165,7 @@ func TestStateReadPastDeadlineReportsTimeout(t *testing.T) {
 					var got any
 					err := client.CallContext(t.Context(), &got, tc.method, tc.params...)
 
-					var rpcErr ethrpc.Error
-					require.ErrorAs(t, err, &rpcErr)
-					require.Equal(t, errcodeRequestTimeout, rpcErr.ErrorCode())
+					requireErrorCode(t, err, rpcerr.CodeRequestTimeout)
 				})
 			}
 		}

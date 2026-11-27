@@ -11,8 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
-
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -36,7 +35,7 @@ func (api *filterAPI) NewBlockFilter(ctx context.Context) (ethrpc.ID, error) {
 
 // NewPendingTransactionFilter returns the regular RPC's not-supported error.
 func (api *filterAPI) NewPendingTransactionFilter(context.Context, *bool) (ethrpc.ID, error) {
-	return "", &evmrpc.ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
+	return "", rpcerr.ServerError(errors.New("eth_newPendingTransactionFilter is not supported on Sei EVM RPC"))
 }
 
 // GetFilterChanges returns what filter id matched since its previous poll: block hashes for a
@@ -70,7 +69,7 @@ func (api *filterAPI) GetFilterLogs(ctx context.Context, id ethrpc.ID) ([]*ethty
 		return nil, err
 	}
 	if f.crit == nil {
-		return nil, errFilterNotFound
+		return nil, rpcerr.ResourceNotFound(errFilterNotFound)
 	}
 	return api.GetLogs(ctx, *f.crit)
 }
@@ -109,7 +108,7 @@ func (api *filterAPI) pollStart(ctx context.Context, crit filters.FilterCriteria
 	case heightBlock:
 		start = crit.FromBlock.Uint64()
 		if start < earliest {
-			return crit, 0, fmt.Errorf("%w: fromBlock %d; earliest available block is %d", errLogRangePruned, start, earliest)
+			return crit, 0, rpcerr.ResourceUnavailable(fmt.Errorf("%w: fromBlock %d; earliest available block is %d", errLogRangePruned, start, earliest))
 		}
 	}
 	switch toKind {
@@ -121,7 +120,7 @@ func (api *filterAPI) pollStart(ctx context.Context, crit filters.FilterCriteria
 		crit.ToBlock = new(big.Int).SetUint64(earliest)
 	}
 	if to := crit.ToBlock.Uint64(); to < start {
-		return crit, 0, &invalidParamsError{error: fmt.Errorf("toBlock %d is before the filter's start block %d", to, start)}
+		return crit, 0, rpcerr.InvalidParams(fmt.Errorf("toBlock %d is before the filter's start block %d", to, start))
 	}
 	return crit, start, nil
 }
@@ -181,7 +180,7 @@ func (api *filterAPI) pollBlockHashes(ctx context.Context, cursor uint64) ([]com
 		return []common.Hash{}, cursor, nil
 	}
 	if api.maxBlockFilterHashes > 0 && latest-cursor+1 > api.maxBlockFilterHashes {
-		return nil, cursor, fmt.Errorf("%w: it was not polled for more than %d blocks", errFilterNotFound, api.maxBlockFilterHashes)
+		return nil, cursor, rpcerr.ResourceNotFound(fmt.Errorf("%w: it was not polled for more than %d blocks", errFilterNotFound, api.maxBlockFilterHashes))
 	}
 	hashes := make([]common.Hash, 0, latest-cursor+1)
 	for height := cursor; height <= latest; height++ {
@@ -249,7 +248,7 @@ func prunedLogsError(crit filters.FilterCriteria, cursor, earliest uint64) error
 	if crit.ToBlock != nil {
 		last = min(last, crit.ToBlock.Uint64())
 	}
-	return fmt.Errorf("%w: logs of blocks %d to %d were pruned before the filter read them", errLogRangePruned, cursor, last)
+	return rpcerr.ResourceUnavailable(fmt.Errorf("%w: logs of blocks %d to %d were pruned before the filter read them", errLogRangePruned, cursor, last))
 }
 
 // exceedsLogCaps reports whether err is a query failing on the log count or byte caps.

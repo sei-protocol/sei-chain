@@ -19,6 +19,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -79,6 +80,7 @@ func TestWebsocketSubscriptionLimits(t *testing.T) {
 	require.NoError(t, err)
 	_, err = subscribe(a)
 	require.ErrorContains(t, err, errConnectionSubscriptionLimit.Error())
+	requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 
 	// Unsubscribing frees a slot on the same connection.
 	a1.Unsubscribe()
@@ -91,6 +93,7 @@ func TestWebsocketSubscriptionLimits(t *testing.T) {
 	c := dial()
 	_, err = subscribe(c)
 	require.ErrorContains(t, err, errNewHeadsSubscriptionLimit.Error())
+	requireErrorCode(t, err, rpcerr.CodeLimitExceeded)
 
 	// Closing a connection frees all of its slots: c takes both of a's.
 	a.Close()
@@ -105,7 +108,7 @@ func TestWebsocketAdmissionTimeout(t *testing.T) {
 		name   string
 		limits gigaconfig.RPCConfig
 		// wantTimeout is whether a request still being processed exhausts the
-		// byte budget, so the connection is closed with -32005 instead of the
+		// byte budget, so the connection is closed with rpcerr.CodeLimitExceeded instead of the
 		// next request being served.
 		wantTimeout bool
 	}{
@@ -159,7 +162,7 @@ func TestWebsocketAdmissionTimeout(t *testing.T) {
 			require.NoError(t, json.Unmarshal(raw, &got))
 			if tc.wantTimeout {
 				require.NotNil(t, got.Error, "response %s", raw)
-				require.Equal(t, -32005, got.Error.Code)
+				require.Equal(t, rpcerr.CodeLimitExceeded, got.Error.Code)
 				// The connection closes once its in-flight request returns, after
 				// delivering that request's answer.
 				release()
@@ -189,9 +192,9 @@ func TestBatchLimits(t *testing.T) {
 		{name: "disabled limits serve the whole batch", limits: noRPCLimits, requests: 3, wantCodes: []int{0, 0, 0}},
 		{name: "batch at the request limit", limits: gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, BatchRequestLimit: 2}, requests: 2, wantCodes: []int{0, 0}},
 		// One error answers the whole batch.
-		{name: "batch over the request limit", limits: gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, BatchRequestLimit: 2}, requests: 3, wantCodes: []int{-32600}},
+		{name: "batch over the request limit", limits: gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, BatchRequestLimit: 2}, requests: 3, wantCodes: []int{rpcerr.CodeInvalidRequest}},
 		// The response that crosses the size limit is kept; the rest are refused.
-		{name: "batch over the response size limit", limits: gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, BatchResponseMaxSize: 1}, requests: 3, wantCodes: []int{0, -32003, -32003}},
+		{name: "batch over the response size limit", limits: gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, BatchResponseMaxSize: 1}, requests: 3, wantCodes: []int{0, rpcerr.CodeResponseTooLarge, rpcerr.CodeResponseTooLarge}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &testBackend{blockNumber: func() uint64 { return 42 }}

@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -36,7 +37,7 @@ func (api *blockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash ethrpc.
 	}
 	// Checked after the read, so a retention floor that rose during it is caught too.
 	if earliest, _ := indexedRange(ctx, api.backend, api.store); height < earliest {
-		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errBlockReceiptsPruned, height, earliest)
+		return nil, rpcerr.ResourceUnavailable(fmt.Errorf("%w: block %d; earliest available block is %d", errBlockReceiptsPruned, height, earliest))
 	}
 	blockHash := common.BytesToHash(block.BlockID.Hash)
 	receipts := make([]map[string]any, len(records))
@@ -55,7 +56,7 @@ func (api *blockAPI) resolveReceiptsBlock(ctx context.Context, blockNrOrHash eth
 	}
 	number, ok := blockNrOrHash.Number()
 	if !ok {
-		return nil, &invalidParamsError{error: errBlockReceiptsNoBlock}
+		return nil, rpcerr.InvalidParams(errBlockReceiptsNoBlock)
 	}
 	kind, err := classifyBlockNumber(number)
 	if err != nil {

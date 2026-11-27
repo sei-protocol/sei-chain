@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -171,7 +172,7 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultBlock) ([]*ethtypes.Transaction, error) {
 	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
 	if _, latest := indexedRange(ctx, b.backend, b.blocks.store); height > latest {
-		return nil, fmt.Errorf("%w: block %d", errTraceBlockNotIndexed, height)
+		return nil, rpcerr.ResourceUnavailable(fmt.Errorf("%w: block %d", errTraceBlockNotIndexed, height))
 	}
 	records, err := blockReceiptRecords(ctx, b.blocks.store, block)
 	if err != nil {
@@ -179,7 +180,7 @@ func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultB
 	}
 	// Checked after the read, so a retention floor that rose during it is caught too.
 	if earliest, _ := indexedRange(ctx, b.backend, b.blocks.store); height < earliest {
-		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errTraceBlockPruned, height, earliest)
+		return nil, rpcerr.ResourceUnavailable(fmt.Errorf("%w: block %d; earliest available block is %d", errTraceBlockPruned, height, earliest))
 	}
 	txs := make([]*ethtypes.Transaction, 0, len(records))
 	for _, record := range records {

@@ -8,6 +8,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 )
 
 var errFilterNotFound = errors.New("filter does not exist")
@@ -51,7 +53,7 @@ func (r *filterRegistry) add(f *pollFilter) (ethrpc.ID, error) {
 		}
 	}
 	if r.maxFilters > 0 && uint64(len(r.filters)) >= r.maxFilters {
-		return "", fmt.Errorf("too many filters: maximum allowed is %d", r.maxFilters)
+		return "", rpcerr.LimitExceeded(fmt.Errorf("too many filters: maximum allowed is %d", r.maxFilters))
 	}
 	f.lastPolled = now
 	id := ethrpc.NewID()
@@ -66,12 +68,12 @@ func (r *filterRegistry) get(id ethrpc.ID) (*pollFilter, error) {
 	defer r.mu.Unlock()
 	f, ok := r.filters[id]
 	if !ok {
-		return nil, errFilterNotFound
+		return nil, rpcerr.ResourceNotFound(errFilterNotFound)
 	}
 	now := time.Now()
 	if r.expired(f, now) {
 		delete(r.filters, id)
-		return nil, errFilterNotFound
+		return nil, rpcerr.ResourceNotFound(errFilterNotFound)
 	}
 	f.lastPolled = now
 	return f, nil

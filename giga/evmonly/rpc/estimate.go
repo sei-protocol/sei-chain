@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 )
@@ -44,7 +45,7 @@ func (api *estimateAPI) EstimateGas(ctx context.Context, args export.Transaction
 // order.
 func (api *estimateAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, block *ethrpc.BlockNumberOrHash, stateOverrides *export.StateOverride) (hexutil.Uint64, error) {
 	if api.maxCalls > 0 && len(calls) > api.maxCalls {
-		return 0, fmt.Errorf("eth_estimateGasAfterCalls: too many calls (%d > %d)", len(calls), api.maxCalls)
+		return 0, rpcerr.LimitExceeded(fmt.Errorf("eth_estimateGasAfterCalls: too many calls (%d > %d)", len(calls), api.maxCalls))
 	}
 	overrides, err := api.limits.callOverrides(stateOverrides, nil)
 	if err != nil {
@@ -92,7 +93,7 @@ func (api *estimateAPI) estimateAfterCalls(
 	estimate, revert, err := api.estimate(ctx, callMsgs, msg, height, latest, overrides)
 	if err != nil {
 		if errors.Is(err, vm.ErrExecutionReverted) {
-			return 0, newRevertError(revert)
+			return 0, rpcerr.ExecutionReverted(revert)
 		}
 		return 0, err
 	}

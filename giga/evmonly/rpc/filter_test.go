@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/logfilter"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -390,7 +390,5 @@ func TestGetLogsEndToEnd(t *testing.T) {
 		"fromBlock": "0x8",
 		"toBlock":   "0x7",
 	})
-	var rpcErr ethrpc.Error
-	require.ErrorAs(t, err, &rpcErr)
-	require.Equal(t, -32602, rpcErr.ErrorCode())
+	requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 }

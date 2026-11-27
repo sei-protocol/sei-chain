@@ -11,8 +11,8 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
@@ -68,8 +68,7 @@ func TestChainIdEndToEnd(t *testing.T) {
 func TestSyncing(t *testing.T) {
 	api := &infoAPI{}
 	_, err := api.Syncing(t.Context())
-	var notSupported *evmrpc.ErrEVMNotSupported
-	require.ErrorAs(t, err, &notSupported)
+	requireErrorCode(t, err, rpcerr.CodeServerError)
 }
 
 func TestSyncingEndToEnd(t *testing.T) {
@@ -84,9 +83,7 @@ func TestSyncingEndToEnd(t *testing.T) {
 
 	var got any
 	err = client.CallContext(t.Context(), &got, "eth_syncing")
-	var rpcErr ethrpc.Error
-	require.ErrorAs(t, err, &rpcErr)
-	require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+	requireErrorCode(t, err, rpcerr.CodeServerError)
 	require.Contains(t, err.Error(), "eth_syncing")
 }
 
@@ -115,9 +112,7 @@ func TestBlobsAndProofsAreNotSupported(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			var got any
 			err := client.CallContext(t.Context(), &got, tc.method, tc.params...)
-			var rpcErr ethrpc.Error
-			require.ErrorAs(t, err, &rpcErr)
-			require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+			requireErrorCode(t, err, rpcerr.CodeServerError)
 			require.Equal(t, tc.message, err.Error())
 		})
 	}

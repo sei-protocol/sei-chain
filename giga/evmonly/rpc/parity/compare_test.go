@@ -2,11 +2,15 @@ package parity
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 )
 
 func result(t *testing.T, value string) Response {
@@ -34,14 +38,14 @@ func TestCompareResults(t *testing.T) {
 }
 
 func TestCompareErrors(t *testing.T) {
-	failed := Response{Error: &RPCError{Code: -32000, Message: "not found"}}
+	failed := Response{Error: &RPCError{Code: rpcerr.CodeServerError, Message: "not found"}}
 	diffs, err := Compare(failed, result(t, "null"))
 	require.NoError(t, err)
-	require.Equal(t, []Difference{{Path: "error", V2: "error -32000: not found", EvmOnly: "result null"}}, diffs)
+	require.Equal(t, []Difference{{Path: "error", V2: fmt.Sprintf("error %d: not found", rpcerr.CodeServerError), EvmOnly: "result null"}}, diffs)
 
-	diffs, err = Compare(failed, Response{Error: &RPCError{Code: -32601, Message: "not found"}})
+	diffs, err = Compare(failed, Response{Error: &RPCError{Code: rpcerr.CodeMethodNotFound, Message: "not found"}})
 	require.NoError(t, err)
-	require.Equal(t, []Difference{{Path: "error.code", V2: "-32000", EvmOnly: "-32601"}}, diffs)
+	require.Equal(t, []Difference{{Path: "error.code", V2: strconv.Itoa(rpcerr.CodeServerError), EvmOnly: strconv.Itoa(rpcerr.CodeMethodNotFound)}}, diffs)
 }
 
 func TestDifferenceDisplayStartsAtDivergingWord(t *testing.T) {
@@ -87,7 +91,7 @@ func TestKnownDiffsMatchAndTrack(t *testing.T) {
 	require.True(t, known.Accepts("a", request("eth_getBalance", ` "0xc0" `, `"latest"`), Difference{Path: "result"}))
 	require.False(t, known.Accepts("a", request("eth_getBalance", `"0xc1"`, `"latest"`), Difference{Path: "result"}))
 
-	unsupported := Difference{Path: "error", EvmOnly: "error -32000: historical state is not supported"}
+	unsupported := Difference{Path: "error", EvmOnly: fmt.Sprintf("error %d: historical state is not supported", rpcerr.CodeServerError)}
 	require.True(t, known.Accepts("a", request("eth_getCode"), unsupported))
 	require.False(t, known.Accepts("b", request("eth_getCode"), unsupported))
 	require.False(t, known.Accepts("a", request("eth_getCode"), Difference{Path: "error", EvmOnly: "result null"}))

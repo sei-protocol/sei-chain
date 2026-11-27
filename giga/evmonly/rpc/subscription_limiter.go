@@ -3,6 +3,8 @@ package rpc
 import (
 	"errors"
 	"sync"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 )
 
 var (
@@ -61,10 +63,10 @@ func (l *subscriptionLimiter) acquire(connection string, open *uint64, maxOpen u
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if maxOpen > 0 && *open >= maxOpen {
-		return errLimit
+		return rpcerr.LimitExceeded(errLimit)
 	}
 	if l.maxPerConnection > 0 && l.perConnection[connection] >= l.maxPerConnection {
-		return errConnectionSubscriptionLimit
+		return rpcerr.LimitExceeded(errConnectionSubscriptionLimit)
 	}
 	*open++
 	l.perConnection[connection]++

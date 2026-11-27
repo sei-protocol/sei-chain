@@ -6,6 +6,8 @@ import (
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/rpc/rpcerr"
 )
 
 func TestClassifyBlockNumber(t *testing.T) {
@@ -31,8 +33,7 @@ func TestClassifyBlockNumber(t *testing.T) {
 
 	t.Run("unknown tag", func(t *testing.T) {
 		_, err := classifyBlockNumber(-6)
-		var invalid *invalidParamsError
-		require.ErrorAs(t, err, &invalid)
+		requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 		require.ErrorIs(t, err, errBlockTagUnsupported)
 	})
 }
@@ -46,11 +47,10 @@ func TestClassifyFilterBound(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, earliestBlock, got)
 
-	var invalid *invalidParamsError
 	_, err = classifyFilterBound(new(big.Int).Lsh(big.NewInt(1), 70))
-	require.ErrorAs(t, err, &invalid)
+	requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 	_, err = classifyFilterBound(big.NewInt(-6))
-	require.ErrorAs(t, err, &invalid)
+	requireErrorCode(t, err, rpcerr.CodeInvalidParams)
 }
 
 func TestEarliestRetainedHeight(t *testing.T) {
