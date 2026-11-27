@@ -18,6 +18,8 @@ const maxCommitSignatures = types.MaxVotesCount
 // maxBlockTxs mirrors the max_count on tendermint.types.Data.txs.
 const maxBlockTxs = 1_000_000
 
+const maxEvidenceEntries = types.MaxEvidenceEntriesPerBlock
+
 func marshal(t *testing.T, m gogoproto.Message) []byte {
 	t.Helper()
 	bz, err := gogoproto.Marshal(m)
@@ -147,4 +149,22 @@ func TestSchemaForMessage_AcceptsTxsAtCap(t *testing.T) {
 func TestSchemaForMessage_RejectsTxsOverCap(t *testing.T) {
 	require.Error(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponseWithTxs(maxBlockTxs+1))))
+}
+
+func blocksyncResponseWithEvidenceEntries(n int) *bcproto.Message {
+	return &bcproto.Message{Sum: &bcproto.Message_BlockResponse{
+		BlockResponse: &bcproto.BlockResponse{
+			Block: &tmproto.Block{Evidence: tmproto.EvidenceList{Evidence: make([]tmproto.Evidence, n)}},
+		},
+	}}
+}
+
+func TestSchemaForMessage_AcceptsEvidenceEntriesAtCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t,
+		blocksyncResponseWithEvidenceEntries(maxEvidenceEntries))))
+}
+
+func TestSchemaForMessage_RejectsEvidenceEntriesOverCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*bcproto.Message](marshal(t,
+		blocksyncResponseWithEvidenceEntries(maxEvidenceEntries+1))))
 }

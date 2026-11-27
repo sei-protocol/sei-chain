@@ -4,11 +4,12 @@ package tendermint.types;
 
 import "gogoproto/gogo.proto";
 import "tendermint/crypto/keys.proto";
+import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types";
 
 message ValidatorSet {
-  repeated Validator validators = 1;
+  repeated Validator validators = 1 [(wireguard.max_count) = 100];
   Validator proposer = 2;
   int64 total_voting_power = 3;
 }
