@@ -316,7 +316,6 @@ func TestGigaValidatorRouter_RunPublishValidatorAddrWaitsForAnchorMembership(t *
 	require.NoError(t, utils.TestDiff(GigaNodeAddr{Key: nodeKey.Public(), HostPort: hp}, addr))
 }
 
-// A validator that leaves an Anchor and enters again publishes a higher version the second time.
 // A peer that sends back a higher version of this validator's own announcement, as after a restart,
 // makes the validator publish again above it.
 func TestGigaValidatorRouter_RepublishesAboveHigherOwnVersion(t *testing.T) {
@@ -348,6 +347,113 @@ func TestGigaValidatorRouter_RepublishesAboveHigherOwnVersion(t *testing.T) {
 	})
 }
 
+// A validator whose announcement is refused because it left the Anchor publishes again on re-entry,
+// with no table change in between.
+func TestGigaValidatorRouter_RepublishesAfterRefusalOnReentry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		key := atypes.GenSecretKey(rng)
+		other := atypes.GenSecretKey(rng).Public()
+		epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{key.Public(): 1}))
+		// The first verification runs after the validator has left the Anchor, so it refuses.
+		refuseOnce := true
+		table := giga.NewValidatorAddrs(func(ann *atypes.SignedValidatorAddrAnnouncement) bool {
+			if refuseOnce {
+				refuseOnce = false
+				epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{other: 1}))
+				return false
+			}
+			return verifyValidatorAddr(epochs.state.Anchor().Load(), ann, false).IsPresent()
+		})
+		router := testPublishingRouter(t, epochs.state, table, key, makeKey(rng), tcp.HostPort{Hostname: "self.example", Port: 26656})
+		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })
+			synctest.Wait()
+			epochs.store(testEpoch(3, map[atypes.PublicKey]uint64{key.Public(): 1}))
+			_, err := table.Watch().Wait(ctx, func(held giga.ValidatorAddrSnapshot) bool {
+				_, ok := held[key.Public()]
+				return ok
+			})
+			return err
+		})
+		require.NoError(t, err)
+	})
+}
+
+// A refused announcement is offered again only once the Anchor's epoch indices change.
+func TestGigaValidatorRouter_RefusedPublishWaitsForAnchorChange(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		key := atypes.GenSecretKey(rng)
+		other := atypes.GenSecretKey(rng).Public()
+		epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{key.Public(): 1}))
+		offers := utils.NewMutex(new(int))
+		table := giga.NewValidatorAddrs(func(*atypes.SignedValidatorAddrAnnouncement) bool {
+			for n := range offers.Lock() {
+				*n++
+			}
+			return false
+		})
+		router := testPublishingRouter(t, epochs.state, table, key, makeKey(rng), tcp.HostPort{Hostname: "self.example", Port: 26656})
+		count := func() int {
+			for n := range offers.Lock() {
+				return *n
+			}
+			panic("unreachable")
+		}
+		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })
+			synctest.Wait()
+			if got := count(); got != 1 {
+				return fmt.Errorf("offers before an Anchor change = %d, want 1", got)
+			}
+			epochs.store(testEpoch(2, map[atypes.PublicKey]uint64{key.Public(): 1, other: 1}))
+			synctest.Wait()
+			if got := count(); got != 2 {
+				return fmt.Errorf("offers after an Anchor change = %d, want 2", got)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
+// Re-storing the Anchor with the same epoch indices does not offer a refused announcement again.
+func TestGigaValidatorRouter_RefusedPublishIgnoresSameEpochIndices(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		key := atypes.GenSecretKey(rng)
+		epochs := newSettledEpochs(t, testEpoch(1, map[atypes.PublicKey]uint64{key.Public(): 1}))
+		offers := utils.NewMutex(new(int))
+		table := giga.NewValidatorAddrs(func(*atypes.SignedValidatorAddrAnnouncement) bool {
+			for n := range offers.Lock() {
+				*n++
+			}
+			return false
+		})
+		router := testPublishingRouter(t, epochs.state, table, key, makeKey(rng), tcp.HostPort{Hostname: "self.example", Port: 26656})
+		count := func() int {
+			for n := range offers.Lock() {
+				return *n
+			}
+			panic("unreachable")
+		}
+		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runPublishValidatorAddr(ctx)) })
+			synctest.Wait()
+			// A new Anchor with the same epoch indices holds new epoch values.
+			epochs.store(testEpoch(1, map[atypes.PublicKey]uint64{key.Public(): 1}))
+			synctest.Wait()
+			if got := count(); got != 1 {
+				return fmt.Errorf("offers after a same-index Anchor = %d, want 1", got)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
+// A validator that leaves an Anchor and enters again publishes a higher version the second time.
 func TestGigaValidatorRouter_RunPublishValidatorAddrVersionRisesOnReentry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rng := utils.TestRng()

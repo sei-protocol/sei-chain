@@ -123,8 +123,20 @@ func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error
 			// version of the previous run. Peers hold that one and send it back, and the next
 			// publish goes above it.
 			version = max(uint64(time.Now().UnixNano()), version+1)
-			stored := r.publishValidatorAddr(version)
-			superseding, err := r.awaitOwnAddrSuperseded(ctx, version, stored)
+			// Read before the announcement is offered, so the wait below sees an Anchor change made during it.
+			anchor := r.data.Anchor().Load()
+			if !r.publishValidatorAddr(version) {
+				// A refusal leaves the table unchanged, and re-entry does not change it either, so the retry
+				// waits for the Anchor's epoch indices to change.
+				indices := func(a data.Anchor) [2]atypes.EpochIndex {
+					return [2]atypes.EpochIndex{a.Epochs[0].EpochIndex(), a.Epochs[1].EpochIndex()}
+				}
+				if _, err := r.data.Anchor().Wait(ctx, func(a data.Anchor) bool { return indices(a) != indices(anchor) }); err != nil {
+					return err
+				}
+				break
+			}
+			superseding, err := r.awaitOwnAddrSuperseded(ctx, version)
 			if err != nil {
 				return err
 			}
@@ -136,23 +148,12 @@ func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error
 	}
 }
 
-// awaitOwnAddrSuperseded waits on the table alone and returns the version of this validator's
-// announcement that the table holds above published, or 0 when the caller should publish again
-// from the Anchor. Once stored, the announcement is dropped from the table when this validator
-// leaves the Anchor, which returns 0. A refused announcement is not held, so it is retried on
-// the next table change.
-func (r *gigaValidatorRouter) awaitOwnAddrSuperseded(ctx context.Context, published uint64, stored bool) (uint64, error) {
+// awaitOwnAddrSuperseded waits until the table drops this validator's announcement or holds a version
+// above published. It returns the held version, or 0 when the announcement was dropped and the caller
+// should publish again from the Anchor.
+func (r *gigaValidatorRouter) awaitOwnAddrSuperseded(ctx context.Context, published uint64) (uint64, error) {
 	addrs := r.validatorAddrs.Watch()
 	validatorKey := r.validatorKey.OrPanic("validator key")
-	if !stored {
-		before := addrs.Load()
-		if _, err := addrs.Wait(ctx, func(held giga.ValidatorAddrSnapshot) bool {
-			return !held.Same(before)
-		}); err != nil {
-			return 0, err
-		}
-		return 0, nil
-	}
 	if _, err := addrs.Wait(ctx, func(held giga.ValidatorAddrSnapshot) bool {
 		ann, ok := held[validatorKey]
 		return !ok || ann.Msg().Version > published
