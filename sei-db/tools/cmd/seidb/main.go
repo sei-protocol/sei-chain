@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/benchmark"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations/cosmoslogical"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations/evmlogical"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,7 @@ func main() {
 		operations.MigrateEvmStatusCmd(),
 		evmlogical.EvmLogicalDigestCmd(),
 		evmlogical.KVRepairExportCmd(),
+		cosmoslogical.CosmosLogicalDigestCmd(),
 		operations.HashLogCmd())
 	if err := rootCmd.Execute(); err != nil {
 		// Subcommands with a --json mode make stdout a machine-readable channel, so a
