@@ -223,6 +223,10 @@ func (b *replayBackend) EvmBaseFee() *big.Int {
 	return new(big.Int).Set(b.tip.BaseFee)
 }
 
+func (b *replayBackend) EvmNextBaseFee() *big.Int {
+	return new(big.Int).Set(b.tip.BaseFee)
+}
+
 func (b *replayBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	blockCtx, ok := b.executed[header.Number.Uint64()]
 	if !ok {

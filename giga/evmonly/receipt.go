@@ -18,13 +18,13 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
+func receiptRecords(blockNumber uint64, baseFee *big.Int, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
 	if len(result.Receipts) != len(result.Txs) {
 		return nil, fmt.Errorf("receipt count %d does not match transaction result count %d", len(result.Receipts), len(result.Txs))
 	}
 	records := make([]receipttypes.ReceiptRecord, 0, len(result.Receipts))
 	for i := range result.Receipts {
-		record, keep, err := encodeReceiptRecord(blockNumber, result, i)
+		record, keep, err := encodeReceiptRecord(blockNumber, baseFee, result, i)
 		if err != nil {
 			return nil, err
 		}
@@ -35,10 +35,10 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipttypes.Rec
 	return records, nil
 }
 
-// encodeReceiptRecord builds the record for transaction i, and reports false when the transaction
-// stores no receipt. Records are independent of each other, so a caller holding a worker pool may
-// build them in parallel.
-func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receipttypes.ReceiptRecord, bool, error) {
+// encodeReceiptRecord builds the record for transaction i of a block run at baseFee, and reports
+// false when the transaction stores no receipt. Records are independent of each other, so a caller
+// holding a worker pool may build them in parallel.
+func encodeReceiptRecord(blockNumber uint64, baseFee *big.Int, result *BlockResult, i int) (receipttypes.ReceiptRecord, bool, error) {
 	ethReceipt := result.Receipts[i]
 	if ethReceipt == nil {
 		return receipttypes.ReceiptRecord{}, false, fmt.Errorf("receipt %d is nil", i)
@@ -79,16 +79,27 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receip
 	if txResult.Err != nil {
 		stored.VmError = txResult.Err.Error()
 	}
-	// Reward is the tx's priority fee unfiltered: giga's base fee is always zero
-	// (evmOnlyBaseFee), and its admission floor already guarantees a positive effective price.
 	var reward *big.Int
 	if ethReceipt.EffectiveGasPrice != nil {
-		reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
+		reward = PriorityFee(ethReceipt.EffectiveGasPrice, baseFee)
 	}
 	return receipttypes.ReceiptRecord{
 		TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
 		KeepExisting: txResult.Rejected,
 	}, true, nil
+}
+
+// PriorityFee returns effectiveGasPrice less baseFee, a nil baseFee counting as zero, or nil when
+// effectiveGasPrice is below baseFee.
+func PriorityFee(effectiveGasPrice, baseFee *big.Int) *big.Int {
+	fee := new(big.Int).Set(effectiveGasPrice)
+	if baseFee != nil {
+		fee.Sub(fee, baseFee)
+	}
+	if fee.Sign() < 0 {
+		return nil
+	}
+	return fee
 }
 
 // claimsHash reports whether tx's hash resolves to this execution of it: every executed transaction,
@@ -100,10 +111,10 @@ func claimsHash(tx *TxResult) bool {
 
 // receiptRecordsParallel builds the block's records across the executor's worker pool, returning
 // the same records in the same order as receiptRecords.
-func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint64, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
+func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint64, baseFee *big.Int, result *BlockResult) ([]receipttypes.ReceiptRecord, error) {
 	count := len(result.Receipts)
 	if e.occPool == nil || e.closed.Load() || count < occParallelReceiptThreshold {
-		return receiptRecords(blockNumber, result)
+		return receiptRecords(blockNumber, baseFee, result)
 	}
 	if count != len(result.Txs) {
 		return nil, fmt.Errorf("receipt count %d does not match transaction result count %d", count, len(result.Txs))
@@ -118,7 +129,7 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 				if err := workerCtx.Err(); err != nil {
 					return err
 				}
-				record, keep, err := encodeReceiptRecord(blockNumber, result, i)
+				record, keep, err := encodeReceiptRecord(blockNumber, baseFee, result, i)
 				if err != nil {
 					return err
 				}
@@ -128,7 +139,7 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 		return nil
 	})
 	if errors.Is(err, errOCCWorkerPoolClosed) {
-		return receiptRecords(blockNumber, result)
+		return receiptRecords(blockNumber, baseFee, result)
 	}
 	if err != nil {
 		return nil, err

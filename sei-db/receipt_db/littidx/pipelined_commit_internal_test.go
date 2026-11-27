@@ -56,14 +56,14 @@ func TestPipelinedWriteAcceptsAnotherPartOfTheBlockInFlight(t *testing.T) {
 	s.index = index
 
 	txHash, rcpt := littCtxTestReceipt(2, 0, addr, topic, 1)
-	_, err := s.writeReceipts(2, []receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
+	_, err := s.writeReceipts(2, nil, []receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
 	require.NoError(t, err)
 	<-index.entered
 
 	result := make(chan error, 1)
 	go func() {
 		txHash, rcpt := littCtxTestReceipt(2, 1, addr, topic, 1)
-		_, err := s.writeReceipts(2, []receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
+		_, err := s.writeReceipts(2, nil, []receipttypes.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
 		result <- err
 	}()
 	select {

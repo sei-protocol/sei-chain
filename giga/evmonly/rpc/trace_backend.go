@@ -36,8 +36,9 @@ type traceBackend struct {
 	backend Backend
 	blocks  *blockAPI
 	txs     *txAPI
-	// headersOnly serves blocks without their transactions, and names the latest committed block by
-	// a current-state tag, for tracing calls, which read only a block's header and state.
+	// headersOnly serves blocks without their transactions, names the latest committed block by a
+	// current-state tag, and serves the committed state after a block, for tracing calls, which read
+	// only a block's header and state.
 	headersOnly bool
 }
 
@@ -156,7 +157,7 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 			return nil, err
 		}
 	}
-	header, err := executionHeader(b.backend, block)
+	header, err := executionHeader(ctx, b.backend, b.blocks.store, block)
 	if err != nil {
 		return nil, err
 	}
@@ -223,9 +224,35 @@ func (b *traceBackend) TxIndexDone() bool {
 	return true
 }
 
-// StateAtBlock returns the committed state after block, or the latest committed state when ctx is
-// marked by withLatestState.
+// StateAtBlock returns the state a traced block's transactions run on, given that block's parent:
+// the start of the block after it. For tracing calls it returns the committed state after block
+// instead, or the latest committed state when ctx is marked by withLatestState.
 func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ vm.SeiStateDB, _ bool, _ bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
+	if b.headersOnly {
+		return b.committedState(ctx, block)
+	}
+	return b.blockStartState(ctx, block.Number().Int64()+1)
+}
+
+// blockStartState returns the state the block at height starts from: the committed state after its
+// parent with the block's start applied, the genesis alloc and begin blockers included, as the
+// block executed against.
+func (b *traceBackend) blockStartState(ctx context.Context, height int64) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
+	header, err := b.blocks.executionHeaderAt(ctx, height)
+	if err != nil {
+		return nil, nil, err
+	}
+	stateDB, release, err := b.backend.EvmStateBeforeTx(ctx, header, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	trackState(ctx, stateDB)
+	return stateDB, release, nil
+}
+
+// committedState returns the committed state after block, or the latest committed state when ctx is
+// marked by withLatestState.
+func (b *traceBackend) committedState(ctx context.Context, block *ethtypes.Block) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	height := block.Number().Int64()
 	if readsLatestState(ctx) {
 		// The height a latest tag resolved to can be passed by the time the state is read, and a node
