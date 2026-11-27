@@ -49,7 +49,9 @@ func init() {
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.Data.
-	runtime.MustRegister[*Data](runtime.Schema{})
+	runtime.MustRegister[*Data](runtime.Schema{
+		1: {MaxCount: 1000000},
+	})
 
 	// Register the wireguard.Schema generated for tendermint.types.TxKey.
 	runtime.MustRegister[*TxKey](runtime.Schema{

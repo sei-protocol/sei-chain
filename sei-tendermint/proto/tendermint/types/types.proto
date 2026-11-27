@@ -91,7 +91,10 @@ message Data {
   // Txs that will be applied by state @ block.Height+1.
   // NOTE: not all txs here are valid.  We're just agreeing on the order first.
   // This means that block.AppHash does not include these txs.
-  repeated bytes txs = 1;
+  // max_count bounds the traditional blocksync decode: 1,000,000 txs is about
+  // 100 bytes per tx across the 100MB block limit, and caps the slice headers
+  // a single message can allocate at about 24MB.
+  repeated bytes txs = 1 [(wireguard.max_count) = 1000000];
 }
 
 message TxKey {

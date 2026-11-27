@@ -15,6 +15,9 @@ import (
 
 const maxCommitSignatures = types.MaxVotesCount
 
+// maxBlockTxs mirrors the max_count on tendermint.types.Data.txs.
+const maxBlockTxs = 1_000_000
+
 func marshal(t *testing.T, m gogoproto.Message) []byte {
 	t.Helper()
 	bz, err := gogoproto.Marshal(m)
@@ -126,4 +129,22 @@ func emptyCommitWire(n int) []byte {
 		commit = protowire.AppendVarint(commit, 0)
 	}
 	return commit
+}
+
+func blocksyncResponseWithTxs(n int) *bcproto.Message {
+	return &bcproto.Message{Sum: &bcproto.Message_BlockResponse{
+		BlockResponse: &bcproto.BlockResponse{
+			Block: &tmproto.Block{Data: tmproto.Data{Txs: make([][]byte, n)}},
+		},
+	}}
+}
+
+func TestSchemaForMessage_AcceptsTxsAtCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t,
+		blocksyncResponseWithTxs(maxBlockTxs))))
+}
+
+func TestSchemaForMessage_RejectsTxsOverCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*bcproto.Message](marshal(t,
+		blocksyncResponseWithTxs(maxBlockTxs+1))))
 }
