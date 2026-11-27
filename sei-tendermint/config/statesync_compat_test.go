@@ -28,7 +28,6 @@ enable = true
 rpc-servers = "localhost:26657,localhost:26659"
 trust-height = 10
 trust-hash = "AABB"
-trust-period = "168h0m0s"
 backfill-blocks = "100"
 backfill-duration = "5m0s"
 discovery-time = "20s"
