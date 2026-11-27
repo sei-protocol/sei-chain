@@ -258,8 +258,8 @@ func BenchmarkLaneRingBuild(b *testing.B) {
 	}
 }
 
-// BenchmarkLaneLookup compares the lane ring with Committee.EvmShard, the
-// stake-weighted sender-to-validator mapping, on equal-stake committees.
+// BenchmarkLaneLookup measures a lane ring lookup with 0, 1, a third, and all
+// but one of the lanes unreachable.
 func BenchmarkLaneLookup(b *testing.B) {
 	for _, n := range laneRingSizes {
 		rng := utils.TestRng()
@@ -267,14 +267,6 @@ func BenchmarkLaneLookup(b *testing.B) {
 		r := newLaneRing(genLaneSeed(rng), c)
 		senders := genSenders(rng, 1024)
 
-		b.Run(fmt.Sprintf("EvmShard/N=%d", n), func(b *testing.B) {
-			b.ReportAllocs()
-			i := 0
-			for b.Loop() {
-				c.EvmShard(senders[i%len(senders)])
-				i++
-			}
-		})
 		for _, dc := range []struct {
 			name  string
 			nDown int
