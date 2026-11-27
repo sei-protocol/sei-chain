@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
@@ -330,6 +331,41 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	got, err := state.TryBlock(atypes.LaneBlockPos{Height: last})
 	require.NoError(t, err)
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
+}
+
+func TestGigaRouterCommon_TranslateSuperBlockNamesTheParentAsLastBlockID(t *testing.T) {
+	rng := utils.TestRng()
+	router := &gigaRouterCommon{cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+	block := atypes.GenSuperBlock(rng)
+
+	block.ParentHash = utils.None[atypes.RoadBlockHeaderHash]()
+	require.True(t, router.translateSuperBlock(block).Block.LastBlockID.IsNil())
+
+	parent := atypes.GenRoadBlockHeaderHash(rng)
+	block.ParentHash = utils.Some(parent)
+	got := router.translateSuperBlock(block).Block.LastBlockID.Hash
+	require.Equal(t, common.Hash(parent).Bytes(), []byte(got))
+}
+
+// The block RPC of a later road block names the previous road block as its parent, and that of the
+// first road block names none.
+func TestGigaRouterCommon_BlockByNumberLinksConsecutiveRoadBlocks(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := atypes.GenCommittee(rng, 3)
+	state, registry := testDataState(t, committee)
+	ep := registry.MustEpoch(0)
+	first, firstBlocks := data.TestCommitQCOnLane(ep, keys, utils.None[*atypes.CommitQC](), ep.Committee().Lanes().At(0))
+	second, secondBlocks := data.TestCommitQCOnLane(ep, keys, utils.Some(first.QC()), ep.Committee().Lanes().At(1))
+	require.NoError(t, state.PushPartialBlock(t.Context(), first, data.TestBlockMap(firstBlocks)))
+	require.NoError(t, state.PushPartialBlock(t.Context(), second, data.TestBlockMap(secondBlocks)))
+	router := &gigaRouterCommon{data: state, cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+
+	gotFirst, err := router.BlockByNumber(t.Context(), first.Height())
+	require.NoError(t, err)
+	gotSecond, err := router.BlockByNumber(t.Context(), second.Height())
+	require.NoError(t, err)
+	require.True(t, gotFirst.Block.LastBlockID.IsNil())
+	require.Equal(t, gotFirst.BlockID.Hash, gotSecond.Block.LastBlockID.Hash)
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
@@ -807,7 +843,8 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsNextEpoch(t *testing.T) {
 			}
 		}
 		// The first road of ep3 moves Anchor to (ep3, ep4): b leaves, d joins.
-		qc3, blocks3 := testRoadQC(registry.MustEpoch(3), []atypes.SecretKey{keyA, keyC}, registry.MustEpoch(3).RoadRange().First)
+		ep3 := registry.MustEpoch(3)
+		qc3, blocks3 := data.TestCommitQCOnLane(ep3, []atypes.SecretKey{keyA, keyC}, utils.Some(qc2.QC()), ep3.Committee().Lanes().At(0))
 		if err := testCertifyRoad(ctx, state, rng, []atypes.SecretKey{keyA, keyC}, qc3, blocks3); err != nil {
 			return err
 		}

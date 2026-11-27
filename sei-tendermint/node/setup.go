@@ -17,6 +17,8 @@ import (
 	seiversion "github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
 	ablockstore "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -279,7 +281,7 @@ func buildValidatorGigaConfig(
 			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
 			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
 			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
-			BlockInterval:           time.Duration(fc.BlockInterval),
+			BlockInterval:           params.LaneBlockInterval,
 			MaxConcurrentCheckTx:    fc.MaxConcurrentCheckTx,
 		},
 	}, nil
@@ -294,7 +296,9 @@ func buildValidatorGigaConfig(
 // operator misconfiguration is visible at startup.
 //
 // blockStore backs the returned router for its lifetime. The caller closes it.
+// A fullnode finishes the pending restore that start names.
 func buildGigaRouter(
+	ctx context.Context,
 	cfg *config.Config,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -304,6 +308,7 @@ func buildGigaRouter(
 	blockStore *ablockstore.Store,
 	appHashBuilder builder.AppHashBuilder,
 	persistentPeers []p2p.NodeAddress,
+	start stateSyncStart,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -365,7 +370,7 @@ func buildGigaRouter(
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	fnCfg.PersistentPeerIDs = persistentPeerIDSet(persistentPeers)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore, app, genDoc.GenesisTime)
+	dataState, err := buildFullnodeDataState(ctx, fnCfg, blockStore, genDoc.GenesisTime, start)
 	if err != nil {
 		return nil, err
 	}
@@ -377,14 +382,15 @@ func buildGigaRouter(
 }
 
 // buildExecutor returns the Autobahn executor that runs the blocks in manager's
-// BlockStore on app.
-func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager) *execution.Executor {
+// BlockStore on app, with up to maxBlocksInFlight blocks in flight at once.
+func buildExecutor(app *abevm.Proxy, signer *abevm.Signer, genDoc *types.GenesisDoc, manager *bootstrap.GigaStorageManager, maxBlocksInFlight int) *execution.Executor {
 	return execution.New(&execution.Config{
-		GenDoc:         genDoc,
-		App:            app,
-		Signer:         signer,
-		AppHashBuilder: manager.AppHashBuilder(),
-		BlockStore:     manager.BlockStore(),
+		GenDoc:            genDoc,
+		App:               app,
+		Signer:            signer,
+		AppHashBuilder:    manager.AppHashBuilder(),
+		BlockStore:        manager.BlockStore(),
+		MaxBlocksInFlight: maxBlocksInFlight,
 	})
 }
 
@@ -405,17 +411,23 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 }
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
-// persistent-state directory, laid out for nodeMode unless storage pins a mode.
+// persistent-state directory, laid out for nodeMode unless storage pins a mode,
+// with the history archive when archiveConfig enables one. The BlockDB opens with seed.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
 	nodeMode string,
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
+	archiveConfig gigaconfig.ArchiveConfig,
 	genDoc *types.GenesisDoc,
+	seed utils.Option[ablockstore.Seed],
 ) (*bootstrap.GigaStorageManager, error) {
 	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := removeStoppedImport(autobahnLayout(directory)); err != nil {
 		return nil, err
 	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage, genDoc)
@@ -426,9 +438,31 @@ func openAutobahnStorageManager(
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
+	blockConfig.Seed = seed
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.RunningMarkerPath = filepath.Join(directory, "node_running")
+	storageConfig.EVMChainID = fc.EVMChainID
+	if archiveConfig.Enabled() {
+		storageConfig.ArchiveConfig = &clickhouse.Config{
+			Addr:     archiveConfig.ClickHouseAddr,
+			Database: archiveConfig.Database,
+			User:     archiveConfig.User,
+			Password: archiveConfig.Password,
+		}
+	}
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// removeStoppedImport removes the staging dir of a state sync import into layout that stopped
+// before its cleanup.
+func removeStoppedImport(layout AutobahnLayout) (err error) {
+	// A running import holds this lock, so its staging dir stays.
+	lock, err := flatkv.LockRoot(layout.FlatKVDir)
+	if err != nil {
+		return fmt.Errorf("lock the FlatKV root (is a node or a state sync import running on this home?): %w", err)
+	}
+	defer func() { err = errors.Join(err, lock.Unlock()) }()
+	return RemoveImportStaging(layout)
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
@@ -444,15 +478,11 @@ func buildGigaStorageConfig(
 	if err != nil {
 		return nil, err
 	}
-	initialHeight := int64(0)
-	if genDoc != nil {
-		initialHeight = genDoc.InitialHeight
+	activationHeight, err := gigaActivationHeight(genDoc)
+	if err != nil {
+		return nil, err
 	}
-	if initialHeight < 1 {
-		return nil, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
-	}
-	//nolint:gosec // G115: InitialHeight is at least 1.
-	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight)
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = activationHeight
 	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
 	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
@@ -466,6 +496,20 @@ func buildGigaStorageConfig(
 		storageConfig.AppHashBuilderConfig.HashLogConfig.Version = seidVersion
 	}
 	return storageConfig, nil
+}
+
+// gigaActivationHeight returns the first block that has an app hash on the chain that genDoc
+// starts, which is its initial height.
+func gigaActivationHeight(genDoc *types.GenesisDoc) (uint64, error) {
+	initialHeight := int64(0)
+	if genDoc != nil {
+		initialHeight = genDoc.InitialHeight
+	}
+	if initialHeight < 1 {
+		return 0, fmt.Errorf("initial height = %d, want >= 1", initialHeight)
+	}
+	//nolint:gosec // G115: InitialHeight is at least 1.
+	return uint64(initialHeight), nil
 }
 
 // resolveGigaStorageMode returns the storage mode a node runs: the pinned one when set,
@@ -599,6 +643,7 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 }
 
 func createRouter(
+	ctx context.Context,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -609,6 +654,7 @@ func createRouter(
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
 	stateSync gigaconfig.StateSyncConfig,
+	start stateSyncStart,
 ) (*p2p.Router, closer, utils.Option[*ablockstore.Store], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[*ablockstore.Store]()
@@ -676,9 +722,10 @@ func createRouter(
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
 		giga, err := buildGigaRouter(
-			cfg, nodeKey, validatorKey, proxyApp, signer.OrPanic("Autobahn requires a transaction signer"), genDoc,
+			ctx, cfg, nodeKey, validatorKey, proxyApp, signer.OrPanic("Autobahn requires a transaction signer"), genDoc,
 			manager.BlockStore(), manager.AppHashBuilder(),
 			options.PersistentPeers,
+			start,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

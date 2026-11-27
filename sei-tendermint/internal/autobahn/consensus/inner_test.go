@@ -137,6 +137,16 @@ func makePrepareQC(keys []types.SecretKey, proposal *types.Proposal) *types.Prep
 	return types.NewPrepareQC(votes)
 }
 
+// specAtTip returns the ConsensusSpec whose tip is the CommitQC at tipHeight, the last of a chain of
+// CommitQCs that starts at the first road of epoch 0.
+func specAtTip(registry *epoch.TestRegistry, keys []types.SecretKey, tipHeight types.RoadHeight) types.ConsensusSpec {
+	var tip utils.Option[*types.CommitQC]
+	for height := registry.MustEpoch(0).RoadRange().First; height <= tipHeight; height++ {
+		tip = utils.Some(types.BuildCommitQC(utils.OrPanic1(registry.EpochAt(height)), keys, tip, nil))
+	}
+	return types.ConsensusSpec{CommitQC: tip, Epoch: utils.OrPanic1(registry.EpochAt(tipHeight + 1))}
+}
+
 func TestNewInnerEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
@@ -199,6 +209,31 @@ func TestNewInner_SpecAheadDiscardsWAL(t *testing.T) {
 	require.Equal(t, spec.Height(), i.View().Height)
 	require.Equal(t, spec.Epoch.EpochIndex(), i.spec.Epoch.EpochIndex())
 	requireNoPerView(t, i)
+}
+
+// A restart in the same view keeps the stored PrepareQC only when its header names the tip CommitQC as parent.
+func TestNewInnerRejectsAStoredPrepareQCWithAWrongParent(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	spec := advancingSpec(keys, registry)
+	view := types.View{Height: spec.Height(), EpochIndex: spec.Epoch.EpochIndex()}
+	load := func(parentHash utils.Option[types.RoadBlockHeaderHash]) (inner, error) {
+		wal := persistedInner{
+			Height:    spec.Height(),
+			PrepareQC: utils.Some(makePrepareQC(keys, types.ProposalWithParent(spec.Epoch, view, parentHash))),
+		}
+		return newInner(utils.Some(encodeWal(utils.None[*types.CommitQC](), &wal)), spec, keys[0].Public())
+	}
+	for _, wrong := range []utils.Option[types.RoadBlockHeaderHash]{
+		utils.None[types.RoadBlockHeaderHash](),
+		utils.Some(types.GenRoadBlockHeaderHash(rng)),
+	} {
+		_, err := load(wrong)
+		require.ErrorIs(t, err, types.ErrParentMismatch)
+	}
+	i, err := load(spec.ParentHeader().Map((*types.RoadBlockHeader).Hash))
+	require.NoError(t, err)
+	require.True(t, i.PrepareQC.IsPresent())
 }
 
 // TestRestore_BoundaryCatchUpSpecCoversWAL is the restart invariant blind-Spec
@@ -953,27 +988,20 @@ func TestNewInnerFuturePrepareQCError(t *testing.T) {
 
 func TestNewInnerCurrentViewPrepareQCOk(t *testing.T) {
 	rng := utils.TestRng()
-	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 
-	// Create CommitQC at height firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Height: ep0.RoadRange().First + 5, Number: 0})
-	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
-	var qcVotes []*types.Signed[*types.CommitVote]
-	for _, k := range keys {
-		qcVotes = append(qcVotes, k.Sign(qcVote))
-	}
-	commitQC := types.NewCommitQC(qcVotes)
+	// Tip CommitQC at height firstRoad+5 -> current view is (firstRoad+6, 0)
+	spec := specAtTip(registry, keys, ep0.RoadRange().First+5)
 
-	// Create prepareQC at current view (firstRoad+6, 0)
-	currentProposal := types.GenProposalForEpoch(rng, ep0, types.View{Height: ep0.RoadRange().First + 6, Number: 0})
+	// Create prepareQC at current view (firstRoad+6, 0), naming the tip as its parent
+	currentView := types.View{Height: ep0.RoadRange().First + 6, Number: 0}
+	currentProposal := types.ProposalWithParent(ep0, currentView, spec.ParentHeader().Map((*types.RoadBlockHeader).Hash))
 	prepareQC := makePrepareQC(keys, currentProposal)
 
-	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareQC: utils.Some(prepareQC)})
-
 	// Should succeed - current view prepareQC is valid
-	i, err := loadInner(t, dir, registry, keys)
+	wal := encodeWal(spec.CommitQC, &persistedInner{PrepareQC: utils.Some(prepareQC)})
+	i, err := newInner(utils.Some(wal), spec, keys[0].Public())
 	require.NoError(t, err)
 	require.True(t, i.PrepareQC.IsPresent(), "current view prepareQC should be loaded")
 }
@@ -1011,28 +1039,21 @@ func TestNewInnerCurrentViewPrepareQCInvalidSignatureError(t *testing.T) {
 
 func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 	rng := utils.TestRng()
-	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep0 := registry.MustEpoch(0)
 	voteKey := keys[0]
 
-	// Create CommitQC at height firstRoad+5 -> current view is (firstRoad+6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, ep0, types.View{Height: ep0.RoadRange().First + 5, Number: 0})
-	qcVote := types.NewCommitVote(types.BuildPrepareQC(keys, qcProposal))
-	var qcVotes []*types.Signed[*types.CommitVote]
-	for _, k := range keys {
-		qcVotes = append(qcVotes, k.Sign(qcVote))
-	}
-	commitQC := types.NewCommitQC(qcVotes)
+	// Tip CommitQC at height firstRoad+5 -> current view is (firstRoad+6, 0)
+	spec := specAtTip(registry, keys, ep0.RoadRange().First+5)
 
-	// Create prepareQC at current view (firstRoad+6, 0)
-	currentProposal := types.GenProposalForEpoch(rng, ep0, types.View{Height: ep0.RoadRange().First + 6, Number: 0})
+	// Create prepareQC at current view (firstRoad+6, 0), naming the tip as its parent
+	view := types.View{Height: ep0.RoadRange().First + 6, Number: 0}
+	currentProposal := types.ProposalWithParent(ep0, view, spec.ParentHeader().Map((*types.RoadBlockHeader).Hash))
 	prepareQC := makePrepareQC(keys, currentProposal)
 
-	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareQC: utils.Some(prepareQC)})
-
 	// Load state
-	i, err := loadInner(t, dir, registry, keys)
+	wal := encodeWal(spec.CommitQC, &persistedInner{PrepareQC: utils.Some(prepareQC)})
+	i, err := newInner(utils.Some(wal), spec, voteKey.Public())
 	require.NoError(t, err)
 	require.True(t, i.PrepareQC.IsPresent(), "prepareQC should be loaded")
 

@@ -4,6 +4,8 @@ import (
 	"math/big"
 	"runtime"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -19,6 +21,10 @@ type Config struct {
 	ChainConfig       *params.ChainConfig
 	CustomPrecompiles precompiles.Registry
 	OCCWorkers        int
+	// EarlySpeculationWorkers, when positive, lets SpeculateEarly run up to this many transactions at
+	// once ahead of their block's execution. 0 leaves early speculation off. A typical value is
+	// ParseWorkers. It needs a state store and OCC.
+	EarlySpeculationWorkers int
 	// ParseWorkers controls parallel transaction decoding and sender recovery.
 	// Values <= 0 default to GOMAXPROCS.
 	ParseWorkers int
@@ -53,6 +59,11 @@ func (c Config) WithDefaults() Config {
 	}
 	return c
 }
+
+// FeeCollectorAddress is the coinbase EVM-only blocks pay their fees to. It is v2's EVM coinbase, the
+// EVM address of the fee_collector module account: a CREATE address of the ecrecover precompile, so
+// no key controls it and no contract can be deployed to it.
+var FeeCollectorAddress = crypto.CreateAddress(common.BytesToAddress([]byte{1}), 42)
 
 // DefaultChainConfig returns params.AllDevChainProtocolChanges through Prague, with the base fee paid to the coinbase.
 func DefaultChainConfig() *params.ChainConfig {

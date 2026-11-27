@@ -64,6 +64,8 @@ type mockAppState struct {
 	lastBlockAppHash []byte
 	validators       abevm.CommitteeWeights
 	nextTransition   mockAppTransition
+	// finalized is the height of the last block whose FinalizeBlock has finished.
+	finalized utils.AtomicSend[int64]
 }
 
 // MockApp is an in-memory Autobahn application for EVM transaction load tests.
@@ -71,6 +73,8 @@ type MockApp struct {
 	app         abevm.Application
 	chainConfig *params.ChainConfig
 	state       utils.RWMutex[*mockAppState]
+	// finalized follows state.finalized, so FinalizeBlock waits for its turn without the lock.
+	finalized utils.AtomicRecv[int64]
 	// storage receives an empty block for each finalized block. None disables storage writes.
 	storage utils.Option[*bootstrap.GigaStorageManager]
 	// epochRegistry is the registry Commit advances. None means Commit leaves it alone.
@@ -80,13 +84,16 @@ type MockApp struct {
 func NewMockApp(app abevm.Application) *MockApp {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(app.EvmChainID())
+	state := &mockAppState{
+		nextNonce:      map[common.Address]uint64{},
+		nextTransition: mockAppTransitionInitialize,
+		finalized:      utils.NewAtomicSend[int64](0),
+	}
 	return &MockApp{
 		app:         app,
 		chainConfig: &chainConfig,
-		state: utils.NewRWMutex(&mockAppState{
-			nextNonce:      map[common.Address]uint64{},
-			nextTransition: mockAppTransitionInitialize,
-		}),
+		state:       utils.NewRWMutex(state),
+		finalized:   state.finalized.Subscribe(),
 	}
 }
 
@@ -108,6 +115,7 @@ func (app *MockApp) InitChain(req abevm.InitConfig) error {
 		state.lastBlockAppHash = nil
 		state.validators = maps.Clone(validators)
 		state.nextTransition = mockAppTransitionFinalize
+		state.finalized.Store(state.lastBlockHeight)
 		return nil
 	}
 	panic("unreachable")
@@ -231,6 +239,8 @@ func (app *MockApp) EvmCreateAccessListAt(context.Context, *ethcore.Message, abe
 
 func (app *MockApp) EvmBaseFee() *big.Int { return new(big.Int) }
 
+func (app *MockApp) EvmNextBaseFee() *big.Int { return new(big.Int) }
+
 // EvmGasLimit returns 0: the mock app does not meter block gas.
 func (app *MockApp) EvmGasLimit() uint64 { return 0 }
 
@@ -256,6 +266,11 @@ func (app *MockApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockRe
 	if err != nil {
 		return abevm.FinalizeBlockResp{}, err
 	}
+	if _, err := app.finalized.Wait(ctx, func(h int64) bool { return h+1 >= utils.Clamp[int64](req.Height) }); err != nil {
+		return abevm.FinalizeBlockResp{}, err
+	}
+	// A cancel must not abort a block after some stores have taken its writes.
+	ctx = context.WithoutCancel(ctx)
 	var response abevm.FinalizeBlockResp
 	var height int64
 	for state := range app.state.Lock() {
@@ -270,6 +285,7 @@ func (app *MockApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockRe
 	}
 	for state := range app.state.Lock() {
 		state.nextTransition = mockAppTransitionFinalize
+		state.finalized.Store(height)
 	}
 	return response, nil
 }

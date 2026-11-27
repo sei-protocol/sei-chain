@@ -29,7 +29,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
@@ -265,7 +264,7 @@ func TestBaseApp_EndBlock(t *testing.T) {
 func TestQuery(t *testing.T) {
 	key, value := []byte("hello"), []byte("goodbye")
 	anteOpt := func(bapp *BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx) (newCtx sdk.Context, err error) {
 			store := ctx.KVStore(capKey1)
 			store.Set(key, value)
 			return
@@ -433,172 +432,18 @@ func TestConcurrentCheckDeliver(t *testing.T) {
 	// TODO
 }
 
-// Simulate a transaction that uses gas to compute the gas.
-func TestSimulateTx(t *testing.T) {
-	gasConsumed := uint64(5)
-
-	anteOpt := func(bapp *BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasConsumed))
-			return
-		})
-	}
-
-	routerOpt := func(bapp *BaseApp) {
-		r := sdk.NewRoute(routeMsgCounter, func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
-			ctx.GasMeter().ConsumeGas(gasConsumed, "test")
-			return &sdk.Result{}, nil
-		})
-		bapp.Router().AddRoute(r)
-	}
-
-	app := setupBaseApp(t, anteOpt, routerOpt)
-
-	app.InitChain(&abci.RequestInitChain{})
-
-	// Create same codec used in txDecoder
-	cdc := codec.NewLegacyAmino()
-	registerTestCodec(cdc)
-
-	nBlocks := 3
-	for blockN := 0; blockN < nBlocks; blockN++ {
-		count := int64(blockN + 1)
-		header := tmproto.Header{Height: count}
-		app.setDeliverState(header)
-
-		tx := newTxCounter(count, count)
-		txBytes, err := cdc.Marshal(tx)
-		require.Nil(t, err)
-
-		// simulate a message, check gas reported
-		gInfo, result, err := app.Simulate(context.Background(), txBytes)
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		require.Equal(t, gasConsumed, gInfo.GasUsed)
-
-		// simulate again, same result
-		gInfo, result, err = app.Simulate(context.Background(), txBytes)
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		require.Equal(t, gasConsumed, gInfo.GasUsed)
-
-		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-
-		app.SetDeliverStateToCommit()
-		app.Commit(context.Background())
-	}
-}
-
-// TestSimulatePropagatesCallerContext pins that the context.Context Simulate
-// is called with reaches message execution through sdk.Context, rather than
-// stopping at the interceptor boundary. A deadline on that context must bound
-// the run itself; this only proves the plumbing carries it as far as the
-// message handler sees, not that every store operation honors it.
-func TestSimulatePropagatesCallerContext(t *testing.T) {
-	type ctxKey struct{}
-	want := context.WithValue(t.Context(), ctxKey{}, "caller-context")
-
-	var gotCtx context.Context
-	routerOpt := func(bapp *BaseApp) {
-		r := sdk.NewRoute(routeMsgCounter, func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
-			gotCtx = ctx.Context()
-			return &sdk.Result{}, nil
-		})
-		bapp.Router().AddRoute(r)
-	}
-
-	app := setupBaseApp(t, routerOpt)
-	app.InitChain(&abci.RequestInitChain{})
-
-	cdc := codec.NewLegacyAmino()
-	registerTestCodec(cdc)
-	app.setDeliverState(tmproto.Header{Height: 1})
-
-	tx := newTxCounter(1, 0)
-	txBytes, err := cdc.Marshal(tx)
-	require.NoError(t, err)
-
-	_, _, err = app.Simulate(want, txBytes)
-	require.NoError(t, err)
-	require.Equal(t, "caller-context", gotCtx.Value(ctxKey{}))
-}
-
-type protoTxTest struct {
-	*txTest
-	protoTx *txtypes.Tx
-}
-
-func (tx protoTxTest) GetProtoTx() *txtypes.Tx { return tx.protoTx }
-
-func TestSimulateRejectsMultisigSignerModes(t *testing.T) {
-	single := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Single_{Single: &txtypes.ModeInfo_Single{}}}
-	multi := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{Multi: &txtypes.ModeInfo_Multi{ModeInfos: []*txtypes.ModeInfo{single}}}}
-
-	for _, tc := range []struct {
-		name      string
-		modeInfos []*txtypes.ModeInfo
-		wantErr   bool
-	}{
-		{name: "single", modeInfos: []*txtypes.ModeInfo{single}},
-		{name: "unset", modeInfos: []*txtypes.ModeInfo{nil}},
-		{name: "multisig", modeInfos: []*txtypes.ModeInfo{multi}, wantErr: true},
-		{name: "multisig after single", modeInfos: []*txtypes.ModeInfo{single, multi}, wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var anteCalls int
-			anteOpt := func(bapp *BaseApp) {
-				bapp.SetAnteHandler(func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-					anteCalls++
-					return ctx, nil
-				})
-			}
-			routerOpt := func(bapp *BaseApp) {
-				bapp.Router().AddRoute(sdk.NewRoute(routeMsgCounter, func(sdk.Context, sdk.Msg) (*sdk.Result, error) {
-					return &sdk.Result{}, nil
-				}))
-			}
-			app := setupBaseApp(t, anteOpt, routerOpt)
-			_, err := app.InitChain(&abci.RequestInitChain{})
-			require.NoError(t, err)
-
-			signerInfos := make([]*txtypes.SignerInfo, len(tc.modeInfos))
-			for i, modeInfo := range tc.modeInfos {
-				signerInfos[i] = &txtypes.SignerInfo{ModeInfo: modeInfo}
-			}
-			tx := protoTxTest{
-				txTest:  newTxCounter(0, 0),
-				protoTx: &txtypes.Tx{AuthInfo: &txtypes.AuthInfo{SignerInfos: signerInfos}},
-			}
-			app.txDecoder = func([]byte) (sdk.Tx, error) { return tx, nil }
-
-			_, _, err = app.Simulate(context.Background(), []byte("tx"))
-			if tc.wantErr {
-				require.ErrorIs(t, err, sdkerrors.ErrNotSupported)
-				require.Zero(t, anteCalls)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, 1, anteCalls)
-		})
-	}
-}
-
-func TestInitChainGenesisFlagDoesNotLeakToCheckOrSimulateBeforeFirstCommit(t *testing.T) {
+func TestInitChainGenesisFlagDoesNotLeakToCheckBeforeFirstCommit(t *testing.T) {
 	type anteCall struct {
-		simulate     bool
-		isCheckTx    bool
-		isSimulation bool
-		isGenesis    bool
+		isCheckTx bool
+		isGenesis bool
 	}
 
 	var anteCalls []anteCall
 	anteOpt := func(bapp *BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx) (sdk.Context, error) {
 			anteCalls = append(anteCalls, anteCall{
-				simulate:     simulate,
-				isCheckTx:    ctx.IsCheckTx(),
-				isSimulation: ctx.IsSimulation(),
-				isGenesis:    ctx.IsGenesis(),
+				isCheckTx: ctx.IsCheckTx(),
+				isGenesis: ctx.IsGenesis(),
 			})
 			return ctx, nil
 		})
@@ -633,25 +478,14 @@ func TestInitChainGenesisFlagDoesNotLeakToCheckOrSimulateBeforeFirstCommit(t *te
 	_, _, err = app.Check(aminoTxEncoder(), tx)
 	require.NoError(t, err)
 
-	txBytes, err := aminoTxEncoder()(tx)
-	require.NoError(t, err)
-	_, _, err = app.Simulate(context.Background(), txBytes)
-	require.NoError(t, err)
-
-	require.Len(t, anteCalls, 2)
-	require.False(t, anteCalls[0].simulate)
+	require.Len(t, anteCalls, 1)
 	require.True(t, anteCalls[0].isCheckTx)
-	require.False(t, anteCalls[0].isSimulation)
 	require.False(t, anteCalls[0].isGenesis)
-	require.True(t, anteCalls[1].simulate)
-	require.True(t, anteCalls[1].isCheckTx)
-	require.True(t, anteCalls[1].isSimulation)
-	require.False(t, anteCalls[1].isGenesis)
 }
 
 func TestRunInvalidTransaction(t *testing.T) {
 	anteOpt := func(bapp *BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx) (newCtx sdk.Context, err error) {
 			return
 		})
 	}
@@ -771,7 +605,7 @@ func TestRunTxDecodeError(t *testing.T) {
 func TestTxGasLimits(t *testing.T) {
 	gasGranted := uint64(10)
 	anteOpt := func(bapp *BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx) (newCtx sdk.Context, err error) {
 			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasGranted))
 
 			// AnteHandlers must have their own defer/recover in order for the BaseApp
@@ -859,7 +693,7 @@ func TestTxGasLimits(t *testing.T) {
 // func TestMaxBlockGasLimits(t *testing.T) {
 // 	gasGranted := uint64(10)
 // 	anteOpt := func(bapp *BaseApp) {
-// 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+// 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx) (newCtx sdk.Context, err error) {
 // 			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasGranted))
 
 // 			defer func() {
@@ -963,7 +797,7 @@ func TestCustomRunTxPanicHandler(t *testing.T) {
 	anteErr := sdkerrors.Register("fakeModule", 100500, "fakeError")
 
 	anteOpt := func(bapp *BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx) (newCtx sdk.Context, err error) {
 			panic(sdkerrors.Wrap(anteErr, "anteHandler"))
 		})
 	}
@@ -1181,7 +1015,7 @@ func TestPrecommitHandlerPanic(t *testing.T) {
 func TestGasConsumptionBadTx(t *testing.T) {
 	gasWanted := uint64(5)
 	anteOpt := func(bapp *BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx) (newCtx sdk.Context, err error) {
 			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasWanted))
 
 			defer func() {
@@ -1482,7 +1316,7 @@ func testTxDecoder(cdc *codec.LegacyAmino) sdk.TxDecoder {
 }
 
 func anteHandlerTxTest(t *testing.T, capKey sdk.StoreKey, storeKey []byte) sdk.AnteHandler {
-	return func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+	return func(ctx sdk.Context, tx sdk.Tx) (sdk.Context, error) {
 		store := ctx.KVStore(capKey)
 		txTest := tx.(txTest)
 
@@ -1751,9 +1585,6 @@ func TestBaseAppOptionSeal(t *testing.T) {
 	})
 	require.Panics(t, func() {
 		app.SetAnteHandler(nil)
-	})
-	require.Panics(t, func() {
-		app.SetFauxMerkleMode()
 	})
 	require.Panics(t, func() {
 		app.SetRouter(NewRouter())

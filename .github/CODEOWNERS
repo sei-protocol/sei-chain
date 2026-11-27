@@ -4,7 +4,7 @@
 /sei-tendermint/internal/autobahn/ @pompon0 @wen-coding @philipsu522 @shemnon @codchen
 /sei-tendermint/internal/p2p/giga/ @pompon0 @wen-coding @philipsu522 @shemnon @codchen
 
-/giga/evmonly/ @codchen @shemnon @philipsu522 @wen-coding @yzang2019
+/giga/evmonly/ @codchen @shemnon @manav2401 @philipsu522 @pompon0 @wen-coding @yzang2019
 
 /sei-tendermint/internal/autobahn/producer/ @shemnon @pompon0 @wen-coding @philipsu522 @codchen
 /sei-tendermint/internal/mempool/ @pompon0 @shemnon @philipsu522 @wen-coding

@@ -8,12 +8,14 @@ import (
 	"slices"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
+	"github.com/sei-protocol/sei-chain/sei-db/archive/chstore"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/receipt_db/littidx"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/undolog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -61,7 +63,7 @@ func readStoreHeads(cfg *config.GigaStorageConfig) (storeHeads, error) {
 	heads.liveStateDB = uint64(liveStateVersion) //nolint:gosec // live state DB versions are never negative
 	if cfg.SSConfig.Enable {
 		logger.Info("Reading a store head", "store", "historical state DB")
-		_, heads.historicalStateDB, err = undo.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
+		heads.historicalStateDB, err = undolog.GetLatestBlock(cfg.SSConfig.EVMDBDirectory)
 		if err != nil {
 			return storeHeads{}, fmt.Errorf("read historical state DB head: %w", err)
 		}
@@ -215,7 +217,8 @@ func requireStateWALReplayableFromTheLiveStateDB(heads storeHeads) error {
 }
 
 // recoveryTarget returns the height the stores align on: the lowest of the live state's reachable height, the
-// app hash vault's head, and the heads of the historical state DB and receipt store that hold blocks.
+// app hash vault's head, the historical state DB's reachable height when it holds blocks, and the receipt store's
+// head when it holds blocks.
 func recoveryTarget(heads storeHeads) uint64 {
 
 	heights := make([]uint64, 0)
@@ -226,10 +229,11 @@ func recoveryTarget(heads storeHeads) uint64 {
 
 	// The remaining stores can legally be empty at any height, and so we can ignore them when deciding
 	// the recovery target when they are empty.
-	for _, head := range []uint64{heads.historicalStateDB, heads.receiptStore} {
-		if head > 0 {
-			heights = append(heights, head)
-		}
+	if heads.historicalStateDB > 0 {
+		heights = append(heights, heads.historicalStateReachableHeight())
+	}
+	if heads.receiptStore > 0 {
+		heights = append(heights, heads.receiptStore)
 	}
 	return slices.Min(heights)
 }
@@ -243,6 +247,15 @@ func (h storeHeads) liveStateReachableHeight() uint64 {
 		return h.stateWAL
 	}
 	return h.liveStateDB
+}
+
+// historicalStateReachableHeight returns the highest block the historical state DB can stand at: the state WAL's
+// head when the WAL holds every block after the historical state DB's head, or that head otherwise.
+func (h storeHeads) historicalStateReachableHeight() uint64 {
+	if h.stateWAL > h.historicalStateDB && h.stateWALFirst <= h.historicalStateDB+1 {
+		return h.stateWAL
+	}
+	return h.historicalStateDB
 }
 
 // alignStores brings the state WAL, the live state DB, the historical state DB and the receipt store onto target,
@@ -261,7 +274,7 @@ func alignStores(ctx context.Context, cfg *config.GigaStorageConfig, target uint
 	}
 	if cfg.SSConfig.Enable {
 		timer.SetPhase("historical_state_db")
-		if err := undo.DiscardStateAbove(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, target); err != nil {
+		if err := undolog.PruneAfter(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig, target); err != nil {
 			return fmt.Errorf("roll back the historical state DB: %w", err)
 		}
 	}
@@ -291,4 +304,22 @@ func openReceiptStore(cfg *config.GigaStorageConfig) (receiptdb.ReceiptStore, er
 			cfg.ReceiptDBConfig.DBDirectory, err)
 	}
 	return receiptDB, nil
+}
+
+// openArchive opens the history archive, returning nil when no archive is configured. An empty archive starts at
+// first. It refuses a rollback window shorter than chstore.MaxLag.
+func openArchive(ctx context.Context, cfg *config.GigaStorageConfig, first uint64) (archive.ArchivalStore, error) {
+	if cfg.ArchiveConfig == nil {
+		return nil, nil
+	}
+	if window := cfg.PruningConfig.RollbackWindow; window < chstore.MaxLag {
+		return nil, fmt.Errorf("the rollback window of %d blocks is shorter than the %d blocks the archive can "+
+			"trail the node by, so a node could not roll back to the archive after a crash", window, chstore.MaxLag)
+	}
+	exporter, err := chstore.StartExporter(ctx, *cfg.ArchiveConfig, cfg.EVMChainID, first)
+	if err != nil {
+		// Returned as a nil Store, not a Store holding a nil exporter.
+		return nil, err
+	}
+	return exporter, nil
 }

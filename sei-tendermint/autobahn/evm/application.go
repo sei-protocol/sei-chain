@@ -33,6 +33,8 @@ type Application interface {
 	// EvmCommittedNonce returns addr's nonce in the last committed EVM state without waiting for a
 	// commit in flight, so it can trail EvmNonce by the most recently finalized block.
 	EvmCommittedNonce(common.Address) uint64
+	// FinalizeBlock executes the block at req.Height. It may be called before the call for the
+	// previous block returns; it then waits for it, and ctx cancels only that wait.
 	FinalizeBlock(context.Context, FinalizeBlockReq) (FinalizeBlockResp, error)
 	// AwaitCommits waits for finalized blocks to reach the store and returns any commit failure.
 	AwaitCommits() error
@@ -82,8 +84,10 @@ type Application interface {
 	// EvmChainConfig returns the EVM chain configuration transactions execute
 	// against.
 	EvmChainConfig() *params.ChainConfig
-	// EvmBaseFee returns the base fee every block executes at.
+	// EvmBaseFee returns the base fee the most recently committed block ran at.
 	EvmBaseFee() *big.Int
+	// EvmNextBaseFee returns the base fee the block after the most recently committed one runs at.
+	EvmNextBaseFee() *big.Int
 	// EvmGasLimit returns the gas limit of the most recently committed block.
 	EvmGasLimit() uint64
 	// EvmMinGasPrice returns the minimum effective gas price a transaction is

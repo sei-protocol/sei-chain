@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
@@ -25,6 +26,20 @@ type commitTask struct {
 	newlySealed bool
 	// Set if the commit was unsuccessful.
 	err error
+}
+
+// MutationsFromStateChangeSet converts block blockNum's changes into one mutation per physical key the block
+// writes, read against the most recently committed block, which must be blockNum-1.
+func (s *CommitStore) MutationsFromStateChangeSet(
+	blockNum int64,
+	changes *gigatypes.StateChangeSet,
+) ([]mutation.Mutation, error) {
+	if blockNum < 0 {
+		return nil, fmt.Errorf("flatkv: convert block %d: block number must not be negative", blockNum)
+	}
+	prior := s.OpenView()
+	defer prior.Close()
+	return MutationsFromStateChangeSet(changes, uint64(blockNum), prior, &s.config)
 }
 
 // CommitStateChanges writes the block's mutations and commits them at blockNum.

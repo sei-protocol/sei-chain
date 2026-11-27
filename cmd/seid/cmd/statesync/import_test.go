@@ -1,0 +1,524 @@
+package statesync
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	ssarchive "github.com/sei-protocol/sei-chain/sei-db/statesync"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/testutil/configtest"
+)
+
+func TestImportRoundTrip(t *testing.T) {
+	p := newProducer(t)
+	p.commit(t, 1)
+	height := p.commit(t, 2)
+	staged := p.stage(t, height)
+	archive := archiveOf(t, staged, testChainID, height)
+	tg := freshHome(t)
+
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard))
+
+	requireRestored(t, tg, p, height)
+	want, err := flatkv.SnapshotDirStats(staged, height)
+	require.NoError(t, err)
+	got, err := flatkv.SnapshotDirStats(filepath.Join(tg.layout.FlatKVDir, flatkv.SnapshotDirName(height)), height)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+	requireRewritten(t, staged, filepath.Join(tg.layout.FlatKVDir, flatkv.SnapshotDirName(height)))
+}
+
+func TestImportInstallsTheLayoutOfAStoreAtThatHeight(t *testing.T) {
+	p := newProducer(t)
+	p.commit(t, 1)
+	height := p.commit(t, 2)
+	tg := freshHome(t)
+	snapshot := flatkv.SnapshotDirName(height)
+
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard))
+
+	require.Equal(t, []string{snapshot}, subdirs(t, tg.layout.FlatKVDir))
+	require.Equal(t, subdirs(t, filepath.Join(p.root, snapshot)), subdirs(t, filepath.Join(tg.layout.FlatKVDir, snapshot)))
+	requireCurrent(t, p.root, snapshot)
+	requireCurrent(t, tg.layout.FlatKVDir, snapshot)
+	requireNoLockFile(t, filepath.Join(tg.layout.FlatKVDir, snapshot))
+
+	cfg, err := node.FlatKVConfig(tg.layout, tg.mode, tg.storage, tg.genDoc)
+	require.NoError(t, err)
+	s, err := flatkv.OpenLiveStateDB(t.Context(), cfg)
+	require.NoError(t, err)
+	requireRows(t, s, p, height)
+	require.NoError(t, s.Close())
+
+	working := filepath.Join(tg.layout.FlatKVDir, "working")
+	require.Equal(t, subdirs(t, filepath.Join(p.root, "working")), subdirs(t, working))
+	base, err := os.ReadFile(filepath.Join(working, "SNAPSHOT_BASE"))
+	require.NoError(t, err)
+	require.Equal(t, snapshot+"\n", string(base))
+}
+
+// subdirs returns the names of the directories in dir, in order.
+func subdirs(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
+// requireCurrent asserts that the current link of the FlatKV root names snapshot.
+func requireCurrent(t *testing.T, root, snapshot string) {
+	t.Helper()
+	target, err := os.Readlink(filepath.Join(root, "current"))
+	require.NoError(t, err)
+	require.Equal(t, snapshot, target)
+}
+
+// requireNoLockFile asserts that no database of the checkpoint in dir holds a Pebble LOCK file.
+func requireNoLockFile(t *testing.T, dir string) {
+	t.Helper()
+	for _, database := range flatkv.DataDBDirs() {
+		require.NoFileExists(t, filepath.Join(dir, database, "LOCK"))
+	}
+}
+
+// requireRewritten asserts that no table file of the installed checkpoint is a copy of a table
+// file of the archived checkpoint.
+func requireRewritten(t *testing.T, archived, installed string) {
+	t.Helper()
+	archivedTables := map[string]bool{}
+	for _, database := range flatkv.DataDBDirs() {
+		for _, path := range tableFiles(t, filepath.Join(archived, database)) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			archivedTables[string(data)] = true
+		}
+	}
+	for _, database := range flatkv.DataDBDirs() {
+		for _, path := range tableFiles(t, filepath.Join(installed, database)) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.False(t, archivedTables[string(data)], "%s is a copy of an archived table", path)
+		}
+	}
+}
+
+func tableFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(dir, "*.sst"))
+	require.NoError(t, err)
+	return paths
+}
+
+func TestImportFromABucket(t *testing.T) {
+	p := newProducer(t)
+	first := p.commit(t, 1)
+	second := p.commit(t, 2)
+	store := newMemStore()
+	for _, height := range []int64{first, second} {
+		archive := p.archive(t, testChainID, height)
+		require.NoError(t, store.Put(t.Context(), ssarchive.ArchiveKey(testChainID, height), bytes.NewReader(archive), int64(len(archive)), ssarchive.Precondition{}))
+	}
+	_, err := ssarchive.AdvanceLatest(t.Context(), store, testChainID, second)
+	require.NoError(t, err)
+
+	t.Run("latest", func(t *testing.T) {
+		tg := freshHome(t)
+		src, err := bucketSource(t.Context(), store, testChainID, 0)
+		require.NoError(t, err)
+		require.NoError(t, runImport(t.Context(), tg, src, io.Discard))
+		requireRestored(t, tg, p, second)
+	})
+	t.Run("height", func(t *testing.T) {
+		tg := freshHome(t)
+		src, err := bucketSource(t.Context(), store, testChainID, first)
+		require.NoError(t, err)
+		require.NoError(t, runImport(t.Context(), tg, src, io.Discard))
+		requireRestored(t, tg, p, first)
+	})
+	t.Run("archive of another height", func(t *testing.T) {
+		tg := freshHome(t)
+		src, err := bucketSource(t.Context(), store, testChainID, first)
+		require.NoError(t, err)
+		src.height = second
+		require.ErrorIs(t, runImport(t.Context(), tg, src, io.Discard), errOtherHeight)
+		requireUntouched(t, tg)
+	})
+	t.Run("no latest", func(t *testing.T) {
+		_, err := bucketSource(t.Context(), newMemStore(), testChainID, 0)
+		require.ErrorIs(t, err, ssarchive.ErrObjectNotFound)
+	})
+}
+
+func TestImportRejectsAnotherChain(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	tg := freshHome(t)
+
+	err := runImport(t.Context(), tg, bytesSource(p.archive(t, "chain-b", height)), io.Discard)
+
+	require.ErrorIs(t, err, errOtherChain)
+	requireUntouched(t, tg)
+}
+
+func TestImportRejectsAnArchiveBelowTheGigaActivationHeight(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	tg := freshHome(t)
+	tg.genDoc.InitialHeight = height + 1
+
+	err := runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard)
+
+	require.ErrorIs(t, err, node.ErrBelowGigaActivation)
+	require.NoFileExists(t, tg.layout.RestoreProofFile)
+	requireUntouched(t, tg)
+}
+
+func TestImportRejectsAChangedRow(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	staged := p.stage(t, height)
+	changeOneRow(t, staged)
+	tg := freshHome(t)
+
+	err := runImport(t.Context(), tg, bytesSource(archiveOf(t, staged, testChainID, height)), io.Discard)
+
+	require.ErrorContains(t, err, "verify the rewritten checkpoint")
+	requireUntouched(t, tg)
+}
+
+func TestRewriteAcceptsAnArchiveOfAnOlderPebbleFormat(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	staged := p.stage(t, height)
+	m, err := ssarchive.BuildManifest(testChainID, height, staged)
+	require.NoError(t, err)
+	m.PebbleFormatMajorVersion = pebbledb.FormatMajorVersion - 1
+	require.GreaterOrEqual(t, m.PebbleFormatMajorVersion, pebble.FormatMinSupported)
+	tg := freshHome(t)
+	flatKV, err := node.FlatKVConfig(tg.layout, tg.mode, tg.storage, tg.genDoc)
+	require.NoError(t, err)
+
+	checkpoint, err := rewriteCheckpoint(t.Context(), staged, m, flatKV, filepath.Join(t.TempDir(), "flatkv"))
+
+	require.NoError(t, err)
+	want, err := flatkv.SnapshotDirStats(staged, height)
+	require.NoError(t, err)
+	got, err := flatkv.SnapshotDirStats(checkpoint, height)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+func TestImportRejectsAProofOfAnotherCommittee(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	other, err := node.GenStateSyncProofFixture(utils.TestRngFromSeed(height+1000), height)
+	require.NoError(t, err)
+	tg := freshHome(t)
+
+	archive := archiveWithProof(t, p.stage(t, height), testChainID, height, other.Proof)
+	err = runImport(t.Context(), tg, bytesSource(archive), io.Discard)
+
+	require.ErrorContains(t, err, "verify the archived state sync proof file")
+	requireUntouched(t, tg)
+}
+
+// changeOneRow changes the value of one data row of the checkpoint in dir, and leaves its
+// metadata as it is.
+func changeOneRow(t *testing.T, dir string) {
+	t.Helper()
+	for _, database := range flatkv.DataDBDirs() {
+		db, err := pebble.Open(filepath.Join(dir, database), &pebble.Options{FormatMajorVersion: pebbledb.FormatMajorVersion})
+		require.NoError(t, err)
+		iter, err := db.NewIter(nil)
+		require.NoError(t, err)
+		var key, value []byte
+		for iter.First(); iter.Valid(); iter.Next() {
+			if !ktype.IsMetaKey(iter.Key()) {
+				key = bytes.Clone(iter.Key())
+				value = bytes.Clone(iter.Value())
+				break
+			}
+		}
+		require.NoError(t, iter.Close())
+		if key != nil {
+			value[len(value)-1] ^= 0xff
+			require.NoError(t, db.Set(key, value, pebble.Sync))
+			require.NoError(t, db.Close())
+			return
+		}
+		require.NoError(t, db.Close())
+	}
+	t.Fatal("the checkpoint has no data row")
+}
+
+func TestImportRejectsAValidatorHome(t *testing.T) {
+	tg := freshHome(t)
+	tg.mode = tmcfg.ModeValidator
+
+	require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(nil), io.Discard), "validator")
+}
+
+func TestImportRejectsAHomeWithNoFlatKVConfig(t *testing.T) {
+	tg := freshHome(t)
+	tg.genDoc = &tmtypes.GenesisDoc{ChainID: testChainID}
+
+	require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(nil), io.Discard), "FlatKV config")
+	require.NoDirExists(t, tg.layout.FlatKVDir)
+}
+
+func TestImportRejectsAHomeWithOtherData(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	archive := p.archive(t, testChainID, height)
+
+	t.Run("other file", func(t *testing.T) {
+		tg := freshHome(t)
+		other := filepath.Join(tg.layout.PersistentStateDir, "blockdb", "0", "data")
+		require.NoError(t, os.MkdirAll(filepath.Dir(other), 0o750))
+		require.NoError(t, os.WriteFile(other, []byte("x"), 0o600))
+
+		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), other)
+	})
+	t.Run("FlatKV data without the marker", func(t *testing.T) {
+		tg := freshHome(t)
+		s := openStore(t, tg.layout.FlatKVDir)
+		require.NoError(t, s.Close())
+
+		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.FlatKVDir)
+		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
+	})
+	t.Run("an app-hash vault without the marker", func(t *testing.T) {
+		tg := freshHome(t)
+		require.NoError(t, os.MkdirAll(tg.layout.AppHashVaultDir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(tg.layout.AppHashVaultDir, "0.wal"), []byte("x"), 0o600))
+
+		require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard), tg.layout.AppHashVaultDir)
+		require.NoFileExists(t, tg.layout.RestoreMarkerFile)
+	})
+}
+
+func TestForeignFilesLooksPastASymlinkedFlatKVRoot(t *testing.T) {
+	tg := freshHome(t)
+	require.NoError(t, os.MkdirAll(filepath.Dir(tg.layout.FlatKVDir), 0o750))
+	require.NoError(t, os.Symlink(t.TempDir(), tg.layout.FlatKVDir))
+	other := filepath.Join(filepath.Dir(tg.layout.FlatKVDir), "zz-other")
+	require.NoError(t, os.WriteFile(other, []byte("x"), 0o600))
+
+	foreign, err := foreignFiles(tg.layout)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{other}, foreign)
+}
+
+func TestForeignFilesFollowsASymlinkThatHoldsTheFlatKVRoot(t *testing.T) {
+	tg := freshHome(t)
+	data := filepath.Join(tg.layout.PersistentStateDir, "data")
+	require.NoError(t, os.Symlink(t.TempDir(), data))
+	require.NoError(t, os.MkdirAll(tg.layout.FlatKVDir, 0o750))
+	other := filepath.Join(data, "other")
+	require.NoError(t, os.WriteFile(other, []byte("x"), 0o600))
+
+	foreign, err := foreignFiles(tg.layout)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{other}, foreign)
+}
+
+func TestRemoveFailedStartDataFollowsASymlinkThatHoldsTheFlatKVRoot(t *testing.T) {
+	layout := freshHome(t).layout
+	data := filepath.Join(layout.PersistentStateDir, "data")
+	require.NoError(t, os.Symlink(t.TempDir(), data))
+	kept := []string{
+		filepath.Join(layout.FlatKVDir, "snapshot-5", "data"),
+		filepath.Join(layout.AppHashVaultDir, "0.wal"),
+		layout.RestoreMarkerFile,
+		layout.RestoreProofFile,
+	}
+	removed := []string{
+		filepath.Join(layout.PersistentStateDir, "blockdb"),
+		layout.StateSyncProofDir,
+		filepath.Join(data, "ledger", "receipts"),
+	}
+	for _, path := range kept {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+	}
+	for _, dir := range removed {
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "data"), []byte("x"), 0o600))
+	}
+	var stderr bytes.Buffer
+
+	require.NoError(t, removeFailedStartData(layout, &stderr))
+
+	for _, path := range kept {
+		require.FileExists(t, path)
+	}
+	for _, dir := range removed {
+		require.NoDirExists(t, dir)
+		require.Contains(t, stderr.String(), dir)
+	}
+	info, err := os.Lstat(data)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink)
+}
+
+func TestImportIntoASymlinkedPersistentStateDir(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	psd := filepath.Join(t.TempDir(), "psd")
+	require.NoError(t, os.Symlink(t.TempDir(), psd))
+	tg := freshHome(t)
+	tg.layout = testLayout(psd)
+
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard))
+
+	requireRestored(t, tg, p, height)
+}
+
+func TestImportRecoversFromAStopAtEachStep(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	archive := p.archive(t, testChainID, height)
+	for _, step := range []string{
+		importStepChecked,
+		importStepRewritten,
+		importStepMarked,
+		importStepProofInstalled,
+		importStepAnchorStored,
+		importStepInstalled,
+	} {
+		t.Run(step, func(t *testing.T) {
+			tg := freshHome(t)
+			stopAt := func(s string) error {
+				if s == step {
+					return errStopped
+				}
+				return nil
+			}
+
+			require.ErrorIs(t, importWith(t.Context(), tg, bytesSource(archive), io.Discard, stopAt), errStopped)
+			require.NoError(t, runImport(t.Context(), tg, bytesSource(archive), io.Discard))
+
+			requireRestored(t, tg, p, height)
+		})
+	}
+}
+
+func TestImportRemovesTheLeftoversOfAKilledImport(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	tg := freshHome(t)
+	staging := tg.layout.ImportStagingDir
+	require.NoError(t, os.MkdirAll(filepath.Join(staging, "download"), 0o750))
+	for _, path := range []string{tg.layout.RestoreMarkerFile, tg.layout.RestoreProofFile} {
+		require.NoError(t, os.WriteFile(filepath.Join(staging, filepath.Base(path)+".tmp"), []byte("partial"), 0o600))
+	}
+
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(p.archive(t, testChainID, height)), io.Discard))
+
+	requireRestored(t, tg, p, height)
+	require.NoDirExists(t, staging)
+}
+
+func TestImportReplacesAnEarlierImport(t *testing.T) {
+	p := newProducer(t)
+	first := p.commit(t, 1)
+	firstArchive := p.archive(t, testChainID, first)
+	second := p.commit(t, 2)
+	secondArchive := p.archive(t, testChainID, second)
+	tg := freshHome(t)
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(firstArchive), io.Discard))
+	stopAt := func(s string) error {
+		if s == importStepFlatKVCleared {
+			return errStopped
+		}
+		return nil
+	}
+
+	require.ErrorIs(t, importWith(t.Context(), tg, bytesSource(secondArchive), io.Discard, stopAt), errStopped)
+	require.NoError(t, runImport(t.Context(), tg, bytesSource(secondArchive), io.Discard))
+
+	requireRestored(t, tg, p, second)
+}
+
+func TestImportRejectsALockedHome(t *testing.T) {
+	tg := freshHome(t)
+	lock, err := flatkv.LockRoot(tg.layout.FlatKVDir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Unlock()) }()
+
+	require.ErrorContains(t, runImport(t.Context(), tg, bytesSource(nil), io.Discard), "is a node running")
+}
+
+func TestRequireSameFilesystem(t *testing.T) {
+	psd := t.TempDir()
+	flatKVDir := filepath.Join(psd, "data", "flatkv")
+	require.NoError(t, os.MkdirAll(flatKVDir, 0o750))
+
+	require.NoError(t, requireSameFilesystem(psd, flatKVDir))
+	// /dev is a devfs or devtmpfs mount on macOS and Linux.
+	require.ErrorContains(t, requireSameFilesystem(psd, "/dev"), "not on the filesystem of the FlatKV root")
+}
+
+func TestResolveTargetRefuses(t *testing.T) {
+	_, err := resolveTargetFromConfig(&tmcfg.Config{}, configtest.AppOpts{"giga.state_sync.enabled": true})
+	require.ErrorContains(t, err, "autobahn-config-file")
+
+	_, err = resolveTargetFromConfig(&tmcfg.Config{AutobahnConfigFile: "autobahn.json"}, configtest.AppOpts{})
+	require.ErrorIs(t, err, errDisabled)
+}
+
+func TestResolveSourceRejects(t *testing.T) {
+	tg := freshHome(t)
+	for name, tc := range map[string]struct {
+		from   string
+		height int64
+		region string
+		want   error
+	}{
+		"height with from":         {from: "archive.tar", height: 3, want: errHeightWithFrom},
+		"region with a local from": {from: "archive.tar", region: "eu-central-1", want: errRegionWithLocalFrom},
+		"no bucket":                {want: errNoSource},
+		"s3 without key":           {from: "s3://bucket", want: errNotS3URL},
+		"s3 without bucket":        {from: "s3:///key", want: errNotS3URL},
+		"s3 with empty key":        {from: "s3://bucket/", want: errNotS3URL},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resolveSource(t.Context(), tg, tc.from, tc.height, tc.region)
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
+}
+
+func TestResolveSourceReadsALocalFile(t *testing.T) {
+	p := newProducer(t)
+	height := p.commit(t, 1)
+	path := filepath.Join(t.TempDir(), "archive.tar")
+	require.NoError(t, os.WriteFile(path, p.archive(t, testChainID, height), 0o600))
+	tg := freshHome(t)
+
+	src, err := resolveSource(t.Context(), tg, path, 0, "")
+	require.NoError(t, err)
+	require.NoError(t, runImport(t.Context(), tg, src, io.Discard))
+
+	requireRestored(t, tg, p, height)
+}

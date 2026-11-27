@@ -38,10 +38,10 @@ func TestObserveTimeoutAndCommit(t *testing.T) {
 	require.Equal(t, votesProposal+1, counterValue(m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoProposal)))
 	require.Equal(t, votesCommit+1, counterValue(m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoCommit)))
 
-	prepare := counterValue(m.VotesIngested.WithLabelValues(VotePrepare))
-	m.VotesIngested.WithLabelValues(VotePrepare).Add(1)
-	m.VotesIngested.WithLabelValues(VotePrepare).Add(1)
-	require.Equal(t, prepare+2, counterValue(m.VotesIngested.WithLabelValues(VotePrepare)))
+	prepare := counterValue(m.VotesIngested.WithLabelValues(VotePrepare, addr(a)))
+	m.VotesIngested.WithLabelValues(VotePrepare, addr(a)).Add(1)
+	m.VotesIngested.WithLabelValues(VotePrepare, addr(a)).Add(1)
+	require.Equal(t, prepare+2, counterValue(m.VotesIngested.WithLabelValues(VotePrepare, addr(a))))
 }
 
 func counterValue(c *prometheus.CounterInt) int64 {

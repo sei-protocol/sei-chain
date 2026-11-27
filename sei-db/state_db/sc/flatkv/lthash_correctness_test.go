@@ -1187,9 +1187,8 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 	require.Equal(t, parentHash, rootHash(ro), "read-only root hash should match parent")
 
 	// Full-scan the read-only store's DBs
-	roStore := ro.(*CommitStore)
-	scan := fullScanLtHash(t, roStore)
-	require.True(t, roStore.maintainedHashes().Global.Equal(scan),
+	scan := fullScanLtHash(t, ro)
+	require.True(t, ro.maintainedHashes().Global.Equal(scan),
 		"read-only LtHash should match full scan of its own DBs")
 
 	require.NoError(t, s.Close())

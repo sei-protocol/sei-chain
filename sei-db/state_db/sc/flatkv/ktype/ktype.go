@@ -85,11 +85,17 @@ func WritePhysicalKeyToBuffer(
 // StripModulePrefix splits a module-prefixed physical key into its module name
 // and original key. Returns an error if no "/" separator is found.
 func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byte, err error) {
+	module, originalKey, err := SplitModulePrefix(physicalKey)
+	return string(module), originalKey, err
+}
+
+// SplitModulePrefix is StripModulePrefix without copying the module name: both returns alias physicalKey.
+func SplitModulePrefix(physicalKey []byte) (moduleName []byte, originalKey []byte, err error) {
 	idx := bytes.IndexByte(physicalKey, '/')
 	if idx < 0 {
-		return "", nil, fmt.Errorf("physical key missing module prefix separator '/': %x", physicalKey)
+		return nil, nil, fmt.Errorf("physical key missing module prefix separator '/': %x", physicalKey)
 	}
-	return string(physicalKey[:idx]), physicalKey[idx+1:], nil
+	return physicalKey[:idx], physicalKey[idx+1:], nil
 }
 
 // BuildPhysicalEVMKey returns the physical DB key for an EVM key kind.

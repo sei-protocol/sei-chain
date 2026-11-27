@@ -54,6 +54,8 @@ type Backend interface {
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() *big.Int
+	// EvmNextBaseFee returns the base fee the block after the most recently committed one runs at.
+	EvmNextBaseFee() *big.Int
 	// EvmBlockContext returns the block context header's block executed at, with BLOCKHASH reading
 	// earlier blocks' hashes from state, the state before the block or any state within it. A nil
 	// state answers only the parent's hash.

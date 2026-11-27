@@ -114,16 +114,6 @@ message Result {
   string evmError = 4;
 }
 
-// SimulationResponse defines the response generated when a transaction is
-// successfully simulated.
-message SimulationResponse {
-  GasInfo gas_info = 1 [
-    (gogoproto.embed) = true,
-    (gogoproto.nullable) = false
-  ];
-  Result result = 2;
-}
-
 // MsgData defines the data returned in a Result object during message
 // execution.
 message MsgData {

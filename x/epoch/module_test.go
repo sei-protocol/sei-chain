@@ -22,8 +22,6 @@ func TestBasic(t *testing.T) {
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
-		app.AccountKeeper,
-		app.BankKeeper,
 	)
 
 	require.Equal(t, appModule.Name(), types.ModuleName)
@@ -41,8 +39,6 @@ func TestRoutesAddition(t *testing.T) {
 	appModule := epoch.NewAppModule(
 		testApp.AppCodec(),
 		testApp.EpochKeeper,
-		testApp.AccountKeeper,
-		testApp.BankKeeper,
 	)
 
 	mux := runtime.NewServeMux()

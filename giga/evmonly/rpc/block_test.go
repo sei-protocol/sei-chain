@@ -181,13 +181,16 @@ func TestGetBlockByHashReturnsNullForUnknownHash(t *testing.T) {
 func TestGetBlockByHashReturnsTheMatchingBlock(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	var gotHash []byte
-	backend := fixedGasLimitBackend(t, 35_000_000, nil)
+	block := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
+		Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 5, Time: time.Unix(1_700_000_000, 0)}},
+	}
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
+	})
 	backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 		gotHash = req.Hash
-		return &coretypes.ResultBlock{
-			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 5, Time: time.Unix(1_700_000_000, 0)}},
-		}, nil
+		return block, nil
 	}
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByHash(t.Context(), blockHash, false)
@@ -335,12 +338,38 @@ func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
 
 	require.NoError(t, err)
-	require.Equal(t, common.Hash{}, got["parentHash"])
 	require.Equal(t, common.Hash{}, got["stateRoot"])
 	require.Equal(t, common.Hash{}, got["transactionsRoot"])
 	require.Equal(t, common.Hash{}, got["receiptsRoot"])
 	require.Equal(t, common.Address{}, got["miner"])
 	require.Equal(t, ethtypes.Bloom{}, got["logsBloom"])
+}
+
+func TestEncodeBlockReturnsTheLastBlockIDAsParentHash(t *testing.T) {
+	for name, tc := range map[string]struct {
+		lastBlockID tmtypes.BlockID
+		want        common.Hash
+	}{
+		"empty last block id":    {tmtypes.BlockID{}, common.Hash{}},
+		"nonempty last block id": {tmtypes.BlockID{Hash: common.HexToHash("0x1234").Bytes()}, common.HexToHash("0x1234")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return &coretypes.ResultBlock{
+					BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+					Block: &tmtypes.Block{
+						Header:     tmtypes.Header{ChainID: "evmonly-test", Height: 4, Time: time.Unix(1_700_000_000, 0), LastBlockID: tc.lastBlockID},
+						LastCommit: &tmtypes.Commit{},
+					},
+				}, nil
+			})
+
+			got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got["parentHash"])
+		})
+	}
 }
 
 func TestGetBlockByNumberEndToEnd(t *testing.T) {
@@ -605,17 +634,30 @@ func TestGetBlockTransactionCountByHash(t *testing.T) {
 		name     string
 		block    *coretypes.ResultBlock
 		blockErr error
-		want     *hexutil.Uint
-		wantErr  error
+		// heightErr is what the lookup by the found block's height returns.
+		heightErr error
+		want      *hexutil.Uint
+		wantErr   error
 	}{
 		{name: "known hash", block: twoTxBlock, want: &two},
 		// An unknown hash answers null, whether the backend returns an empty or a nil result.
 		{name: "unknown hash, empty result", block: &coretypes.ResultBlock{}},
 		{name: "unknown hash, nil result"},
 		{name: "backend error", blockErr: backendErr, wantErr: backendErr},
+		// A hash answers as its height does: null for a finalized block not yet executed, and an
+		// error for a pruned one.
+		{name: "block above the executed head", block: twoTxBlock, heightErr: fmt.Errorf("%w: 5", coretypes.ErrHeightExceedsChainHead)},
+		{name: "pruned block", block: twoTxBlock, heightErr: coretypes.WrapErrHeightNotAvailable(5, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &testBackend{
+				block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					require.Equal(t, coretypes.Int64(5), *req.Height)
+					if tc.heightErr != nil {
+						return nil, tc.heightErr
+					}
+					return tc.block, nil
+				},
 				blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 					require.Equal(t, blockHash.Bytes(), []byte(req.Hash))
 					return tc.block, tc.blockErr
@@ -812,7 +854,9 @@ func TestGetTransactionByBlockHashAndIndex(t *testing.T) {
 		{name: "backend error", blockErr: backendErr, wantErr: backendErr},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := fixedGasLimitBackend(t, 35_000_000, nil)
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return tc.block, nil
+			})
 			backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 				require.Equal(t, blockHash.Bytes(), []byte(req.Hash))
 				return tc.block, tc.blockErr

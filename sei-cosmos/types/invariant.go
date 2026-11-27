@@ -5,7 +5,6 @@ import "fmt"
 // An Invariant is a function which tests a particular invariant.
 // The invariant returns a descriptive message about what happened
 // and a boolean indicating whether the invariant has been broken.
-// The simulator will then halt and print the logs.
 type Invariant func(ctx Context) (string, bool)
 
 // Invariants defines a group of invariants

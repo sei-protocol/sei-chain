@@ -909,13 +909,13 @@ func TestHasOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersionReadOnly(0)
+	opened, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
-	defer ro.Close()
+	defer opened.Close()
 
-	found := ro.Has(keys.EVMStoreKey, key)
+	found := opened.Has(keys.EVMStoreKey, key)
 	require.True(t, found)
-	found = ro.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0xFF), slotN(0xFF))))
+	found = opened.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0xFF), slotN(0xFF))))
 	require.False(t, found)
 	require.NoError(t, s.Close())
 }
@@ -978,12 +978,10 @@ func TestReadOnlyViewDisablesViewManagerMetrics(t *testing.T) {
 	require.NoError(t, err)
 	defer opened.Close()
 
-	ro, ok := opened.(*CommitStore)
-	require.True(t, ok)
-	require.False(t, ro.config.AccountStoreConfig.MetricsEnabled)
-	require.False(t, ro.config.CodeStoreConfig.MetricsEnabled)
-	require.False(t, ro.config.StorageStoreConfig.MetricsEnabled)
-	require.False(t, ro.config.MiscStoreConfig.MetricsEnabled)
+	require.False(t, opened.config.AccountStoreConfig.MetricsEnabled)
+	require.False(t, opened.config.CodeStoreConfig.MetricsEnabled)
+	require.False(t, opened.config.StorageStoreConfig.MetricsEnabled)
+	require.False(t, opened.config.MiscStoreConfig.MetricsEnabled)
 
 	// The store the view was cloned from keeps reporting.
 	require.True(t, s.config.AccountStoreConfig.MetricsEnabled)

@@ -80,6 +80,15 @@ type inner struct {
 	anchor utils.AtomicSend[Anchor]
 }
 
+// lastHeader returns the header of the road block before nextPartialBlock, or None when no road
+// block is retained before it.
+func (i *inner) lastHeader() utils.Option[*types.RoadBlockHeader] {
+	if i.nextPartialBlock > i.first {
+		return utils.Some(i.blocks[i.nextPartialBlock-1].qc.Header())
+	}
+	return utils.None[*types.RoadBlockHeader]()
+}
+
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
 	n := appQC.Proposal().Height()
 	if n < i.nextAppQC {
@@ -248,6 +257,13 @@ func loadFromBlockStore(cfg *Config, blockStore *blockstore.Store) (*inner, erro
 		if n != inner.nextPartialBlock {
 			return nil, fmt.Errorf("QC gap: got %d, want %d", n, inner.nextPartialBlock)
 		}
+		// The parent of the first stored road block may be pruned, so that road block is checked only
+		// at the first road height of the chain, where it must name no parent.
+		if n > inner.first || (epoch.EpochIndex() == 0 && n == epoch.RoadRange().First) {
+			if err := block.Header().VerifyParent(inner.lastHeader()); err != nil {
+				return nil, fmt.Errorf("load block %d from BlockStore: %w", n, err)
+			}
+		}
 		blocks := make(map[uint64]*types.LaneBlock, len(block.LaneBlocks()))
 		for offset, laneBlock := range block.LaneBlocks() {
 			blocks[uint64(offset)] = laneBlock //nolint:gosec // non-negative slice index
@@ -343,6 +359,9 @@ func (s *State) PushPartialBlock(ctx context.Context, qc *types.FullCommitQC, bl
 		}
 		updated := false
 		if inner.nextPartialBlock == n {
+			if err := qc.Header().VerifyParent(inner.lastHeader()); err != nil {
+				return fmt.Errorf("qc: %w", err)
+			}
 			updated = true
 			inner.blocks[n] = &blockEntry{qc: qc, epoch: epoch, blocks: make(map[uint64]*types.LaneBlock, len(qc.Headers()))}
 			inner.laneBlockCount += uint64(len(qc.Headers()))

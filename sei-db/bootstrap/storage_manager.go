@@ -10,16 +10,18 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/apphash/receipthash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
+	"github.com/sei-protocol/sei-chain/sei-db/archive"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/undolog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/seilog"
 )
@@ -32,11 +34,17 @@ type GigaStorageManager struct {
 	// cfg is the config the stores were opened with.
 	cfg *config.GigaStorageConfig
 
+	// openHeight is the live state DB's version when the stores opened.
+	openHeight uint64
+
 	// blockStore.Close closes the block database it was built over.
 	blockStore *blockstore.Store
 
 	// receiptDB is nil when ReceiptDBConfig.Enable is false.
 	receiptDB receiptdb.ReceiptStore
+
+	// archive is nil when ArchiveConfig is nil.
+	archive archive.ArchivalStore
 
 	// stateDB owns the live state DB, the historical state DB and the state WAL they share, along
 	// with the checkpoint schedule those stores run on.
@@ -65,8 +73,8 @@ type GigaStorageManager struct {
 }
 
 // NewGigaStorageManager opens every store a Giga node runs on, first aligning the state stores and the receipt
-// store on the lowest height they and the app hash vault hold (see alignStores()). It refuses to start when any
-// store is ahead of a non-empty block store.
+// store on the lowest height they, the app hash vault and the history archive hold (see alignStores()). It
+// refuses to start when any store is ahead of a non-empty block store.
 //
 // The app hash builder's setup is completed at the aligned height. The builder halts the node before setup
 // completes if the aligned state disagrees with the app hash it already stores for that height. A failed call
@@ -103,8 +111,22 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	if err := assertInvariants(cfg, blockStoreHead, heads); err != nil {
 		return nil, fmt.Errorf("assert storage invariants: %w", err)
 	}
+	target := recoveryTarget(heads)
+	timer.SetPhase("archive")
+	// An empty archive starts at the block the node executes next: the one after target, or on a fresh chain
+	// the giga activation height.
+	archiveStore, err := openArchive(ctx, cfg, max(target+1, cfg.AppHashBuilderConfig.GigaActivationHeight))
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	if archiveStore != nil {
+		defer closeOnFailure(&retErr, "archive", archiveStore.Close)
+		// The archive is never rolled back, so the stores align at or below its head and the node executes the
+		// blocks it lacks again. Like the app hash vault's, its head counts even when it is 0.
+		target = min(target, archiveStore.LatestBlock())
+	}
 	timer.SetPhase("align_stores")
-	if err := alignStores(ctx, cfg, recoveryTarget(heads)); err != nil {
+	if err := alignStores(ctx, cfg, target); err != nil {
 		return nil, fmt.Errorf("align stores: %w", err)
 	}
 
@@ -155,7 +177,7 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 	}
 
 	timer.SetPhase("app_hash_builder_setup")
-	height := uint64(stateDB.SC().Version()) //nolint:gosec // live state DB versions are never negative
+	height := uint64(stateDB.LiveStateDB().Version()) //nolint:gosec // live state DB versions are never negative
 	if err := connectLiveStateDBToAppHashBuilder(ctx, stateDB, appHashBuilder, height); err != nil {
 		return nil, fmt.Errorf("connect the live state DB to the app hash builder: %w", err)
 	}
@@ -177,8 +199,10 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 
 	return &GigaStorageManager{
 		cfg:            cfg,
+		openHeight:     height,
 		blockStore:     blockStore,
 		receiptDB:      receiptDB,
+		archive:        archiveStore,
 		stateDB:        stateDB,
 		gc:             gc,
 		appHashBuilder: appHashBuilder,
@@ -217,17 +241,17 @@ func openStateDB(
 	checkpointer := controller.NewCheckpointScheduler(cfg.CheckpointConfig)
 	liveStateDB.SetCheckpointScheduler(checkpointer)
 
-	var historicalStateDB *undo.Database
+	var historicalStateDB gigatypes.HistoricalStateStore
 	if cfg.SSConfig.Enable {
 		timer.SetPhase("historical_state_db")
-		historicalStateDB, err = undo.OpenDB(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
+		historicalStateDB, err = undolog.Open(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
 		if err != nil {
 			return nil, fmt.Errorf("open the historical state DB: %w", err)
 		}
 		defer closeOnFailure(&retErr, "historical state DB", historicalStateDB.Close)
 	}
 
-	stateDB, err := giga.NewStateDB(cfg.FlatKVConfig, liveStateDB, historicalStateDB, wal, checkpointer, budHasher)
+	stateDB, err := giga.NewStateDB(liveStateDB, historicalStateDB, wal, checkpointer, budHasher)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the state DB: %w", err)
 	}
@@ -256,7 +280,7 @@ func connectLiveStateDBToAppHashBuilder(
 	}
 	// The blocks the live state DB replayed at open are hashed in the background. Registering before their hashes
 	// are delivered would hand back an earlier block's hash than the one it stands at.
-	if err := stateDB.SC().FlushHashes(); err != nil {
+	if err := stateDB.LiveStateDB().FlushHashes(); err != nil {
 		return fmt.Errorf("wait for the live state DB's state hashes: %w", err)
 	}
 	current, err := stateDB.RegisterHashListener(reportStateHash)
@@ -315,6 +339,9 @@ func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStor
 // ReceiptDB returns the receipt store, or nil when receipts are disabled.
 func (m *GigaStorageManager) ReceiptDB() receiptdb.ReceiptStore { return m.receiptDB }
 
+// Archive returns the history archive, or nil when no archive is configured.
+func (m *GigaStorageManager) Archive() archive.ArchivalStore { return m.archive }
+
 // StateDB returns the Giga state DB over the state WAL, the live state DB and the historical state DB.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }
 
@@ -352,6 +379,12 @@ func (m *GigaStorageManager) Close() error {
 		timer.SetPhase("receipt_store")
 		if err := m.receiptDB.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close receipt store: %w", err))
+		}
+	}
+	if m.archive != nil {
+		timer.SetPhase("archive")
+		if err := m.archive.Close(); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close archive: %w", err))
 		}
 	}
 	timer.SetPhase("state_db")

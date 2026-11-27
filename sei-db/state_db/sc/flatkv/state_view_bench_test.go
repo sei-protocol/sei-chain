@@ -33,7 +33,7 @@ func benchView(b *testing.B) (gigatypes.StateView, gigatypes.Address) {
 		Value: padLeft32(0x05),
 	})
 	require.NoError(b, commitChangeSets(s, 1, []*proto.NamedChangeSet{cs}))
-	v := s.OpenView()
+	v := openStateView(s)
 	b.Cleanup(v.Close)
 	return v, gigaAddr(addr)
 }

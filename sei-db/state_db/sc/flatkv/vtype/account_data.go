@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
 type AccountDataVersion uint8
@@ -173,6 +175,34 @@ func (a *AccountData) GetCodeHash() *CodeHash {
 		return &zero
 	}
 	return (*CodeHash)(a.data[accountCodeHashStart:accountDataLength])
+}
+
+// FieldValue returns the account field kind names, encoded as its logical EVM key's value, and whether it is set.
+// A zero code hash or balance is unset; the nonce is always set.
+func (a *AccountData) FieldValue(kind keys.EVMKeyKind) ([]byte, bool) {
+	switch kind {
+	case keys.EVMKeyNonce:
+		nonceBytes := make([]byte, NonceLen)
+		binary.BigEndian.PutUint64(nonceBytes, a.GetNonce())
+		return nonceBytes, true
+
+	case keys.EVMKeyCodeHash:
+		codeHash := a.GetCodeHash()
+		if *codeHash == (CodeHash{}) {
+			return nil, false
+		}
+		return codeHash[:], true
+
+	case keys.EVMKeyBalance:
+		balance := a.GetBalance()
+		if *balance == (Balance{}) {
+			return nil, false
+		}
+		return balance[:], true
+
+	default:
+		panic(fmt.Sprintf("flatkv: %v does not name an account field", kind))
+	}
 }
 
 // Check if this account data signifies a deletion operation. A deletion operation is automatically

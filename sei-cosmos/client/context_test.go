@@ -152,23 +152,6 @@ func TestGetFromFields(t *testing.T) {
 			expectedErr: "alice.info: key not found",
 		},
 		{
-			name: "bech32 address",
-			keyring: func() keyring.Keyring {
-				return keyring.NewInMemory()
-			},
-			from:      "sei139f7kncmglres2nf3h4hc4tade85ekfr2udfy4",
-			clientCtx: client.Context{}.WithSimulation(true),
-		},
-		{
-			name: "invalid bech32 address, simulation",
-			keyring: func() keyring.Keyring {
-				return keyring.NewInMemory()
-			},
-			from:        "alice",
-			clientCtx:   client.Context{}.WithSimulation(true),
-			expectedErr: "a valid bech32 address must be provided in simulation mode",
-		},
-		{
 			name: "generate only mode, valid bech32 address",
 			keyring: func() keyring.Keyring {
 				return keyring.NewInMemory()

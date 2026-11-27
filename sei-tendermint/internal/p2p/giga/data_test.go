@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
@@ -232,7 +233,7 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 		// Another peer fills the index that the stream skips. The push waits until qcs[2] is stored.
 		s.Spawn(func() error { return node.data.PushPartialBlock(ctx, qcs[3], nil) })
 		// The client under test.
-		return node.service.clientStreamFullCommitQCs(ctx, client)
+		return node.service.clientStreamFullCommitQCs(ctx, client, keys[0].Public())
 	})
 	// The stream ended because the server closed it, not because the client rejected a QC.
 	require.ErrorIs(t, err, mux.ErrRemoteClosed)
@@ -244,6 +245,79 @@ func TestFullCommitQCStreamAcceptsSkippedIndexes(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, utils.TestDiff(want, got))
 	}
+}
+
+func TestFullCommitQCStreamReportsSkippedFullCommitQCsThatTheNodeNeeds(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 1)
+		node := newTestEnv(registry).AddNode(t, keys[0])
+		qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 3)
+		// The node holds qcs[0], so the client requests qcs[1].
+		require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
+		skipped := fetchCount(resFullCommitQC, "skipped")
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			serverConn, clientConn := conn.NewTestConn()
+			server := rpc.NewServer[API]()
+			client := rpc.NewClient[API]()
+			s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+			s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+			// The server sends qcs[2], as a peer that pruned qcs[1] does. No other peer sends qcs[1].
+			s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, []*types.FullCommitQC{qcs[2]}) })
+			// The client under test.
+			s.SpawnBg(func() error {
+				return utils.IgnoreAfterCancel(ctx, node.service.clientStreamFullCommitQCs(ctx, client, keys[0].Public()))
+			})
+			// Every task is blocked now, and the client is blocked on qcs[1].
+			synctest.Wait()
+			if got, want := fetchCount(resFullCommitQC, "skipped"), skipped+1; got != want {
+				return fmt.Errorf("fetch{full_commit_qc,skipped} = %d, want %d", got, want)
+			}
+			// The node did not store qcs[2], because it still needs qcs[1].
+			if got, want := node.data.NextQC(), qcs[1].Height(); got != want {
+				return fmt.Errorf("NextQC() = %d, want %d", got, want)
+			}
+			return nil
+		}))
+	})
+}
+
+func TestFullCommitQCStreamDoesNotReportSkippedFullCommitQCsThatTheNodeHolds(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 1)
+	node := newTestEnv(registry).AddNode(t, keys[0])
+	qcs, _ := testQCChain(rng, registry.MustEpoch(0), keys, 3)
+	// The node holds qcs[0], so the client requests qcs[1].
+	require.NoError(t, node.data.PushPartialBlock(ctx, qcs[0], nil))
+	skipped := fetchCount(resFullCommitQC, "skipped")
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		serverConn, clientConn := conn.NewTestConn()
+		server := rpc.NewServer[API]()
+		client := rpc.NewClient[API]()
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, serverConn)) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
+		s.SpawnBg(func() error {
+			return utils.IgnoreAfterCancel(ctx, StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
+				// The request shows that the client fixed qcs[1] as the next QC of this stream.
+				if _, err := stream.Recv(ctx); err != nil {
+					return fmt.Errorf("stream.Recv(): %w", err)
+				}
+				// Another peer sends qcs[1] before this stream sends a QC.
+				if err := node.data.PushPartialBlock(ctx, qcs[1], nil); err != nil {
+					return fmt.Errorf("PushPartialBlock(): %w", err)
+				}
+				// The stream skips qcs[1], which the node now holds. Returning closes the stream.
+				return stream.Send(ctx, types.FullCommitQCConv.Encode(qcs[2]))
+			}))
+		})
+		// The client under test.
+		return node.service.clientStreamFullCommitQCs(ctx, client, keys[0].Public())
+	})
+	require.ErrorIs(t, err, mux.ErrRemoteClosed)
+	require.Equal(t, qcs[2].Height()+1, node.data.NextQC())
+	require.Equal(t, skipped, fetchCount(resFullCommitQC, "skipped"))
 }
 
 func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
@@ -285,7 +359,7 @@ func TestFullCommitQCStreamRejectsOutOfOrderIndexes(t *testing.T) {
 				s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, client.Run(ctx, clientConn)) })
 				s.SpawnBg(func() error { return serveFullCommitQCs(ctx, server, sent) })
 				// The client under test.
-				return node.service.clientStreamFullCommitQCs(ctx, client)
+				return node.service.clientStreamFullCommitQCs(ctx, client, keys[0].Public())
 			})
 			// The client rejects one QC and ends the stream.
 			require.ErrorIs(t, err, types.ErrUnexpectedHeight)

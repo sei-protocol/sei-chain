@@ -260,7 +260,7 @@ func TestEpochRegistryRestartReadsTheRowOfTheClosingRoad(t *testing.T) {
 // epochRegistryRow returns the registry row storage holds.
 func epochRegistryRow(t *testing.T, storage *bootstrap.GigaStorageManager) []byte {
 	t.Helper()
-	raw, found := storage.StateDB().SC().Get(epochRegistryModule, []byte(epochRegistryKey))
+	raw, found := storage.StateDB().LiveStateDB().Get(epochRegistryModule, []byte(epochRegistryKey))
 	require.True(t, found)
 	return raw
 }
@@ -280,8 +280,8 @@ func epochModuleKeyCount(misc []gigatypes.MiscChange, key string) int {
 // changes app encodes for each block, by block number.
 func installRecordingEVMExecutor(app *evmOnlyApplication) *utils.Mutex[map[uint64][]gigatypes.MiscChange] {
 	encoded := new(utils.NewMutex(map[uint64][]gigatypes.MiscChange{}))
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result)
 		if err != nil {
 			return nil, err
 		}
@@ -322,7 +322,7 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
-	require.NotNil(t, app.(*evmOnlyApplication).storage.StateDB().UndoSS())
+	require.NotNil(t, app.(*evmOnlyApplication).storage.StateDB().HistoricalStateDB())
 	init := evmOnlyTestInitChain()
 	init.InitialHeight = atypes.RoadHeight(initialHeight)
 	err = app.InitChain(init)
@@ -393,10 +393,7 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 // reportMissingBlockHashes reports a block hash for each committed height above the newest app hash the
 // builder has published, so the builder can build the app hash of every committed block.
 func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
-	version, err := manager.StateDB().SC().GetLatestVersion()
-	if err != nil {
-		return fmt.Errorf("read state height: %w", err)
-	}
+	version := manager.StateDB().LiveStateDB().Version()
 	//nolint:gosec // state heights are non-negative
 	height := uint64(version)
 	_, published, ok, err := manager.AppHashBuilder().Bounds()
@@ -573,18 +570,19 @@ func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	require.ErrorIs(t, admissionError(app, raw), ethtypes.ErrInvalidChainId)
 }
 
-// A zero priority fee is valid EIP-1559, and admitting on tx.GasPrice() — the
-// fee cap on a dynamic-fee tx — let one through that the executor then refused.
-// An executor refusal is a node panic rather than a failed receipt, so this has
-// to be caught here.
-func TestEVMOnlyApplicationRefusesATxTheExecutorWouldRefuse(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t)
+// A dynamic-fee tx pays the base fee plus at most its tip, so it is admitted on
+// that price, not on tx.GasPrice(), its fee cap. A zero tip pays the base fee,
+// which a node whose floor is above the base fee refuses.
+func TestEVMOnlyApplicationAdmitsADynamicFeeTxOnItsEffectivePrice(t *testing.T) {
+	raised := gigaconfig.DefaultConfig.Execution
+	raised.MinGasPrice = 2 * evmOnlyMinGasPrice
+	app := newEVMOnlyTestAppWithExecution(t, nil, raised)
+	require.NoError(t, app.InitChain(evmOnlyTestInitChain()))
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
-	// Fee cap far above the minimum, tip cap zero. At a zero base fee the
-	// effective gas price is the tip, so block validity refuses it.
+	// Fee cap far above the floor, tip cap zero.
 	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     0,
@@ -1115,7 +1113,7 @@ func TestEVMOnlyApplicationServesHistoryFromTheUndoLog(t *testing.T) {
 		history = append(history, observe())
 	}
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	for height, want := range history {
 		nonce, err := app.EvmNonceAt(sender, int64(height))
@@ -1144,7 +1142,7 @@ func TestEVMOnlyApplicationCommitsEmptyBlocksOnTheUndoLog(t *testing.T) {
 	}
 	finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, 4, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
 	require.NoError(t, app.AwaitCommits())
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	for height, want := range []uint64{0, 0, 0, 0, 1} {
 		nonce, err := app.EvmNonceAt(sender, int64(height))
@@ -1166,7 +1164,7 @@ func TestEVMOnlyApplicationServesHistoryFromASeededHeightOnTheUndoLog(t *testing
 		finalizeEVMOnlyTestBlock(t, app, evmOnlyTestBlock(app, height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, nonce)))
 	}
 	require.NoError(t, app.AwaitCommits())
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 
 	for height, want := range map[int64]uint64{4: 0, 5: 1, 6: 2, 7: 3} {
 		nonce, err := app.EvmNonceAt(sender, height)
@@ -1197,7 +1195,7 @@ func TestEVMOnlyApplicationServesStorageHistoryFromTheUndoLog(t *testing.T) {
 	require.Equal(t, common.BigToHash(big.NewInt(0x2b)), got)
 
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	app.storage.StateDB().HistoricalStateDB().WaitForPendingWrites()
 	for _, tc := range []struct {
 		contract common.Address
 		height   int64
@@ -1231,8 +1229,7 @@ func TestEVMOnlyApplicationServesStorageHistoryFromTheUndoLog(t *testing.T) {
 	require.Equal(t, common.BigToHash(big.NewInt(0x2c)), got)
 }
 
-// Every FinalizeBlock stage is charged to a phase, so the timer's total is the
-// time the block loop spent inside the application.
+// Every stage FinalizeBlock runs on its turn is charged to a phase.
 func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmOnlyApp, ok := app.(*evmOnlyApplication)
@@ -1266,7 +1263,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{finalizePhasePrepareTxs, finalizePhaseExecute} {
+	for _, want := range []string{finalizePhaseExecute} {
 		_, ok := phases[want]
 		require.True(t, ok, "phase %q not recorded", want)
 	}
@@ -1293,17 +1290,15 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
 	require.NoError(t, settler.AwaitCommits())
-	latest, err := settler.storage.StateDB().SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(4), latest)
+	require.Equal(t, int64(4), settler.storage.StateDB().LiveStateDB().Version())
 }
 
 // installUnwritableEVMExecutor replaces app's executor with one that also writes, with every block, a misc change
 // into the EVM module, which the state DB refuses to commit. Each block executes and encodes cleanly, and its commit
 // is the first thing that fails.
 func installUnwritableEVMExecutor(app *evmOnlyApplication) {
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode the cursor: %w", err)
 		}
@@ -1370,9 +1365,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 		require.False(t, state.pending.IsPresent())
 	}
 	require.Equal(t, int64(1), app.LastBlockHeight())
-	latest, err := storage.StateDB().SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(0), latest)
+	require.Equal(t, int64(0), storage.StateDB().LiveStateDB().Version())
 }
 
 // Committed-state readers running alongside FinalizeBlock observe every block
@@ -1607,8 +1600,8 @@ func TestEVMOnlyApplicationRefusesToResumeWithoutARecordedChainID(t *testing.T) 
 	err = started.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	app := started.(*evmOnlyApplication)
-	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
-		misc, err := app.encodeCursorChangeSet(block, result)
+	installEVMExecutorEncoder(app, func(block evmonly.BlockContext, state evmonly.StateReader, result *evmonly.BlockResult) ([]gigatypes.MiscChange, error) {
+		misc, err := app.encodeCursorChangeSet(block, state, result)
 		return slices.DeleteFunc(misc, func(change gigatypes.MiscChange) bool {
 			return change.Module == evmOnlyCursorModule && string(change.Key) == evmOnlyChainIDKey
 		}), err
@@ -1757,4 +1750,40 @@ func balanceAlloc(balances map[common.Address]*uint256.Int) map[common.Address]e
 		accounts[addr] = evmonly.GenesisAccount{Balance: balance}
 	}
 	return accounts
+}
+
+// A FinalizeBlock called before the previous block's returns waits for it, and
+// leaves the same state as finalizing the blocks one after the other.
+func TestEVMOnlyApplicationFinalizesTheNextBlockWhileTheCurrentOneRuns(t *testing.T) {
+	pipelined := newInitializedEVMOnlyTestApp(t)
+	sequential := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	tx0 := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
+	tx1 := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			_, err := pipelined.FinalizeBlock(ctx, evmOnlyTestBlock(pipelined, 2, tx1))
+			return err
+		})
+		_, err := pipelined.FinalizeBlock(ctx, evmOnlyTestBlock(pipelined, 1, tx0))
+		return err
+	}))
+	finalizeEVMOnlyTestBlock(t, sequential, evmOnlyTestBlock(sequential, 1, tx0))
+	require.Equal(t, finalizeEVMOnlyTestBlock(t, sequential, evmOnlyTestBlock(sequential, 2, tx1)), pipelined.Info().LastBlockAppHash)
+}
+
+// A cancel does not abort a block whose turn has come.
+func TestEVMOnlyApplicationFinalizesABlockWhoseTurnHasComeDespiteACancel(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = app.FinalizeBlock(ctx, evmOnlyTestBlock(app, 1,
+		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0),
+		signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), app.LastBlockHeight())
 }

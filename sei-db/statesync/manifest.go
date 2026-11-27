@@ -29,6 +29,9 @@ const (
 	maxProofSize    = 16 << 20
 )
 
+// errUnsupportedPebbleFormat is returned for a manifest whose Pebble format this build cannot open.
+var errUnsupportedPebbleFormat = errors.New("unsupported pebble format")
+
 // Manifest is the first entry of an archive. It describes the FlatKV checkpoint that follows it.
 type Manifest struct {
 	FormatVersion int    `json:"format_version"`
@@ -86,7 +89,7 @@ func (m *Manifest) Validate() error {
 	case m.RowCount < 0 || m.StateBytes < 0:
 		return fmt.Errorf("negative stats: %d rows, %d bytes", m.RowCount, m.StateBytes)
 	case m.PebbleFormatMajorVersion < pebble.FormatMinSupported || m.PebbleFormatMajorVersion > pebbledb.FormatMajorVersion:
-		return fmt.Errorf("pebble format %d, want %d to %d", m.PebbleFormatMajorVersion, pebble.FormatMinSupported, pebbledb.FormatMajorVersion)
+		return fmt.Errorf("%w: %d, want %d to %d", errUnsupportedPebbleFormat, m.PebbleFormatMajorVersion, pebble.FormatMinSupported, pebbledb.FormatMajorVersion)
 	}
 	seen := make(map[string]bool, len(m.Files))
 	databases := make(map[string]bool)

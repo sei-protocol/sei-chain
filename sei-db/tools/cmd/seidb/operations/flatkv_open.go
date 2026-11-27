@@ -12,7 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -39,19 +38,19 @@ const (
 // retry instead of bailing out.
 var errSourceChurning = errors.New("flatkv source kept churning during clone")
 
-// openedFlatKV wraps a temp-cloned FlatKV store used by tooling.
+// OpenedFlatKV wraps a temp-cloned FlatKV store used by tooling. Close also removes the clone.
 //
 // The tools intentionally operate on a temp clone of the selected snapshot +
 // WAL so they do not compete with a live node for the FlatKV writer lock.
-type openedFlatKV struct {
-	gigatypes.LiveStateStore
+type OpenedFlatKV struct {
+	*flatkv.CommitStore
 	tempDir string
 }
 
-func (o *openedFlatKV) Close() error {
+func (o *OpenedFlatKV) Close() error {
 	var err error
-	if o.LiveStateStore != nil {
-		err = o.LiveStateStore.Close()
+	if o.CommitStore != nil {
+		err = o.CommitStore.Close()
 	}
 	if o.tempDir != "" {
 		if rmErr := os.RemoveAll(o.tempDir); rmErr != nil {
@@ -84,7 +83,7 @@ func (o *openedFlatKV) Close() error {
 //     snapshot, and retry up to maxCloneRetries times.
 //
 // height=0 means latest version.
-func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
+func openFlatKVReadOnly(dbDir string, height int64) (*OpenedFlatKV, error) {
 	tempDir, err := prepareFlatKVToolingClone(dbDir, height)
 	if err != nil {
 		return nil, err
@@ -120,15 +119,15 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 		return nil, fmt.Errorf("failed to close FlatKV clone writer: %w", err)
 	}
 
-	return &openedFlatKV{
-		LiveStateStore: view,
-		tempDir:        tempDir,
+	return &OpenedFlatKV{
+		CommitStore: view,
+		tempDir:     tempDir,
 	}, nil
 }
 
 // OpenFlatKVReadOnly opens an isolated read-only FlatKV view for a seidb
 // operation. The caller must close the returned store.
-func OpenFlatKVReadOnly(dbDir string, height int64) (gigatypes.LiveStateStore, error) {
+func OpenFlatKVReadOnly(dbDir string, height int64) (*OpenedFlatKV, error) {
 	return openFlatKVReadOnly(dbDir, height)
 }
 

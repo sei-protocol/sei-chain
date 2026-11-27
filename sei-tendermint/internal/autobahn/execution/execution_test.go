@@ -13,6 +13,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -40,7 +41,7 @@ func logEvent(events *eventLog, format string, args ...any) {
 type recordingApp struct {
 	abevm.Application
 	events     *eventLog
-	state      utils.Mutex[*recordingAppState]
+	state      utils.Watch[*recordingAppState]
 	validators abevm.CommitteeWeights
 }
 
@@ -49,8 +50,14 @@ type recordingAppState struct {
 	inited     bool
 	lastHeader utils.Option[time.Time]
 	finalized  []abevm.FinalizeBlockReq
+	// entered counts the FinalizeBlock calls that have started.
+	entered int
 	// failFinalizeAt makes FinalizeBlock fail for the block of this height.
 	failFinalizeAt utils.Option[int64]
+	// holdFinalizeAt makes FinalizeBlock for this height wait until another FinalizeBlock has started.
+	holdFinalizeAt utils.Option[int64]
+	// holdReturnAt makes FinalizeBlock for this height return only once the next block has finalized.
+	holdReturnAt utils.Option[int64]
 }
 
 // testGasPerBlock is the gas FinalizeBlock reports for every block.
@@ -59,7 +66,7 @@ const testGasPerBlock = 7
 var errFinalizeFailed = errors.New("finalization failed")
 
 func newRecordingApp(events *eventLog, last int64) *recordingApp {
-	return &recordingApp{events: events, state: utils.NewMutex(&recordingAppState{last: last})}
+	return &recordingApp{events: events, state: utils.NewWatch(&recordingAppState{last: last})}
 }
 
 func (a *recordingApp) EvmChainID() uint64 { return 1 }
@@ -77,9 +84,10 @@ func (a *recordingApp) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-func (a *recordingApp) InitChain(abevm.InitConfig) error {
+func (a *recordingApp) InitChain(req abevm.InitConfig) error {
 	for state := range a.state.Lock() {
 		state.inited = true
+		state.last = utils.Clamp[int64](req.InitialHeight) - 1
 	}
 	return nil
 }
@@ -90,14 +98,32 @@ func (a *recordingApp) RestoreBlockTime(blockTime time.Time) {
 	}
 }
 
-func (a *recordingApp) FinalizeBlock(_ context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
-	logEvent(a.events, "finalize %d", req.Height)
-	for state := range a.state.Lock() {
+// FinalizeBlock waits until the previous block has finalized, as execution may call it ahead.
+func (a *recordingApp) FinalizeBlock(ctx context.Context, req abevm.FinalizeBlockReq) (abevm.FinalizeBlockResp, error) {
+	height := utils.Clamp[int64](req.Height)
+	for state, ctrl := range a.state.Lock() {
+		state.entered++
+		ctrl.Updated()
+		if hold, ok := state.holdFinalizeAt.Get(); ok && hold == height {
+			if err := ctrl.WaitUntil(ctx, func() bool { return state.entered >= 2 }); err != nil {
+				return abevm.FinalizeBlockResp{}, err
+			}
+		}
+		if err := ctrl.WaitUntil(ctx, func() bool { return height <= state.last+1 }); err != nil {
+			return abevm.FinalizeBlockResp{}, err
+		}
+		logEvent(a.events, "finalize %d", height)
 		state.finalized = append(state.finalized, req)
-		if fail, ok := state.failFinalizeAt.Get(); ok && fail == int64(req.Height) {
+		if fail, ok := state.failFinalizeAt.Get(); ok && fail == height {
 			return abevm.FinalizeBlockResp{}, errFinalizeFailed
 		}
-		state.last = int64(req.Height)
+		state.last = height
+		ctrl.Updated()
+		if hold, ok := state.holdReturnAt.Get(); ok && hold == height {
+			if err := ctrl.WaitUntil(ctx, func() bool { return state.last > height }); err != nil {
+				return abevm.FinalizeBlockResp{}, err
+			}
+		}
 	}
 	return abevm.FinalizeBlockResp{GasUsed: testGasPerBlock}, nil
 }
@@ -176,11 +202,12 @@ func (env *testEnv) write(from, to int, flush bool) error {
 
 func (env *testEnv) executor(app abevm.Application) *Executor {
 	return New(&Config{
-		GenDoc:         env.genDoc,
-		App:            abevm.NewProxy(app),
-		AppHashBuilder: recordingBuilder{events: env.events},
-		BlockStore:     env.store,
-		Signer:         newTestSigner(app.EvmChainID(), 0),
+		GenDoc:            env.genDoc,
+		App:               abevm.NewProxy(app),
+		AppHashBuilder:    recordingBuilder{events: env.events},
+		BlockStore:        env.store,
+		Signer:            newTestSigner(app.EvmChainID(), 0),
+		MaxBlocksInFlight: gigaconfig.DefaultConfig.Execution.MaxBlocksInFlight,
 	})
 }
 
@@ -286,15 +313,18 @@ func TestRunReportsEachBlockHashBeforeExecutingIt(t *testing.T) {
 		return waitExecuted(ctx, executor, env.road(1))
 	}))
 
-	var wantLog []string
-	for _, road := range []atypes.RoadHeight{env.road(0), env.road(1)} {
-		wantLog = append(wantLog,
-			fmt.Sprintf("report %d", road),
-			fmt.Sprintf("finalize %d", road),
-		)
-	}
 	for log := range env.events.Lock() {
-		require.Equal(t, wantLog, *log)
+		at := map[string]int{}
+		for i, event := range *log {
+			at[event] = i
+		}
+		report := func(i int) string { return fmt.Sprintf("report %d", env.road(i)) }
+		finalize := func(i int) string { return fmt.Sprintf("finalize %d", env.road(i)) }
+		require.Equal(t, 4, len(*log))
+		require.True(t, at[report(0)] < at[report(1)])
+		require.True(t, at[report(0)] < at[finalize(0)])
+		require.True(t, at[report(1)] < at[finalize(1)])
+		require.True(t, at[finalize(0)] < at[finalize(1)])
 	}
 	for i, req := range app.finalized() {
 		want := env.blocks[i].SuperBlock()
@@ -349,7 +379,7 @@ func (a *cancelingApp) FinalizeBlock(
 }
 
 // TestRunCompletesTheBlockInFlightWhenCanceled verifies that a cancel arriving
-// while a block executes lets that block commit, and starts no block after it.
+// while a block executes lets that block finalize.
 func TestRunCompletesTheBlockInFlightWhenCanceled(t *testing.T) {
 	rng := utils.TestRng()
 	env := newTestEnv(t, rng, 2)
@@ -360,8 +390,7 @@ func TestRunCompletesTheBlockInFlightWhenCanceled(t *testing.T) {
 	executor := env.executor(app)
 
 	require.ErrorIs(t, executor.Run(runCtx), context.Canceled)
-	require.Equal(t, env.road(0), executor.ExecutedBlocks().Load().Latest().Height)
-	require.Equal(t, 1, len(app.finalized()))
+	require.Equal(t, env.road(0), app.finalized()[0].Height)
 }
 
 func gasUsedTotal(t *testing.T) float64 {
@@ -407,9 +436,55 @@ func TestExecutionReusesAndEvictsInjectedSignerCache(t *testing.T) {
 	require.NoError(t, err)
 	claimed := common.Address{1}
 	executor.cfg.Signer.Remember(verified.Hash(), claimed)
-	require.NoError(t, executor.executeBlock(block))
+	_, err = executor.executeBlock(t.Context(), block)
+	require.NoError(t, err)
 	require.Equal(t, claimed, app.finalized()[0].Txs[0].Sender())
 	reparsed, err := executor.cfg.Signer.ParseTx(raw)
 	require.NoError(t, err)
 	require.Equal(t, verified.Sender(), reparsed.Sender())
+}
+
+// The next block's FinalizeBlock is entered while the current one is still inside it.
+func TestRunEntersTheNextBlockBeforeTheCurrentOneReturns(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 4)
+	require.NoError(t, env.write(0, 4, true))
+	app := newRecordingApp(env.events, 0)
+	// The first block finalizes only once the next one has entered FinalizeBlock.
+	for state := range app.state.Lock() {
+		state.holdFinalizeAt = utils.Some(int64(env.road(0)))
+	}
+	executor := env.executor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(3))
+	}))
+	require.Equal(t, 4, len(app.finalized()))
+}
+
+// A block whose FinalizeBlock returns before the previous block's is still
+// published after it, so the executed-block window stays in road order.
+func TestRunPublishesExecutedBlocksInRoadOrder(t *testing.T) {
+	rng := utils.TestRng()
+	env := newTestEnv(t, rng, 4)
+	require.NoError(t, env.write(0, 4, true))
+	// Starting from a committed tip makes the window contiguous from its first block.
+	app := newRecordingApp(env.events, int64(env.road(0)))
+	for state := range app.state.Lock() {
+		state.holdReturnAt = utils.Some(int64(env.road(1)))
+	}
+	executor := env.executor(app)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(executor.Run(ctx)) })
+		return waitExecuted(ctx, executor, env.road(3))
+	}))
+	executed := executor.ExecutedBlocks().Load()
+	for i := range 4 {
+		block, ok := executed.Get(env.road(i))
+		require.True(t, ok)
+		require.Equal(t, env.road(i), block.Height)
+	}
+	require.Equal(t, env.road(3), executed.Latest().Height)
 }

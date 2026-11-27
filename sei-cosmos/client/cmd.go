@@ -98,11 +98,6 @@ func ReadPersistentCommandFlags(clientCtx Context, flagSet *pflag.FlagSet) (Cont
 		clientCtx = clientCtx.WithHomeDir(homeDir)
 	}
 
-	if !clientCtx.Simulate || flagSet.Changed(flags.FlagDryRun) {
-		dryRun, _ := flagSet.GetBool(flags.FlagDryRun)
-		clientCtx = clientCtx.WithSimulation(dryRun)
-	}
-
 	if clientCtx.KeyringDir == "" || flagSet.Changed(flags.FlagKeyringDir) {
 		keyringDir, _ := flagSet.GetString(flags.FlagKeyringDir)
 
@@ -122,6 +117,10 @@ func ReadPersistentCommandFlags(clientCtx Context, flagSet *pflag.FlagSet) (Cont
 
 	if clientCtx.Keyring == nil || flagSet.Changed(flags.FlagKeyringBackend) {
 		keyringBackend, _ := flagSet.GetString(flags.FlagKeyringBackend)
+		// A dry run must work without access to the configured keyring.
+		if dryRun, _ := flagSet.GetBool(flags.FlagDryRun); dryRun && keyringBackend != "" {
+			keyringBackend = keyring.BackendMemory
+		}
 
 		if keyringBackend != "" {
 			kr, err := NewKeyringFromBackend(clientCtx, keyringBackend)

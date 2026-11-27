@@ -171,7 +171,7 @@ func TestFlatKVDualWriteDoubleFlush(t *testing.T) {
 	}
 
 	for _, rec := range records {
-		scStore, err := store.scStore.LoadVersion(rec.version, true)
+		scStore, err := store.scStore.LoadVersionReadOnly(rec.version)
 		require.NoError(t, err)
 
 		commitInfo := convertCommitInfo(scStore.LastCommitInfo())
