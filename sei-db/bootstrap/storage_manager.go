@@ -47,7 +47,7 @@ type GigaStorageManager struct {
 	// archive is nil when ArchiveConfig is nil.
 	archive archive.ArchivalStore
 
-	// blockDataLake copies blockStore into the block data lake. It is nil when BlockDataLakeConfig is nil.
+	// blockDataLake copies blockStore into the data lake. It is nil when DataLakeConfig is nil.
 	blockDataLake *blocklake.BlockDataLake
 
 	// stateDB owns the live state DB, the historical state DB and the state WAL they share, along
@@ -273,16 +273,16 @@ func openStateDB(
 	return stateDB, nil
 }
 
-// openBlockDataLake starts copying blockStore into the block data lake, returning nil when none is configured.
+// openBlockDataLake starts copying blockStore into the data lake, returning nil when none is configured.
 func openBlockDataLake(
 	ctx context.Context,
 	cfg *config.GigaStorageConfig,
 	blockStore *blockstore.Store,
 ) (*blocklake.BlockDataLake, error) {
-	if cfg.BlockDataLakeConfig == nil {
+	if cfg.DataLakeConfig == nil {
 		return nil, nil
 	}
-	return blocklake.New(ctx, *cfg.BlockDataLakeConfig, blockStore)
+	return blocklake.New(ctx, *cfg.DataLakeConfig, blockStore)
 }
 
 // connectLiveStateDBToAppHashBuilder hands appHashBuilder the state hash of block height, which the live state DB

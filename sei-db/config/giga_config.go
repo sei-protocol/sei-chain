@@ -27,7 +27,7 @@ type GigaStorageConfig struct {
 	ReceiptHasherConfig  *receipthash.ReceiptHasherConfig // required
 	BUDHasherConfig      *bud.BUDHasherConfig             // required
 	ArchiveConfig        *clickhouse.Config               // optional; nil disables the archive
-	BlockDataLakeConfig  *cdkdatalake.DataLakeConfig      // optional; nil disables the block data lake
+	DataLakeConfig       *cdkdatalake.DataLakeConfig      // optional; nil disables every data lake
 	EVMChainID           uint64                           // the EVM chain whose blocks the stores hold
 	// The file present while a node holds these stores open. Empty disables it.
 	RunningMarkerPath string
@@ -150,9 +150,9 @@ func (c *GigaStorageConfig) Validate() error {
 	if err := c.BlockDBConfig.Validate(); err != nil {
 		return fmt.Errorf("block db config is invalid: %w", err)
 	}
-	if c.BlockDataLakeConfig != nil {
-		if err := c.BlockDataLakeConfig.Validate(); err != nil {
-			return fmt.Errorf("block data lake config is invalid: %w", err)
+	if c.DataLakeConfig != nil {
+		if err := c.DataLakeConfig.Validate(); err != nil {
+			return fmt.Errorf("data lake config is invalid: %w", err)
 		}
 	}
 

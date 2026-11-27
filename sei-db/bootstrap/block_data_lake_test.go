@@ -38,12 +38,12 @@ func dataObjectCount(ctx context.Context, bucketURL string, storeName string) in
 	}
 }
 
-// TestBlockDataLakeCopiesTheBlockStore pins the wiring: a manager given a block data lake copies the blocks its
-// block store holds into it, and Close leaves every copy durable.
+// TestBlockDataLakeCopiesTheBlockStore pins the wiring: a manager given a data lake copies the blocks its block store
+// holds into it, and Close leaves every copy durable.
 func TestBlockDataLakeCopiesTheBlockStore(t *testing.T) {
 	lakeConfig := cdkdatalake.DefaultTestDataLakeConfig(t.TempDir())
 	cfg := newHome(t, func(cfg *config.GigaStorageConfig) {
-		cfg.BlockDataLakeConfig = &lakeConfig
+		cfg.DataLakeConfig = &lakeConfig
 	})
 	writeBlockLedger(t, cfg, 3)
 
@@ -68,13 +68,13 @@ func TestBlockDataLakeCopiesTheBlockStore(t *testing.T) {
 	require.False(t, ok, "the ledger holds no AppQC to copy")
 }
 
-// TestAnInvalidBlockDataLakeConfigIsRefused pins that the block data lake config is validated with the rest.
-func TestAnInvalidBlockDataLakeConfigIsRefused(t *testing.T) {
+// TestAnInvalidDataLakeConfigIsRefused pins that the data lake config is validated with the rest.
+func TestAnInvalidDataLakeConfigIsRefused(t *testing.T) {
 	cfg := newHome(t, func(cfg *config.GigaStorageConfig) {
 		lakeConfig := cdkdatalake.DefaultTestDataLakeConfig(t.TempDir())
 		lakeConfig.BucketURL = ""
-		cfg.BlockDataLakeConfig = &lakeConfig
+		cfg.DataLakeConfig = &lakeConfig
 	})
 	_, err := NewGigaStorageManager(t.Context(), cfg)
-	require.ErrorContains(t, err, "block data lake config is invalid")
+	require.ErrorContains(t, err, "data lake config is invalid")
 }

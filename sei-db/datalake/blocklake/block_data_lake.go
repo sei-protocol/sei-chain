@@ -47,16 +47,6 @@ type BlockDataLake struct {
 	running sync.WaitGroup
 }
 
-// DefaultDataLakeConfig returns the configuration of the stores a BlockDataLake keeps in the bucket bucketURL names.
-func DefaultDataLakeConfig(bucketURL string) cdkdatalake.DataLakeConfig {
-	config := cdkdatalake.DefaultDataLakeConfig()
-	config.BucketURL = bucketURL
-	// Each queued put holds a whole record, so the queues are sized for memory rather than throughput.
-	config.RequestBufferSize = 64
-	config.WorkBufferSize = 64
-	return config
-}
-
 // New opens a store per record kind in the bucket config names, and starts copying into each the records the block
 // store makes durable. A store resumes at the road after its highest key; an empty one starts at the lowest road the
 // block store retains.
