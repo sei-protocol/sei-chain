@@ -291,6 +291,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	}
 	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
 	recordTxExecutionStats(ctx, result.Txs)
+	logRejectedTxs(ctx, req.Context, req.Txs, result)
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err

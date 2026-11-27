@@ -21,10 +21,16 @@ var (
 
 	executionMetrics = struct {
 		txsExecuted metric.Int64Counter
+		txsRejected metric.Int64Counter
 	}{
 		txsExecuted: must(occMeter.Int64Counter(
 			"giga_evmonly_txs_executed_total",
 			metric.WithDescription("EVM-only transactions executed per block, by outcome (success, reverted, failed)"),
+			metric.WithUnit("{transaction}"),
+		)),
+		txsRejected: must(occMeter.Int64Counter(
+			"giga_evmonly_txs_rejected_total",
+			metric.WithDescription("EVM-only transactions their block rejected without running them, by reason (gas_limit_reached, nonce_too_high, nonce_too_low, insufficient_funds, other)"),
 			metric.WithUnit("{transaction}"),
 		)),
 	}
@@ -123,8 +129,8 @@ func txExecutionStatus(tx TxResult) string {
 }
 
 // recordTxExecutionStats emits per-transaction execution outcomes for a finished
-// block, reporting every status in the vocabulary including the ones this block
-// had none of.
+// block, and the reasons for its rejected transactions, reporting every status and
+// reason in the vocabulary including the ones this block had none of.
 //
 // A counter series exists only once something has recorded to it, and a global
 // instrument drops measurements taken before the meter provider is installed, so
@@ -137,11 +143,18 @@ func recordTxExecutionStats(ctx context.Context, txs []TxResult) {
 		}
 	}()
 	counts := make(map[string]int64, len(txExecutionStatuses))
+	rejections := make(map[string]int64, len(txRejectionReasons))
 	for _, tx := range txs {
 		counts[txExecutionStatus(tx)]++
+		if tx.Rejected {
+			rejections[txRejectionReason(tx.Err)]++
+		}
 	}
 	for _, status := range txExecutionStatuses {
 		executionMetrics.txsExecuted.Add(ctx, counts[status], txExecutionStatusAttr(status))
+	}
+	for _, reason := range txRejectionReasons {
+		executionMetrics.txsRejected.Add(ctx, rejections[reason], txRejectionReasonOptions[reason])
 	}
 }
 
