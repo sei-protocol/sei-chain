@@ -61,8 +61,9 @@ func (app *App) BeginBlock(
 // the network-agreed rate. The NumKeysToMigratePerBlock gov param is read from
 // chain state so every node applies the same value each block; a per-node rate
 // would diverge the AppHash. 0 (the default until a gov proposal raises it)
-// leaves the current migration paused; it is the sole source of the rate (there
-// is no node-local fallback).
+// leaves the current migration paused. Only a mock block-validation shadow node
+// may replace the rate with a node-local one; MigrateCosmosEnabled always comes
+// from chain state.
 func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	if app.rootStore == nil {
 		return
@@ -80,6 +81,18 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 		}
 		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
 		subspace.GetIfExists(ctx, migration.KeyMigrateCosmosEnabled, &allowMigrateCosmos)
+	}
+	if app.migrationBatchSizeOverride > 0 {
+		if !app.migrationBatchSizeOverrideLogged {
+			logger.Warn(
+				"using mock block-validation migration batch size override; this node may diverge from the network",
+				"govNumKeysToMigratePerBlock", numKeys,
+				"configuredKeysToMigratePerBlock", app.migrationBatchSizeOverride,
+				"migrateCosmosEnabled", allowMigrateCosmos,
+			)
+			app.migrationBatchSizeOverrideLogged = true
+		}
+		numKeys = uint64(app.migrationBatchSizeOverride)
 	}
 	// Defense-in-depth: gov validation already rejects values above
 	// MaxNumKeysToMigratePerBlock, but clamp here too so an out-of-range value

@@ -427,6 +427,11 @@ type App struct {
 	rootStore    *rootmulti.Store
 	receiptStore receipt.ReceiptStore
 
+	// migrationBatchSizeOverride is the node-local migration rate of a
+	// mock block-validation shadow node; 0 in every other build.
+	migrationBatchSizeOverride       int
+	migrationBatchSizeOverrideLogged bool
+
 	forkInitializer func(sdk.Context)
 
 	txPrioritizer sdk.TxPrioritizer
@@ -500,6 +505,8 @@ func New(
 		encodingConfig:       encodingConfig,
 		legacyEncodingConfig: MakeLegacyEncodingConfig(),
 		stateStore:           stateStore,
+
+		migrationBatchSizeOverride: mockBlockValidationMigrationBatchSize(appOpts),
 	}
 
 	for _, option := range appOptions {

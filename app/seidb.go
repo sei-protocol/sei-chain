@@ -34,6 +34,7 @@ const (
 	FlagSCSubspaceMaxBytes           = "state-commit.sc-subspace-max-bytes"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
 	FlagSCWriteModeEnableAuto        = "state-commit.sc-write-mode-enable-auto"
+	FlagSCKeysToMigratePerBlock      = "state-commit.sc-keys-to-migrate-per-block"
 	FlagSCFlatKVReadWriteMetrics     = "state-commit.flatkv.enable-read-write-metrics"
 
 	// Hash logger configs (per-block hash logging; enabled by default)
