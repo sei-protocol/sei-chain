@@ -534,6 +534,14 @@ func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.Bloc
 			}
 		}
 		if !shouldTrace {
+			// Executing a tx that its block recorded without executing would change what later txs see.
+			unexecuted, err := b.unexecutedEVMTx(sdkCtx, tmBlock, decoded)
+			if err != nil {
+				return nil, nil, err
+			}
+			if unexecuted {
+				continue
+			}
 			txBytes := tmBlock.Block.Txs[i]
 			txHash := sha256.Sum256(txBytes)
 			metadata = append(metadata, tracersutils.TraceBlockMetadata{
@@ -715,6 +723,7 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		b.isV65ActiveAtHeight(height),
 		b.isV67ActiveAtHeight(height),
 	)
+	latestCtx := withRequestContext(ctx, b.ctxProvider)(LatestCtxHeight)
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
 			break
@@ -729,6 +738,14 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		if utils.IsTxPrioritized(sdkTx) {
 			continue
 		}
+		// Executing a tx that its block recorded without executing would change what later txs see.
+		unexecuted, err := b.unexecutedEVMTx(latestCtx, tmBlock, sdkTx)
+		if err != nil {
+			return nil, nil, emptyRelease, err
+		}
+		if unexecuted {
+			continue
+		}
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
 	if err := ctx.Err(); err != nil {
@@ -736,6 +753,35 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 	}
 	success = true
 	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, release, nil
+}
+
+// unexecutedEVMTx reports whether sdkTx is an EVM tx without a receipt from tmBlock, which its block
+// recorded without changing state, as it does a tx refused for block gas or one that failed before
+// spending its nonce. ctx is used to read receipts.
+func (b *Backend) unexecutedEVMTx(ctx sdk.Context, tmBlock *coretypes.ResultBlock, sdkTx sdk.Tx) (bool, error) {
+	msgs := sdkTx.GetMsgs()
+	if len(msgs) != 1 {
+		return false, nil
+	}
+	msg, ok := msgs[0].(*types.MsgEVMTransaction)
+	if !ok {
+		return false, nil
+	}
+	etx, txData := msg.AsTransaction()
+	if etx == nil {
+		return false, nil
+	}
+	if _, ok := txData.(*ethtx.AssociateTx); ok {
+		return false, nil
+	}
+	receipt, err := getOrSetCachedReceiptErr(b.cacheCreationMutex, b.globalBlockCache, ctx, b.keeper, tmBlock, etx.Hash())
+	if errors.Is(err, receiptdb.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return receipt.BlockNumber != uint64(tmBlock.Block.Height), nil //nolint:gosec // block heights are positive
 }
 
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, base vm.SeiStateDB, readOnly bool, preferDisk bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {

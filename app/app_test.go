@@ -283,7 +283,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
 
-func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
+func TestInvalidProposalWithExcessiveGasLimits(t *testing.T) {
 	type TxType struct {
 		isEVM       bool
 		gasEstimate uint64
@@ -297,67 +297,94 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 		expectedStatus    abci.ResponseProcessProposal_ProposalStatus
 	}{
 		{
-			name:              "reject when total cosmos tx gas estimates exceed block gas limit",
+			name:              "reject when cosmos tx gas limit exceeds block gas limit",
 			maxBlockGas:       20000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs:               []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 30000}},
 			expectedStatus:    abci.ResponseProcessProposal_REJECT,
 		},
 		{
-			name:              "reject when total evm tx gas estimates exceed block gas limit",
+			name:              "reject when evm tx gas limit exceeds block gas limit",
 			maxBlockGas:       20000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 30000}},
 			expectedStatus:    abci.ResponseProcessProposal_REJECT,
 		},
 		{
-			name:              "single tx: ignore evm gas estimate above maxBlockGas and use gasWanted (accept)",
+			name:              "single tx: accept evm tx under block gas limit whose gas estimate is above it",
 			maxBlockGas:       20000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 15000}},
 			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
 		},
 		{
-			name:              "accept when total cosmos tx gas limit is below block gas limit",
+			name:              "accept when cosmos tx gas limit is below block gas limit",
 			maxBlockGas:       20000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs:               []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 10000}},
 			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
 		},
 		{
-			name:              "single tx: accept when total evm tx gas estimate is below block gas limit but gas wanted above block gas limit",
+			name:              "single tx: reject when evm tx gas estimate is below block gas limit but gas limit is above it",
 			maxBlockGas:       35000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 100000}},
-			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
+			expectedStatus:    abci.ResponseProcessProposal_REJECT,
 		},
 		{
-			name:              "multiple txs: accept when total evm tx gas estimate is below block gas limit but gas wanted is above block gas limit",
+			name:              "single tx: reject when cosmos tx gas estimate is below block gas limit but gas limit is above it",
+			maxBlockGas:       35000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: false, gasEstimate: 30000, gasWanted: 100000}},
+			expectedStatus:    abci.ResponseProcessProposal_REJECT,
+		},
+		{
+			name:              "multiple txs: reject when each evm tx gas limit is above block gas limit",
 			maxBlockGas:       60000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs: []TxType{
 				{isEVM: true, gasEstimate: 30000, gasWanted: 100000},
 				{isEVM: true, gasEstimate: 30000, gasWanted: 100000},
 			},
-			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
+			expectedStatus: abci.ResponseProcessProposal_REJECT,
 		},
 		{
-			name:              "multiple txs: accept when mix of cosmos txs and evm txs",
-			maxBlockGas:       100000,
+			name:              "multiple txs: accept when total evm tx gas limit is above block gas limit but each is within it",
+			maxBlockGas:       60000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs: []TxType{
-				{isEVM: false, gasEstimate: 0, gasWanted: 50000},
-				{isEVM: true, gasEstimate: 50000, gasWanted: 100000},
+				{isEVM: true, gasEstimate: 30000, gasWanted: 50000},
+				{isEVM: true, gasEstimate: 30000, gasWanted: 50000},
 			},
 			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
 		},
 		{
-			name:              "multiple txs: reject when mix of cosmos txs and evm txs",
+			name:              "multiple txs: accept when total gas limit of cosmos and evm txs is within block gas limit",
+			maxBlockGas:       100000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs: []TxType{
+				{isEVM: false, gasEstimate: 0, gasWanted: 50000},
+				{isEVM: true, gasEstimate: 21000, gasWanted: 50000},
+			},
+			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
+			name:              "multiple txs: accept when total gas limit of cosmos and evm txs exceeds block gas limit",
 			maxBlockGas:       100000,
 			maxBlockGasWanted: math.MaxInt64,
 			txs: []TxType{
 				{isEVM: false, gasEstimate: 0, gasWanted: 51000},
-				{isEVM: true, gasEstimate: 50000, gasWanted: 100000},
+				{isEVM: true, gasEstimate: 21000, gasWanted: 50000},
+			},
+			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
+			name:              "multiple txs: reject when total gas limit of cosmos txs exceeds block gas limit",
+			maxBlockGas:       100000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs: []TxType{
+				{isEVM: false, gasEstimate: 0, gasWanted: 51000},
+				{isEVM: false, gasEstimate: 0, gasWanted: 50000},
 			},
 			expectedStatus: abci.ResponseProcessProposal_REJECT,
 		},

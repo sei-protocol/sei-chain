@@ -765,9 +765,10 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 	if maxGasEstimated < 0 {
 		maxGasEstimated = utils.Max[int64]()
 	}
-	totalGasWanted := int64(0)
-	totalGasEstimated := int64(0)
+	gas := reapGas{maxWanted: maxGasWanted, maxEstimated: maxGasEstimated, evmSlack: utils.Max[int64]()}
 	totalSize := int64(0)
+	// A sender whose tx is skipped cannot execute its later nonces in this block.
+	skippedSenders := map[common.Address]bool{}
 
 	var wtxs []*WrappedTx
 	for inner := range s.inner.Lock() {
@@ -779,16 +780,17 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 				if maxBytes-totalSize < wtx.protoSize {
 					break
 				}
-				if maxGasWanted-totalGasWanted < wtx.gasWanted {
-					break
+				evm, isEVM := wtx.evm.Get()
+				if isEVM && skippedSenders[evm.address] {
+					continue
 				}
-				if maxGasEstimated-totalGasEstimated < wtx.estimatedGas {
-					break
+				if !gas.add(wtx) {
+					if isEVM {
+						skippedSenders[evm.address] = true
+					}
+					continue
 				}
-				// include tx and update totals
 				totalSize += wtx.protoSize
-				totalGasWanted += wtx.gasWanted
-				totalGasEstimated += wtx.estimatedGas
 				wtxs = append(wtxs, wtx)
 			}
 		}
@@ -826,5 +828,41 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 			nonEvmTxs = append(nonEvmTxs, wtx.Tx())
 		}
 	}
-	return append(evmTxs, nonEvmTxs...), totalGasEstimated
+	return append(evmTxs, nonEvmTxs...), gas.estimated
+}
+
+// reapGas is the gas of the txs reaped into a block so far, against the block's gas limits.
+type reapGas struct {
+	maxWanted, maxEstimated int64
+	wanted, estimated       int64
+	// evmSlack is how much gas the non-EVM txs reaped from here on may still reserve without
+	// leaving an EVM tx already reaped less gas than it wants.
+	evmSlack int64
+}
+
+// add reaps wtx into the block if its gas fits, and reports whether it did. An EVM tx fits if its
+// gas wanted does not exceed what the txs reaped so far are estimated to leave of maxEstimated, and
+// then uses its estimated gas. A non-EVM tx reserves its whole gas wanted, which must also leave
+// every EVM tx already reaped the gas it wants. Every tx's gas wanted counts against maxWanted.
+func (g *reapGas) add(wtx *WrappedTx) bool {
+	if g.maxWanted-g.wanted < wtx.gasWanted {
+		return false
+	}
+	left := g.maxEstimated - g.estimated
+	used := wtx.gasWanted
+	if wtx.evm.IsPresent() {
+		if left < wtx.gasWanted {
+			return false
+		}
+		g.evmSlack = min(g.evmSlack, left-wtx.gasWanted)
+		used = wtx.estimatedGas
+	} else {
+		if left < wtx.gasWanted || g.evmSlack < wtx.gasWanted {
+			return false
+		}
+		g.evmSlack -= wtx.gasWanted
+	}
+	g.wanted += wtx.gasWanted
+	g.estimated += used
+	return true
 }

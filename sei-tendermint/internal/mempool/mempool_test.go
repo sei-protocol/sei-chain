@@ -33,6 +33,8 @@ type application struct {
 
 	gasWanted    *int64
 	gasEstimated *int64
+	// gasOf, when set, returns the gas wanted and estimated for each tx in place of the fields above.
+	gasOf func(tx []byte) (wanted, estimated int64)
 }
 
 type testTx struct {
@@ -63,6 +65,9 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 	gasEstimated := DefaultGasEstimated
 	if app.gasEstimated != nil {
 		gasEstimated = *app.gasEstimated
+	}
+	if app.gasOf != nil {
+		gasWanted, gasEstimated = app.gasOf(req.Tx)
 	}
 
 	if strings.HasPrefix(string(req.Tx), "evm") {
@@ -530,18 +535,20 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	address := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 
-	// Insert a single EVM tx (format: evm-sender=account=priority=nonce)
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address, 100, 0)))
-	require.NoError(t, err)
-	require.Equal(t, 1, txmp.Size())
+	// Insert two EVM txs (format: evm-sender=account=priority=nonce)
+	for nonce := range 2 {
+		_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address, 100, nonce)))
+		require.NoError(t, err)
+	}
+	require.Equal(t, 2, txmp.Size())
 
 	// With MinGasEVMTx=21000, estimatedGas (10000) is ignored and we fallback to gasWanted (50000).
-	// Setting maxGasEstimated below gasWanted should therefore result in 0 reaped txs.
-	reaped, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(40000))}, false)
-	require.Len(t, reaped, 0)
+	// The first tx therefore leaves 10000 of maxGasEstimated, too little for the second's gasWanted.
+	reaped, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(60000))}, false)
+	require.Len(t, reaped, 1)
 
-	// Note: If MinGasEVMTx is changed to 0, the same scenario would use estimatedGas (10000)
-	// and this test would fail because the tx would be reaped.
+	// Note: If MinGasEVMTx is changed to 0, the first tx would use estimatedGas (10000) and leave
+	// 50000, and this test would fail because both txs would be reaped.
 }
 
 func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {

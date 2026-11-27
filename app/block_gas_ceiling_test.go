@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -23,43 +24,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestUnderstatedGasEstimatesExecuteBlockPastMaxGas checks that EVM txs understating their gas
-// estimate are admitted past MaxGas, and that the block then executes up to MaxGasWanted gas.
-func TestUnderstatedGasEstimatesExecuteBlockPastMaxGas(t *testing.T) {
+// TestUnderstatedGasEstimatesDoNotLiftBlockPastMaxGas checks that a block of EVM txs declaring
+// understated gas estimates executes at most MaxGas of EVM gas, recording the tx that does not fit
+// without executing it.
+func TestUnderstatedGasEstimatesDoNotLiftBlockPastMaxGas(t *testing.T) {
 	const (
-		maxGas            = int64(1_000_000)
-		maxGasWanted      = 4 * maxGas
-		txsAtMaxGasWanted = int(maxGasWanted / maxGas)
+		maxGas       = int64(1_000_000)
+		maxGasWanted = 4 * maxGas
 	)
-	ap, burner, senders := commitGasBurnerChain(t, maxGas, maxGasWanted, txsAtMaxGasWanted+1)
+	ap, burner, senders := commitGasBurnerChain(t, maxGas, maxGasWanted, 2)
 	calls := signGasBurnerCalls(t, burner, senders, uint64(maxGas))
-	honest := wrapEVMTxs(t, ap, calls, uint64(maxGas))
-	understated := wrapEVMTxs(t, ap, calls, app.MinGasEVMTx)
+	understated := wrapEVMTxs(t, ap, calls, params.TxGas)
 
 	for _, tx := range understated {
 		res := ap.CheckTx(context.Background(), &abci.RequestCheckTxV2{Tx: tx})
 		require.Equal(t, uint32(0), res.Code, res.Log)
-		require.Equal(t, int64(app.MinGasEVMTx), res.GasEstimated)
+		require.Equal(t, int64(params.TxGas), res.GasEstimated, "CheckTx reports the declared estimate")
 	}
 
 	header := &types.Header{ChainID: "sei-test", Height: 2}
-	require.Equal(t, abci.ResponseProcessProposal_REJECT, processProposal(t, ap, header, honest[:txsAtMaxGasWanted]),
-		"honest estimates exceed MaxGas")
-	require.Equal(t, abci.ResponseProcessProposal_REJECT, processProposal(t, ap, header, understated),
-		"gas wanted exceeds MaxGasWanted")
-	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, processProposal(t, ap, header, understated[:txsAtMaxGasWanted]),
-		"understated estimates fit MaxGas and gas wanted fits MaxGasWanted")
+	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, processProposal(t, ap, header, understated),
+		"each gas limit fits MaxGas, and together they fit MaxGasWanted")
 
-	res, err := ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Txs: understated[:txsAtMaxGasWanted], Header: header})
+	res, err := ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Txs: understated, Header: header})
 	require.NoError(t, err)
-	require.Len(t, res.TxResults, txsAtMaxGasWanted)
-	var gasUsed int64
-	for _, txResult := range res.TxResults {
-		require.Equal(t, uint32(0), txResult.Code, txResult.Log)
-		gasUsed += txResult.GasUsed
-	}
-	require.Greater(t, gasUsed, maxGas)
-	require.LessOrEqual(t, gasUsed, maxGasWanted)
+	require.Len(t, res.TxResults, 2)
+	executed, refused := res.TxResults[0], res.TxResults[1]
+	require.Equal(t, uint32(0), executed.Code, executed.Log)
+	require.Greater(t, executed.GasUsed, maxGas*99/100, "the burner uses nearly all of its gas limit")
+	require.LessOrEqual(t, executed.GasUsed, maxGas)
+	require.Equal(t, evmtypes.ModuleName, refused.Codespace)
+	require.Equal(t, evmtypes.ErrBlockGasLimitReached.ABCICode(), refused.Code, refused.Log)
+	require.Zero(t, refused.GasUsed)
+	require.Nil(t, refused.EvmTxInfo)
+
+	_, err = ap.Commit(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), ap.EvmNonce(crypto.PubkeyToAddress(senders[0].PublicKey)))
+	require.Zero(t, ap.EvmNonce(crypto.PubkeyToAddress(senders[1].PublicKey)),
+		"the refused tx leaves its sender's nonce unspent")
 }
 
 // commitGasBurnerChain returns an app whose committed state has the given block gas limits, a
