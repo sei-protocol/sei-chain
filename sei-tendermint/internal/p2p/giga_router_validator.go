@@ -123,7 +123,7 @@ func (r *gigaValidatorRouter) runPublishValidatorAddr(ctx context.Context) error
 			// version of the previous run. Peers hold that one and send it back, and the next
 			// publish goes above it.
 			version = max(uint64(time.Now().UnixNano()), version+1)
-			// The error is logged, not returned: the Anchor may have moved since the wait,
+			// A refused announcement is not an error: the Anchor may have moved since the wait,
 			// and peers drop an announcement the table rejects.
 			r.publishValidatorAddr(version)
 			superseding, err := r.awaitOwnAddrSuperseded(ctx, version)
