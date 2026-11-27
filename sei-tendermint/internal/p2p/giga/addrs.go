@@ -216,10 +216,13 @@ func newPeerHolds() *peerHolds {
 	}
 }
 
-// received notes that the peer sent ann and owes it an ack, including when the peer resends a version
-// it already sent.
-func (p *peerHolds) received(ann *atypes.SignedValidatorAddrAnnouncement) {
+// received offers ann to accept and, if accept takes it, notes that the peer sent ann and owes it an ack,
+// including when the peer resends a version it already sent.
+func (p *peerHolds) received(ann *atypes.SignedValidatorAddrAnnouncement, accept func() bool) {
 	for s, ctrl := range p.state.Lock() {
+		if !accept() {
+			return
+		}
 		key, version := ann.Key(), ann.Msg().Version
 		s.versions[key] = max(s.versions[key], version)
 		s.acks[key] = max(s.acks[key], version)
@@ -389,11 +392,9 @@ func (x *Service) receiveValidatorAddrs(ctx context.Context, stream validatorAdd
 		}
 		switch msg := msg.(type) {
 		case atypes.ValidatorAddrAnnouncementMsg:
-			if !x.validatorAddrs.Receive(msg.Ann) {
-				continue
-			}
-			// Recorded only after the table accepts the announcement, so the record holds verified entries alone.
-			peer.received(msg.Ann)
+			// The record is written under the same lock that covers the table offer, so queueValidatorAddrs
+			// cannot see the new table entry before the record names this peer as its source.
+			peer.received(msg.Ann, func() bool { return x.validatorAddrs.Receive(msg.Ann) })
 		case atypes.ValidatorAddrAck:
 			// An ack is honored only for a version this table holds. A peer that acks more than
 			// this node holds would otherwise suppress versions this node could send it.
