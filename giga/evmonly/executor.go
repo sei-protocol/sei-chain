@@ -99,8 +99,8 @@ func WithGenesisAlloc(height uint64, alloc map[common.Address]GenesisAccount) Op
 }
 
 // WithStoreIndependentBlockChangeSetEncoder registers an encoder that reads only
-// the block context and result. Encoding then overlaps the previous block's
-// commit. An encoder that touches the store must use WithBlockChangeSetEncoder.
+// its arguments. Encoding then overlaps the previous block's commit. An encoder
+// that touches the store must use WithBlockChangeSetEncoder.
 func WithStoreIndependentBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 	return func(e *Executor) {
 		e.blockChangeSetEncoder = encoder
