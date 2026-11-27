@@ -127,7 +127,7 @@ func (m *mempool) pendingNonces(addr common.Address) (nonceRangeSnapshot, bool) 
 func (r nonceRangeSnapshot) VerifyNext(tx abevm.EvmTx) error {
 	n := tx.Nonce()
 	if r.first <= n && n < r.next {
-		if r.hashes.At(int(n-r.first)) == tx.Hash() {
+		if r.hashes.At(int(n-r.first)) == tx.Hash() { //nolint:gosec // G115: the offset is below the hash slice length, which fits in int.
 			return errAlreadyKnown
 		}
 	}
