@@ -1,5 +1,7 @@
 package types
 
+import "math/big"
+
 // RewardPercentile is one gas-weighted reward percentile computed at block-write time.
 type RewardPercentile struct {
 	// Percentile is matched exactly against a request; no rounding or interpolation.
@@ -17,6 +19,9 @@ type BlockStats struct {
 	RewardGasUsed uint64
 	// RewardPercentiles is sorted ascending by Percentile; empty if no receipt was reward-eligible.
 	RewardPercentiles []RewardPercentile
+	// BaseFee is the base fee the block ran at, or nil when its writer recorded none (see
+	// receiptdb.WithBlockBaseFee).
+	BaseFee *big.Int
 }
 
 // RewardAt returns the stored reward for percentile p and whether it was found, matching
