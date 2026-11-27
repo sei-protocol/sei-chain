@@ -107,9 +107,17 @@ func (keeper Keeper) AddDeposit(ctx sdk.Context, proposalID uint64, depositorAdd
 	if (proposal.Status != types.StatusDepositPeriod) && (proposal.Status != types.StatusVotingPeriod) {
 		return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
-	if keeper.IncrementalTallyEnabled(ctx) && proposal.Status == types.StatusVotingPeriod {
-		if proposal.VotingEndTime.Before(ctx.BlockTime()) || keeper.voteDelegationSnapshotFrozen(ctx, proposal) {
-			return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+	if keeper.IncrementalTallyEnabled(ctx) {
+		switch proposal.Status {
+		case types.StatusDepositPeriod:
+			// Expiry is capped per block, so a proposal can outlive its deposit deadline.
+			if proposal.DepositEndTime.Before(ctx.BlockTime()) {
+				return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+			}
+		case types.StatusVotingPeriod:
+			if proposal.VotingEndTime.Before(ctx.BlockTime()) || keeper.voteDelegationSnapshotFrozen(ctx, proposal) {
+				return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+			}
 		}
 	}
 
