@@ -41,4 +41,8 @@ contract DistributionStorage {
     mapping(address => ValidatorCurrentRewards) internal validatorCurrentRewards; // 0x06: validator =>
     mapping(address => uint256) internal validatorAccumulatedCommission; // 0x07: validator =>
     mapping(address => ValidatorSlashEvent[]) internal validatorSlashEvents; // 0x08: validator => ascending by height
+
+    // Giga-only, after the V2 copy.
+    address internal epochDAO; // 0x09: the DAO address fixed for the current epoch
+    uint64 internal nextSettlementEpoch; // 0x09: the epoch the next settlement pays
 }
