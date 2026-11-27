@@ -64,3 +64,15 @@ func TestDelegatorValidators(t *testing.T) {
 	require.Equal(t, []common.Address{val1, val2}, DelegatorValidators(h.state, alice))
 	require.Equal(t, solstorage.AddressKey(val1), h.store().delegatedValidators(alice).At(0))
 }
+
+func TestBondedSet(t *testing.T) {
+	h := newHarness(t, testParams)
+	got, err := BondedSet(h.state)
+	require.NoError(t, err)
+	require.Equal(t, []ValidatorPower{{Operator: val1, Power: 30}, {Operator: val2, Power: 20}}, got,
+		"MaxValidators is 2, so val3 is not bonded")
+
+	h.store().SetWord(solstorage.Slot(slotLastValidators), solstorage.Slot(1000))
+	_, err = BondedSet(h.state)
+	require.ErrorIs(t, err, errInvalidStoredSet)
+}

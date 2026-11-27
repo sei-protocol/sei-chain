@@ -62,7 +62,7 @@ func (e *Executor) runBeginBlockers(block BlockContext, source StateReader, repl
 	if genesis {
 		e.genesis.apply(stateDB)
 	}
-	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
+	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID, 0)
 	blockCtx.Replay = replay
 	for _, blocker := range e.beginBlockers {
 		state := &precompileState{db: stateDB}

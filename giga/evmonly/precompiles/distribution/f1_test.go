@@ -163,7 +163,7 @@ func TestRetireKeepsFundsWithoutADAO(t *testing.T) {
 	s.setEpochDAO(other)
 	require.NoError(t, s.retire(big.NewInt(4)))
 	require.Equal(t, big.NewInt(4), state.GetBalance(other), "the epoch's DAO")
-	require.ErrorIs(t, s.retire(big.NewInt(1)), errEscrowShort)
+	require.ErrorIs(t, s.retire(big.NewInt(1)), errBalanceShort)
 }
 
 func TestReferenceCountsStayInRange(t *testing.T) {

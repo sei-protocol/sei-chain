@@ -64,7 +64,7 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	}
 	stateDB := e.acquireStateDB(newPendingOverlay(source, &result.ChangeSet))
 	defer e.releaseStateDB(stateDB)
-	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
+	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID, result.GasUsed)
 	for _, blocker := range e.endBlockers {
 		state := &precompileState{db: stateDB}
 		failures, err := blocker.contract.EndBlock(blockCtx, state)
@@ -112,7 +112,7 @@ func truncateUTF8(s string, n int) string {
 	return s[:n]
 }
 
-func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockContext {
+func endBlockContext(block BlockContext, chainID *big.Int, gasUsed uint64) precompiles.BlockContext {
 	return precompiles.BlockContext{
 		Number:       block.Number,
 		UnixNano:     unixNano(block.Time),
@@ -124,6 +124,7 @@ func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockCont
 		GasLimit:     block.GasLimit,
 		Epoch:        block.Epoch,
 		ClosingEpoch: block.ClosingEpoch,
+		GasUsed:      gasUsed,
 	}
 }
 
