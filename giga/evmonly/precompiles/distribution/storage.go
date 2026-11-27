@@ -2,6 +2,7 @@ package distribution
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -288,4 +289,74 @@ func (s store) deleteSlashEvents(val common.Address) error {
 	}
 	s.SetWord(slashEventsBase(val), common.Hash{})
 	return nil
+}
+
+// ReleasePeriod is a DistributionStorage.ReleasePeriod: amount wei released
+// evenly from StartTime until EndTime, both Unix nanoseconds.
+type ReleasePeriod struct {
+	StartTime uint64
+	EndTime   uint64
+	Amount    *big.Int
+}
+
+// mintState is a DistributionStorage.Mint: the end of the release period
+// minting is in, zero when none is copied in, the time minted up to, and the
+// wei of the period not yet minted.
+type mintState struct {
+	periodEnd    uint64
+	lastMintTime uint64
+	remaining    *big.Int
+}
+
+func releaseScheduleBase() common.Hash {
+	return solstorage.Slot(slotReleaseSchedule)
+}
+
+// releaseSchedule returns the token release schedule, failing on more periods
+// than maxReleasePeriods.
+func (s store) releaseSchedule() ([]ReleasePeriod, error) {
+	n := s.Uint64(releaseScheduleBase(), 0)
+	if n > maxReleasePeriods {
+		return nil, fmt.Errorf("%w: %d periods", errInvalidStoredSchedule, n)
+	}
+	data := solstorage.ArrayData(releaseScheduleBase())
+	out := make([]ReleasePeriod, n)
+	for i := range out {
+		base := solstorage.Offset(data, uint64(i)*releasePeriodSlots) //nolint:gosec // i is below n
+		out[i] = ReleasePeriod{
+			StartTime: s.Uint64(at(base, releasePeriodStartTime), releasePeriodStartTime.offset),
+			EndTime:   s.Uint64(at(base, releasePeriodEndTime), releasePeriodEndTime.offset),
+			Amount:    s.Uint256(at(base, releasePeriodAmount)),
+		}
+	}
+	return out, nil
+}
+
+// setReleaseSchedule stores periods as the token release schedule, which must
+// be empty.
+func (s store) setReleaseSchedule(periods []ReleasePeriod) {
+	data := solstorage.ArrayData(releaseScheduleBase())
+	for i, p := range periods {
+		base := solstorage.Offset(data, uint64(i)*releasePeriodSlots) //nolint:gosec // i is non-negative
+		s.SetUint64(at(base, releasePeriodStartTime), releasePeriodStartTime.offset, p.StartTime)
+		s.SetUint64(at(base, releasePeriodEndTime), releasePeriodEndTime.offset, p.EndTime)
+		s.SetUint256(at(base, releasePeriodAmount), p.Amount)
+	}
+	s.SetWord(releaseScheduleBase(), solstorage.Slot(uint64(len(periods))))
+}
+
+func (s store) mintState() mintState {
+	base := solstorage.Slot(slotMint)
+	return mintState{
+		periodEnd:    s.Uint64(at(base, mintPeriodEnd), mintPeriodEnd.offset),
+		lastMintTime: s.Uint64(at(base, mintLastMintTime), mintLastMintTime.offset),
+		remaining:    s.Uint256(at(base, mintRemaining)),
+	}
+}
+
+func (s store) setMintState(m mintState) {
+	base := solstorage.Slot(slotMint)
+	s.SetUint64(at(base, mintPeriodEnd), mintPeriodEnd.offset, m.periodEnd)
+	s.SetUint64(at(base, mintLastMintTime), mintLastMintTime.offset, m.lastMintTime)
+	s.SetUint256(at(base, mintRemaining), m.remaining)
 }

@@ -20,6 +20,8 @@ const (
 	slotValidatorAccumulatedCommission = 7
 	slotValidatorSlashEvents           = 8
 	slotEpoch                          = 9
+	slotReleaseSchedule                = 10
+	slotMint                           = 11
 )
 
 // Variables of DistributionStorage that share slotEpoch.
@@ -60,12 +62,28 @@ var (
 	slashEventFraction        = member{1, 0}
 )
 
+// DistributionStorage.ReleasePeriod members.
+var (
+	releasePeriodStartTime = member{0, 0}
+	releasePeriodEndTime   = member{0, 8}
+	releasePeriodAmount    = member{1, 0}
+)
+
+// DistributionStorage.Mint members.
+var (
+	mintPeriodEnd    = member{0, 0}
+	mintLastMintTime = member{0, 8}
+	mintRemaining    = member{1, 0}
+)
+
 // Slot counts of DistributionStorage's structs.
 const (
 	historicalRewardsSlots = 2
 	currentRewardsSlots    = 2
 	startingInfoSlots      = 2
 	slashEventSlots        = 10
+	releasePeriodSlots     = 2
+	mintSlots              = 2
 )
 
 // DistributionEscrow holds every validator's outstanding rewards.

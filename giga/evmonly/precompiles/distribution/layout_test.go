@@ -58,6 +58,8 @@ func TestLayoutMatchesSolc(t *testing.T) {
 		"validatorSlashEvents":           {slotValidatorSlashEvents, 0},
 		"epochDAO":                       epochDAO,
 		"nextSettlementEpoch":            nextSettlementEpoch,
+		"releaseSchedule":                {slotReleaseSchedule, 0},
+		"mint":                           {slotMint, 0},
 	}, got)
 
 	structs := map[string]struct {
@@ -83,6 +85,16 @@ func TestLayoutMatchesSolc(t *testing.T) {
 			"fraction":        slashEventFraction,
 			"__gap":           {2, 0},
 		}, slashEventSlots},
+		"struct DistributionStorage.ReleasePeriod": {map[string]member{
+			"startTime": releasePeriodStartTime,
+			"endTime":   releasePeriodEndTime,
+			"amount":    releasePeriodAmount,
+		}, releasePeriodSlots},
+		"struct DistributionStorage.Mint": {map[string]member{
+			"periodEnd":    mintPeriodEnd,
+			"lastMintTime": mintLastMintTime,
+			"remaining":    mintRemaining,
+		}, mintSlots},
 	}
 	seen := 0
 	for _, typ := range layout.Types {
@@ -140,6 +152,14 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.Equal(t, uint64(2), n)
 	require.Equal(t, slashEvent{height: 71, validatorPeriod: 72, fraction: big.NewInt(50_000_000_000_000_000)}, s.slashEvent(val1, 0))
 	require.Equal(t, slashEvent{height: 73, validatorPeriod: 74, fraction: big.NewInt(500_000_000_000_000_000)}, s.slashEvent(val1, 1))
+
+	periods, err := s.releaseSchedule()
+	require.NoError(t, err)
+	require.Equal(t, []ReleasePeriod{
+		{StartTime: 91, EndTime: 92, Amount: ether(93)},
+		{StartTime: 94, EndTime: 95, Amount: ether(96)},
+	}, periods)
+	require.Equal(t, mintState{periodEnd: 101, lastMintTime: 102, remaining: ether(103)}, s.mintState())
 }
 
 var seedABI = func() abi.ABI {

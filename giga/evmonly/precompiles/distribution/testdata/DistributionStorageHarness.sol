@@ -27,5 +27,8 @@ contract DistributionStorageHarness is DistributionStorage {
         second.fraction = 0.5e18;
         epochDAO = other;
         nextSettlementEpoch = 81;
+        releaseSchedule.push(ReleasePeriod({startTime: 91, endTime: 92, amount: 93e18}));
+        releaseSchedule.push(ReleasePeriod({startTime: 94, endTime: 95, amount: 96e18}));
+        mint = Mint({periodEnd: 101, lastMintTime: 102, remaining: 103e18});
     }
 }

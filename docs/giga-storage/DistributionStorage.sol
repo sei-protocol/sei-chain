@@ -32,6 +32,22 @@ contract DistributionStorage {
         uint256[8] __gap;
     }
 
+    /// @dev A period of V2's token release schedule: amount is released evenly
+    /// from startTime until endTime.
+    struct ReleasePeriod {
+        uint64 startTime; // Unix nanoseconds
+        uint64 endTime; // Unix nanoseconds
+        uint256 amount; // wei
+    }
+
+    /// @dev The release period minting is in, copied from releaseSchedule when
+    /// it starts, and how far minting has got.
+    struct Mint {
+        uint64 periodEnd; // Unix nanoseconds; zero when no period is copied in
+        uint64 lastMintTime; // Unix nanoseconds
+        uint256 remaining; // wei of the period not yet minted
+    }
+
     uint256 internal communityPool; // 0x00: FeePool.community_pool
     address internal previousProposer; // 0x01: operator
     mapping(address => uint256) internal validatorOutstandingRewards; // 0x02: validator =>
@@ -45,4 +61,6 @@ contract DistributionStorage {
     // Giga-only, after the V2 copy.
     address internal epochDAO; // 0x09: the DAO address fixed for the current epoch
     uint64 internal nextSettlementEpoch; // 0x09: the epoch the next settlement pays
+    ReleasePeriod[] internal releaseSchedule; // 0x0a: in start order, none overlapping
+    Mint internal mint; // 0x0b
 }
