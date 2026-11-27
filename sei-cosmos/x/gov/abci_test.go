@@ -962,3 +962,54 @@ func TestEndBlockerSettlesExpiredDepositsAcrossBlocks(t *testing.T) {
 	require.Empty(t, app.GovKeeper.GetDeposits(ctx, proposal.ProposalId))
 	requireDepositsBacked()
 }
+
+func TestEndBlockerCapsInactiveProposalExpiry(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	var last types.Proposal
+	for range gov.MaxInactiveProposalsExpiredPerBlock + 1 {
+		var err error
+		last, err = app.GovKeeper.SubmitProposal(ctx, types.ContentFromProposalType("test", "test", types.ProposalTypeText, false))
+		require.NoError(t, err)
+	}
+	countInactive := func() int {
+		iterator := app.GovKeeper.InactiveProposalQueueIterator(ctx, ctx.BlockTime())
+		defer iterator.Close()
+		n := 0
+		for ; iterator.Valid(); iterator.Next() {
+			n++
+		}
+		return n
+	}
+
+	ctx = ctx.WithBlockTime(last.DepositEndTime)
+	require.Equal(t, gov.MaxInactiveProposalsExpiredPerBlock+1, countInactive())
+	gov.EndBlocker(ctx, app.GovKeeper)
+	require.Equal(t, 1, countInactive())
+	_, found := app.GovKeeper.GetProposal(ctx, last.ProposalId)
+	require.True(t, found)
+
+	ctx = ctx.WithBlockTime(ctx.BlockTime().Add(time.Second))
+	gov.EndBlocker(ctx, app.GovKeeper)
+	require.Zero(t, countInactive())
+	_, found = app.GovKeeper.GetProposal(ctx, last.ProposalId)
+	require.False(t, found)
+}
+
+func TestAddDepositRejectsProposalPastDepositDeadline(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrs := seiapp.AddTestAddrs(app, ctx, 1, valTokens)
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, types.ContentFromProposalType("test", "test", types.ProposalTypeText, false))
+	require.NoError(t, err)
+	minDeposit := app.GovKeeper.GetDepositParams(ctx).MinDeposit
+
+	ctx = ctx.WithBlockTime(proposal.DepositEndTime.Add(time.Nanosecond))
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, addrs[0], minDeposit)
+	require.ErrorIs(t, err, types.ErrInactiveProposal)
+
+	ctx = ctx.WithBlockTime(proposal.DepositEndTime)
+	activated, err := app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, addrs[0], minDeposit)
+	require.NoError(t, err)
+	require.True(t, activated)
+}
