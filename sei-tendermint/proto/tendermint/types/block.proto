@@ -4,12 +4,18 @@ package tendermint.types;
 
 import "gogoproto/gogo.proto";
 import "tendermint/types/types.proto";
+import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types";
 
 message Block {
   Header header = 1 [(gogoproto.nullable) = false];
   Data data = 2 [(gogoproto.nullable) = false];
-  tendermint.types.EvidenceList evidence = 3 [(gogoproto.nullable) = false];
+  // max_size matches types.MaxEvidenceBytesPerBlock, which proposers enforce. It also
+  // bounds every element nested in evidence in total, since each takes two wire bytes.
+  tendermint.types.EvidenceList evidence = 3 [
+    (gogoproto.nullable) = false,
+    (wireguard.max_size) = 1048576
+  ];
   Commit last_commit = 4;
 }

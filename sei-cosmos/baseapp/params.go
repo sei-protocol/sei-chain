@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
@@ -77,6 +78,10 @@ func ValidateEvidenceParams(i interface{}) error {
 
 	if v.MaxBytes < 0 {
 		return fmt.Errorf("maximum evidence bytes must be non-negative: %v", v.MaxBytes)
+	}
+
+	if v.MaxBytes > tmtypes.MaxEvidenceBytesPerBlock {
+		return fmt.Errorf("maximum evidence bytes must be at most %d: %v", tmtypes.MaxEvidenceBytesPerBlock, v.MaxBytes)
 	}
 
 	return nil

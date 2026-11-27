@@ -2,6 +2,7 @@ package types_test
 
 import (
 	"testing"
+	"time"
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,10 @@ import (
 
 const (
 	maxCommitSignatures = types.MaxVotesCount
+	maxValidators       = types.MaxVotesCount
 	txKeySize           = crypto.HashSize
+	maxEvidenceEntries  = types.MaxEvidenceEntriesPerBlock
+	maxEvidenceBytes    = types.MaxEvidenceBytesPerBlock
 )
 
 func marshal(t *testing.T, m gogoproto.Message) []byte {
@@ -123,4 +127,120 @@ func TestSchemaForEvidence_PassesDuplicateVoteEvidence(t *testing.T) {
 		DuplicateVoteEvidence: &tmproto.DuplicateVoteEvidence{},
 	}}
 	require.NoError(t, protoutils.Scan[*tmproto.Evidence](marshal(t, ev)))
+}
+
+func validatorsWith(n int) []*tmproto.Validator {
+	out := make([]*tmproto.Validator, n)
+	for i := range out {
+		out[i] = &tmproto.Validator{}
+	}
+	return out
+}
+
+func blockWithEvidenceEntries(n int) *tmproto.Block {
+	return &tmproto.Block{Evidence: tmproto.EvidenceList{Evidence: make([]tmproto.Evidence, n)}}
+}
+
+func lcaeWithByzantineValidators(n int) *tmproto.Evidence {
+	return &tmproto.Evidence{Sum: &tmproto.Evidence_LightClientAttackEvidence{
+		LightClientAttackEvidence: &tmproto.LightClientAttackEvidence{
+			ByzantineValidators: validatorsWith(n),
+		},
+	}}
+}
+
+func lcaeWithValidatorSet(n int) *tmproto.Evidence {
+	return &tmproto.Evidence{Sum: &tmproto.Evidence_LightClientAttackEvidence{
+		LightClientAttackEvidence: &tmproto.LightClientAttackEvidence{
+			ConflictingBlock: &tmproto.LightBlock{
+				ValidatorSet: &tmproto.ValidatorSet{Validators: validatorsWith(n)},
+			},
+		},
+	}}
+}
+
+// smallestValidEvidenceEntryBytes is the encoded size of the smallest evidence
+// list entry that passes validation: a DuplicateVoteEvidence whose two votes
+// carry only the required address, with one of them voting for a block.
+func smallestValidEvidenceEntryBytes(t *testing.T) int {
+	t.Helper()
+	addr := make([]byte, crypto.AddressSize)
+	hash := make([]byte, crypto.HashSize)
+	ts := time.Unix(0, 0).UTC()
+	ev := tmproto.Evidence{Sum: &tmproto.Evidence_DuplicateVoteEvidence{
+		DuplicateVoteEvidence: &tmproto.DuplicateVoteEvidence{
+			VoteA: &tmproto.Vote{Type: tmproto.PrevoteType, ValidatorAddress: addr, Timestamp: ts},
+			VoteB: &tmproto.Vote{
+				Type:             tmproto.PrevoteType,
+				ValidatorAddress: addr,
+				Timestamp:        ts,
+				BlockID: tmproto.BlockID{
+					Hash:          hash,
+					PartSetHeader: tmproto.PartSetHeader{Total: 1, Hash: hash},
+				},
+			},
+			Timestamp: ts,
+		},
+	}}
+	_, err := types.EvidenceFromProto(&ev)
+	require.NoError(t, err)
+	return (&tmproto.EvidenceList{Evidence: []tmproto.Evidence{ev}}).Size()
+}
+
+// The per-block entry cap must hold every list the default evidence budget allows.
+func TestMaxEvidenceEntriesCoversDefaultEvidenceBudget(t *testing.T) {
+	budget := types.DefaultEvidenceParams().MaxBytes
+	require.GreaterOrEqual(t, int64(maxEvidenceEntries), budget/int64(smallestValidEvidenceEntryBytes(t)))
+}
+
+func TestSchemaForBlock_AcceptsEvidenceEntriesAtCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*tmproto.Block](marshal(t, blockWithEvidenceEntries(maxEvidenceEntries))))
+}
+
+func TestSchemaForBlock_RejectsEvidenceEntriesOverCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*tmproto.Block](marshal(t, blockWithEvidenceEntries(maxEvidenceEntries+1))))
+}
+
+func TestSchemaForEvidence_AcceptsByzantineValidatorsAtCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*tmproto.Evidence](marshal(t, lcaeWithByzantineValidators(maxValidators))))
+}
+
+func TestSchemaForEvidence_RejectsByzantineValidatorsOverCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*tmproto.Evidence](marshal(t, lcaeWithByzantineValidators(maxValidators+1))))
+}
+
+func TestSchemaForEvidence_AcceptsConflictingValidatorSetAtCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*tmproto.Evidence](marshal(t, lcaeWithValidatorSet(maxValidators))))
+}
+
+func TestSchemaForEvidence_RejectsConflictingValidatorSetOverCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*tmproto.Evidence](marshal(t, lcaeWithValidatorSet(maxValidators+1))))
+}
+
+func TestMaxEvidenceBytesCoversDefaultEvidenceBudget(t *testing.T) {
+	require.LessOrEqual(t, types.DefaultEvidenceParams().MaxBytes, int64(maxEvidenceBytes))
+}
+
+// blockWithRepeatedEvidence returns a block whose evidence holds as many copies of an
+// entry as fit in the evidence byte cap, plus extra. Every copy is within the per-list
+// caps, so only the byte cap can reject the block.
+func blockWithRepeatedEvidence(t *testing.T, extra int) *tmproto.Block {
+	t.Helper()
+	entry := evidenceWithCommit(commitWith(maxCommitSignatures))
+	fit := maxEvidenceBytes / (&tmproto.EvidenceList{Evidence: []tmproto.Evidence{entry}}).Size()
+	require.Greater(t, fit, 1)
+	require.Less(t, fit+extra, maxEvidenceEntries)
+	evs := make([]tmproto.Evidence, fit+extra)
+	for i := range evs {
+		evs[i] = entry
+	}
+	return &tmproto.Block{Evidence: tmproto.EvidenceList{Evidence: evs}}
+}
+
+func TestSchemaForBlock_AcceptsEvidenceAtByteCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*tmproto.Block](marshal(t, blockWithRepeatedEvidence(t, 0))))
+}
+
+func TestSchemaForBlock_RejectsEvidenceOverByteCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*tmproto.Block](marshal(t, blockWithRepeatedEvidence(t, 1))))
 }

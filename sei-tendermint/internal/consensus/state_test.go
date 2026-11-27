@@ -3000,3 +3000,49 @@ func TestStateTimeoutResolution(t *testing.T) {
 	}
 
 }
+
+// maxBlockTxs matches the max_count on tendermint.types.Data.txs.
+const maxBlockTxs = 1_000_000
+
+// proposalBlockPartsWithTxs returns a complete part set of a proposal block whose Data
+// holds n empty txs. The header comes from cs and its data hash is recomputed for the txs.
+func proposalBlockPartsWithTxs(ctx context.Context, t *testing.T, cs *State, n int) *types.PartSet {
+	t.Helper()
+	cs.mtx.Lock()
+	block, err := cs.createProposalBlock(ctx)
+	cs.mtx.Unlock()
+	require.NoError(t, err)
+	block.Data.Txs = make(types.Txs, n)
+	for i := range block.Data.Txs {
+		block.Data.Txs[i] = types.Tx{}
+	}
+	block.DataHash = block.Data.Hash(true)
+	pb, err := block.ToProto()
+	require.NoError(t, err)
+	bz, err := pb.Marshal()
+	require.NoError(t, err)
+	return types.NewPartSetFromData(bz, types.BlockPartSizeBytes)
+}
+
+// TestDecodeProposalBlockPartsTxCap checks that a proposal with exactly the Data.txs cap
+// decodes and one with a single extra tx is rejected by the txs cap.
+func TestDecodeProposalBlockPartsTxCap(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+	cs1, _ := makeState(ctx, t, makeStateArgs{config: config})
+
+	parts := proposalBlockPartsWithTxs(ctx, t, cs1.State, maxBlockTxs)
+	cs1.mtx.Lock()
+	cs1.roundState.SetProposalBlockParts(parts)
+	cs1.mtx.Unlock()
+	block, err := cs1.decodeProposalBlockParts()
+	require.NoError(t, err)
+	require.Equal(t, maxBlockTxs, len(block.Data.Txs))
+
+	parts = proposalBlockPartsWithTxs(ctx, t, cs1.State, maxBlockTxs+1)
+	cs1.mtx.Lock()
+	cs1.roundState.SetProposalBlockParts(parts)
+	cs1.mtx.Unlock()
+	_, err = cs1.decodeProposalBlockParts()
+	require.ErrorContains(t, err, "exceeds max 1000000 entries")
+}

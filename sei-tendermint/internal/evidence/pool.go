@@ -82,14 +82,15 @@ func NewPool(evidenceDB dbm.DB, stateStore sm.Store, blockStore BlockStore, even
 	}
 }
 
-// PendingEvidence is used primarily as part of block proposal and returns up to
-// maxNum of uncommitted evidence.
+// PendingEvidence is used primarily as part of block proposal and returns the
+// oldest uncommitted evidence, up to maxBytes (at most types.MaxEvidenceBytesPerBlock)
+// and types.MaxEvidenceEntriesPerBlock entries. A maxBytes of -1 removes the byte limit.
 func (evpool *Pool) PendingEvidence(maxBytes int64) ([]types.Evidence, int64) {
 	if evpool.Size() == 0 {
 		return []types.Evidence{}, 0
 	}
 
-	evidence, size, err := evpool.listEvidence(prefixPending, maxBytes)
+	evidence, size, err := evpool.listEvidence(prefixPending, min(maxBytes, types.MaxEvidenceBytesPerBlock), types.MaxEvidenceEntriesPerBlock)
 	if err != nil {
 		logger.Error("failed to retrieve pending evidence", "err", err)
 	}
@@ -265,7 +266,7 @@ func (evpool *Pool) Start(state sm.State) error {
 	// If pending evidence already in db, in event of prior failure, then check
 	// for expiration, update the size and load it back to the evidenceList.
 	evpool.pruningHeight, evpool.pruningTime = evpool.removeExpiredPendingEvidence()
-	evList, _, err := evpool.listEvidence(prefixPending, -1)
+	evList, _, err := evpool.listEvidence(prefixPending, -1, -1)
 	if err != nil {
 		return err
 	}
@@ -402,9 +403,10 @@ func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height 
 	Global.NumEvidenceAt().Set(int64(evpool.evidenceSize))
 }
 
-// listEvidence retrieves lists evidence from oldest to newest within maxBytes.
+// listEvidence retrieves lists evidence from oldest to newest within maxBytes and
+// maxEntries. A limit of -1 disables it.
 // If maxBytes is -1, there's no cap on the size of returned evidence.
-func (evpool *Pool) listEvidence(prefixKey int64, maxBytes int64) ([]types.Evidence, int64, error) {
+func (evpool *Pool) listEvidence(prefixKey int64, maxBytes int64, maxEntries int64) ([]types.Evidence, int64, error) {
 	var (
 		evSize    int64
 		totalSize int64
@@ -420,6 +422,10 @@ func (evpool *Pool) listEvidence(prefixKey int64, maxBytes int64) ([]types.Evide
 	defer func() { _ = iter.Close() }()
 
 	for ; iter.Valid(); iter.Next() {
+		if maxEntries != -1 && int64(len(evidence)) == maxEntries {
+			break
+		}
+
 		var evpb tmproto.Evidence
 
 		if err := evpb.Unmarshal(iter.Value()); err != nil {

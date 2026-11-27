@@ -118,6 +118,26 @@ func TestConsensusParamsValidation(t *testing.T) {
 			valid: true,
 		},
 		{
+			name: "evidence MaxBytes above the per-block cap",
+			params: makeParams(makeParamsArgs{
+				blockBytes:       22020096,
+				evidenceAge:      2,
+				maxEvidenceBytes: MaxEvidenceBytesPerBlock + 1,
+				precision:        1,
+				messageDelay:     1}),
+			valid: false,
+		},
+		{
+			name: "evidence MaxBytes at the per-block cap",
+			params: makeParams(makeParamsArgs{
+				blockBytes:       22020096,
+				evidenceAge:      2,
+				maxEvidenceBytes: MaxEvidenceBytesPerBlock,
+				precision:        1,
+				messageDelay:     1}),
+			valid: true,
+		},
+		{
 			name: "evidence MaxAgeDuration < 0",
 			params: makeParams(makeParamsArgs{
 				blockBytes:       1,

@@ -11,7 +11,7 @@ import (
 func init() {
 	// Register the wireguard.Schema generated for tendermint.types.ValidatorSet.
 	runtime.MustRegister[*ValidatorSet](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*Validator]())},
+		1: {MaxCount: 10000, Nested: utils.Some(reflect.TypeFor[*Validator]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Validator]())},
 		3: {MaxCount: 1},
 	})

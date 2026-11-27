@@ -12,7 +12,7 @@ func init() {
 	runtime.MustRegister[*Block](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Header]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Data]())},
-		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
+		3: {MaxCount: 1, MaxSize: 1048576, Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Commit]())},
 	})
 
