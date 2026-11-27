@@ -21,7 +21,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    uses: sei-protocol/seidroid/.github/workflows/review.yml@24b26a772f994caf3fbef7126e67c3d13639986b # unreleased, seidroid main after #66
+    uses: sei-protocol/seidroid/.github/workflows/review.yml@4e4938d141e04a6317e4cbea92d0687b7069d2a6 # unreleased, seidroid main after #68
     permissions:
       contents: read
       pull-requests: read
