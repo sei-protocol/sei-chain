@@ -6,7 +6,6 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -21,10 +20,9 @@ import (
 )
 
 type gigaValidatorRouter struct {
-	*gigaRouterCommon
+	*GigaRouterCommon
 
 	consensus *consensus.State
-	producer  *producer.State
 }
 
 // NewGigaValidatorRouter constructs a validator GigaRouter over an already-built
@@ -61,10 +59,10 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App, signer)
+	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers, "persistent_peers", len(cfg.PersistentPeerIDs))
 	return &gigaValidatorRouter{
-		gigaRouterCommon: &gigaRouterCommon{
+		GigaRouterCommon: &GigaRouterCommon{
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
@@ -72,8 +70,9 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
 			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
-			app:             cfg.App,
+			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			signer:          signer,
+			mempool:         utils.Some(producerState),
 			gigaSpec: gigaHandshakeSpec{
 				ValidatorKey: utils.Some(cfg.ValidatorKey),
 				EVMRPC:       cfg.EVMRPC,
@@ -84,12 +83,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			inboundFullnodeCap:   int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus: consensusState,
-		producer:  producerState,
 	}, nil
-}
-
-func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
-	return utils.Some(r.producer)
 }
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
@@ -98,7 +92,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 			return r.runPerCommitteeMember(ctx, false, r.runCommitteePeer)
 		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
-		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
+		s.SpawnNamed("producer", func() error { return r.mempool.OrPanic("validator mempool").Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
@@ -123,14 +117,4 @@ func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey
 			return err
 		}
 	}
-}
-
-// EvmProxyEnabled is always false, because a validator admits every EVM tx it
-// receives into its own mempool.
-func (r *gigaValidatorRouter) EvmProxyEnabled() bool { return false }
-
-// EvmProxy on the validator always returns None. Validators never forward EVM
-// txs to another validator, and full nodes choose the lane.
-func (r *gigaValidatorRouter) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	return utils.None[*ethrpc.Client]()
 }

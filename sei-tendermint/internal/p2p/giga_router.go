@@ -6,15 +6,12 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	abevm "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/evm"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -68,28 +65,8 @@ type GigaValidatorConfig struct {
 	Producer        *producer.Config
 }
 
-// GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
-// *gigaValidatorRouter and *gigaFullnodeRouter; Mempool returns Some only
-// on validators. RunInboundConn is served by both — non-committee peers
-// get the block-sync subset only. A fullnode accepts committee peers but
-// has no consensus state to serve them.
+// GigaRouter runs an Autobahn node and provides its shared services.
 type GigaRouter interface {
 	Run(ctx context.Context) error
-	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
-	LastCommittedHeight() int64
-	MaxGasEstimatedPerBlock() uint64
-	BlockByNumber(ctx context.Context, n atypes.RoadHeight) (*coretypes.ResultBlock, error)
-	BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error)
-	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
-	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
-	EvmProxyEnabled() bool
-	// CheckTx checks a transaction for admission without inserting it into the mempool.
-	CheckTx(raw []byte) (abevm.EvmTx, abevm.AdmittedTx, error)
-	// RememberEvmSender records a verified sender for local admission.
-	RememberEvmSender(hash common.Hash, sender common.Address)
-	// ForgetEvmSender removes the cached sender for hash.
-	ForgetEvmSender(hash common.Hash)
-	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.RoadHeight) ([]*types.Validator, error)
-	fillInboundHandshake(spec handshakeSpec) handshakeSpec
+	Common() *GigaRouterCommon
 }

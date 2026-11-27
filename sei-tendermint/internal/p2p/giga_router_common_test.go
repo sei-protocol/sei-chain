@@ -33,11 +33,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func registerEvmProxyForTest(t *testing.T, router *gigaFullnodeRouter, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
+func registerEvmProxyForTest(t *testing.T, router *GigaRouterCommon, validator atypes.PublicKey, rpcURL url.URL) *ethrpc.Client {
 	t.Helper()
 	client, err := ethrpc.DialContext(t.Context(), rpcURL.String())
 	require.NoError(t, err)
@@ -159,7 +158,7 @@ func newAppHashTestRouter(
 	t *testing.T,
 	rng utils.Rng,
 	key atypes.SecretKey,
-) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon, *execution.Executor) {
+) (*testApp, *manualAppHashBuilder, *data.State, *GigaRouterCommon, *execution.Executor) {
 	t.Helper()
 	genDoc := &tmtypes.GenesisDoc{
 		ChainID:         "apphash-test",
@@ -187,10 +186,9 @@ func newAppHashTestRouter(
 	state, err := BuildDataState(cfg, db, abevm.TestEpochApp(registry), genDoc.GenesisTime)
 	require.NoError(t, err)
 	signer := newTestSigner(cfg.App.EvmChainID(), 0)
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg:    cfg,
 		data:   state,
-		app:    cfg.App,
 		signer: signer,
 	}
 	return app, hashBuilder, state, router, newTestExecutor(cfg, db, signer)
@@ -331,18 +329,18 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
 }
 
-func TestGigaRouterCommon_TranslateSuperBlockNamesTheParentAsLastBlockID(t *testing.T) {
+func TestGigaRouterCommon_EvmBlockParentHash(t *testing.T) {
 	rng := utils.TestRng()
-	router := &gigaRouterCommon{cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+	router := &GigaRouterCommon{cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
 	block := atypes.GenSuperBlock(rng)
 
 	block.ParentHash = utils.None[atypes.RoadBlockHeaderHash]()
-	require.True(t, router.translateSuperBlock(block).Block.LastBlockID.IsNil())
+	require.Equal(t, common.Hash{}, router.evmBlock(block).ParentHash)
 
 	parent := atypes.GenRoadBlockHeaderHash(rng)
 	block.ParentHash = utils.Some(parent)
-	got := router.translateSuperBlock(block).Block.LastBlockID.Hash
-	require.Equal(t, common.Hash(parent).Bytes(), []byte(got))
+	got := router.evmBlock(block).ParentHash
+	require.Equal(t, common.Hash(parent), got)
 }
 
 // The block RPC of a later road block names the previous road block as its parent, and that of the
@@ -356,103 +354,14 @@ func TestGigaRouterCommon_BlockByNumberLinksConsecutiveRoadBlocks(t *testing.T) 
 	second, secondBlocks := data.TestCommitQCOnLane(ep, keys, utils.Some(first.QC()), ep.Committee().Lanes().At(1))
 	require.NoError(t, state.PushPartialBlock(t.Context(), first, data.TestBlockMap(firstBlocks)))
 	require.NoError(t, state.PushPartialBlock(t.Context(), second, data.TestBlockMap(secondBlocks)))
-	router := &gigaRouterCommon{data: state, cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
+	router := &GigaRouterCommon{data: state, cfg: &GigaRouterCommonConfig{GenDoc: &tmtypes.GenesisDoc{ChainID: "test"}}}
 
 	gotFirst, err := router.BlockByNumber(t.Context(), first.Height())
 	require.NoError(t, err)
 	gotSecond, err := router.BlockByNumber(t.Context(), second.Height())
 	require.NoError(t, err)
-	require.True(t, gotFirst.Block.LastBlockID.IsNil())
-	require.Equal(t, gotFirst.BlockID.Hash, gotSecond.Block.LastBlockID.Hash)
-}
-
-func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
-	rng := utils.TestRng()
-	low := atypes.GenSecretKey(rng)
-	mid := atypes.GenSecretKey(rng)
-	high := atypes.GenSecretKey(rng)
-	keys := []atypes.SecretKey{low, mid, high}
-	router, registry := testGigaRouterWithData(t, map[atypes.PublicKey]GigaNodeAddr{
-		low.Public():  {},
-		mid.Public():  {},
-		high.Public(): {},
-	})
-	first := router.data.Anchor().Load().Epochs[0].RoadRange().First
-
-	got, err := router.Validators(first)
-	require.NoError(t, err)
-	require.Len(t, got, 3)
-	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
-
-	_, err = router.Validators(0)
-	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
-
-	_, err = router.Validators(first + 100)
-	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
-
-	weights := map[atypes.PublicKey]uint64{
-		low.Public():  1,
-		mid.Public():  5,
-		high.Public(): 10,
-	}
-	require.NoError(t, registry.TestPushEpoch(0, weights))
-	ep2 := registry.MustEpoch(2)
-	got, err = router.Validators(first)
-	require.NoError(t, err)
-	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
-
-	require.NoError(t, registry.TestPushEpoch(1, weights))
-	n := ep2.RoadRange().First
-	router = testRouterAtRoad(t, registry, keys, ep2, n)
-	got, err = router.Validators(n)
-	require.NoError(t, err)
-	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
-	require.Equal(t, high.Public().Bytes(), got[0].PubKey.Bytes())
-	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
-	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
-	_, err = router.Validators(n + 1)
-	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
-
-	require.NoError(t, registry.TestPushEpoch(2, weights))
-	require.NoError(t, registry.TestPushEpoch(3, weights))
-	ep4 := registry.MustEpoch(4)
-	router = testRouterAtRoad(t, registry, keys, ep4, ep4.RoadRange().First)
-	_, err = router.Validators(n)
-	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
-}
-
-func testRouterAtRoad(t *testing.T, registry *epoch.TestRegistry, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadHeight) *gigaRouterCommon {
-	t.Helper()
-	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Height: road, Number: 0}, 1)
-	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
-	prepareQC := atypes.BuildPrepareQC(keys, proposal)
-	for _, k := range keys {
-		votes = append(votes, k.Sign(atypes.NewCommitVote(prepareQC)))
-	}
-	headers := make([]*atypes.LaneBlockHeader, len(blocks))
-	for i, b := range blocks {
-		headers[i] = b.Header()
-	}
-	qc := atypes.NewFullCommitQC(atypes.NewCommitQC(votes), headers)
-	store := blockstore.NewTestStore(t)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	require.NoError(t, store.WriteBlock(types.NewRoadBlock(qc, blocks)))
-	require.NoError(t, store.Flush())
-	state, err := data.NewState(&data.Config{App: abevm.TestEpochApp(registry)}, store)
-	require.NoError(t, err)
-	return &gigaRouterCommon{data: state}
-}
-
-func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr) (*gigaRouterCommon, *epoch.TestRegistry) {
-	t.Helper()
-	weights := make(map[atypes.PublicKey]uint64, len(addrs))
-	for key := range addrs {
-		weights[key] = 1
-	}
-	committee, err := atypes.NewCommittee(weights)
-	require.NoError(t, err)
-	state, registry := testDataState(t, committee)
-	return &gigaRouterCommon{data: state}, registry
+	require.Equal(t, common.Hash{}, gotFirst.ParentHash)
+	require.Equal(t, gotFirst.Hash, gotSecond.ParentHash)
 }
 
 func testDataState(t *testing.T, committee *atypes.Committee) (*data.State, *epoch.TestRegistry) {
@@ -512,7 +421,7 @@ func TestGigaRouterCommon_ValidatorAddrUsesConfiguredBook(t *testing.T) {
 		Key:      makeKey(rng).Public(),
 		HostPort: tcp.HostPort{Hostname: "configured.example", Port: 26656},
 	}
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{validator: configured}},
 	}
 	got, ok := router.validatorAddr(validator)
@@ -520,7 +429,7 @@ func TestGigaRouterCommon_ValidatorAddrUsesConfiguredBook(t *testing.T) {
 	require.NoError(t, utils.TestDiff(configured, got))
 }
 
-func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *testing.T) {
+func TestGigaRouterCommon_runInboundConnAuthenticatesMemberAndClosesOnLeave(t *testing.T) {
 	rng := utils.TestRng()
 	validatorKey := atypes.GenSecretKey(rng)
 	localKey := makeKey(rng)
@@ -558,7 +467,7 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 			},
 		})
 	// Router treats vaildators outside of committee as full nodes. And capped router rejects all full nodes.
-	require.ErrorIs(t, cappedRouter.RunInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
+	require.ErrorIs(t, cappedRouter.runInboundConn(t.Context(), outsider[0]), errInboundFullnodeLimit)
 	_, ok := cappedRouter.validatorAddr(dummy.Public())
 	require.False(t, ok)
 
@@ -586,8 +495,8 @@ func TestGigaRouterCommon_RunInboundConnAuthenticatesMemberAndClosesOnLeave(t *t
 			return err
 		}
 		s.Spawn(func() error {
-			if err, wantErr := router.RunInboundConn(ctx, pair[0]), errGigaMembershipChanged; !errors.Is(err, wantErr) {
-				return fmt.Errorf("RunInboundConn() = nil, want %v", wantErr)
+			if err, wantErr := router.runInboundConn(ctx, pair[0]), errGigaMembershipChanged; !errors.Is(err, wantErr) {
+				return fmt.Errorf("runInboundConn() = nil, want %v", wantErr)
 			}
 			return nil
 		})
@@ -605,7 +514,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberFollowsCommittee(t *testing.T) {
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
 	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{b: 1}))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -662,7 +571,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t 
 	ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1, c: 1})
 	ep3 := testEpoch(3, map[atypes.PublicKey]uint64{a: 1, c: 1, d: 1})
 	state := testDataWithAnchor(t, testCertifiedAnchor(ep1, ep2, keys[:2]))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -720,7 +629,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberLimitsToCommitEpoch(t *testing.T)
 	)
 	qc, blocks := testRoadQC(registry.MustEpoch(2), []atypes.SecretKey{keyA}, registry.LastRoad(2))
 	state := testStateAtRoad(t, registry, qc, blocks)
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -795,7 +704,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberDialsNextEpoch(t *testing.T) {
 	)
 	qc2, blocks2 := testRoadQC(registry.MustEpoch(2), []atypes.SecretKey{keyA, keyB}, registry.LastRoad(2))
 	state := testStateAtRoad(t, registry, qc2, blocks2)
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -933,7 +842,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberRunsOneSessionPerMember(t *testin
 	// b has no address-book entry, so an epoch containing only b starts nothing.
 	b := atypes.GenSecretKey(rng).Public()
 	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 		}},
@@ -977,7 +886,7 @@ func TestGigaRouterCommon_RunPerCommitteeMemberCancelsAllDepartingBeforeAwait(t 
 	b := atypes.GenSecretKey(rng).Public()
 	c := atypes.GenSecretKey(rng).Public()
 	epochs := newSettledEpochs(t, testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1}))
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
@@ -1016,7 +925,7 @@ func TestGigaRouterCommon_CommitteeTasksReturnWhenWorkReturns(t *testing.T) {
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
 	state := testDataWithAnchor(t, testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1})))
-	router := &gigaRouterCommon{data: state}
+	router := &GigaRouterCommon{data: state}
 
 	err := router.runUntilMembershipChange(t.Context(), a, func(context.Context) error {
 		return nil
@@ -1029,7 +938,7 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
 	state := testDataWithAnchor(t, testAnchor(testEpoch(2, map[atypes.PublicKey]uint64{a: 1, b: 1})))
-	router := &gigaRouterCommon{data: state}
+	router := &GigaRouterCommon{data: state}
 	started := make(chan struct{})
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
@@ -1053,7 +962,7 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 	listener, err := tcp.Listen(addr)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, listener.Close()) })
-	router := &gigaRouterCommon{
+	router := &GigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{HandshakeTimeout: utils.Some(100 * time.Millisecond)},
 		key: makeKey(rng),
 	}
@@ -1219,7 +1128,10 @@ func TestGigaRouterCommon_EvmProxyRejectsLocalAddrs(t *testing.T) {
 				auth:   keys[0].Sign(atypes.Challenge{}),
 				EVMRPC: *utils.OrPanic1(url.Parse(endpoint)),
 			}))
-			require.False(t, router.EvmProxy(common.Address{}).IsPresent())
+			for proxies := range router.proxies.RLock() {
+				_, present := proxies[keys[0].Public()]
+				require.False(t, present)
+			}
 		})
 	}
 }
@@ -1295,8 +1207,10 @@ func TestGigaRouterCommon_LoopbackEvmRPCDoesNotCreateProxy(t *testing.T) {
 		if err := fullnodeRouter.poolOut.WaitFor(ctx, validatorKey.Public()); err != nil {
 			return err
 		}
-		if fullnodeRouter.EvmProxy(common.Address{}).IsPresent() {
-			return fmt.Errorf("fullnode EVM proxy created for loopback EVM RPC address")
+		for proxies := range fullnodeRouter.proxies.RLock() {
+			if _, present := proxies[validatorKey.Public()]; present {
+				return fmt.Errorf("fullnode EVM proxy created for loopback EVM RPC address")
+			}
 		}
 		return nil
 	}))

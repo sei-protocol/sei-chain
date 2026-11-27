@@ -45,10 +45,6 @@ func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*heightTestClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
-}
-
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
 	return &heightTestClient{
 		highHash: bytes.HexBytes(mustDecodeHex(highBlockHashHex[2:])),

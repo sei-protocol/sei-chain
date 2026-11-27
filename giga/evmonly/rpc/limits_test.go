@@ -46,8 +46,8 @@ type rpcResponse struct {
 
 func TestWebsocketSubscriptionLimits(t *testing.T) {
 	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Height: 6}))
-	backend := &testBackend{executedBlocks: func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
-		return executed.Subscribe(), nil
+	backend := &testBackend{executedBlocks: func() utils.AtomicRecv[atypes.ExecutedBlocks] {
+		return executed.Subscribe()
 	}}
 	url := serveWebsocket(t, backend, gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes, MaxSubscriptionsNewHead: 3, MaxSubscriptionsPerConnection: 2})
 	dial := func() *ethrpc.Client {

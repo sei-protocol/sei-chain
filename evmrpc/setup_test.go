@@ -20,7 +20,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
@@ -34,7 +33,6 @@ import (
 	receiptdb "github.com/sei-protocol/sei-chain/sei-db/receipt_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -219,10 +217,6 @@ func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 		return nil, false
 	}
 	return tx, true
-}
-
-func (*MockClient) EvmProxy(common.Address) tmutils.Option[*rpc.Client] {
-	return tmutils.None[*rpc.Client]()
 }
 
 func NewMockClientWithLatest(latest int64) *MockClient {

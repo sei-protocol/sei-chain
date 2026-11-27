@@ -90,8 +90,8 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState, newTestSigner(cfg.App.EvmChainID(), 0))
 	require.NoError(t, err)
 	senders := genSenders(rng, 200)
-	// With no lane client yet, EvmProxy forwards nowhere.
-	require.False(t, router.EvmProxy(senders[0]).IsPresent())
+	// With no lane client yet, evmProxy forwards nowhere.
+	require.False(t, router.evmProxy(senders[0]).IsPresent())
 
 	// With a client for every lane but one, every sender resolves to one of
 	// those clients, the same one on every call.
@@ -99,16 +99,16 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for validator, rpcURL := range urlByValidator {
 		if validator != late {
-			expectedRemoteClients[registerEvmProxyForTest(t, router, validator, rpcURL)] = struct{}{}
+			expectedRemoteClients[registerEvmProxyForTest(t, router.GigaRouterCommon, validator, rpcURL)] = struct{}{}
 		}
 	}
 	before := make([]*ethrpc.Client, len(senders))
 	for i, sender := range senders {
-		proxyClient, ok := router.EvmProxy(sender).Get()
+		proxyClient, ok := router.evmProxy(sender).Get()
 		require.True(t, ok)
 		_, known := expectedRemoteClients[proxyClient]
-		require.True(t, known, "EvmProxy returned a client of no lane")
-		again, ok := router.EvmProxy(sender).Get()
+		require.True(t, known, "evmProxy returned a client of no lane")
+		again, ok := router.evmProxy(sender).Get()
 		require.True(t, ok)
 		require.Equal(t, proxyClient, again)
 		before[i] = proxyClient
@@ -116,11 +116,11 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 
 	// When the client of the last lane arrives, the senders of that lane move to
 	// it and every other sender keeps its client.
-	lateClient := registerEvmProxyForTest(t, router, late, urlByValidator[late])
+	lateClient := registerEvmProxyForTest(t, router.GigaRouterCommon, late, urlByValidator[late])
 	expectedRemoteClients[lateClient] = struct{}{}
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for i, sender := range senders {
-		proxyClient, ok := router.EvmProxy(sender).Get()
+		proxyClient, ok := router.evmProxy(sender).Get()
 		require.True(t, ok)
 		if proxyClient != before[i] {
 			require.Equal(t, lateClient, proxyClient)
@@ -131,17 +131,10 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// at least once.
 	require.Equal(t, expectedRemoteClients, returnedRemoteClients)
 
-	// Read-path methods source from local data.State + genesis doc — no
-	// sentinels. Before any block is pushed (and InitChain hasn't run),
-	// app.LastBlockHeight() is 0, so LastCommittedHeight returns 0.
-	// MaxGasEstimatedPerBlock reflects the genesis consensus param.
-	require.Equal(t, int64(0), router.LastCommittedHeight())
-	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
-	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
-	// same shape the validator path returns — no sentinel mode-check.
+	// BlockByHash returns None for an unknown hash on both router roles.
 	rb, err := router.BlockByHash(t.Context(), common.Hash{})
 	require.NoError(t, err)
-	require.Nil(t, rb.Block)
+	require.False(t, rb.IsPresent())
 }
 
 func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) {
@@ -206,7 +199,7 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 						return err
 					}
 					server := rpc.NewServer[giga.API]()
-					peerScope.SpawnBg(func() error { return server.Run(ctx, hConn.conn) })
+					peerScope.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, server.Run(ctx, hConn.conn)) })
 					peerScope.SpawnBg(func() error {
 						return giga.StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *gigapb.StreamFullCommitQCsReq]) error {
 							if _, err := stream.Recv(ctx); err != nil {
@@ -253,6 +246,10 @@ func TestGigaFullnode_RPCConnectionsAndBlockSyncWithAllValidators(t *testing.T) 
 	}))
 	_, err = utils.Recv(t.Context(), closed)
 	require.NoError(t, err)
-	// Every connection ended, so EvmProxy forwards nowhere.
-	require.False(t, router.EvmProxy(common.Address{}).IsPresent())
+	for _, key := range keys {
+		for proxies := range router.proxies.RLock() {
+			_, present := proxies[key.Public()]
+			require.False(t, present)
+		}
+	}
 }

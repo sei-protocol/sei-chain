@@ -61,7 +61,6 @@ var (
 		requestLatencySeconds            metric.Float64Histogram
 		wsConnectionCount                metric.Int64Counter
 		wsActiveConnectionCount          metric.Int64UpDownCounter
-		redirectedRequestCount           metric.Int64Counter
 		historicalDebugTraceAttemptCount metric.Int64Counter
 		requestRejectedCount             metric.Int64Counter
 		newHeadsDroppedBlockCount        metric.Int64Counter
@@ -83,11 +82,6 @@ var (
 		wsActiveConnectionCount: must(rpcTelemetryMeter.Int64UpDownCounter(
 			"evmrpc_websocket_connections",
 			metric.WithDescription("Number of currently connected websocket clients"),
-			metric.WithUnit("{count}"),
-		)),
-		redirectedRequestCount: must(rpcTelemetryMeter.Int64Counter(
-			"evmrpc_redirected_requests_total",
-			metric.WithDescription("Number of EVM RPC requests forwarded to another validator"),
 			metric.WithUnit("{count}"),
 		)),
 		historicalDebugTraceAttemptCount: must(rpcTelemetryMeter.Int64Counter(
@@ -181,15 +175,6 @@ func recordWebsocketConnect(ctx context.Context) {
 
 func recordWebsocketDisconnect(ctx context.Context) {
 	metrics.wsActiveConnectionCount.Add(ctx, -1)
-}
-
-func recordRedirectedRequest(ctx context.Context, endpoint, connection string) {
-	metrics.redirectedRequestCount.Add(ctx, 1,
-		metric.WithAttributes(
-			attribute.String(endpointKey, endpoint),
-			attribute.String(connectionKey, connection),
-		),
-	)
 }
 
 func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection string) {

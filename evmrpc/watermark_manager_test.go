@@ -20,7 +20,6 @@ import (
 	receipttypes "github.com/sei-protocol/sei-chain/sei-db/receipt_db/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -331,10 +330,6 @@ func (*fakeTMClient) EvmNextPendingNonce(common.Address) uint64 {
 
 func (*fakeTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
-}
-
-func (*fakeTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
-	return utils.None[*rpc.Client]()
 }
 
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {

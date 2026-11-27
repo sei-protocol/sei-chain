@@ -257,7 +257,11 @@ func (e *Executor) DecodeBlock(req BlockRequest) (DecodedBlock, error) {
 		return DecodedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(e.chainConfig(req.Context), new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(req.Txs)
+	raw := make([]abevm.RawTx, len(req.Txs))
+	for i, tx := range req.Txs {
+		raw[i] = tx
+	}
+	resolved, err := abevm.NewSigner(signer, 0, e.cfg.ParseWorkers).ParseTxs(raw)
 	if err != nil {
 		return DecodedBlock{}, err
 	}

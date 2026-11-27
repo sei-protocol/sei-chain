@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
@@ -21,6 +25,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/execution"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -148,12 +154,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				allTxs = append(allTxs, tx)
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
-				v := giga.Mempool().OrPanic("validator giga must have a mempool")
+				v := giga.mempool.OrPanic("validator giga must have a mempool")
 				if err := v.WaitForMempool(ctx); err != nil {
 					return fmt.Errorf("producer.WaitForMempool(): %w", err)
 				}
 				for _, tx := range txs {
-					if _, err := v.InsertTx(ctx, tx); err != nil {
+					if err := v.InsertTx(ctx, utils.OrPanic1(signer.ParseTx(tx))); err != nil {
 						return fmt.Errorf("producer.InsertTx(): %w", err)
 					}
 				}
@@ -176,13 +182,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("state mismatch app[%v]: %w", i, err)
 			}
 		}
-		// Covers GigaRouter.LastCommittedHeight() — after blocks have
-		// been finalized every node should report a non-zero
-		// consensus-committed height through the accessor used by /status.
 		for i, giga := range gigas {
-			committed := giga.LastCommittedHeight()
+			committed := apps[i].LastBlockHeight()
 			if committed <= 0 {
-				return fmt.Errorf("router[%v].LastCommittedHeight(): got %v, want positive", i, committed)
+				return fmt.Errorf("app[%v].LastBlockHeight(): got %v, want positive", i, committed)
 			}
 			// Covers Executor.ExecutedBlocks — the watch behind
 			// eth_subscribe("newHeads"). It must reach the committed height,
@@ -198,59 +201,31 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("router[%v].BlockByNumber(executed=%v): %w", i, executed.Latest().Height, err)
 			}
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
-			// Autobahn branch in env.Block to serve /block and evmrpc block
-			// lookups. Fetch the last committed block and verify it carries
-			// the expected height + hash, the right chain id, and that the
-			// payload Txs round-tripped (we just submitted txs).
-			rb, err := giga.BlockByNumber(ctx, atypes.RoadHeight(committed)) //nolint:gosec // committed is positive (validated above)
+			// EVM-only RPC backend. Fetch the last committed block and verify its height and hash.
+			rb, err := giga.BlockByNumber(ctx, atypes.RoadHeight(committed)) //nolint:gosec // committed is positive.
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
 			}
-			if rb.Block == nil {
-				return fmt.Errorf("router[%v].BlockByNumber(%v).Block: unexpected nil", i, committed)
-			}
-			if err := utils.TestDiff(committed, rb.Block.Height); err != nil {
+			if err := utils.TestDiff(atypes.RoadHeight(committed), rb.Height); err != nil { //nolint:gosec // committed is positive.
 				return fmt.Errorf("router[%v].BlockByNumber(%v) height: %w", i, committed, err)
 			}
-			if len(rb.BlockID.Hash) == 0 {
-				return fmt.Errorf("router[%v].BlockByNumber(%v) block hash: expected nonempty", i, committed)
+			if rb.Hash == (common.Hash{}) {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): empty hash", i, committed)
 			}
-			if err := utils.TestDiff(genDoc.ChainID, rb.Block.Header.ChainID); err != nil {
+			if err := utils.TestDiff(genDoc.ChainID, rb.ChainID); err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(%v) chain id: %w", i, committed, err)
 			}
-			// LastCommit is non-nil with empty Signatures — mirrors
-			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)
-			// so trace replay and production both see "no votes" on
-			// the prior block. ToReqBeginBlock skips the per-val loop
-			// when Signatures is empty, so this is also enough to
-			// avoid the OOB deref the original PR was guarding against.
-			if rb.Block.LastCommit == nil {
-				return fmt.Errorf("router[%v].BlockByNumber(%v) LastCommit: unexpected nil", i, committed)
-			}
-			if len(rb.Block.LastCommit.Signatures) != 0 {
-				return fmt.Errorf("router[%v].BlockByNumber(%v) Signatures: expected empty", i, committed)
-			}
-			// Round-trip the just-fetched block hash back through
-			// BlockByHash and assert we get the same ResultBlock back.
-			var hashKey common.Hash
-			copy(hashKey[:], rb.BlockID.Hash)
-			rbh, err := giga.BlockByHash(ctx, hashKey)
-			if err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(%x): %w", i, rb.BlockID.Hash, err)
-			}
-			if err := utils.TestDiff(rb.BlockID, rbh.BlockID); err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(%x) block ID: %w", i, rb.BlockID.Hash, err)
-			}
-			wantBlock, err := rb.Block.ToProto()
+			// Round-trip the block hash and assert that both lookups return the same EvmBlock.
+			byHash, err := giga.BlockByHash(ctx, rb.Hash)
 			if err != nil {
 				return err
 			}
-			gotBlock, err := rbh.Block.ToProto()
-			if err != nil {
-				return err
+			rbh, ok := byHash.Get()
+			if !ok {
+				return fmt.Errorf("router[%v].BlockByHash(%x): missing block", i, rb.Hash)
 			}
-			if err := utils.TestDiff(wantBlock, gotBlock); err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(%x) ≠ BlockByNumber(%v): %w", i, rb.BlockID.Hash, committed, err)
+			if err := utils.TestDiff(rb, rbh); err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x) differs from BlockByNumber(%v): %w", i, rb.Hash, committed, err)
 			}
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
@@ -260,7 +235,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// where producers placed the test txs. Reaches into giga0.data
 		// directly — internal same-package access.
 		giga0 := gigas[0]
-		latest := giga0.LastCommittedHeight()
+		latest := apps[0].LastBlockHeight()
 		for h := int64(1); h <= latest; h++ {
 			gbn := atypes.RoadHeight(h) //nolint:gosec // h is positive
 			gb, err := giga0.data.SuperBlock(ctx, gbn)
@@ -271,14 +246,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
-			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
-			// to compare against gb.Txs directly.
-			rbBytes := make([][]byte, len(rb.Block.Data.Txs))
-			for j, t := range rb.Block.Data.Txs {
-				rbBytes[j] = t
-			}
-			if err := utils.TestDiff(gb.Txs, rbBytes); err != nil {
-				return fmt.Errorf("router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.SuperBlock(%v).Payload.Txs: %w", h, h, err)
+			if err := utils.TestDiff(gb.Txs, rb.Txs); err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v).Txs differs from data.SuperBlock(%v).Txs: %w", h, h, err)
 			}
 		}
 		return nil
@@ -291,6 +260,14 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	_, validatorKeys := atypes.GenCommittee(rng, 10)
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
+	urlByValidator := map[atypes.PublicKey]url.URL{}
+	// DialContext opens the websocket before the first call, so the URL has
+	// to name a listener.
+	rpcSrv := ethrpc.NewServer()
+	t.Cleanup(rpcSrv.Stop)
+	httpSrv := httptest.NewServer(rpcSrv.WebsocketHandler([]string{"*"}))
+	t.Cleanup(httpSrv.Close)
+	rpcURL := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpSrv.URL, "http")))
 	for _, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
@@ -298,6 +275,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
 		}
+		urlByValidator[validatorKey.Public()] = rpcURL
 	}
 	genDoc := &types.GenesisDoc{
 		ChainID:         "giga-router-proxy-test",
@@ -345,13 +323,45 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}, nodeKeys[0], dataState, newTestSigner(1, 0))
 	require.NoError(t, err)
 
-	// A validator keeps every tx. It reports proxying as disabled and forwards
-	// no sender.
-	require.False(t, router.EvmProxyEnabled())
-	for range 400 {
-		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		require.False(t, router.EvmProxy(sender).IsPresent())
+	localValidator := validatorKeys[0].Public()
+
+	connectedRemote := map[atypes.PublicKey]*ethrpc.Client{}
+	for validator := range addrs {
+		if validator == localValidator {
+			continue
+		}
+		if len(connectedRemote) >= 3 {
+			break
+		}
+		client := registerEvmProxyForTest(t, router.GigaRouterCommon, validator, urlByValidator[validator])
+		connectedRemote[validator] = client
 	}
+
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		for validator := range connectedRemote {
+			ready := make(chan struct{})
+			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", validator), func() error {
+				var client rpc.Client[giga.API]
+				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, validator, client, func(ctx context.Context) error {
+					close(ready)
+					<-ctx.Done()
+					return ctx.Err()
+				}))
+			})
+			if _, _, err := utils.RecvOrClosed(ctx, ready); err != nil {
+				return err
+			}
+		}
+
+		// A validator keeps every tx. It forwards no sender, although remote
+		// validators are connected and have EVM RPC clients.
+		for range 400 {
+			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+			require.False(t, router.evmProxy(sender).IsPresent())
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
