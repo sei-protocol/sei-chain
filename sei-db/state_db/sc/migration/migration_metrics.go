@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -74,6 +75,9 @@ type MigrationMetrics struct {
 	// boundary snapshot callback reports "complete" once it is reached.
 	targetVersion uint64
 
+	// phase is the migration_phase attribute every instrument reports with.
+	phase metric.MeasurementOption
+
 	keysMigratedTotal             metric.Int64Counter
 	keyBytesMigratedTotal         metric.Int64Counter
 	valueBytesMigratedTotal       metric.Int64Counter
@@ -85,6 +89,7 @@ type MigrationMetrics struct {
 	applyDuration                 metric.Float64Histogram
 	version                       metric.Int64Gauge
 	boundarySnapshot              metric.Int64ObservableGauge
+	boundaryInfo                  metric.Int64ObservableGauge
 
 	// startedAt is captured when the metrics object is constructed and
 	// reported as the elapsed-time anchor in the completion summary.
@@ -166,11 +171,18 @@ func newMigrationMetrics(ctx context.Context, meter metric.Meter, targetVersion 
 			"boundary_hex label for the boundary itself."),
 		metric.WithUnit("{boundary}"),
 	)
+	boundaryInfo, _ := meter.Int64ObservableGauge(
+		"seidb_migration_boundary_info",
+		metric.WithDescription("Current migration status and boundary module. Value is always 1; "+
+			"inspect the status and module labels."),
+		metric.WithUnit("{boundary}"),
+	)
 
 	m := &MigrationMetrics{
 		ctx:                           ctx,
 		cancel:                        cancel,
 		targetVersion:                 targetVersion,
+		phase:                         metric.WithAttributes(attribute.String("migration_phase", migrationPhase(targetVersion))),
 		keysMigratedTotal:             keysMigratedTotal,
 		keyBytesMigratedTotal:         keyBytesMigratedTotal,
 		valueBytesMigratedTotal:       valueBytesMigratedTotal,
@@ -182,10 +194,23 @@ func newMigrationMetrics(ctx context.Context, meter metric.Meter, targetVersion 
 		applyDuration:                 applyDuration,
 		version:                       version,
 		boundarySnapshot:              boundarySnapshot,
+		boundaryInfo:                  boundaryInfo,
 		startedAt:                     time.Now(),
 	}
 	m.registerBoundarySnapshot(meter)
 	return m
+}
+
+// migrationPhase returns the migration_phase attribute value for the migration to targetVersion.
+func migrationPhase(targetVersion uint64) string {
+	switch targetVersion {
+	case Version1_MigrateEVM:
+		return "evm"
+	case Version2_FlatKVOnly:
+		return "cosmos"
+	default:
+		return fmt.Sprintf("v%d", targetVersion)
+	}
 }
 
 // SetBoundary updates the in-memory current boundary. No DB access. Safe
@@ -212,7 +237,7 @@ func (m *MigrationMetrics) SetVersion(v uint64) {
 	m.currentVersion = v
 	m.mu.Unlock()
 	if m.version != nil {
-		m.version.Record(context.Background(), int64(v)) //nolint:gosec // version is monotonic and bounded
+		m.version.Record(context.Background(), int64(v), m.phase) //nolint:gosec // version is monotonic and bounded
 	}
 }
 
@@ -248,28 +273,28 @@ func (m *MigrationMetrics) RecordBatch(batch migrationBatchStats) {
 
 	ctx := context.Background()
 	if m.batchesTotal != nil {
-		m.batchesTotal.Add(ctx, 1)
+		m.batchesTotal.Add(ctx, 1, m.phase)
 	}
 	if m.keysMigratedTotal != nil && batch.keysMigrated > 0 {
-		m.keysMigratedTotal.Add(ctx, batch.keysMigrated)
+		m.keysMigratedTotal.Add(ctx, batch.keysMigrated, m.phase)
 	}
 	if m.keyBytesMigratedTotal != nil && batch.keyBytesMigrated > 0 {
-		m.keyBytesMigratedTotal.Add(ctx, batch.keyBytesMigrated)
+		m.keyBytesMigratedTotal.Add(ctx, batch.keyBytesMigrated, m.phase)
 	}
 	if m.valueBytesMigratedTotal != nil && batch.valueBytesMigrated > 0 {
-		m.valueBytesMigratedTotal.Add(ctx, batch.valueBytesMigrated)
+		m.valueBytesMigratedTotal.Add(ctx, batch.valueBytesMigrated, m.phase)
 	}
 	if m.originalPairsRoutedOldDBTotal != nil && batch.originalPairsRoutedOldDB > 0 {
-		m.originalPairsRoutedOldDBTotal.Add(ctx, batch.originalPairsRoutedOldDB)
+		m.originalPairsRoutedOldDBTotal.Add(ctx, batch.originalPairsRoutedOldDB, m.phase)
 	}
 	if m.originalPairsRoutedNewDBTotal != nil && batch.originalPairsRoutedNewDB > 0 {
-		m.originalPairsRoutedNewDBTotal.Add(ctx, batch.originalPairsRoutedNewDB)
+		m.originalPairsRoutedNewDBTotal.Add(ctx, batch.originalPairsRoutedNewDB, m.phase)
 	}
 	if m.oldDBPairsWrittenTotal != nil && batch.oldDBPairsWritten > 0 {
-		m.oldDBPairsWrittenTotal.Add(ctx, batch.oldDBPairsWritten)
+		m.oldDBPairsWrittenTotal.Add(ctx, batch.oldDBPairsWritten, m.phase)
 	}
 	if m.newDBPairsWrittenTotal != nil && batch.newDBPairsWritten > 0 {
-		m.newDBPairsWrittenTotal.Add(ctx, batch.newDBPairsWritten)
+		m.newDBPairsWrittenTotal.Add(ctx, batch.newDBPairsWritten, m.phase)
 	}
 }
 
@@ -304,7 +329,7 @@ func (m *MigrationMetrics) RecordApplyDuration(d time.Duration) {
 	if m == nil || m.applyDuration == nil {
 		return
 	}
-	m.applyDuration.Record(context.Background(), d.Seconds())
+	m.applyDuration.Record(context.Background(), d.Seconds(), m.phase)
 }
 
 // snapshot returns a safe copy of the in-memory boundary and version
@@ -316,15 +341,16 @@ func (m *MigrationMetrics) snapshot() (MigrationBoundary, uint64) {
 	return m.currentBoundary, m.currentVersion
 }
 
-// registerBoundarySnapshot makes the boundary snapshot gauge report the
-// current boundary at each collection, until ctx is cancelled.
+// registerBoundarySnapshot makes the boundary snapshot and boundary info
+// gauges report the current boundary at each collection, until ctx is
+// cancelled.
 func (m *MigrationMetrics) registerBoundarySnapshot(meter metric.Meter) {
-	if m.boundarySnapshot == nil {
+	if m.boundarySnapshot == nil || m.boundaryInfo == nil {
 		return
 	}
 	// A synchronous gauge keeps exporting every label value it has ever
 	// recorded; a callback exports only the value observed at each collection.
-	registration, err := meter.RegisterCallback(m.observeBoundarySnapshot, m.boundarySnapshot)
+	registration, err := meter.RegisterCallback(m.observeBoundarySnapshot, m.boundarySnapshot, m.boundaryInfo)
 	if err != nil {
 		return
 	}
@@ -336,16 +362,25 @@ func (m *MigrationMetrics) registerBoundarySnapshot(meter metric.Meter) {
 	}()
 }
 
-// observeBoundarySnapshot reports the boundary snapshot gauge with value 1.
-// The boundary_hex label is "complete" once the migration reaches
-// targetVersion, and the current boundary before that.
+// observeBoundarySnapshot reports the boundary snapshot and boundary info
+// gauges with value 1. Both report "complete" once the migration reaches
+// targetVersion. Before that, boundary_hex is the current boundary, and the
+// boundary info status and module are the boundary's own.
 func (m *MigrationMetrics) observeBoundarySnapshot(_ context.Context, observer metric.Observer) error {
 	boundary, version := m.snapshot()
 	label := boundary.String()
+	status := boundary.Status().String()
+	module := boundary.ModuleName()
 	if version == m.targetVersion {
 		label = "complete"
+		status = MigrationComplete.String()
+		module = ""
 	}
 	observer.ObserveInt64(m.boundarySnapshot, 1, metric.WithAttributes(attribute.String("boundary_hex", label)))
+	observer.ObserveInt64(m.boundaryInfo, 1, m.phase, metric.WithAttributes(
+		attribute.String("status", status),
+		attribute.String("module", module),
+	))
 	return nil
 }
 

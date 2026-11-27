@@ -23,6 +23,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/seilog"
 	db "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
@@ -148,6 +150,10 @@ type CompositeCommitStore struct {
 	// TestRootMultiMigrateEVM_DoubleFlushAppHashStable for the pinned
 	// invariant.
 	migrationAdvancedThisCommit bool
+
+	// telemetry reports the write mode and migration batch size gauges. Nil on a derived store, whose
+	// state is not the live store's, and after Close.
+	telemetry metric.Registration
 }
 
 // NewCompositeCommitStore creates a new composite commit store.
@@ -206,6 +212,11 @@ func NewCompositeCommitStore(
 	if flatKV != nil {
 		store.storeFlatKV(flatKV)
 	}
+	telemetry, err := registerStoreTelemetry(otel.Meter(meterName), store)
+	if err != nil {
+		logger.Warn("failed to register composite store telemetry", "err", err)
+	}
+	store.telemetry = telemetry
 	return store, nil
 }
 
@@ -1817,6 +1828,13 @@ func (cs *CompositeCommitStore) Flush() error {
 // Close closes all backends
 func (cs *CompositeCommitStore) Close() error {
 	var errs []error
+
+	if cs.telemetry != nil {
+		if err := cs.telemetry.Unregister(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to unregister telemetry: %w", err))
+		}
+		cs.telemetry = nil
+	}
 
 	if cs.routerCancel != nil {
 		cs.routerCancel()
