@@ -1,0 +1,535 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "DelegationRewardsWithdrawn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "ValidatorCommissionWithdrawn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "withdrawAddr",
+        "type": "address"
+      }
+    ],
+    "name": "WithdrawAddressSet",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "communityPool",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "decimals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "denom",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IDistribution.Coin[]",
+        "name": "pool",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegatorAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "validatorAddress",
+        "type": "string"
+      }
+    ],
+    "name": "delegationRewards",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "decimals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "denom",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IDistribution.Coin[]",
+        "name": "rewards",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      }
+    ],
+    "name": "delegationRewards",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "rewards",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegatorAddress",
+        "type": "address"
+      }
+    ],
+    "name": "delegatorValidators",
+    "outputs": [
+      {
+        "internalType": "string[]",
+        "name": "validators",
+        "type": "string[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      }
+    ],
+    "name": "delegatorWithdrawAddress",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "withdrawAddress",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "params",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "withdrawAddrEnabled",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "daoAddress",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct IDistribution.DistributionParams",
+        "name": "params",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "delegator",
+        "type": "address"
+      }
+    ],
+    "name": "rewards",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "validator",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct IDistribution.DelegationReward[]",
+            "name": "rewards",
+            "type": "tuple[]"
+          },
+          {
+            "internalType": "uint256",
+            "name": "total",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IDistribution.Rewards",
+        "name": "rewards",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "withdrawAddr",
+        "type": "address"
+      }
+    ],
+    "name": "setWithdrawAddress",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "validatorAddress",
+        "type": "string"
+      }
+    ],
+    "name": "validatorCommission",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "decimals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "denom",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IDistribution.Coin[]",
+        "name": "commission",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      }
+    ],
+    "name": "validatorCommission",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "commission",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "validatorAddress",
+        "type": "string"
+      }
+    ],
+    "name": "validatorOutstandingRewards",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "decimals",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "denom",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IDistribution.Coin[]",
+        "name": "rewards",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      }
+    ],
+    "name": "validatorOutstandingRewards",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "rewards",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "validatorAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "uint64",
+        "name": "startingHeight",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "endingHeight",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes",
+        "name": "pageKey",
+        "type": "bytes"
+      }
+    ],
+    "name": "validatorSlashes",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "validatorPeriod",
+            "type": "uint64"
+          },
+          {
+            "internalType": "string",
+            "name": "fraction",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IDistribution.Slash[]",
+        "name": "slashes",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "bytes",
+        "name": "nextKey",
+        "type": "bytes"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "validator",
+        "type": "string"
+      }
+    ],
+    "name": "withdrawDelegationRewards",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "validator",
+        "type": "address"
+      }
+    ],
+    "name": "withdrawDelegationRewards",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "validators",
+        "type": "address[]"
+      }
+    ],
+    "name": "withdrawMultipleDelegationRewards",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string[]",
+        "name": "validators",
+        "type": "string[]"
+      }
+    ],
+    "name": "withdrawMultipleDelegationRewards",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "withdrawValidatorCommission",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
