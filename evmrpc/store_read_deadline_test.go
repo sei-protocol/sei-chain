@@ -120,8 +120,7 @@ func TestStateReadsReturnDeadlineExceededAfterPointRead(t *testing.T) {
 			watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, nil)
 			api := evmrpc.NewStateAPI(&MockClient{}, EVMKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
 
-			requestCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-			defer cancel()
+			requestCtx := newExpiringContext()
 			result := make(chan error, 1)
 			go func() { result <- tt.read(requestCtx, api) }()
 
@@ -132,7 +131,7 @@ func TestStateReadsReturnDeadlineExceededAfterPointRead(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("store read did not start")
 			}
-			<-requestCtx.Done()
+			requestCtx.expire()
 			close(release)
 			require.ErrorIs(t, <-result, context.DeadlineExceeded)
 		})
@@ -165,8 +164,7 @@ func TestTransactionCountReturnsDeadlineExceededAfterPointRead(t *testing.T) {
 		"", evmrpc.ConnectionTypeHTTP, tmutils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{},
 	)
 
-	requestCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
+	requestCtx := newExpiringContext()
 	result := make(chan error, 1)
 	go func() {
 		_, err := api.GetTransactionCount(requestCtx, common.Address{}, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
@@ -174,7 +172,7 @@ func TestTransactionCountReturnsDeadlineExceededAfterPointRead(t *testing.T) {
 	}()
 
 	requireReadStarted(t, entered)
-	<-requestCtx.Done()
+	requestCtx.expire()
 	close(release)
 	require.ErrorIs(t, <-result, context.DeadlineExceeded)
 }
@@ -312,13 +310,12 @@ func TestReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T) {
 				"", evmrpc.ConnectionTypeHTTP, tmutils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{},
 			)
 
-			requestCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-			defer cancel()
+			requestCtx := newExpiringContext()
 			result := make(chan error, 1)
 			go func() { result <- tt.read(requestCtx, api) }()
 
 			requireReadStarted(t, store.entered)
-			<-requestCtx.Done()
+			requestCtx.expire()
 			close(store.release)
 			require.ErrorIs(t, <-result, context.DeadlineExceeded)
 			require.True(t, errors.Is(<-store.ctxErr, context.DeadlineExceeded), "receipt store did not receive the request deadline")
@@ -395,13 +392,12 @@ func TestAdditionalReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T)
 
 			ctxProvider := func(int64) sdk.Context { return Ctx }
 			watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, store)
-			requestCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-			defer cancel()
+			requestCtx := newExpiringContext()
 			result := make(chan error, 1)
 			go func() { result <- tt.read(requestCtx, ctxProvider, watermarks) }()
 
 			requireReadStarted(t, store.entered)
-			<-requestCtx.Done()
+			requestCtx.expire()
 			close(store.release)
 			require.ErrorIs(t, <-result, context.DeadlineExceeded)
 			require.ErrorIs(t, <-store.ctxErr, context.DeadlineExceeded)
@@ -452,8 +448,7 @@ func TestTransactionReceiptReturnsDeadlineExceededDuringNormalizationRead(t *tes
 		"", evmrpc.ConnectionTypeHTTP, tmutils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{},
 	)
 
-	requestCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
+	requestCtx := newExpiringContext()
 	result := make(chan error, 1)
 	go func() {
 		_, err := api.GetTransactionReceipt(requestCtx, tx1.Hash())
@@ -461,7 +456,7 @@ func TestTransactionReceiptReturnsDeadlineExceededDuringNormalizationRead(t *tes
 	}()
 
 	requireReadStarted(t, store.entered)
-	<-requestCtx.Done()
+	requestCtx.expire()
 	close(store.release)
 	require.ErrorIs(t, <-result, context.DeadlineExceeded)
 }
@@ -477,8 +472,7 @@ func TestGetReceiptWithRetryPropagatesDeadlineIntoRead(t *testing.T) {
 	EVMKeeper.SetReceiptStoreForTesting(store)
 	defer EVMKeeper.SetReceiptStoreForTesting(originalStore)
 
-	requestCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
+	requestCtx := newExpiringContext()
 	result := make(chan error, 1)
 	go func() {
 		_, err := EVMKeeper.GetReceiptWithRetry(requestCtx, Ctx, common.Hash{}, 1)
@@ -486,7 +480,7 @@ func TestGetReceiptWithRetryPropagatesDeadlineIntoRead(t *testing.T) {
 	}()
 
 	requireReadStarted(t, store.entered)
-	<-requestCtx.Done()
+	requestCtx.expire()
 	close(store.release)
 	require.ErrorIs(t, <-result, context.DeadlineExceeded)
 	require.ErrorIs(t, <-store.ctxErr, context.DeadlineExceeded)
@@ -500,3 +494,27 @@ func requireReadStarted(t *testing.T, entered <-chan struct{}) {
 		t.Fatal("store read did not start")
 	}
 }
+
+// expiringContext is a request context whose deadline passes when expire is called.
+type expiringContext struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func newExpiringContext() *expiringContext {
+	return &expiringContext{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *expiringContext) Done() <-chan struct{} { return c.done }
+
+func (c *expiringContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (c *expiringContext) expire() { c.once.Do(func() { close(c.done) }) }

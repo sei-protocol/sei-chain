@@ -10,22 +10,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
-// Compile-time check: CosmosStateStore implements db_engine.StateStore.
-var _ types.StateStore = (*CosmosStateStore)(nil)
-var _ types.ContextIteratorStore = (*CosmosStateStore)(nil)
+// Compile-time check: CosmosStateStore implements sstypes.StateStore.
+var _ sstypes.StateStore = (*CosmosStateStore)(nil)
+var _ sstypes.ContextIteratorStore = (*CosmosStateStore)(nil)
 
-// CosmosStateStore wraps a single StateStore (MVCC DB) and satisfies db_engine.StateStore.
+// CosmosStateStore wraps a single StateStore (MVCC DB) and satisfies sstypes.StateStore.
 // It is the SS-layer adapter for the main Cosmos state (all non-EVM modules).
 type CosmosStateStore struct {
-	db              types.StateStore
+	db              sstypes.StateStore
 	snapshotMgr     *sssnapshot.Manager
 	externalPruning bool
 }
 
 // NewCosmosStateStore wraps an existing StateStore as a CosmosStateStore.
-func NewCosmosStateStore(db types.StateStore) *CosmosStateStore {
+func NewCosmosStateStore(db sstypes.StateStore) *CosmosStateStore {
 	return &CosmosStateStore{db: db}
 }
 
@@ -46,11 +47,11 @@ func (s *CosmosStateStore) ReverseIterator(storeKey string, version int64, start
 }
 
 func (s *CosmosStateStore) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return types.IterateWithContext(s.db, ctx, storeKey, version, start, end, false)
+	return sstypes.IterateWithContext(s.db, ctx, storeKey, version, start, end, false)
 }
 
 func (s *CosmosStateStore) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return types.IterateWithContext(s.db, ctx, storeKey, version, start, end, true)
+	return sstypes.IterateWithContext(s.db, ctx, storeKey, version, start, end, true)
 }
 
 func (s *CosmosStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {

@@ -17,6 +17,10 @@ import (
 
 var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
+
+// errAlreadyKnown rejects a transaction the mempool still holds (see holdsPending). Its message
+// matches geth's txpool.ErrAlreadyKnown, which Ethereum clients recognise.
+var errAlreadyKnown = errors.New("already known")
 var errMempoolFull = errors.New("mempool is full")
 var ErrNotProducing = errors.New("not producing")
 
@@ -122,6 +126,29 @@ func (m *mempool) pendingNonces(addr common.Address) (nonceRange, bool) {
 		}
 	}
 	return nonceRange{}, false
+}
+
+// holdsPending reports whether the mempool holds the transaction with the given hash in its
+// sender's current nonce range. The mempool holds a transaction from admission until its lane block
+// is pruned, after the block's AppHash is pushed, so this includes transactions already sealed,
+// finalized or executed.
+func (m *mempoolInner) holdsPending(hash common.Hash) bool {
+	tx, ok := m.evmTxs[hash]
+	if !ok {
+		return false
+	}
+	// A transaction from an invalidated range may be submitted again, so it no longer counts.
+	r, ok := m.evmNonces[tx.addr]
+	return ok && r.id == tx.nonceRangeID
+}
+
+// nonceError returns the error for tx, whose nonce is not want: errAlreadyKnown when the mempool
+// still holds tx (see holdsPending), and errBadNonce otherwise.
+func (m *mempoolInner) nonceError(tx abevm.EvmTx, want uint64) error {
+	if m.holdsPending(tx.Hash()) {
+		return errAlreadyKnown
+	}
+	return fmt.Errorf("%w: got %v, want %v", errBadNonce, tx.Nonce(), want)
 }
 
 func (s *State) evmNextPendingNonce(m *mempool, addr common.Address) uint64 {
@@ -254,6 +281,8 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (a
 		result = "not_producing"
 	case errors.Is(err, errBadNonce):
 		result = "bad_nonce"
+	case errors.Is(err, errAlreadyKnown):
+		result = "already_known"
 	case errors.Is(err, abevm.ErrTxRejected):
 		result = "rejected"
 	case err != nil:
@@ -303,8 +332,10 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	// Quick check the evm pending nonce.
 	// It has a side effect of resetting the pending nonce, if gap is detected.
 	addr := decoded.Sender()
-	if got, want := decoded.Nonce(), s.evmNextPendingNonce(mp, addr); got != want {
-		return abevm.AdmittedTx{}, fmt.Errorf("%w: got %v, want %v", errBadNonce, got, want)
+	if want := s.evmNextPendingNonce(mp, addr); decoded.Nonce() != want {
+		for m := range mp.inner.Lock() {
+			return abevm.AdmittedTx{}, m.nonceError(decoded, want)
+		}
 	}
 	// Rate limiting for incoming transactions.
 	// This is lane throughput throttling, so it comes after tx validation.
@@ -344,7 +375,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		// and converges to correct state if sender's txs are submitted sequentially in nonce order.
 		if r, ok := m.evmNonces[addr]; ok {
 			if r.next != decoded.Nonce() {
-				return abevm.AdmittedTx{}, fmt.Errorf("%w: got %v, want %v", errBadNonce, decoded.Nonce(), r.next)
+				return abevm.AdmittedTx{}, m.nonceError(decoded, r.next)
 			}
 			r.next += 1
 		} else {

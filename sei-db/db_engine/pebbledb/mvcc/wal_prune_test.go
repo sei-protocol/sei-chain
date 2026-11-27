@@ -36,7 +36,7 @@ func TestPruneWALBeforeVersionKeepsRecoveryFloor(t *testing.T) {
 
 			store, err := OpenDB(filepath.Join(t.TempDir(), "state"), cfg)
 			require.NoError(t, err)
-			db := store.(*Database)
+			db := store
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 			for version := int64(1); version <= 1500; version++ {

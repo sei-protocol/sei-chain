@@ -153,6 +153,8 @@ message RoadBlockHeader {
   optional uint64 height = 5; // required
   optional Timestamp timestamp = 1; // required
   repeated LaneRange lane_ranges = 2 [(wireguard.max_count) = 100]; // Sorted by lane.
+  // Hash of the header of the road block at height - 1. Absent only for the first road block of the chain.
+  optional bytes parent_hash = 6 [(wireguard.max_size) = 32]; // optional
 }
 
 message Proposal {

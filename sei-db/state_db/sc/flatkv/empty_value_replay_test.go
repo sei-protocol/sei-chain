@@ -39,9 +39,8 @@ func reopenCommittedRoot(t *testing.T, dir string, readOnly bool) []byte {
 	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
-	cs := ro.(*CommitStore)
-	defer func() { require.NoError(t, cs.Close()) }()
-	return rootHash(cs)
+	defer func() { require.NoError(t, ro.Close()) }()
+	return rootHash(ro)
 }
 
 // TestEmptyValueSurvivesWALReplay drives a key set to an empty value, then

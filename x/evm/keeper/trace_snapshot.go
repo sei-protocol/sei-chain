@@ -2,12 +2,20 @@ package keeper
 
 import (
 	"sync"
-
-	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
+// TraceSnapshot is an in-memory SC snapshot that a TraceSnapshotStore retains, copies for leases, and
+// releases.
+type TraceSnapshot[S any] interface {
+	comparable
+	// Copy returns an independent snapshot of the same state, or the zero value when none can be made.
+	Copy() S
+	// ReleaseSnapshotRefs drops the snapshot's references to state it shares with the live store.
+	ReleaseSnapshotRefs() error
+}
+
 // TraceSnapshotStore holds bounded in-memory SC snapshots keyed by block height.
-// Each entry is a Committer.Copy() sharing COW nodes with the live memiavl tree.
+// Each entry is a Copy() sharing COW nodes with the live memiavl tree.
 //
 // Operational signals to watch when this store is in use:
 //   - memiavl gauges MemNodeTotalSize / NumOfMemNode: rise if held snapshots
@@ -15,39 +23,36 @@ import (
 //   - trace baker counters (BakedCount / DroppedCount / FailedCount): if
 //     DroppedCount climbs or BakedCount lags the chain tip, the baker is
 //     falling behind and trace cache hit rate will drop.
-type TraceSnapshotStore struct {
+type TraceSnapshotStore[S TraceSnapshot[S]] struct {
 	mu        sync.Mutex
-	snapshots map[int64]sctypes.Committer
+	snapshots map[int64]S
 	window    int64
 	latest    int64
 }
 
-type snapshotRefReleaser interface {
-	ReleaseSnapshotRefs() error
-}
-
-func NewTraceSnapshotStore(window int64) *TraceSnapshotStore {
+func NewTraceSnapshotStore[S TraceSnapshot[S]](window int64) *TraceSnapshotStore[S] {
 	if window <= 0 {
 		window = 64
 	} else if window < 2 {
 		window = 2
 	}
-	return &TraceSnapshotStore{
-		snapshots: make(map[int64]sctypes.Committer),
+	return &TraceSnapshotStore[S]{
+		snapshots: make(map[int64]S),
 		window:    window,
 	}
 }
 
 // Put records a snapshot and evicts entries older than (latest - window).
 // In-flight traces use Lease, so evicted map entries can be closed explicitly.
-func (s *TraceSnapshotStore) Put(height int64, snap sctypes.Committer) {
-	if s == nil || snap == nil {
+func (s *TraceSnapshotStore[S]) Put(height int64, snap S) {
+	var none S
+	if s == nil || snap == none {
 		return
 	}
-	var toRelease []sctypes.Committer
+	var toRelease []S
 	s.mu.Lock()
 
-	if old := s.snapshots[height]; old != nil {
+	if old, ok := s.snapshots[height]; ok {
 		toRelease = append(toRelease, old)
 	}
 	s.snapshots[height] = snap
@@ -69,26 +74,28 @@ func (s *TraceSnapshotStore) Put(height int64, snap sctypes.Committer) {
 }
 
 // Lease returns an owned snapshot copy and a release function for trace state.
-func (s *TraceSnapshotStore) Lease(height int64) (sctypes.Committer, func()) {
+func (s *TraceSnapshotStore[S]) Lease(height int64) (S, func()) {
+	var none S
 	if s == nil {
-		return nil, func() {}
+		return none, func() {}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	snap := s.snapshots[height]
-	if snap == nil {
-		return nil, func() {}
+	snap, ok := s.snapshots[height]
+	if !ok {
+		return none, func() {}
 	}
 	leased := snap.Copy()
-	if leased == nil {
-		return nil, func() {}
+	if leased == none {
+		return none, func() {}
 	}
 	return leased, func() { releaseSnapshotRefs(leased) }
 }
 
-func (s *TraceSnapshotStore) Get(height int64) sctypes.Committer {
+func (s *TraceSnapshotStore[S]) Get(height int64) S {
+	var none S
 	if s == nil {
-		return nil
+		return none
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -96,11 +103,11 @@ func (s *TraceSnapshotStore) Get(height int64) sctypes.Committer {
 }
 
 // Close releases all retained snapshots.
-func (s *TraceSnapshotStore) Close() {
+func (s *TraceSnapshotStore[S]) Close() {
 	if s == nil {
 		return
 	}
-	var toRelease []sctypes.Committer
+	var toRelease []S
 	s.mu.Lock()
 	for h := range s.snapshots {
 		toRelease = append(toRelease, s.snapshots[h])
@@ -113,17 +120,12 @@ func (s *TraceSnapshotStore) Close() {
 	}
 }
 
-func releaseSnapshotRefs(snap sctypes.Committer) {
-	if snap == nil {
+func releaseSnapshotRefs[S TraceSnapshot[S]](snap S) {
+	var none S
+	if snap == none {
 		return
 	}
-	if releaser, ok := snap.(snapshotRefReleaser); ok {
-		if err := releaser.ReleaseSnapshotRefs(); err != nil {
-			logger.Warn("failed to release trace snapshot refs", "err", err)
-		}
-		return
-	}
-	if err := snap.Close(); err != nil {
-		logger.Warn("failed to close trace snapshot", "err", err)
+	if err := snap.ReleaseSnapshotRefs(); err != nil {
+		logger.Warn("failed to release trace snapshot refs", "err", err)
 	}
 }

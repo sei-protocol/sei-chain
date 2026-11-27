@@ -11,6 +11,7 @@ import (
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/stretchr/testify/require"
+	"github.com/zeebo/blake3"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/clickhouse"
 )
@@ -76,8 +77,8 @@ func testWriter(t *testing.T, cfg clickhouse.Config) *writer {
 // rowCounts returns the row count of every archive table.
 func rowCounts(t *testing.T, cfg clickhouse.Config) map[string]uint64 {
 	out := map[string]uint64{}
-	for _, table := range []string{tableBlocks, tableTxs, tableLocator, tableLogs, tableAccountChanges, tableAccountHistory,
-		tableStorageChanges, tableStorageHistory, tableCode, tableCommits} {
+	for _, table := range []string{tableBlocks, tableTxs, tableBlockLocator, tableTxLocator, tableLogs, tableAccountChanges,
+		tableAccountHistory, tableStorageChanges, tableStorageHistory, tableCode, tableCommits} {
 		out[table] = query(t, cfg, "SELECT count() AS a FROM "+table)[0]
 	}
 	return out
@@ -111,7 +112,8 @@ func TestWrite(t *testing.T) {
 	require.Equal(t, map[string]uint64{
 		tableBlocks:         5,
 		tableTxs:            10,
-		tableLocator:        10, // each block and its executed transaction
+		tableBlockLocator:   5,
+		tableTxLocator:      5, // each block's executed transaction
 		tableLogs:           5,
 		tableAccountChanges: 10,
 		tableAccountHistory: 10,
@@ -126,13 +128,38 @@ func TestWrite(t *testing.T) {
 	// A transaction is found by its hash prefix.
 	executed := testBlock(2).Txs[0].Receipt.TxHash
 	require.Equal(t, []uint64{2 << txIndexBits}, query(t, cfg, fmt.Sprintf(
-		"SELECT location AS a FROM hash_locator WHERE hash_prefix = %d AND object_kind = %d",
-		binary.BigEndian.Uint64(executed[:8]), locatorTx)))
+		"SELECT location AS a FROM transaction_hash_locator WHERE hash_prefix = %d",
+		binary.BigEndian.Uint64(executed[:8]))))
 	require.Equal(t, []uint64{900}, query(t, cfg,
 		"SELECT toUInt64(balance) AS a FROM account_changes WHERE block_number = 2 AND nonce = 5"))
 	require.Equal(t, []uint64{0}, query(t, cfg,
 		"SELECT toUInt64(count()) AS a FROM storage_changes WHERE block_number = 2 AND value != repeat('\\0', 32)"+
 			" AND slot = unhex('52'||repeat('00', 31))"))
+}
+
+// TestTransactionLocatorAliases reads each transaction's block and index back through the
+// transaction locator's alias columns, which decode the location the writer packs.
+func TestTransactionLocatorAliases(t *testing.T) {
+	cfg := testConfig(t)
+	require.NoError(t, migrate(t.Context(), cfg))
+	w := testWriter(t, cfg)
+
+	// A block number above 2^32, so a decoding that keeps only 32 bits fails.
+	number := uint64(1)<<39 | 300
+	block := testBlock(number)
+	block.Time = 1_700_000_000
+	block.Txs[1].Locatable = true
+	b := newBatch()
+	require.NoError(t, b.add(&block))
+	require.NoError(t, w.write(t.Context(), b))
+
+	for i, tx := range block.Txs {
+		prefix := binary.BigEndian.Uint64(tx.Receipt.TxHash[:8])
+		require.Equal(t, []uint64{number}, query(t, cfg, fmt.Sprintf(
+			"SELECT block_number AS a FROM transaction_hash_locator WHERE hash_prefix = %d", prefix)), "transaction %d", i)
+		require.Equal(t, []uint64{uint64(i)}, query(t, cfg, fmt.Sprintf(
+			"SELECT toUInt64(transaction_index) AS a FROM transaction_hash_locator WHERE hash_prefix = %d", prefix)), "transaction %d", i)
+	}
 }
 
 // TestStateReads runs the two reads the account and storage tables are laid out for: a slot or an
@@ -150,22 +177,60 @@ func TestStateReads(t *testing.T) {
 		sender   = "toFixedString(unhex('000000000000000000000000000000000000005e'), 20)"
 	)
 	require.Equal(t, []uint64{1}, query(t, cfg, "SELECT block_number AS a FROM storage_history"+
-		" WHERE sipHash64(address, slot) = sipHash64("+contract+", "+slot+") AND address = "+contract+
-		" AND slot = "+slot+" AND block_number <= 4 ORDER BY block_number DESC LIMIT 1"))
+		" WHERE "+historyKeySQL("concat("+contract+", "+slot+")")+
+		" AND block_number <= 4 ORDER BY block_number DESC LIMIT 1"))
 	require.Equal(t, []uint64{1}, query(t, cfg, "SELECT toUInt64(count()) AS a FROM storage_changes"+
 		" WHERE block_number = 1 AND address = "+contract+" AND slot = "+slot+
 		" AND value = toFixedString(unhex('7a01' || repeat('00', 30)), 32)"))
 
 	// The sender changes in every block, so its newest change at height 3 is block 3's.
 	require.Equal(t, []uint64{3}, query(t, cfg, "SELECT block_number AS a FROM account_history"+
-		" WHERE sipHash64(address) = sipHash64("+sender+") AND address = "+sender+
-		" AND block_number <= 3 ORDER BY block_number DESC LIMIT 1"))
+		" WHERE "+historyKeySQL(sender)+" AND block_number <= 3 ORDER BY block_number DESC LIMIT 1"))
 	require.Equal(t, []uint64{7}, query(t, cfg,
 		"SELECT nonce AS a FROM account_changes WHERE block_number = 3 AND address = "+sender))
 
 	// Everything block 2 changed.
 	require.Equal(t, []uint64{2}, query(t, cfg, "SELECT toUInt64(count()) AS a FROM account_changes WHERE block_number = 2"))
 	require.Equal(t, []uint64{2}, query(t, cfg, "SELECT toUInt64(count()) AS a FROM storage_changes WHERE block_number = 2"))
+}
+
+// historyKeySQL returns the condition that selects the history rows of the account or slot whose
+// identity, address or address || slot, the SQL expression identity computes.
+func historyKeySQL(identity string) string {
+	return "k_hi = reinterpretAsUInt64(reverse(substring(BLAKE3(" + identity + "), 1, 8)))" +
+		" AND k_lo = reinterpretAsUInt64(reverse(substring(BLAKE3(" + identity + "), 9, 8)))"
+}
+
+// TestHistoryKeys checks that the history tables key an account by the first 16 bytes of
+// BLAKE3(address) and a slot by those of BLAKE3(address || slot), as two big-endian halves, so a
+// reader outside ClickHouse can compute the key.
+func TestHistoryKeys(t *testing.T) {
+	cfg := testConfig(t)
+	require.NoError(t, migrate(t.Context(), cfg))
+	w := testWriter(t, cfg)
+	require.NoError(t, w.write(t.Context(), testBatch(t, 1, 3)))
+
+	key := func(identity ...[]byte) (hi, lo uint64) {
+		h := blake3.New()
+		for _, part := range identity {
+			_, _ = h.Write(part)
+		}
+		sum := h.Sum(nil)
+		return binary.BigEndian.Uint64(sum[:8]), binary.BigEndian.Uint64(sum[8:16])
+	}
+
+	// The sender changes in every block.
+	block := testBlock(1)
+	sender := block.Changes.Accounts[0].Address
+	hi, lo := key(sender[:])
+	require.Equal(t, []uint64{1, 2, 3}, query(t, cfg, fmt.Sprintf(
+		"SELECT block_number AS a FROM account_history WHERE k_hi = %d AND k_lo = %d ORDER BY block_number", hi, lo)))
+
+	// Block 1's contract writes slot 0x51 in block 1 only.
+	written := block.Changes.Storage[0]
+	hi, lo = key(written.Address[:], written.Key[:])
+	require.Equal(t, []uint64{1}, query(t, cfg, fmt.Sprintf(
+		"SELECT block_number AS a FROM storage_history WHERE k_hi = %d AND k_lo = %d ORDER BY block_number", hi, lo)))
 }
 
 func TestFailedWriteLeavesItsBatchPending(t *testing.T) {

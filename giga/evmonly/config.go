@@ -4,6 +4,8 @@ import (
 	"math/big"
 	"runtime"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -57,6 +59,11 @@ func (c Config) WithDefaults() Config {
 	}
 	return c
 }
+
+// FeeCollectorAddress is the coinbase EVM-only blocks pay their fees to. It is v2's EVM coinbase, the
+// EVM address of the fee_collector module account: a CREATE address of the ecrecover precompile, so
+// no key controls it and no contract can be deployed to it.
+var FeeCollectorAddress = crypto.CreateAddress(common.BytesToAddress([]byte{1}), 42)
 
 // DefaultChainConfig returns params.AllDevChainProtocolChanges through Osaka plus Sei's Amsterdam subset,
 // with the base fee paid to the coinbase.

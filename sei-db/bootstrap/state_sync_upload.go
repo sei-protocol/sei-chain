@@ -37,6 +37,33 @@ var errUploadEnded = errors.New("upload ended")
 // removed before the upload staged it.
 var errCheckpointPruned = errors.New("checkpoint pruned")
 
+// stageError is the error of the step stage of a sweep. Its text is the text of err.
+type stageError struct {
+	stage stateSyncUploadStage
+	err   error
+}
+
+func (e *stageError) Error() string { return e.err.Error() }
+
+func (e *stageError) Unwrap() error { return e.err }
+
+// failedAt returns err as an error of the step stage, or nil when err is nil.
+func failedAt(stage stateSyncUploadStage, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &stageError{stage: stage, err: err}
+}
+
+// failedStage returns the step of a sweep that err names, or uploadStageOther when it names none.
+func failedStage(err error) stateSyncUploadStage {
+	var se *stageError
+	if errors.As(err, &se) {
+		return se.stage
+	}
+	return uploadStageOther
+}
+
 // stateSyncUploadStagingDir returns the dir under the FlatKV root flatKVDir that holds the
 // hard-linked checkpoint during an upload.
 func stateSyncUploadStagingDir(flatKVDir string) string {
@@ -135,6 +162,7 @@ type stateSyncUploader struct {
 	// stagingDir holds the hard-linked checkpoint during an upload. It is under flatKVDir.
 	stagingDir string
 	now        func() time.Time
+	metrics    *stateSyncUploadMetrics
 	// uploaded is the newest archive height known to be in store, or 0.
 	uploaded int64
 }
@@ -149,6 +177,7 @@ func newStateSyncUploader(cfg StateSyncUploadConfig, flatKVDir, proofDir string)
 		proofDir:   proofDir,
 		stagingDir: stateSyncUploadStagingDir(flatKVDir),
 		now:        time.Now,
+		metrics:    defaultStateSyncUploadMetrics(),
 	}
 }
 
@@ -186,9 +215,10 @@ func sweepDelay(interval time.Duration, failures int) time.Duration {
 	return delay
 }
 
-// logStoreAccess reads latest.txt once and logs the result. A failure does not stop the loop.
+// logStoreAccess reads latest.txt once, logs the result and records it. A failure does not stop the
+// loop.
 func (u *stateSyncUploader) logStoreAccess(ctx context.Context) {
-	latest, err := statesync.ReadLatest(ctx, u.store, u.chainID)
+	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
 	switch {
 	case errors.Is(err, statesync.ErrObjectNotFound):
 		logger.Info("state sync archive store is readable and has no archive of this chain")
@@ -197,17 +227,19 @@ func (u *stateSyncUploader) logStoreAccess(ctx context.Context) {
 			logger.Error("state sync archive store is not readable", "err", err)
 		}
 	default:
+		u.metrics.recordBucket(ctx, latest, info.Modified)
 		logger.Info("state sync archive store is readable", "latest", latest)
 	}
 }
 
-// sweepLogged runs one sweep and returns its error text, or "" on success. It logs the error only
-// when the text differs from lastErr, the text of the previous sweep.
+// sweepLogged runs one sweep and returns its error text, or "" on success. It counts each failed
+// sweep, and logs the error only when the text differs from lastErr, the text of the previous sweep.
 func (u *stateSyncUploader) sweepLogged(ctx context.Context, lastErr string) string {
 	err := u.sweep(ctx)
 	if err == nil || ctx.Err() != nil {
 		return ""
 	}
+	u.metrics.recordFailure(ctx, failedStage(err))
 	if err.Error() != lastErr {
 		logger.Error("state sync archive upload failed; retrying on next sweep", "err", err)
 	}
@@ -217,17 +249,24 @@ func (u *stateSyncUploader) sweepLogged(ctx context.Context, lastErr string) str
 // sweep uploads the archive of the newest retained checkpoint that has a state sync proof file. It
 // does nothing when the store already has an archive at that height or above, when the last
 // archive upload of the chain is less than the interval ago, or when another node holds the upload
-// claim.
+// claim. It records that checkpoint, and the newest archive of the chain that it reads or writes.
 func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	height, ok, err := u.newestCheckpointWithProof()
-	if err != nil || !ok || height <= u.uploaded {
-		return err
+	if err != nil || !ok {
+		return failedAt(uploadStageCheckpoint, err)
+	}
+	u.metrics.recordLocalCheckpoint(ctx, height)
+	if height <= u.uploaded {
+		return nil
 	}
 	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
+	if err == nil {
+		u.metrics.recordBucket(ctx, latest, info.Modified)
+	}
 	switch {
 	case errors.Is(err, statesync.ErrObjectNotFound):
 	case err != nil:
-		return err
+		return failedAt(uploadStageRead, err)
 	case latest >= height:
 		u.uploaded = latest
 		return nil
@@ -236,14 +275,27 @@ func (u *stateSyncUploader) sweep(ctx context.Context) error {
 	}
 	claimed, err := statesync.ClaimUpload(ctx, u.store, u.chainID, latest, u.owner, u.now(), stateSyncUploadClaimTimeout)
 	if err != nil || !claimed {
-		return err
+		return failedAt(uploadStageClaim, err)
 	}
 	newest, err := u.upload(ctx, height)
 	if err != nil {
 		return err
 	}
 	u.uploaded = max(u.uploaded, newest)
+	if newest > 0 {
+		u.recordBucket(ctx)
+	}
 	return nil
+}
+
+// recordBucket reads latest.txt and records it. A failed read records nothing.
+func (u *stateSyncUploader) recordBucket(ctx context.Context) {
+	// Sweeps read latest.txt again only for a checkpoint above u.uploaded, so without this read a
+	// height that another node wrote during the upload stays unrecorded until that checkpoint.
+	latest, info, err := statesync.ReadLatestInfo(ctx, u.store, u.chainID)
+	if err == nil {
+		u.metrics.recordBucket(ctx, latest, info.Modified)
+	}
 }
 
 // newestCheckpointWithProof returns the height of the newest retained checkpoint that has a state
@@ -278,16 +330,17 @@ func (u *stateSyncUploader) proofPath(height int64) string {
 func (u *stateSyncUploader) upload(ctx context.Context, height int64) (newest int64, err error) {
 	present, err := u.hasArchive(ctx, height)
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageRead, err)
 	}
 	if present {
 		logger.Info("state sync archive is already in the store", "height", height)
-		return statesync.AdvanceLatest(ctx, u.store, u.chainID, height)
+		newest, err = statesync.AdvanceLatest(ctx, u.store, u.chainID, height)
+		return newest, failedAt(uploadStageAdvance, err)
 	}
 	start := time.Now()
 	defer func() {
 		if rmErr := os.RemoveAll(u.stagingDir); rmErr != nil {
-			err = errors.Join(err, fmt.Errorf("remove upload staging: %w", rmErr))
+			err = errors.Join(err, failedAt(uploadStageStage, fmt.Errorf("remove upload staging: %w", rmErr)))
 		}
 	}()
 	proof, err := u.stage(height)
@@ -295,25 +348,27 @@ func (u *stateSyncUploader) upload(ctx context.Context, height int64) (newest in
 		return 0, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageStage, err)
 	}
 	m, err := statesync.BuildManifest(u.chainID, height, u.stagingDir)
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageStage, err)
 	}
 	size, err := statesync.ArchiveSize(m, int64(len(proof)))
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageStage, err)
 	}
 	if err := u.putArchive(ctx, m, proof, size); err != nil {
-		return 0, err
+		return 0, failedAt(uploadStagePut, err)
 	}
 	newest, err = statesync.AdvanceLatest(ctx, u.store, u.chainID, height)
 	if err != nil {
-		return 0, err
+		return 0, failedAt(uploadStageAdvance, err)
 	}
+	duration := time.Since(start)
+	u.metrics.recordUpload(ctx, size, duration)
 	logger.Info("uploaded state sync archive", "height", height, "bytes", size, "rows", m.RowCount,
-		"duration", time.Since(start))
+		"duration", duration)
 	return newest, nil
 }
 

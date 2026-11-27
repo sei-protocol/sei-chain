@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 type BaseStorageTestSuite struct {
 	suite.Suite
 
-	NewDB          func(dir string, config config.StateStoreConfig) (types.StateStore, error)
+	NewDB          func(dir string, config config.StateStoreConfig) (sstypes.StateStore, error)
 	EmptyBatchSize int
 	Config         config.StateStoreConfig
 }

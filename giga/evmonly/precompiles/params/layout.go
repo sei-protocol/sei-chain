@@ -11,6 +11,7 @@ var Address = common.HexToAddress("0x0000000000000000000000000000000000001013")
 const (
 	slotGov     = 0
 	slotStaking = 16
+	slotEVM     = 27
 )
 
 // member is a struct member's position relative to the struct's base slot.
@@ -40,4 +41,12 @@ var (
 	stakingMaxEntries                         = member{0, 12}
 	stakingMaxVotingPowerRatio                = member{1, 0}
 	stakingMaxVotingPowerEnforcementThreshold = member{2, 0}
+)
+
+// ParamsStorage.EVM members.
+var (
+	evmMaxDynamicBaseFeeUpwardAdjustment   = member{0, 0}
+	evmMaxDynamicBaseFeeDownwardAdjustment = member{1, 0}
+	evmMinFeePerGas                        = member{2, 0}
+	evmBaseFeeLag                          = member{3, 0}
 )

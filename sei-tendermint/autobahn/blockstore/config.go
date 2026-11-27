@@ -5,6 +5,8 @@ import (
 	"time"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Config configures a LittDB-backed consensus block store.
@@ -25,6 +27,10 @@ type Config struct {
 	//
 	// Default: 1h.
 	RetentionTime time.Duration
+
+	// Seed is the records of the road that the store starts at. New writes them to a store
+	// that holds no record of another road. Optional.
+	Seed utils.Option[Seed]
 }
 
 // DefaultConfig returns a Config preloaded with all defaults, rooted at
@@ -50,6 +56,11 @@ func (c *Config) Validate() error {
 	}
 	if c.RetentionTime <= 0 {
 		return fmt.Errorf("config.RetentionTime must be positive (got %s)", c.RetentionTime)
+	}
+	if seed, ok := c.Seed.Get(); ok {
+		if block, appQC := seed.Block.QC().Height(), seed.AppQC.Proposal().Height(); block != appQC {
+			return fmt.Errorf("config.Seed holds the block of road %d and the AppQC of road %d: %w", block, appQC, types.ErrUnexpectedHeight)
+		}
 	}
 	return nil
 }

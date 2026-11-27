@@ -17,13 +17,13 @@ func TestWriteReceiptsReportsOnlyTheRecordsItWrote(t *testing.T) {
 	topic := common.HexToHash("0xfc02")
 
 	storedHash, storedReceipt := littCtxTestReceipt(1, 0, addr, topic, 1)
-	written, err := s.writeReceipts(1, []receipttypes.ReceiptRecord{{TxHash: storedHash, Receipt: storedReceipt}})
+	written, err := s.writeReceipts(1, nil, []receipttypes.ReceiptRecord{{TxHash: storedHash, Receipt: storedReceipt}})
 	require.NoError(t, err)
 	require.Len(t, written, 1)
 
 	_, staleReceipt := littCtxTestReceipt(2, 0, addr, topic, 1)
 	freshHash, freshReceipt := littCtxTestReceipt(2, 1, addr, topic, 1)
-	written, err = s.writeReceipts(2, []receipttypes.ReceiptRecord{
+	written, err = s.writeReceipts(2, nil, []receipttypes.ReceiptRecord{
 		{TxHash: storedHash, Receipt: staleReceipt, KeepExisting: true},
 		{TxHash: freshHash, Receipt: freshReceipt},
 	})
