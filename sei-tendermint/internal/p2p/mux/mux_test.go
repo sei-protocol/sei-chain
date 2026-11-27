@@ -378,6 +378,40 @@ func TestClosedStream(t *testing.T) {
 	}
 }
 
+// A slot freed by a closed stream must not let the next stream reach the peer
+// before the closed stream's CLOSE frame, or the peer sees too many accepts.
+func TestStreamSlotReuseAfterClose(t *testing.T) {
+	kind := StreamKind(0)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := conn.NewTestConn()
+		connector := NewMux(makeConfig(kind))
+		acceptor := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error { return utils.IgnoreCancel(connector.Run(ctx, c1)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(acceptor.Run(ctx, c2)) })
+		s.SpawnBg(func() error {
+			for ctx.Err() == nil {
+				stream, err := acceptor.Accept(ctx, kind, 10, 1)
+				if err != nil {
+					return utils.IgnoreCancel(err)
+				}
+				stream.Close()
+			}
+			return nil
+		})
+		for range 10000 {
+			stream, err := connector.Connect(ctx, kind, 10, 1)
+			if err != nil {
+				return err
+			}
+			stream.Close()
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProtocol_TooLargeMsg(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := conn.NewTestConn()
