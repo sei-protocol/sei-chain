@@ -192,17 +192,18 @@ func (api *blockAPI) executionHeaderAt(ctx context.Context, height int64) (*etht
 	if block == nil {
 		return nil, fmt.Errorf("%w: %d", errBlockNotFound, height)
 	}
-	return api.executionHeader(ctx, block)
+	return executionHeader(ctx, api.backend, api.store, block)
 }
 
-// executionHeader returns block's header with the fields its execution context reads.
-func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Header, error) {
+// executionHeader returns block's header with the fields its execution context reads, taking its
+// base fee from store when it records one.
+func executionHeader(ctx context.Context, backend Backend, store receiptdb.ReceiptStore, block *coretypes.ResultBlock) (*ethtypes.Header, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
 	}
-	gasLimit := api.backend.EvmGasLimit()
-	baseFee, err := blockBaseFee(ctx, api.backend, api.store, block.Block.Height)
+	gasLimit := backend.EvmGasLimit()
+	baseFee, err := blockBaseFee(ctx, backend, store, block.Block.Height)
 	if err != nil {
 		return nil, err
 	}
@@ -216,21 +217,16 @@ func (api *blockAPI) executionHeader(ctx context.Context, block *coretypes.Resul
 	}, nil
 }
 
-// encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
-// sha3Uncles, difficulty, extraData, uncles, and totalDifficulty are always
-// their zero value; unlike evmrpc's v2 encoder, mixHash does not report PREVRANDAO.
-// logsBloom is always zero; receipt blooms are not aggregated here.
+// encodeBlock renders block as an eth_getBlockBy* response: headerResponse's
+// fields, with size, uncles, the transactions and, for full transactions,
+// totalDifficulty. uncles and totalDifficulty are always their zero value.
 func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlock, fullTx bool) (map[string]any, error) {
 	number := block.Block.Height
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
-	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Block.Time)
-	}
-	gasLimit := api.backend.EvmGasLimit()
-	baseFee, err := blockBaseFee(ctx, api.backend, api.store, number)
+	header, err := executionHeader(ctx, api.backend, api.store, block)
 	if err != nil {
 		return nil, err
 	}
+	blockUnix, baseFee := header.Time, header.BaseFee
 
 	txs := block.Block.Txs
 	transactions := make([]any, len(txs))
@@ -259,7 +255,10 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, err
 	}
 
-	result := headerFields(block, blockUnix, gasLimit, baseFee, gasUsed)
+	result, err := headerResponse(api.backend, block, header, gasUsed)
+	if err != nil {
+		return nil, err
+	}
 	result["size"] = hexutil.Uint64(block.Block.Size()) //nolint:gosec // G115: block size is positive.
 	result["uncles"] = []common.Hash{}                  // inapplicable to Sei
 	result["transactions"] = transactions
@@ -293,39 +292,57 @@ func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.Result
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
 // decodes.
 func encodeHeader(ctx context.Context, backend Backend, store receiptdb.ReceiptStore, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
-	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
-	if !ok {
-		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
-	}
-	gasLimit := backend.EvmGasLimit()
-	baseFee, err := blockBaseFee(ctx, backend, store, block.Block.Height)
+	header, err := executionHeader(ctx, backend, store, block)
 	if err != nil {
 		return nil, err
 	}
-	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
+	return headerResponse(backend, block, header, gasUsed)
 }
 
-// headerFields returns the Ethereum JSON header fields of block.
-func headerFields(block *coretypes.ResultBlock, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
+// headerResponse returns the Ethereum JSON header fields of block, whose execution header is header.
+// mixHash is the PREVRANDAO the block executed at. nonce, sha3Uncles, difficulty and extraData are
+// always their zero value, and logsBloom is always zero.
+func headerResponse(backend Backend, block *coretypes.ResultBlock, header *ethtypes.Header, gasUsed uint64) (map[string]any, error) {
+	mixHash, err := prevRandao(backend, header)
+	if err != nil {
+		return nil, err
+	}
+	return headerFields(block, header, mixHash, gasUsed), nil
+}
+
+// prevRandao returns the PREVRANDAO header's block executed at.
+func prevRandao(backend Backend, header *ethtypes.Header) (common.Hash, error) {
+	blockCtx, err := backend.EvmBlockContext(header)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("block %s context: %w", header.Number, err)
+	}
+	if blockCtx.Random == nil {
+		return common.Hash{}, fmt.Errorf("block %s context has no PREVRANDAO", header.Number)
+	}
+	return *blockCtx.Random, nil
+}
+
+// headerFields returns the Ethereum JSON header fields of block, whose execution header is header.
+func headerFields(block *coretypes.ResultBlock, header *ethtypes.Header, mixHash common.Hash, gasUsed uint64) map[string]any {
 	return map[string]any{
 		"number":           (*hexutil.Big)(big.NewInt(block.Block.Height)),
 		"hash":             common.BytesToHash(block.BlockID.Hash),
 		"parentHash":       common.BytesToHash(block.Block.LastBlockID.Hash),
-		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-		"mixHash":          common.Hash{},           // inapplicable to Sei
+		"nonce":            ethtypes.BlockNonce{}, // inapplicable to Sei
+		"mixHash":          mixHash,
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
 		"logsBloom":        ethtypes.Bloom{},
 		"stateRoot":        common.BytesToHash(block.Block.AppHash),
 		"miner":            common.BytesToAddress(block.Block.ProposerAddress),
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
 		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),
+		"gasLimit":         hexutil.Uint64(header.GasLimit),
 		"gasUsed":          hexutil.Uint64(gasUsed),
-		"timestamp":        hexutil.Uint64(blockUnix),
+		"timestamp":        hexutil.Uint64(header.Time),
 		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec // G115: block timestamps are positive.
 		"transactionsRoot": common.BytesToHash(block.Block.DataHash),
 		"receiptsRoot":     common.BytesToHash(block.Block.LastResultsHash),
-		"baseFeePerGas":    (*hexutil.Big)(baseFee),
+		"baseFeePerGas":    (*hexutil.Big)(header.BaseFee),
 	}
 }
 

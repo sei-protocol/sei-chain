@@ -69,6 +69,12 @@ func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
 	require.ErrorIs(t, err, errMockAppNoExecution)
 	_, _, err = app.EvmCreateAccessListAt(t.Context(), &ethcore.Message{}, abevm.BlockRef{Height: 1})
 	require.ErrorIs(t, err, errMockAppNoExecution)
+	// The block RPC renders every block's context, so the mock app answers it without execution.
+	blockCtx, err := app.EvmBlockContext(abevm.BlockRef{Height: 1, Time: 5})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), blockCtx.BlockNumber.Uint64())
+	require.Equal(t, uint64(5), blockCtx.Time)
+	require.Equal(t, common.Hash{}, *blockCtx.Random)
 }
 
 func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {

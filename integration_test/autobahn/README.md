@@ -776,8 +776,10 @@ cast block --rpc-url http://127.0.0.1:8545 0xYOUR_BLOCK_HASH
 A height above the current chain head or `earliest` (this executor's first
 committed height is 1, not 0) returns `null`, matching
 `eth_getTransactionByHash`'s treatment of an unknown hash. A height the node
-has since pruned returns an error. `nonce`, `mixHash`, `sha3Uncles`,
-`difficulty`, `extraData`, `uncles`, and `totalDifficulty` are always their
+has since pruned returns an error. `mixHash` is the PREVRANDAO the block's
+transactions read, as after the Merge; with `mock-app` set, it is always zero.
+`nonce`, `sha3Uncles`, `difficulty`,
+`extraData`, `uncles`, and `totalDifficulty` are always their
 Ethereum-inapplicable zero value, matching `eth_getBlockByNumber` on the
 regular (non-EVM-only) RPC. `logsBloom` is always empty, unlike the regular
 RPC, which aggregates it from a receipt per transaction. `gasUsed` and the

@@ -56,7 +56,8 @@ type Backend interface {
 	EvmBaseFee() *big.Int
 	// EvmNextBaseFee returns the base fee the block after the most recently committed one runs at.
 	EvmNextBaseFee() *big.Int
-	// EvmBlockContext returns the block context header's block executed at.
+	// EvmBlockContext returns the block context header's block executed at. For any stored block it
+	// succeeds with Random set.
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
 	EvmBlockNumber() uint64
 	// GenesisInitialHeight returns the height of the chain's first block, or 0 when unknown.

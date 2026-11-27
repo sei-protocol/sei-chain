@@ -246,9 +246,13 @@ func (app *MockApp) EvmGasLimit() uint64 { return 0 }
 
 func (app *MockApp) EvmMinGasPrice() *big.Int { return new(big.Int) }
 
-// EvmBlockContext always errors: the mock app keeps no EVM state to trace against.
-func (app *MockApp) EvmBlockContext(abevm.BlockRef) (vm.BlockContext, error) {
-	return vm.BlockContext{}, errMockAppNoExecution
+// EvmBlockContext returns the block's number and time with a zero PREVRANDAO.
+func (app *MockApp) EvmBlockContext(block abevm.BlockRef) (vm.BlockContext, error) {
+	return vm.BlockContext{
+		BlockNumber: new(big.Int).SetUint64(uint64(block.Height)),
+		Time:        block.Time,
+		Random:      &common.Hash{},
+	}, nil
 }
 
 // EvmStateAt always errors: the mock app keeps no EVM state to trace against.
