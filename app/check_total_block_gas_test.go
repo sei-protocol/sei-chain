@@ -105,9 +105,10 @@ func TestCheckTotalBlockGas_MultipleEVMUnderLimit(t *testing.T) {
 	require.True(t, a.checkTotalBlockGas(ctx, txs))
 }
 
-// TestCheckTotalBlockGas_MultipleEVMExceedsMaxGas ensures EVM gas accounting is unchanged
-// when cumulative gas wanted exceeds MaxGas (no gas estimate path).
-func TestCheckTotalBlockGas_MultipleEVMExceedsMaxGas(t *testing.T) {
+// TestCheckTotalBlockGas_MultipleEVMMayExceedMaxGas verifies that EVM transactions whose gas
+// limits together exceed MaxGas are accepted, since the EVM gas a block uses is held to MaxGas as
+// it executes.
+func TestCheckTotalBlockGas_MultipleEVMMayExceedMaxGas(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 50_000, 1_000_000)
 
@@ -115,22 +116,43 @@ func TestCheckTotalBlockGas_MultipleEVMExceedsMaxGas(t *testing.T) {
 		buildSignedLegacyEVMTx(t, a, 1, 30_000, 0),
 		buildSignedLegacyEVMTx(t, a, 2, 30_000, 0),
 	}
-	require.False(t, a.checkTotalBlockGas(ctx, txs))
+	require.True(t, a.checkTotalBlockGas(ctx, txs))
 }
 
-// TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted exercises the branch where a
-// valid gas estimate (>= MinGasEVMTx and <= gasWanted) is charged instead of full gasWanted.
-// With MaxGas=80_000, three txs at gasWanted=100_000 would clearly exceed if counted by
-// gasWanted (300_000) but fit comfortably when counted by estimate (63_000).
-func TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted(t *testing.T) {
+// TestCheckTotalBlockGas_EVMTxOverMaxGas verifies that an EVM transaction whose gas limit alone
+// exceeds MaxGas is rejected.
+func TestCheckTotalBlockGas_EVMTxOverMaxGas(t *testing.T) {
 	a := Setup(t, false, false, false)
-	ctx := newBlockGasCtx(t, a, 80_000, 1_000_000)
+	ctx := newBlockGasCtx(t, a, 50_000, 1_000_000)
+
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{buildSignedLegacyEVMTx(t, a, 1, 50_001, 0)}))
+	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{buildSignedLegacyEVMTx(t, a, 1, 50_000, 0)}))
+}
+
+// TestCheckTotalBlockGas_ChargesGasLimitAgainstMaxGasWanted verifies that each EVM transaction is
+// charged its full gas limit against MaxGasWanted when it declares a smaller gas estimate. With
+// MaxGasWanted=250_000, three txs at gasWanted=100_000 declaring 21_000 each exceed it, and two fit.
+func TestCheckTotalBlockGas_ChargesGasLimitAgainstMaxGasWanted(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := newBlockGasCtx(t, a, 1_000_000, 250_000)
 
 	txs := make([]sdk.Tx, 0, 3)
 	for i := uint64(1); i <= 3; i++ {
 		txs = append(txs, buildSignedLegacyEVMTx(t, a, i, 100_000, 21_000))
 	}
-	require.True(t, a.checkTotalBlockGas(ctx, txs))
+	require.False(t, a.checkTotalBlockGas(ctx, txs))
+	require.True(t, a.checkTotalBlockGas(ctx, txs[:2]))
+}
+
+// TestCheckTotalBlockGas_EVMPayloadCannotBeUnpacked verifies that a block holding an EVM
+// transaction whose payload cannot be unpacked is rejected.
+func TestCheckTotalBlockGas_EVMPayloadCannotBeUnpacked(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
+
+	txb := a.GetTxConfig().NewTxBuilder()
+	require.NoError(t, txb.SetMsgs(&evmtypes.MsgEVMTransaction{}))
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{txb.GetTx()}))
 }
 
 // TestCheckTotalBlockGas_CosmosBankSend exercises Cosmos transaction gas accounting.
@@ -144,6 +166,22 @@ func TestCheckTotalBlockGas_CosmosBankSend(t *testing.T) {
 		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 1)),
 	}
 	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{buildCosmosTx(t, a, send, 80_000)}))
+}
+
+// TestCheckTotalBlockGas_CosmosTxsShareMaxGas verifies that Cosmos transactions whose gas limits
+// together exceed MaxGas are rejected.
+func TestCheckTotalBlockGas_CosmosTxsShareMaxGas(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := newBlockGasCtx(t, a, 100_000, 1_000_000)
+
+	send := &banktypes.MsgSend{
+		FromAddress: sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
+		ToAddress:   sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 1)),
+	}
+	txs := []sdk.Tx{buildCosmosTx(t, a, send, 60_000), buildCosmosTx(t, a, send, 60_000)}
+	require.False(t, a.checkTotalBlockGas(ctx, txs))
+	require.True(t, a.checkTotalBlockGas(ctx, txs[:1]))
 }
 
 // TestCheckTotalBlockGas_NilDecodedTx exercises the nil-entry branch of the accounting loop.

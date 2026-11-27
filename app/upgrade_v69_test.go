@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
+	ethparams "github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -21,22 +24,28 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/upgradetest"
 	"github.com/stretchr/testify/require"
 )
 
-// v6.9 removes the authz module and stores the disabled message type URLs. The
-// store loader deletes the authz store at the upgrade height, taking every
-// outstanding grant with it, and the handler deletes the authz version-map
-// entry. The params 2 to 3 migration stores the disabled message type URLs, the
-// params-module parameter that lists the messages a Cosmos transaction may not
-// carry, as an empty list. Governance refuses a change to a parameter that is
-// not stored, so before v6.9 no proposal can disable a message type. No other
-// module version and no other store changes. These tests cover the handler, the
-// refusal of every authz message after the upgrade, the stored parameter, a
-// proposal that disables MsgSend once v6.9 has run, and the upgrade on a live
-// chain that holds a grant.
+// v6.9 removes the authz module, stores the disabled message type URLs, and
+// holds a block's EVM gas to MaxGas as it executes. The store loader deletes
+// the authz store at the upgrade height, taking every outstanding grant with
+// it, and the handler deletes the authz version-map entry. The params 2 to 3
+// migration stores the disabled message type URLs, the params-module parameter
+// that lists the messages a Cosmos transaction may not carry, as an empty list.
+// Governance refuses a change to a parameter that is not stored, so before v6.9
+// no proposal can disable a message type. From the upgrade height, a block's
+// EVM transactions share what its Cosmos transactions' gas limits leave of
+// MaxGas, each running only if its gas limit fits the gas left, and
+// ProcessProposal holds each transaction's gas limit, rather than the estimate
+// it declares, to MaxGas. No other module version and no other store changes.
+// These tests cover the handler, the refusal of every authz message after the
+// upgrade, the stored parameter, a proposal that disables MsgSend once v6.9 has
+// run, the block gas rules on an upgraded chain, and the upgrade on a live chain
+// that holds a grant.
 
 const (
 	v69UpgradeName       = "v6.9"
@@ -53,6 +62,9 @@ const (
 	// versions on either side of the upgrade.
 	v69ParamsVersionBefore uint64 = 2
 	v69ParamsVersion       uint64 = 3
+
+	// v69MaxGas is the MaxGas of the chains the block gas tests run.
+	v69MaxGas int64 = 1_000_000
 )
 
 // v69DisabledMsgTypeURLsKey is the params-store key of the disabled message type URLs.
@@ -265,6 +277,54 @@ func TestV69LetsGovernanceDisableMessageTypes(t *testing.T) {
 	require.Len(t, results, 1)
 	require.Equal(t, sdkerrors.ErrMsgTypeDisabled.ABCICode(), results[0].Code, results[0].Log)
 	require.Equal(t, sdkerrors.RootCodespace, results[0].Codespace)
+}
+
+// applyV69ToGasBurnerChain registers the v6.9 handler on a chain from
+// commitGasBurnerChain and applies it against the committed multistore.
+func applyV69ToGasBurnerChain(t *testing.T, ap *app.App) {
+	t.Helper()
+	t.Setenv("UPGRADE_VERSION_LIST", v69UpgradeName)
+	ap.RegisterUpgradeHandlers()
+	ctx, write := ap.NewUncachedContext(false, tmproto.Header{ChainID: "sei-test", Height: ap.LastBlockHeight()}).CacheContext()
+	ap.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{
+		Name:   v69UpgradeName,
+		Height: ctx.BlockHeight(),
+	})
+	write()
+}
+
+// TestV69HoldsABlocksEVMGasToMaxGas applies v6.9 and executes a block of two EVM
+// txs that each set MaxGas as their gas limit and declare 21,000 as their
+// estimate. ProcessProposal accepts the block, since each gas limit fits
+// MaxGas, and the second tx is refused for block gas and leaves its nonce
+// unspent.
+func TestV69HoldsABlocksEVMGasToMaxGas(t *testing.T) {
+	ap, burner, senders := commitGasBurnerChain(t, v69MaxGas, 4*v69MaxGas, 2)
+	applyV69ToGasBurnerChain(t, ap)
+	txs := wrapEVMTxs(t, ap, signGasBurnerCalls(t, burner, senders, uint64(v69MaxGas)), ethparams.TxGas)
+	header := &tmproto.Header{ChainID: "sei-test", Height: 2}
+	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, processProposal(t, ap, header, txs))
+
+	res, err := ap.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Txs: txs, Header: header})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 2)
+	require.Equal(t, uint32(0), res.TxResults[0].Code, res.TxResults[0].Log)
+	require.True(t, res.TxResults[1].IsBlockGasLimitReached(), res.TxResults[1].Log)
+	_, err = ap.Commit(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, ap.EvmNonce(crypto.PubkeyToAddress(senders[1].PublicKey)),
+		"the refused tx leaves its sender's nonce unspent")
+}
+
+// TestV69RejectsAProposalWhoseTxExceedsMaxGas applies v6.9 and proposes a block
+// of one EVM tx whose gas limit is twice MaxGas and that declares 21,000 as its
+// estimate. ProcessProposal rejects it.
+func TestV69RejectsAProposalWhoseTxExceedsMaxGas(t *testing.T) {
+	ap, burner, senders := commitGasBurnerChain(t, v69MaxGas, 4*v69MaxGas, 1)
+	applyV69ToGasBurnerChain(t, ap)
+	txs := wrapEVMTxs(t, ap, signGasBurnerCalls(t, burner, senders, uint64(2*v69MaxGas)), ethparams.TxGas)
+	require.Equal(t, abci.ResponseProcessProposal_REJECT,
+		processProposal(t, ap, &tmproto.Header{ChainID: "sei-test", Height: 2}, txs))
 }
 
 // TestV69CrossVersion runs v6.8 validators into the v6.9 upgrade with a send

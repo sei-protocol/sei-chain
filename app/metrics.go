@@ -62,6 +62,7 @@ var (
 		optimisticProcessing metric.Int64Counter
 		failedGasWantedCheck metric.Int64Counter
 		gigaFallback         metric.Int64Counter
+		blockGasRejectedTxs  metric.Int64Counter
 
 		// Per-block gas utilisation
 		blockGasWanted      metric.Int64Histogram
@@ -163,6 +164,12 @@ var (
 		gigaFallback: must(meter.Int64Counter(
 			"app_giga_fallback_to_v2",
 			metric.WithDescription("Times giga executor fell back to V2 processing"),
+			metric.WithUnit("{count}"),
+		)),
+
+		blockGasRejectedTxs: must(meter.Int64Counter(
+			"app_block_gas_rejected_txs",
+			metric.WithDescription("EVM transactions recorded without executing because their gas limit exceeded the EVM gas left in their block"),
 			metric.WithUnit("{count}"),
 		)),
 

@@ -27,7 +27,7 @@ The module executes Ethereum transactions by bridging into go-ethereum's EVM int
 4. Gas is converted between Sei and EVM units using a configurable normalizer.
 5. Results (logs, state changes, receipts) are persisted back to Cosmos SDK stores.
 
-There is no block-level gas limit enforced by the EVM module; gas limits are per-transaction.
+The EVM module enforces gas limits per transaction. The block-level limit is the app's (`app/blockgas`): a block's EVM transactions share what its Cosmos transactions' gas limits leave of `MaxGas`, and as the block executes, an EVM transaction runs only if its gas limit fits in the gas left, then gives back what it did not use, as on Ethereum. One that does not fit is recorded with `ErrBlockGasLimitReached` and never executes, and the mempool keeps it for a later block.
 
 Other modules and CosmWasm contracts can also invoke the EVM programmatically through internal call and delegate-call messages. However, only 1-hop of write-able call is allowed.
 
@@ -171,6 +171,7 @@ There are several types of synthetic receipts/logs on Sei.
 Unlike Ethereum, an EVM transaction on Sei could fail before it reaches the EVM (i.e. during ante handling).
 - **Nonce Mismatch** - such failures would not result in any receipt, because they involve no state change
 - **Others Ante Failures** - such failures would result in a status-0 receipt, because nonce for the sender will be incremented in such cases.
+- **Block Gas Exhausted** - a transaction whose gas limit exceeds the EVM gas left in its block results in no receipt, because it never executes and leaves its nonce unspent.
 
 ---
 

@@ -16,6 +16,14 @@ const (
 	CodeTypeOK uint32 = 0
 )
 
+// CodespaceEVM and CodeBlockGasLimitReached are the codespace and code of the result of an EVM
+// transaction that its block recorded without executing, because the transaction's gas limit
+// exceeded the EVM gas left in the block.
+const (
+	CodespaceEVM                    = "evm"
+	CodeBlockGasLimitReached uint32 = 5
+)
+
 // IsOK returns true if Code is OK.
 func (r ResponseCheckTx) IsOK() bool {
 	return r.Code == CodeTypeOK
@@ -51,6 +59,12 @@ func (r ExecTxResult) IsOK() bool {
 // IsErr returns true if Code is something other than OK.
 func (r ExecTxResult) IsErr() bool {
 	return r.Code != CodeTypeOK
+}
+
+// IsBlockGasLimitReached reports whether the result is of a transaction that its block recorded
+// without executing because the block had too little gas left for it. The transaction stays valid.
+func (r ExecTxResult) IsBlockGasLimitReached() bool {
+	return r.Codespace == CodespaceEVM && r.Code == CodeBlockGasLimitReached
 }
 
 // IsOK returns true if Code is OK.

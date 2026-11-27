@@ -94,6 +94,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
+	"github.com/sei-protocol/sei-chain/app/blockgas"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -269,7 +270,6 @@ var (
 )
 
 const (
-	MinGasEVMTx        = 21000
 	feegrantModuleName = "feegrant"
 	vestingModuleName  = "vesting"
 
@@ -1312,7 +1312,13 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 	}
 }
 
-func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
+// rejectTxForBlockGas returns the result of a tx that its block's gas pool refused with err.
+func rejectTxForBlockGas(ctx sdk.Context, err error) *abci.ExecTxResult {
+	appMetrics.blockGasRejectedTxs.Add(ctx.Context(), 1)
+	return blockgas.Rejected(err)
+}
+
+func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, gas *blockgas.Pool) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
@@ -1322,7 +1328,12 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 	txResults := make([]*abci.ExecTxResult, 0, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(i)
+		if err := gas.Admit(i); err != nil {
+			txResults = append(txResults, rejectTxForBlockGas(ctx, err))
+			continue
+		}
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+		gas.Use(i, res)
 		txResults = append(txResults, res)
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
@@ -1330,7 +1341,7 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 	return txResults
 }
 
-func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
+func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, gas *blockgas.Pool) []*abci.ExecTxResult {
 	blockProcessGigaStart := time.Now()
 	defer func() {
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
@@ -1351,104 +1362,111 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(i)
-		evmMsg := app.GetEVMMsg(typedTxs[i])
-		// If not an EVM tx, fall back to v2 processing
-		if evmMsg == nil {
-			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
-			txResults[i] = result
-			ms.Write()
+		if err := gas.Admit(i); err != nil {
+			txResults[i] = rejectTxForBlockGas(ctx, err)
 			continue
 		}
-
-		// Execute EVM transaction through giga executor with panic recovery.
-		// Matches V2's recover behavior in legacyabci/deliver_tx.go.
-		var result *abci.ExecTxResult
-		var execErr error
-		// fallbackToV2: store-iteration panic; re-run this tx via v2 to match v2.
-		var fallbackToV2 bool
-		// IIFE (immediately-invoked function) to scope defer/recover to this tx only,
-		// allowing the loop to continue processing subsequent transactions after a panic.
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					// Handle panics by type (matches V2's recovery middleware in baseapp/recovery.go)
-					if oogErr, isOOG := r.(sdk.ErrorOutOfGas); isOOG {
-						result = &abci.ExecTxResult{
-							Codespace: sdkerrors.RootCodespace,
-							Code:      sdkerrors.ErrOutOfGas.ABCICode(),
-							Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
-						}
-						return
-					}
-					// Store-iteration panic: giga can't handle this tx; fall back to v2 (mirrors makeGigaDeliverTx).
-					if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
-						fallbackToV2 = true
-						return
-					}
-					// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
-					logger.Error("panic in giga synchronous executor", "panic", r, "stack", string(debug.Stack()))
-					result = &abci.ExecTxResult{
-						Codespace: sdkerrors.UndefinedCodespace,
-						Code:      sdkerrors.ErrPanic.ABCICode(),
-						Log:       fmt.Sprintf("panic recovered: %v", r),
-					}
-				}
-			}()
-
-			// Validate Cosmos SDK envelope (memo, timeoutHeight, signerInfos, etc.)
-			// This prevents consensus divergence if a malicious proposer includes invalid envelope fields.
-			if err := appante.EvmStatelessChecks(ctx, typedTxs[i], cache.chainID); err != nil {
-				codespace, code, log := sdkerrors.ABCIInfo(err, false)
-				result = &abci.ExecTxResult{
-					Codespace: codespace,
-					Code:      code,
-					Log:       log,
-				}
-				return
-			}
-
-			result, execErr = app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
-		}()
-
-		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
-		if fallbackToV2 {
-			appMetrics.gigaFallback.Add(ctx.Context(), 1,
-				otelmetric.WithAttributes(
-					attribute.String("reason", gigaFallbackStoreIterator),
-					attribute.String("scope", "tx")))
-			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
-			txResults[i] = res
-			ms.Write()
-			continue
-		}
-
-		if execErr != nil {
-			// Abort errors (validation failure, balance migration, self-destruct,
-			// cosmos-precompile interop) re-run this tx via v2.
-			if gigautils.ShouldExecutionAbort(execErr) {
-				appMetrics.gigaFallback.Add(ctx.Context(), 1,
-					otelmetric.WithAttributes(
-						attribute.String("reason", gigaFallbackReason(execErr)),
-						attribute.String("scope", "tx")))
-				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
-				txResults[i] = res
-				ms.Write()
-				continue
-			}
-			txResults[i] = &abci.ExecTxResult{
-				Code: 1,
-				Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
-			}
-			continue
-		}
-
-		txResults[i] = result
-		ctx.GigaMultiStore().WriteGiga()
-		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
+		txResults[i] = app.deliverTxSynchronousGiga(ctx, ms, cache, tx, typedTxs[i])
+		gas.Use(i, txResults[i])
 	}
 
 	return txResults
+}
+
+// deliverTxSynchronousGiga executes one tx of a block that the Giga executor processes in order,
+// running it through v2 when the Giga executor cannot. ctx must carry ms as its multistore.
+func (app *App) deliverTxSynchronousGiga(ctx sdk.Context, ms sdk.CacheMultiStore, cache *gigaBlockCache, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
+	evmMsg := app.GetEVMMsg(typedTx)
+	// If not an EVM tx, fall back to v2 processing
+	if evmMsg == nil {
+		result := app.DeliverTxWithResult(ctx, tx, typedTx)
+		ms.Write()
+		return result
+	}
+
+	// Execute EVM transaction through giga executor with panic recovery.
+	// Matches V2's recover behavior in legacyabci/deliver_tx.go.
+	var result *abci.ExecTxResult
+	var execErr error
+	// fallbackToV2: store-iteration panic; re-run this tx via v2 to match v2.
+	var fallbackToV2 bool
+	// IIFE (immediately-invoked function) to scope defer/recover to this tx only,
+	// allowing the block to continue processing subsequent transactions after a panic.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Handle panics by type (matches V2's recovery middleware in baseapp/recovery.go)
+				if oogErr, isOOG := r.(sdk.ErrorOutOfGas); isOOG {
+					result = &abci.ExecTxResult{
+						Codespace: sdkerrors.RootCodespace,
+						Code:      sdkerrors.ErrOutOfGas.ABCICode(),
+						Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
+					}
+					return
+				}
+				// Store-iteration panic: giga can't handle this tx; fall back to v2 (mirrors makeGigaDeliverTx).
+				if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
+					fallbackToV2 = true
+					return
+				}
+				// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
+				logger.Error("panic in giga synchronous executor", "panic", r, "stack", string(debug.Stack()))
+				result = &abci.ExecTxResult{
+					Codespace: sdkerrors.UndefinedCodespace,
+					Code:      sdkerrors.ErrPanic.ABCICode(),
+					Log:       fmt.Sprintf("panic recovered: %v", r),
+				}
+			}
+		}()
+
+		// Validate Cosmos SDK envelope (memo, timeoutHeight, signerInfos, etc.)
+		// This prevents consensus divergence if a malicious proposer includes invalid envelope fields.
+		if err := appante.EvmStatelessChecks(ctx, typedTx, cache.chainID); err != nil {
+			codespace, code, log := sdkerrors.ABCIInfo(err, false)
+			result = &abci.ExecTxResult{
+				Codespace: codespace,
+				Code:      code,
+				Log:       log,
+			}
+			return
+		}
+
+		result, execErr = app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
+	}()
+
+	// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
+	if fallbackToV2 {
+		appMetrics.gigaFallback.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(
+				attribute.String("reason", gigaFallbackStoreIterator),
+				attribute.String("scope", "tx")))
+		res := app.DeliverTxWithResult(ctx, tx, typedTx)
+		ms.Write()
+		return res
+	}
+
+	if execErr != nil {
+		// Abort errors (validation failure, balance migration, self-destruct,
+		// cosmos-precompile interop) re-run this tx via v2.
+		if gigautils.ShouldExecutionAbort(execErr) {
+			appMetrics.gigaFallback.Add(ctx.Context(), 1,
+				otelmetric.WithAttributes(
+					attribute.String("reason", gigaFallbackReason(execErr)),
+					attribute.String("scope", "tx")))
+			res := app.DeliverTxWithResult(ctx, tx, typedTx)
+			ms.Write()
+			return res
+		}
+		return &abci.ExecTxResult{
+			Code: 1,
+			Log:  fmt.Sprintf("[BUG] giga executor error: %v", execErr),
+		}
+	}
+
+	ctx.GigaMultiStore().WriteGiga()
+	appMetrics.txProcessType.Add(ctx.Context(), 1,
+		otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
+	return result
 }
 
 func (app *App) shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs []sdk.Tx) bool {
@@ -1490,16 +1508,24 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
-	processSynchronously := app.shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs)
+	cp := ctx.ConsensusParams()
+	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
+		// A replayed Ethereum block was already held to its own gas limit.
+		cp = nil
+	}
+	gas := blockgas.NewPool(cp, typedTxs)
+	// Whether the pool refuses a tx depends on the gas used by the txs before it, so a block in
+	// which it may refuse one executes in order.
+	processSynchronously := gas.MayReject() || app.shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs)
 	if app.GigaExecutorEnabled && app.GigaOCCEnabled && !processSynchronously {
 		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
 	} else if app.GigaExecutorEnabled {
-		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
+		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, gas), ctx
 	} else if !ctx.IsOCCEnabled() {
-		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, gas), ctx
 	}
 	if processSynchronously {
-		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, gas), ctx
 	}
 
 	return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs)
@@ -2568,9 +2594,11 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 }
 
-// checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
-// the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
-// or the gas wanted if it's a Cosmos tx. typedTxs must align with proposal order (nil = decode failure).
+// checkTotalBlockGas reports whether the gas limits of the txs in a block fit its consensus
+// params: no tx declares more than MaxGas, all of them together no more than MaxGasWanted, and the
+// Cosmos txs together no more than MaxGas. The EVM gas a block uses is held to what the Cosmos txs
+// leave of MaxGas as the block executes (see blockgas.Pool). typedTxs must align with proposal
+// order, with nil for a tx that failed to decode.
 func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -2579,59 +2607,35 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 		}
 	}()
 
-	var totalGas, totalGasWanted uint64
+	var totalGasWanted, totalCosmosGas uint64
 	for _, decodedTx := range typedTxs {
 		if decodedTx == nil {
 			return false
 		}
-
-		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
-
-		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
-		// processed and so contributes no gas to the block.
-		if evmErr != nil {
+		kind, gasWanted, err := blockgas.Of(decodedTx)
+		if err != nil {
+			return false
+		}
+		if kind == blockgas.Uncharged {
 			continue
 		}
 
-		var gasWanted uint64
-		if isEVM {
-			msg := evmtypes.MustGetEVMTransactionMessage(decodedTx)
-			if msg.IsAssociateTx() {
-				continue
-			}
-			etx, _ := msg.AsTransaction()
-			gasWanted = etx.Gas()
-		} else {
-			feeTx, ok := decodedTx.(sdk.FeeTx)
-			if !ok {
-				// Non-fee tx won't be processed and thus won't consume gas. Skipping.
-				continue
-			}
-			gasWanted = feeTx.GetGas()
-		}
-
-		// Overflow guards: gasWanted must fit in int64, and adding it to either accumulator
-		// must not wrap uint64.
+		// Overflow guards: gasWanted must fit in int64, and adding it to the total must not
+		// wrap uint64.
 		if int64(gasWanted) < 0 || //nolint:gosec
-			totalGasWanted > math.MaxUint64-gasWanted ||
-			totalGas > math.MaxUint64-gasWanted {
+			totalGasWanted > math.MaxUint64-gasWanted {
 			return false
 		}
 
 		totalGasWanted += gasWanted
-
-		// Prefer the gas estimate when it's a valid EVM estimate (>= MinGasEVMTx) and not
-		// inflated above gasWanted; otherwise charge full gasWanted.
-		if est := decodedTx.GetGasEstimate(); est >= MinGasEVMTx && est <= gasWanted {
-			totalGas += est
-		} else {
-			totalGas += gasWanted
+		if kind == blockgas.Cosmos {
+			totalCosmosGas += gasWanted
 		}
 
 		blockParams := ctx.ConsensusParams().Block
-		maxGasWanted := uint64(blockParams.MaxGasWanted) //nolint:gosec
-		maxGas := uint64(blockParams.MaxGas)             //nolint:gosec
-		if totalGasWanted > maxGasWanted || totalGas > maxGas {
+		maxGasWanted := blockgas.Limit(blockParams.MaxGasWanted)
+		maxGas := blockgas.Limit(blockParams.MaxGas)
+		if gasWanted > maxGas || totalGasWanted > maxGasWanted || totalCosmosGas > maxGas {
 			return false
 		}
 	}

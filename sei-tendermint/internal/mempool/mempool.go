@@ -416,18 +416,19 @@ func (txmp *TxMempool) Flush() {
 	Global.TotalTxsSizeBytesAt().Set(0)
 }
 
-// ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
-// The returned list starts with EVM transactions (in priority order),
-// followed by non-EVM transactions (in priority order).
-// There are 4 types of constraints.
-//  1. maxBytes - stops pulling txs from mempool once maxBytes is hit.
-//  2. maxGasWanted - stops pulling txs from mempool once total gas wanted exceeds maxGasWanted.
-//     Can be set to -1 to be ignored.
-//  3. maxGasEstimated - similar to maxGasWanted but will use the estimated gas used for EVM txs
-//     while still using gas wanted for cosmos txs. Can be set to -1 to be ignored.
+// ReapTxs returns transactions from the mempool within limits, and their total estimated gas. It
+// returns the EVM transactions first and then the rest, each in priority order, and pulls them as
+// follows:
+//   - MaxTxs and MaxBytes stop pulling at the first transaction that would exceed them.
+//   - MaxGasWanted skips a transaction whose gas wanted would take the total past it.
+//   - MaxGasEstimated is the block's gas. An EVM transaction is skipped if its gas wanted exceeds
+//     what the transactions pulled so far are estimated to leave of it, and otherwise uses its
+//     estimated gas. A non-EVM transaction reserves its whole gas wanted, and is skipped if that
+//     would leave an EVM transaction already pulled less gas than it wants.
 //
-// NOTE: Transactions are removed from the mempool iff remove == true.
-// Either way, the transactions stay in the LRU cache.
+// Skipping an EVM transaction also skips its sender's later transactions. A negative limit is
+// ignored. Transactions are removed from the mempool iff remove == true, and stay in the LRU cache
+// either way.
 func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
 	txs, gasEstimate := txmp.txStore.Reap(limits, remove)
 	if remove {
@@ -440,7 +441,9 @@ func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64
 
 // Update iterates over all the transactions provided by the block producer,
 // removes them from the cache (if applicable), and removes
-// the transactions from the main transaction store and associated indexes.
+// the transactions from the main transaction store and associated indexes,
+// except those the block recorded without executing (see
+// abci.ExecTxResult.IsBlockGasLimitReached), which stay for a later block.
 // If recheck = true, CheckTx is called on all remaining transactions.
 //
 // NOTE:
@@ -464,6 +467,9 @@ func (txmp *TxMempool) Update(
 
 	txResults := map[types.TxHash]bool{}
 	for i, tx := range blockTxs {
+		if execTxResult[i].IsBlockGasLimitReached() {
+			continue
+		}
 		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK
 	}
 	newPriorities := map[types.TxHash]int64{}
