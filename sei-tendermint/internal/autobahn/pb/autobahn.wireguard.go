@@ -171,6 +171,26 @@ func (*SignedChallenge) MaxSize() int {
 	return 142
 }
 
+func (*ValidatorAddrAnnouncement) MaxSize() int {
+	return 3061
+}
+
+func (*ValidatorEndpoint) MaxSize() int {
+	return 329
+}
+
+func (*SignedValidatorAddrAnnouncement) MaxSize() int {
+	return 3168
+}
+
+func (*ValidatorAddrAck) MaxSize() int {
+	return 47
+}
+
+func (*ValidatorAddrMsg) MaxSize() int {
+	return 3171
+}
+
 func init() {
 	// Register the wireguard.Schema generated for autobahn.Timestamp.
 	runtime.MustRegister[*Timestamp](runtime.Schema{
@@ -488,6 +508,38 @@ func init() {
 	runtime.MustRegister[*SignedChallenge](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Challenge]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.ValidatorAddrAnnouncement.
+	runtime.MustRegister[*ValidatorAddrAnnouncement](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1, MaxSize: 128},
+		3: {MaxCount: 1, MaxSize: 260},
+		4: {MaxCount: 8, Nested: utils.Some(reflect.TypeFor[*ValidatorEndpoint]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.ValidatorEndpoint.
+	runtime.MustRegister[*ValidatorEndpoint](runtime.Schema{
+		1: {MaxCount: 1, MaxSize: 64},
+		2: {MaxCount: 1, MaxSize: 260},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.SignedValidatorAddrAnnouncement.
+	runtime.MustRegister[*SignedValidatorAddrAnnouncement](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ValidatorAddrAnnouncement]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.ValidatorAddrAck.
+	runtime.MustRegister[*ValidatorAddrAck](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PublicKey]())},
+		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.ValidatorAddrMsg.
+	runtime.MustRegister[*ValidatorAddrMsg](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedValidatorAddrAnnouncement]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ValidatorAddrAck]())},
 	})
 
 }

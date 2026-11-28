@@ -51,7 +51,7 @@ func newTestNode(t testing.TB, registry *epoch.TestRegistry, cfg *consensus.Conf
 	return &testNode{
 		data:      dataState,
 		consensus: consensusState,
-		service:   NewService(consensusState),
+		service:   NewService(consensusState, newVerified(acceptAll)),
 	}
 }
 

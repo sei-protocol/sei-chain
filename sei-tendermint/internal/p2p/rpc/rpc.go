@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -152,6 +153,9 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 	})
 }
 
+// ErrMalformedMsg marks a message received on a stream that does not decode as the stream's receive type.
+var ErrMalformedMsg = errors.New("malformed message")
+
 type Stream[SendT, RecvT protoutils.Message] struct{ inner *mux.Stream }
 
 func (s Stream[SendT, RecvT]) Close() { s.inner.Close() }
@@ -160,10 +164,15 @@ func (s Stream[SendT, RecvT]) Send(ctx context.Context, msg SendT) error {
 	return s.inner.Send(ctx, protoutils.Marshal(msg))
 }
 
+// Recv returns the next message. A message that does not decode wraps ErrMalformedMsg.
 func (s Stream[SendT, RecvT]) Recv(ctx context.Context) (RecvT, error) {
 	raw, err := s.inner.Recv(ctx, true)
 	if err != nil {
 		return utils.Zero[RecvT](), err
 	}
-	return protoutils.Unmarshal[RecvT](raw)
+	msg, err := protoutils.Unmarshal[RecvT](raw)
+	if err != nil {
+		return utils.Zero[RecvT](), fmt.Errorf("%w: %w", ErrMalformedMsg, err)
+	}
+	return msg, nil
 }

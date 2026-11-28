@@ -2924,6 +2924,320 @@ func (x *SignedChallenge) GetSig() *Signature {
 	return nil
 }
 
+// ValidatorAddrAnnouncement advertises where a committee member can be dialed.
+// Versions are monotonic per validator; a newer version replaces an older one.
+type ValidatorAddrAnnouncement struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *uint64                `protobuf:"varint,1,opt,name=version,proto3,oneof" json:"version,omitempty"`               // required
+	NodeKey *string                `protobuf:"bytes,2,opt,name=node_key,json=nodeKey,proto3,oneof" json:"node_key,omitempty"` // required
+	// 260 fits the longest host:port: a 253-char DNS name + ":" + a 5-digit port.
+	HostPort *string `protobuf:"bytes,3,opt,name=host_port,json=hostPort,proto3,oneof" json:"host_port,omitempty"` // required
+	// Other endpoints the validator advertises. Dialing uses host_port only.
+	Endpoints     []*ValidatorEndpoint `protobuf:"bytes,4,rep,name=endpoints,proto3" json:"endpoints,omitempty"` // optional
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidatorAddrAnnouncement) Reset() {
+	*x = ValidatorAddrAnnouncement{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatorAddrAnnouncement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatorAddrAnnouncement) ProtoMessage() {}
+
+func (x *ValidatorAddrAnnouncement) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatorAddrAnnouncement.ProtoReflect.Descriptor instead.
+func (*ValidatorAddrAnnouncement) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *ValidatorAddrAnnouncement) GetVersion() uint64 {
+	if x != nil && x.Version != nil {
+		return *x.Version
+	}
+	return 0
+}
+
+func (x *ValidatorAddrAnnouncement) GetNodeKey() string {
+	if x != nil && x.NodeKey != nil {
+		return *x.NodeKey
+	}
+	return ""
+}
+
+func (x *ValidatorAddrAnnouncement) GetHostPort() string {
+	if x != nil && x.HostPort != nil {
+		return *x.HostPort
+	}
+	return ""
+}
+
+func (x *ValidatorAddrAnnouncement) GetEndpoints() []*ValidatorEndpoint {
+	if x != nil {
+		return x.Endpoints
+	}
+	return nil
+}
+
+// ValidatorEndpoint is a named endpoint a validator advertises alongside its dial address.
+type ValidatorEndpoint struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          *string                `protobuf:"bytes,1,opt,name=name,proto3,oneof" json:"name,omitempty"`                         // required
+	HostPort      *string                `protobuf:"bytes,2,opt,name=host_port,json=hostPort,proto3,oneof" json:"host_port,omitempty"` // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidatorEndpoint) Reset() {
+	*x = ValidatorEndpoint{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatorEndpoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatorEndpoint) ProtoMessage() {}
+
+func (x *ValidatorEndpoint) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatorEndpoint.ProtoReflect.Descriptor instead.
+func (*ValidatorEndpoint) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *ValidatorEndpoint) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *ValidatorEndpoint) GetHostPort() string {
+	if x != nil && x.HostPort != nil {
+		return *x.HostPort
+	}
+	return ""
+}
+
+type SignedValidatorAddrAnnouncement struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Msg           *ValidatorAddrAnnouncement `protobuf:"bytes,1,opt,name=msg,proto3,oneof" json:"msg,omitempty"` // required
+	Sig           *Signature                 `protobuf:"bytes,2,opt,name=sig,proto3,oneof" json:"sig,omitempty"` // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedValidatorAddrAnnouncement) Reset() {
+	*x = SignedValidatorAddrAnnouncement{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedValidatorAddrAnnouncement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedValidatorAddrAnnouncement) ProtoMessage() {}
+
+func (x *SignedValidatorAddrAnnouncement) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedValidatorAddrAnnouncement.ProtoReflect.Descriptor instead.
+func (*SignedValidatorAddrAnnouncement) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *SignedValidatorAddrAnnouncement) GetMsg() *ValidatorAddrAnnouncement {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SignedValidatorAddrAnnouncement) GetSig() *Signature {
+	if x != nil {
+		return x.Sig
+	}
+	return nil
+}
+
+// ValidatorAddrAck tells the peer that the sender holds validator's announcement at version. It is
+// unsigned: the peer only stops resending that announcement on this stream.
+type ValidatorAddrAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Validator     *PublicKey             `protobuf:"bytes,1,opt,name=validator,proto3,oneof" json:"validator,omitempty"` // required
+	Version       *uint64                `protobuf:"varint,2,opt,name=version,proto3,oneof" json:"version,omitempty"`    // required
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidatorAddrAck) Reset() {
+	*x = ValidatorAddrAck{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatorAddrAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatorAddrAck) ProtoMessage() {}
+
+func (x *ValidatorAddrAck) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatorAddrAck.ProtoReflect.Descriptor instead.
+func (*ValidatorAddrAck) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *ValidatorAddrAck) GetValidator() *PublicKey {
+	if x != nil {
+		return x.Validator
+	}
+	return nil
+}
+
+func (x *ValidatorAddrAck) GetVersion() uint64 {
+	if x != nil && x.Version != nil {
+		return *x.Version
+	}
+	return 0
+}
+
+// ValidatorAddrMsg is one message on the validator address stream.
+type ValidatorAddrMsg struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to T:
+	//
+	//	*ValidatorAddrMsg_Announcement
+	//	*ValidatorAddrMsg_Ack
+	T             isValidatorAddrMsg_T `protobuf_oneof:"t"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidatorAddrMsg) Reset() {
+	*x = ValidatorAddrMsg{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatorAddrMsg) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatorAddrMsg) ProtoMessage() {}
+
+func (x *ValidatorAddrMsg) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatorAddrMsg.ProtoReflect.Descriptor instead.
+func (*ValidatorAddrMsg) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *ValidatorAddrMsg) GetT() isValidatorAddrMsg_T {
+	if x != nil {
+		return x.T
+	}
+	return nil
+}
+
+func (x *ValidatorAddrMsg) GetAnnouncement() *SignedValidatorAddrAnnouncement {
+	if x != nil {
+		if x, ok := x.T.(*ValidatorAddrMsg_Announcement); ok {
+			return x.Announcement
+		}
+	}
+	return nil
+}
+
+func (x *ValidatorAddrMsg) GetAck() *ValidatorAddrAck {
+	if x != nil {
+		if x, ok := x.T.(*ValidatorAddrMsg_Ack); ok {
+			return x.Ack
+		}
+	}
+	return nil
+}
+
+type isValidatorAddrMsg_T interface {
+	isValidatorAddrMsg_T()
+}
+
+type ValidatorAddrMsg_Announcement struct {
+	Announcement *SignedValidatorAddrAnnouncement `protobuf:"bytes,1,opt,name=announcement,proto3,oneof"`
+}
+
+type ValidatorAddrMsg_Ack struct {
+	Ack *ValidatorAddrAck `protobuf:"bytes,2,opt,name=ack,proto3,oneof"`
+}
+
+func (*ValidatorAddrMsg_Announcement) isValidatorAddrMsg_T() {}
+
+func (*ValidatorAddrMsg_Ack) isValidatorAddrMsg_T() {}
+
 var File_autobahn_autobahn_proto protoreflect.FileDescriptor
 
 const file_autobahn_autobahn_proto_rawDesc = "" +
@@ -3220,7 +3534,39 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x03msg\x18\x01 \x01(\v2\x13.autobahn.ChallengeH\x00R\x03msg\x88\x01\x01\x12*\n" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureH\x01R\x03sig\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x06\n" +
 	"\x04_msgB\x06\n" +
-	"\x04_sigBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
+	"\x04_sig\"\x86\x02\n" +
+	"\x19ValidatorAddrAnnouncement\x12\x1d\n" +
+	"\aversion\x18\x01 \x01(\x04H\x00R\aversion\x88\x01\x01\x12'\n" +
+	"\bnode_key\x18\x02 \x01(\tB\a؈\xe2\xab\f\x80\x01H\x01R\anodeKey\x88\x01\x01\x12)\n" +
+	"\thost_port\x18\x03 \x01(\tB\a؈\xe2\xab\f\x84\x02H\x02R\bhostPort\x88\x01\x01\x12A\n" +
+	"\tendpoints\x18\x04 \x03(\v2\x1b.autobahn.ValidatorEndpointB\x06Ј\xe2\xab\f\bR\tendpoints:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\n" +
+	"\n" +
+	"\b_versionB\v\n" +
+	"\t_node_keyB\f\n" +
+	"\n" +
+	"_host_port\"\x84\x01\n" +
+	"\x11ValidatorEndpoint\x12\x1f\n" +
+	"\x04name\x18\x01 \x01(\tB\x06؈\xe2\xab\f@H\x00R\x04name\x88\x01\x01\x12)\n" +
+	"\thost_port\x18\x02 \x01(\tB\a؈\xe2\xab\f\x84\x02H\x01R\bhostPort\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
+	"\x05_nameB\f\n" +
+	"\n" +
+	"_host_port\"\xa1\x01\n" +
+	"\x1fSignedValidatorAddrAnnouncement\x12:\n" +
+	"\x03msg\x18\x01 \x01(\v2#.autobahn.ValidatorAddrAnnouncementH\x00R\x03msg\x88\x01\x01\x12*\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureH\x01R\x03sig\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x06\n" +
+	"\x04_msgB\x06\n" +
+	"\x04_sig\"\x8b\x01\n" +
+	"\x10ValidatorAddrAck\x126\n" +
+	"\tvalidator\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\tvalidator\x88\x01\x01\x12\x1d\n" +
+	"\aversion\x18\x02 \x01(\x04H\x01R\aversion\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\f\n" +
+	"\n" +
+	"_validatorB\n" +
+	"\n" +
+	"\b_version\"\xa0\x01\n" +
+	"\x10ValidatorAddrMsg\x12O\n" +
+	"\fannouncement\x18\x01 \x01(\v2).autobahn.SignedValidatorAddrAnnouncementH\x00R\fannouncement\x12.\n" +
+	"\x03ack\x18\x02 \x01(\v2\x1a.autobahn.ValidatorAddrAckH\x00R\x03ack:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
+	"\x01tBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once
@@ -3234,60 +3580,65 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
 var file_autobahn_autobahn_proto_goTypes = []any{
-	(*Timestamp)(nil),             // 0: autobahn.Timestamp
-	(*Duration)(nil),              // 1: autobahn.Duration
-	(*TransactionTimestamps)(nil), // 2: autobahn.TransactionTimestamps
-	(*TransactionHeader)(nil),     // 3: autobahn.TransactionHeader
-	(*Transaction)(nil),           // 4: autobahn.Transaction
-	(*TransactionResp)(nil),       // 5: autobahn.TransactionResp
-	(*PublicKey)(nil),             // 6: autobahn.PublicKey
-	(*LaneID)(nil),                // 7: autobahn.LaneID
-	(*Signature)(nil),             // 8: autobahn.Signature
-	(*LaneBlockHeader)(nil),       // 9: autobahn.LaneBlockHeader
-	(*Payload)(nil),               // 10: autobahn.Payload
-	(*LaneBlock)(nil),             // 11: autobahn.LaneBlock
-	(*LaneVote)(nil),              // 12: autobahn.LaneVote
-	(*LaneQC)(nil),                // 13: autobahn.LaneQC
-	(*LaneRange)(nil),             // 14: autobahn.LaneRange
-	(*View)(nil),                  // 15: autobahn.View
-	(*RoadBlockHeader)(nil),       // 16: autobahn.RoadBlockHeader
-	(*Proposal)(nil),              // 17: autobahn.Proposal
-	(*PrepareVote)(nil),           // 18: autobahn.PrepareVote
-	(*CommitVote)(nil),            // 19: autobahn.CommitVote
-	(*FullProposal)(nil),          // 20: autobahn.FullProposal
-	(*PrepareQC)(nil),             // 21: autobahn.PrepareQC
-	(*CommitQC)(nil),              // 22: autobahn.CommitQC
-	(*FullCommitQC)(nil),          // 23: autobahn.FullCommitQC
-	(*TimeoutVote)(nil),           // 24: autobahn.TimeoutVote
-	(*TimeoutQC)(nil),             // 25: autobahn.TimeoutQC
-	(*FullTimeoutVote)(nil),       // 26: autobahn.FullTimeoutVote
-	(*PersistedInner)(nil),        // 27: autobahn.PersistedInner
-	(*AppQC)(nil),                 // 28: autobahn.AppQC
-	(*AppProposal)(nil),           // 29: autobahn.AppProposal
-	(*Msg)(nil),                   // 30: autobahn.Msg
-	(*SignedProposal)(nil),        // 31: autobahn.SignedProposal
-	(*SignedPrepareVote)(nil),     // 32: autobahn.SignedPrepareVote
-	(*SignedCommitVote)(nil),      // 33: autobahn.SignedCommitVote
-	(*SignedTimeoutVote)(nil),     // 34: autobahn.SignedTimeoutVote
-	(*SignedAppVote)(nil),         // 35: autobahn.SignedAppVote
-	(*SignedLaneBlock)(nil),       // 36: autobahn.SignedLaneBlock
-	(*SignedLaneVote)(nil),        // 37: autobahn.SignedLaneVote
-	(*SignedAppProposal)(nil),     // 38: autobahn.SignedAppProposal
-	(*ConsensusMsg)(nil),          // 39: autobahn.ConsensusMsg
-	(*Committee)(nil),             // 40: autobahn.Committee
-	(*Epoch)(nil),                 // 41: autobahn.Epoch
-	(*StateSyncProof)(nil),        // 42: autobahn.StateSyncProof
-	(*EpochRegistry)(nil),         // 43: autobahn.EpochRegistry
-	(*EpochMember)(nil),           // 44: autobahn.EpochMember
-	(*LaneBlockPos)(nil),          // 45: autobahn.LaneBlockPos
-	(*Challenge)(nil),             // 46: autobahn.Challenge
-	(*SignedChallenge)(nil),       // 47: autobahn.SignedChallenge
-	nil,                           // 48: autobahn.TransactionHeader.PropertiesEntry
+	(*Timestamp)(nil),                       // 0: autobahn.Timestamp
+	(*Duration)(nil),                        // 1: autobahn.Duration
+	(*TransactionTimestamps)(nil),           // 2: autobahn.TransactionTimestamps
+	(*TransactionHeader)(nil),               // 3: autobahn.TransactionHeader
+	(*Transaction)(nil),                     // 4: autobahn.Transaction
+	(*TransactionResp)(nil),                 // 5: autobahn.TransactionResp
+	(*PublicKey)(nil),                       // 6: autobahn.PublicKey
+	(*LaneID)(nil),                          // 7: autobahn.LaneID
+	(*Signature)(nil),                       // 8: autobahn.Signature
+	(*LaneBlockHeader)(nil),                 // 9: autobahn.LaneBlockHeader
+	(*Payload)(nil),                         // 10: autobahn.Payload
+	(*LaneBlock)(nil),                       // 11: autobahn.LaneBlock
+	(*LaneVote)(nil),                        // 12: autobahn.LaneVote
+	(*LaneQC)(nil),                          // 13: autobahn.LaneQC
+	(*LaneRange)(nil),                       // 14: autobahn.LaneRange
+	(*View)(nil),                            // 15: autobahn.View
+	(*RoadBlockHeader)(nil),                 // 16: autobahn.RoadBlockHeader
+	(*Proposal)(nil),                        // 17: autobahn.Proposal
+	(*PrepareVote)(nil),                     // 18: autobahn.PrepareVote
+	(*CommitVote)(nil),                      // 19: autobahn.CommitVote
+	(*FullProposal)(nil),                    // 20: autobahn.FullProposal
+	(*PrepareQC)(nil),                       // 21: autobahn.PrepareQC
+	(*CommitQC)(nil),                        // 22: autobahn.CommitQC
+	(*FullCommitQC)(nil),                    // 23: autobahn.FullCommitQC
+	(*TimeoutVote)(nil),                     // 24: autobahn.TimeoutVote
+	(*TimeoutQC)(nil),                       // 25: autobahn.TimeoutQC
+	(*FullTimeoutVote)(nil),                 // 26: autobahn.FullTimeoutVote
+	(*PersistedInner)(nil),                  // 27: autobahn.PersistedInner
+	(*AppQC)(nil),                           // 28: autobahn.AppQC
+	(*AppProposal)(nil),                     // 29: autobahn.AppProposal
+	(*Msg)(nil),                             // 30: autobahn.Msg
+	(*SignedProposal)(nil),                  // 31: autobahn.SignedProposal
+	(*SignedPrepareVote)(nil),               // 32: autobahn.SignedPrepareVote
+	(*SignedCommitVote)(nil),                // 33: autobahn.SignedCommitVote
+	(*SignedTimeoutVote)(nil),               // 34: autobahn.SignedTimeoutVote
+	(*SignedAppVote)(nil),                   // 35: autobahn.SignedAppVote
+	(*SignedLaneBlock)(nil),                 // 36: autobahn.SignedLaneBlock
+	(*SignedLaneVote)(nil),                  // 37: autobahn.SignedLaneVote
+	(*SignedAppProposal)(nil),               // 38: autobahn.SignedAppProposal
+	(*ConsensusMsg)(nil),                    // 39: autobahn.ConsensusMsg
+	(*Committee)(nil),                       // 40: autobahn.Committee
+	(*Epoch)(nil),                           // 41: autobahn.Epoch
+	(*StateSyncProof)(nil),                  // 42: autobahn.StateSyncProof
+	(*EpochRegistry)(nil),                   // 43: autobahn.EpochRegistry
+	(*EpochMember)(nil),                     // 44: autobahn.EpochMember
+	(*LaneBlockPos)(nil),                    // 45: autobahn.LaneBlockPos
+	(*Challenge)(nil),                       // 46: autobahn.Challenge
+	(*SignedChallenge)(nil),                 // 47: autobahn.SignedChallenge
+	(*ValidatorAddrAnnouncement)(nil),       // 48: autobahn.ValidatorAddrAnnouncement
+	(*ValidatorEndpoint)(nil),               // 49: autobahn.ValidatorEndpoint
+	(*SignedValidatorAddrAnnouncement)(nil), // 50: autobahn.SignedValidatorAddrAnnouncement
+	(*ValidatorAddrAck)(nil),                // 51: autobahn.ValidatorAddrAck
+	(*ValidatorAddrMsg)(nil),                // 52: autobahn.ValidatorAddrMsg
+	nil,                                     // 53: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	48, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	53, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.LaneID.validator:type_name -> autobahn.PublicKey
@@ -3365,11 +3716,17 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	7,  // 75: autobahn.EpochMember.lane_id:type_name -> autobahn.LaneID
 	46, // 76: autobahn.SignedChallenge.msg:type_name -> autobahn.Challenge
 	8,  // 77: autobahn.SignedChallenge.sig:type_name -> autobahn.Signature
-	78, // [78:78] is the sub-list for method output_type
-	78, // [78:78] is the sub-list for method input_type
-	78, // [78:78] is the sub-list for extension type_name
-	78, // [78:78] is the sub-list for extension extendee
-	0,  // [0:78] is the sub-list for field type_name
+	49, // 78: autobahn.ValidatorAddrAnnouncement.endpoints:type_name -> autobahn.ValidatorEndpoint
+	48, // 79: autobahn.SignedValidatorAddrAnnouncement.msg:type_name -> autobahn.ValidatorAddrAnnouncement
+	8,  // 80: autobahn.SignedValidatorAddrAnnouncement.sig:type_name -> autobahn.Signature
+	6,  // 81: autobahn.ValidatorAddrAck.validator:type_name -> autobahn.PublicKey
+	50, // 82: autobahn.ValidatorAddrMsg.announcement:type_name -> autobahn.SignedValidatorAddrAnnouncement
+	51, // 83: autobahn.ValidatorAddrMsg.ack:type_name -> autobahn.ValidatorAddrAck
+	84, // [84:84] is the sub-list for method output_type
+	84, // [84:84] is the sub-list for method input_type
+	84, // [84:84] is the sub-list for extension type_name
+	84, // [84:84] is the sub-list for extension extendee
+	0,  // [0:84] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -3421,13 +3778,21 @@ func file_autobahn_autobahn_proto_init() {
 	file_autobahn_autobahn_proto_msgTypes[45].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[46].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[47].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[48].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[49].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[50].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[51].OneofWrappers = []any{}
+	file_autobahn_autobahn_proto_msgTypes[52].OneofWrappers = []any{
+		(*ValidatorAddrMsg_Announcement)(nil),
+		(*ValidatorAddrMsg_Ack)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   49,
+			NumMessages:   54,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
